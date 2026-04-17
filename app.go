@@ -35,14 +35,28 @@ func (a *App) shutdown(ctx context.Context) {
 // --- 代理核心控制 ---
 
 func (a *App) RunProxy() error {
+	// ⚠️ 移除任何试图安装或强制检查 Wintun 的前置逻辑
+	// 仅启动 Clash 内核
 	if err := clash.Start(a.ctx); err != nil {
 		return err
 	}
+
+	// 设置系统代理 (HTTP/Socks 模式)
+	// 这里不再强制要求管理员权限，因为设置系统代理通常不需要它
 	if err := sys.SetSystemProxy("127.0.0.1", 7890); err != nil {
 		return err
 	}
+
 	go a.StartTrafficStream()
 	return nil
+}
+
+// 只有在用户手动点击“检查环境”时才调用
+func (a *App) CheckTunEnv() map[string]bool {
+	return map[string]bool{
+		"isAdmin":   sys.CheckAdmin(),
+		"hasWintun": sys.CheckWintun(),
+	}
 }
 
 func (a *App) StopProxy() error {
@@ -149,11 +163,4 @@ func (a *App) FixUWPNetwork() error {
 		return fmt.Errorf("Need Admin Privileges")
 	}
 	return sys.ExemptAllUWP()
-}
-
-func (a *App) CheckTunEnv() map[string]bool {
-	return map[string]bool{
-		"isAdmin":   sys.CheckAdmin(),
-		"hasWintun": sys.CheckWintun(),
-	}
 }
