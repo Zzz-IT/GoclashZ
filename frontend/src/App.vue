@@ -3,13 +3,21 @@
 
     <div class="drag-bar" style="--wails-draggable:drag">
       <div class="brand">GoclashZ</div>
+
       <div class="top-actions" style="--wails-draggable:none">
         <span class="traffic-mon">
           <span class="t-up">↑ {{ traffic.up }}</span>
           <span class="t-sep">/</span>
           <span class="t-down">↓ {{ traffic.down }}</span>
         </span>
-        <button @click="toggleTheme" class="icon-btn" v-html="isDark ? ICONS.moon : ICONS.sun"></button>
+
+        <button @click="toggleTheme" class="icon-btn theme-toggle" v-html="isDark ? ICONS.moon : ICONS.sun"></button>
+
+        <div class="window-controls">
+          <button @click="handleMinimise" class="icon-btn ctrl-btn" title="最小化" v-html="ICONS.min"></button>
+          <button @click="handleToggleMaximise" class="icon-btn ctrl-btn" title="最大化" v-html="ICONS.max"></button>
+          <button @click="handleQuit" class="icon-btn ctrl-btn close-btn" title="关闭" v-html="ICONS.close"></button>
+        </div>
       </div>
     </div>
 
@@ -38,7 +46,6 @@
         </header>
 
         <div class="view-scroller">
-
           <div v-if="currentTab === 'home'" class="view-home">
             <div class="core-status-card">
               <div class="cs-info">
@@ -76,19 +83,7 @@
             </div>
           </div>
 
-          <div v-else-if="currentTab === 'proxies'" class="view-proxies">
-            <div v-for="group in proxyGroups" :key="group.name" class="group-box">
-              <div class="micro-title group-title">{{ group.name }}</div>
-              <div class="node-grid">
-                <div v-for="node in group.proxies" :key="node.name"
-                     :class="['node-item', { active: node.now === node.name }]"
-                     @click="selectNode(group.name, node.name)">
-                  <span class="n-name">{{ node.name }}</span>
-                  <span class="n-delay font-mono">{{ getDelay(node.history) }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
+          <Proxies v-else-if="currentTab === 'proxies'" />
 
           <div v-else-if="currentTab === 'logs'" class="view-logs">
             <div class="terminal-box" ref="logBox">
@@ -109,7 +104,6 @@
               <button class="outline-btn" @click="fixUWP">Execute</button>
             </div>
           </div>
-
         </div>
       </main>
     </div>
@@ -119,10 +113,16 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, nextTick } from 'vue';
 import * as API from '../wailsjs/go/main/App';
-// ⚠️ 核心修复 3：引入底层主题控制 API
-import { EventsOn, WindowSetLightTheme, WindowSetDarkTheme } from '../wailsjs/runtime/runtime';
+import Proxies from './components/Proxies.vue';
+import {
+  EventsOn,
+  WindowSetLightTheme,
+  WindowSetDarkTheme,
+  WindowMinimise,
+  WindowToggleMaximise,
+  Quit
+} from '../wailsjs/runtime/runtime';
 
-// 极简 SVG 图标库 (Lucide)
 const ICONS = {
   home: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>`,
   proxies: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
@@ -132,7 +132,10 @@ const ICONS = {
   moon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
   power: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>`,
   check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
-  tool: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>`
+  tool: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>`,
+  min: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>`,
+  max: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>`,
+  close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`
 };
 
 const isDark = ref(false);
@@ -140,7 +143,6 @@ const currentTab = ref('home');
 const isRunning = ref(false);
 const traffic = ref({ up: '0.0', down: '0.0' });
 const currentMode = ref('rule');
-const proxyGroups = ref<any[]>([]);
 const tunStatus = ref<any>({ hasWintun: false });
 const logLines = ref<any[]>([]);
 const logBox = ref<HTMLElement | null>(null);
@@ -154,14 +156,13 @@ const menu = [
 
 const activeMenuLabel = computed(() => menu.find(m => m.id === currentTab.value)?.label);
 
-// ⚠️ 核心修复 4：不仅切换前端 CSS，同时强制同步 Windows 底层 Mica 材质模式
+const handleMinimise = () => WindowMinimise();
+const handleToggleMaximise = () => WindowToggleMaximise();
+const handleQuit = () => Quit();
+
 const toggleTheme = () => {
   isDark.value = !isDark.value;
-  if (isDark.value) {
-    WindowSetDarkTheme();
-  } else {
-    WindowSetLightTheme();
-  }
+  isDark.value ? WindowSetDarkTheme() : WindowSetLightTheme();
 };
 
 const toggleProxy = async () => {
@@ -176,11 +177,6 @@ const changeMode = async (mode: string) => {
   currentMode.value = mode;
 };
 
-const selectNode = async (group: string, node: string) => {
-  await API.SelectProxy(group, node);
-  loadInitialData();
-};
-
 const fixUWP = async () => {
   try {
     await API.FixUWPNetwork();
@@ -192,20 +188,14 @@ const loadInitialData = async () => {
   const data: any = await API.GetInitialData();
   if (data) {
     currentMode.value = data.mode;
-    proxyGroups.value = data.groups || [];
   }
 };
 
-const checkTun = async () => { tunStatus.value = await API.CheckTunEnv(); };
-const getDelay = (history: any[]) => history?.length ? `${history[history.length-1].delay}ms` : '--';
-
 onMounted(async () => {
-  // 初始化系统默认主题为明亮模式
   WindowSetLightTheme();
-
   isRunning.value = await API.GetProxyStatus();
   loadInitialData();
-  checkTun();
+  tunStatus.value = await API.CheckTunEnv();
 
   EventsOn("traffic-data", (data: any) => { traffic.value = data; });
 
@@ -221,27 +211,53 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.font-mono { font-family: var(--font-mono) !important; }
-
 /* 基础架构 */
 .app-shell { display: flex; flex-direction: column; height: 100vh; color: var(--text-main); transition: 0.3s background; }
-/* 移除系统边框后，前端提供拖拽区域 */
-.drag-bar { height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; }
-.brand { font-weight: 600; font-size: 0.85rem; letter-spacing: 0.5px; }
+.drag-bar { height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 4px 0 24px; }
+.brand { font-weight: 600; font-size: 0.8rem; letter-spacing: 0.5px; opacity: 0.8; }
 
-.top-actions { display: flex; align-items: center; gap: 16px; }
-.traffic-mon { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-sub); display: flex; gap: 6px; }
+.top-actions { display: flex; align-items: center; gap: 8px; }
+.traffic-mon { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-sub); display: flex; gap: 4px; margin-right: 4px; }
 .t-up { color: var(--text-main); }
 .t-sep { color: var(--glass-border); }
 .t-down { color: var(--text-muted); }
 
-.icon-btn { background: none; border: none; cursor: pointer; color: var(--text-sub); width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; transition: color 0.2s; }
+/* 窗口控制样式优化：尺寸更小、更精致 */
+.window-controls { display: flex; align-items: center; gap: 2px; }
+.ctrl-btn {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ctrl-btn :deep(svg) {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.5; /* 增加粗细，即使尺寸变小也清晰 */
+}
+
+.theme-toggle {
+  width: 28px !important;
+  height: 28px !important;
+  margin-right: 4px;
+}
+.theme-toggle :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
+
+.ctrl-btn:hover { background: var(--surface-hover); }
+.close-btn:hover { background: #e81123 !important; color: white !important; }
+
+.icon-btn { background: none; border: none; cursor: pointer; color: var(--text-sub); transition: all 0.2s; }
 .icon-btn:hover { color: var(--text-main); }
 
 /* 主布局 */
 .main-layout { display: flex; flex: 1; padding: 0 16px 16px 0; gap: 16px; overflow: hidden; }
 
-/* 极简侧边栏 */
+/* 侧边栏 */
 .sidebar { width: 220px; display: flex; flex-direction: column; padding: 12px; }
 .nav-list { flex: 1; }
 .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 4px; border-radius: 8px; cursor: pointer; color: var(--text-sub); transition: all 0.2s ease; border: 1px solid transparent; }
@@ -261,17 +277,15 @@ onMounted(async () => {
 .content-header h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 32px; }
 .view-scroller { flex: 1; overflow-y: auto; padding-right: 12px; }
 
-/* Dashboard 卡片 */
+/* 卡片与按钮 */
 .core-status-card { display: flex; justify-content: space-between; align-items: center; padding: 24px; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--surface); margin-bottom: 24px; }
 .cs-title { font-size: 1.25rem; font-weight: 500; margin: 4px 0 8px; }
 .cs-meta { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-sub); }
 
-/* Vercel 风按钮 */
 .primary-btn { display: flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: 6px; border: 1px solid transparent; background: var(--accent); color: var(--accent-fg); font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 .primary-btn:hover { opacity: 0.85; transform: translateY(-1px); }
 .btn-icon { width: 14px; height: 14px; }
 
-/* iOS风 分段控制器 */
 .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .info-card { padding: 20px; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--surface); }
 .segmented-control { display: flex; background: var(--surface-hover); padding: 4px; border-radius: 8px; margin-top: 12px; }
@@ -281,15 +295,6 @@ onMounted(async () => {
 .tun-status { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
 .tun-icon { width: 16px; height: 16px; color: var(--text-main); }
 .tun-text { font-size: 0.85rem; font-weight: 500; }
-
-/* 节点列表 */
-.group-title { margin: 24px 0 12px; }
-.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.node-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border: 1px solid var(--glass-border); border-radius: 8px; cursor: pointer; background: var(--surface); transition: 0.2s; }
-.node-item:hover { background: var(--surface-hover); border-color: var(--text-sub); }
-.node-item.active { border-color: var(--accent); background: var(--surface-hover); }
-.n-name { font-size: 0.85rem; font-weight: 500; }
-.n-delay { font-size: 0.75rem; color: var(--text-sub); }
 
 /* 日志终端 */
 .terminal-box { background: var(--accent); color: var(--accent-fg); padding: 20px; border-radius: 8px; height: 500px; overflow-y: auto; font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.6; }
