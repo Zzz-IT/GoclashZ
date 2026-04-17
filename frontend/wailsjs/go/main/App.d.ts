@@ -30,6 +30,8 @@ export function StartTrafficStream():Promise<void>;
 
 export function StopProxy():Promise<void>;
 
+export function StopStreamingLogs():Promise<void>;
+
 export function StopTrafficStream():Promise<void>;
 
 export function UpdateClashSettings(arg1:Record<string, any>):Promise<string>;

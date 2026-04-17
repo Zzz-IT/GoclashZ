@@ -1,29 +1,53 @@
+/* 统一微软雅黑字体 */
 :root {
-    --bg-primary: #f8fafc;
-    --bg-secondary: #ffffff;
-    --sidebar-bg: #ffffff;
-    --text-primary: #0f172a;
-    --text-muted: #64748b;
-    --accent: #6366f1;
-    --accent-soft: rgba(99, 102, 241, 0.1);
-    --border-color: #e2e8f0;
-    --radius-xl: 16px;
-    --radius-lg: 12px;
-    --shadow-main: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --font-family: "Microsoft YaHei", "微软雅黑", system-ui, -apple-system, sans-serif;
+
+    /* ✨ 浅色模式玻璃参数 */
+    --glass-bg: rgba(255, 255, 255, 0.45);
+    --glass-border: rgba(255, 255, 255, 0.5);
+    --glass-blur: blur(30px) saturate(150%);
+
+    --text-main: #1a1a1b;
+    --text-sub: #5f6368;
+    --accent: #5c63ed;
+    --danger: #f87171;
+    --success: #34d399;
 }
 
+/* 🌙 深色模式玻璃参数 */
 .dark {
-    --bg-primary: #0f172a;
-    --bg-secondary: #1e293b;
-    --sidebar-bg: #1e293b;
-    --text-primary: #f8fafc;
-    --text-muted: #94a3b8;
-    --border-color: #334155;
+    --glass-bg: rgba(20, 20, 25, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --text-main: #f3f4f6;
+    --text-sub: #9ca3af;
+    --accent: #818cf8;
 }
 
-body {
-    margin: 0;
-    background-color: var(--bg-primary);
-    color: var(--text-primary);
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+* {
+    box-sizing: border-box;
+    margin: 0; padding: 0;
+    font-family: var(--font-family) !important;
+}
+
+html, body, #app {
+    /* ⚠️ 必须：所有父级背景全透明，否则毛玻璃失效 */
+    background: transparent !important;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    user-select: none;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
+.dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); }
+
+/* 通用玻璃面板 */
+.glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.05);
 }

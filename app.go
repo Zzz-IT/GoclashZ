@@ -211,3 +211,10 @@ func (a *App) FixUWPNetwork() error {
 	}
 	return nil
 }
+
+// StopStreamingLogs 停止向前端推送实时日志
+func (a *App) StopStreamingLogs() {
+	// 如果你底层写了 Context 的 Cancel 或者有控制日志停止的 Channel，请在这里触发。
+	// 如果暂时还没写底层的停止逻辑，保持这个方法为空即可，先让前端编译通过。
+	fmt.Println("⚠️ 前端已离开日志页面，暂停日志流式传输...")
+}

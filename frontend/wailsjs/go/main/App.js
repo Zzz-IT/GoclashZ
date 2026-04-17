@@ -58,6 +58,10 @@ export function StopProxy() {
   return window['go']['main']['App']['StopProxy']();
 }
 
+export function StopStreamingLogs() {
+  return window['go']['main']['App']['StopStreamingLogs']();
+}
+
 export function StopTrafficStream() {
   return window['go']['main']['App']['StopTrafficStream']();
 }
