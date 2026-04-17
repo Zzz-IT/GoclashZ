@@ -4,6 +4,8 @@ import {clash} from '../models';
 
 export function CheckTunEnv():Promise<Record<string, boolean>>;
 
+export function FixUWPNetwork():Promise<void>;
+
 export function GetInitialData():Promise<Record<string, any>>;
 
 export function GetNodeDelay(arg1:string,arg2:string):Promise<number>;
@@ -14,11 +16,11 @@ export function GetProxyNodes():Promise<Array<clash.ProxyNode>>;
 
 export function GetProxyStatus():Promise<boolean>;
 
-export function RunProxy():Promise<string>;
+export function RunProxy():Promise<void>;
 
-export function SelectProxy(arg1:string,arg2:string):Promise<string>;
+export function SelectProxy(arg1:string,arg2:string):Promise<void>;
 
-export function SetConfigMode(arg1:string):Promise<string>;
+export function SetConfigMode(arg1:string):Promise<void>;
 
 export function StartAsyncTest(arg1:string):Promise<string>;
 
@@ -26,7 +28,7 @@ export function StartStreamingLogs():Promise<void>;
 
 export function StartTrafficStream():Promise<void>;
 
-export function StopProxy():Promise<string>;
+export function StopProxy():Promise<void>;
 
 export function StopTrafficStream():Promise<void>;
 

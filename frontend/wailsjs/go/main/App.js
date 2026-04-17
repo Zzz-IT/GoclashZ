@@ -6,6 +6,10 @@ export function CheckTunEnv() {
   return window['go']['main']['App']['CheckTunEnv']();
 }
 
+export function FixUWPNetwork() {
+  return window['go']['main']['App']['FixUWPNetwork']();
+}
+
 export function GetInitialData() {
   return window['go']['main']['App']['GetInitialData']();
 }

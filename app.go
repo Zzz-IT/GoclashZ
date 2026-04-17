@@ -196,3 +196,18 @@ func (a *App) CheckTunEnv() map[string]bool {
 		"hasWintun": sys.CheckWintun(),
 	}
 }
+
+// FixUWPNetwork 提供给前端调用的 UWP 修复接口
+func (a *App) FixUWPNetwork() error {
+	// 检查是否具有管理员权限 (修改 UWP 回环需要管理员权限)
+	if !sys.CheckAdmin() {
+		return fmt.Errorf("权限不足，请右键以管理员身份重新运行本软件")
+	}
+
+	// 调用你在 uwp_win.go 中写好的底层方法
+	err := sys.ExemptAllUWP()
+	if err != nil {
+		return err
+	}
+	return nil
+}
