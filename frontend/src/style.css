@@ -1,53 +1,80 @@
-/* 统一微软雅黑字体 */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
 :root {
-    --font-family: "Microsoft YaHei", "微软雅黑", system-ui, -apple-system, sans-serif;
+    /* ✨ 极简高冷字体栈 */
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-mono: 'JetBrains Mono', Consolas, monospace;
 
-    /* ✨ 浅色模式玻璃参数 */
-    --glass-bg: rgba(255, 255, 255, 0.45);
-    --glass-border: rgba(255, 255, 255, 0.5);
-    --glass-blur: blur(30px) saturate(150%);
+    /* ☀️ 浅色模式：冷岩灰/线性风格 */
+    --glass-bg: rgba(250, 250, 252, 0.7);
+    --glass-panel: rgba(255, 255, 255, 0.6);
+    --glass-border: rgba(0, 0, 0, 0.06);
+    --glass-blur: blur(40px) saturate(180%);
 
-    --text-main: #1a1a1b;
-    --text-sub: #5f6368;
-    --accent: #5c63ed;
-    --danger: #f87171;
-    --success: #34d399;
+    --text-main: #18181b;  /* Zinc 900 */
+    --text-sub: #71717a;   /* Zinc 500 */
+    --text-muted: #a1a1aa; /* Zinc 400 */
+
+    --accent: #18181b;     /* 高级感：主色调直接用极黑 */
+    --accent-fg: #ffffff;  /* 按钮文字：纯白 */
+
+    --surface: rgba(0, 0, 0, 0.03);
+    --surface-hover: rgba(0, 0, 0, 0.06);
+
+    --status-online: #10b981;
+    --status-offline: #a1a1aa;
 }
 
-/* 🌙 深色模式玻璃参数 */
+/* 🌙 深色模式：黑曜石质感 */
 .dark {
-    --glass-bg: rgba(20, 20, 25, 0.6);
-    --glass-border: rgba(255, 255, 255, 0.1);
-    --text-main: #f3f4f6;
-    --text-sub: #9ca3af;
-    --accent: #818cf8;
+    --glass-bg: rgba(15, 15, 17, 0.65);
+    --glass-panel: rgba(24, 24, 27, 0.4);
+    --glass-border: rgba(255, 255, 255, 0.08);
+
+    --text-main: #f4f4f5;
+    --text-sub: #a1a1aa;
+    --text-muted: #52525b;
+
+    --accent: #f4f4f5;     /* 主色调：极白 */
+    --accent-fg: #000000;  /* 按钮文字：纯黑 */
+
+    --surface: rgba(255, 255, 255, 0.04);
+    --surface-hover: rgba(255, 255, 255, 0.08);
 }
 
 * {
     box-sizing: border-box;
     margin: 0; padding: 0;
-    font-family: var(--font-family) !important;
+    font-family: var(--font-sans) !important;
 }
 
 html, body, #app {
-    /* ⚠️ 必须：所有父级背景全透明，否则毛玻璃失效 */
     background: transparent !important;
     height: 100vh;
     width: 100vw;
     overflow: hidden;
     user-select: none;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11"; /* 开启 Inter 字体的极简特性 */
 }
 
-/* 滚动条美化 */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
-.dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); }
+/* 滚动条极简化 */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: var(--surface-hover); border-radius: 4px; }
 
-/* 通用玻璃面板 */
+/* 统一的极简玻璃面板 */
 .glass-panel {
-    background: var(--glass-bg);
+    background: var(--glass-panel);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     border: 1px solid var(--glass-border);
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.05);
+    border-radius: 12px;
+}
+
+/* 微型标题排版 */
+.micro-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    color: var(--text-muted);
 }
