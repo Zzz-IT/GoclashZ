@@ -41,8 +41,9 @@ func (a *App) shutdown(ctx context.Context) {
 // --- 代理核心控制 ---
 
 func (a *App) RunProxy() error {
-	// ⚠️ 移除任何试图安装或强制检查 Wintun 的前置逻辑
-	// 仅启动 Clash 内核
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if err := clash.Start(a.ctx); err != nil {
 		return err
 	}
@@ -299,26 +300,30 @@ func (a *App) DeleteConfig(fileName string) error {
 
 // 修改 SelectLocalConfig，增加 API 就绪等待
 func (a *App) SelectLocalConfig(fileName string) error {
-	a.mu.Lock()
-	a.activeConfig = fileName
-	a.mu.Unlock()
+	a.mu.Lock() // 使用 App 的锁保护整个切换流程
+	defer a.mu.Unlock()
 
+	a.activeConfig = fileName
+
+	// 1. 停止内核
 	clash.Stop()
 	sys.ClearSystemProxy()
 
+	// 2. 配置文件同步
 	sourcePath := filepath.Join(".", "core", "bin", fileName)
 	destPath := filepath.Join(".", "core", "bin", "config.yaml")
 	content, err := os.ReadFile(sourcePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("读取配置失败: %v", err)
 	}
 	os.WriteFile(destPath, content, 0644)
 
+	// 3. 启动内核
 	if err := clash.Start(a.ctx); err != nil {
 		return err
 	}
 
-	// ⚠️ 关键：等待内核 API 启动就绪，否则前端刷新会报错或拿不到新节点
+	// 等待 API 就绪
 	time.Sleep(800 * time.Millisecond)
 
 	runtime.EventsEmit(a.ctx, "config-changed", fileName)
