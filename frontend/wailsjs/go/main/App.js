@@ -38,8 +38,16 @@ export function StartAsyncTest(arg1) {
   return window['go']['main']['App']['StartAsyncTest'](arg1);
 }
 
+export function StartStreamingLogs() {
+  return window['go']['main']['App']['StartStreamingLogs']();
+}
+
 export function StopProxy() {
   return window['go']['main']['App']['StopProxy']();
+}
+
+export function UpdateClashSettings(arg1) {
+  return window['go']['main']['App']['UpdateClashSettings'](arg1);
 }
 
 export function UpdateSubscription(arg1, arg2) {

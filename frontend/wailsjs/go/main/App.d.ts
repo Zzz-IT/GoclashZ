@@ -20,6 +20,10 @@ export function SetConfigMode(arg1:string):Promise<string>;
 
 export function StartAsyncTest(arg1:string):Promise<string>;
 
+export function StartStreamingLogs():Promise<void>;
+
 export function StopProxy():Promise<string>;
+
+export function UpdateClashSettings(arg1:Record<string, any>):Promise<string>;
 
 export function UpdateSubscription(arg1:string,arg2:string):Promise<string>;

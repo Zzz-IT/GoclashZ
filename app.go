@@ -154,3 +154,19 @@ func (a *App) SelectProxy(groupName, nodeName string) string {
 	}
 	return "✅ 已切换"
 }
+
+// 在 app.go 中增加
+
+// StartStreamingLogs 启动日志推送
+func (a *App) StartStreamingLogs() {
+	go clash.StartLogStream(a.ctx)
+}
+
+// UpdateClashSettings 更新特性设置
+func (a *App) UpdateClashSettings(settings map[string]interface{}) string {
+	err := clash.PatchConfig(settings)
+	if err != nil {
+		return "修改失败: " + err.Error()
+	}
+	return "✅ 特性已更新"
+}

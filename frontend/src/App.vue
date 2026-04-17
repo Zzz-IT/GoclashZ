@@ -1,139 +1,93 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, reactive } from 'vue'
+import { ref, onMounted, reactive } from 'vue'
 import {
-  RunProxy, StopProxy, GetProxyStatus, GetProxyNodes,
-  SelectProxy, SetConfigMode, GetInitialData,
-  UpdateSubscription, GetNodeDelay, GetOfflineDelay
+  RunProxy, StopProxy, GetProxyStatus, StartAsyncTest,
+  GetInitialData, StartStreamingLogs, UpdateClashSettings
 } from '../wailsjs/go/main/App'
+import { EventsOn } from '../wailsjs/runtime/runtime'
 
-// ================== 状态定义 ==================
-const currentTab = ref('dashboard')
+// ================== 状态变量 ==================
+const currentTab = ref('dashboard') // dashboard | logs | settings
 const isRunning = ref(false)
-const statusMessage = ref('就绪')
-const yamlError = ref('')
-const upSpeed = ref('0 B/s')
-const downSpeed = ref('0 B/s')
-let trafficWs: WebSocket | null = null
-
-// 设置项
-const subUrl = ref(localStorage.getItem('sub_url') || '')
-const customUA = ref(localStorage.getItem('custom_ua') || 'clash-verge/1.0')
-const testUrl = ref(localStorage.getItem('test_url') || 'http://www.gstatic.com/generate_204')
+const statusMessage = ref('等待启动')
 
 // 节点数据
-const currentMode = ref('rule')
 const proxyGroups = ref<any[]>([])
-const selectedGroup = ref<string>('')
+const selectedGroup = ref('')
 const nodeDelays = reactive<Record<string, number>>({})
-const isTesting = ref(false)
+
+// 实时日志数据
+const logs = ref<any[]>([])
+const maxLogs = 150
+
+// 特性开关状态 (Reactive)
+const features = reactive({
+  "allow-lan": false,
+  "ipv6": false,
+  "tun": { "enable": false, "stack": "system" }
+})
 
 // ================== 初始化 ==================
 onMounted(async () => {
-  await loadOfflineData()
-  const status = await GetProxyStatus()
-  isRunning.value = status
-  if (status) {
-    statusMessage.value = '✅ 运行中'
-    startTrafficMonitor()
-    await loadOnlineNodes()
-  }
-})
-
-// ================== 测速核心逻辑 (重点) ==================
-const runTest = async () => {
-  if (isTesting.value) return
-  isTesting.value = true
-
-  const group = proxyGroups.value.find(g => g.name === selectedGroup.value)
-  if (!group) return
-
-  // 并行探测当前策略组下的所有节点
-  const testPromises = group.proxies.map(async (nodeName: string) => {
-    let delay = -1
-    if (isRunning.value) {
-      // 在线：走 Clash 内核 API (HTTP Delay)
-      delay = await GetNodeDelay(nodeName, testUrl.value)
-    } else {
-      // 离线：走 Go 原生 TCP 握手 (TCP Ping)
-      delay = await GetOfflineDelay(nodeName)
-    }
-    nodeDelays[nodeName] = delay
+  // 1. 监听后端推过来的日志
+  EventsOn("clash_log", (log: any) => {
+    logs.value.unshift(log)
+    if (logs.value.length > maxLogs) logs.value.pop()
   })
 
-  await Promise.all(testPromises)
-  isTesting.value = false
-}
+  // 2. 监听测速更新
+  EventsOn("node_delay_update", (data: any) => {
+    nodeDelays[data.name] = data.delay
+  })
 
-// ================== 基础交互 ==================
-const loadOfflineData = async () => {
+  // 3. 初始加载
+  await loadInitial()
+})
+
+const loadInitial = async () => {
   const initData: any = await GetInitialData()
-  if (initData.error) { yamlError.value = initData.error; return }
-  yamlError.value = ''
-  if (initData.mode) currentMode.value = initData.mode.toLowerCase()
   if (initData.groups) {
-    proxyGroups.value = initData.groups.map((g: any) => ({
-      name: g.name, type: g.type, now: '等待启动...', proxies: g.proxies || []
-    }))
-    if (!selectedGroup.value) selectedGroup.value = proxyGroups.value[0].name
+    proxyGroups.value = initData.groups
+    selectedGroup.value = initData.groups[0].name
+  }
+  isRunning.value = await GetProxyStatus()
+  if (isRunning.value) {
+    statusMessage.value = '✅ 代理运行中'
+    StartStreamingLogs() // 如果启动中，开启日志流
   }
 }
 
-const loadOnlineNodes = async () => {
-  if (!isRunning.value) return
-  const nodes = await GetProxyNodes()
-  if (nodes) proxyGroups.value = nodes
-}
+// ================== 交互方法 ==================
 
 const handleStart = async () => {
-  statusMessage.value = '启动中...'
-  const offlineSels = proxyGroups.value.filter(g => g.now !== '等待启动...').map(g => ({ name: g.name, selected: g.now }))
-  try {
-    await RunProxy()
-    isRunning.value = true
-    startTrafficMonitor()
-    setTimeout(async () => {
-      await SetConfigMode(currentMode.value.charAt(0).toUpperCase() + currentMode.value.slice(1))
-      for (const s of offlineSels) { await SelectProxy(s.name, s.selected) }
-      await loadOnlineNodes()
-    }, 1000)
-  } catch (e) { statusMessage.value = '启动失败' }
+  statusMessage.value = '正在启动...'
+  const res = await RunProxy()
+  isRunning.value = true
+  statusMessage.value = res
+  setTimeout(() => StartStreamingLogs(), 1000) // 延迟启动日志流
 }
 
 const handleStop = async () => {
   await StopProxy()
   isRunning.value = false
-  stopTrafficMonitor()
-  await loadOfflineData()
+  statusMessage.value = '🛑 已停止'
 }
 
-const handleNodeSelect = async (groupName: string, nodeName: string) => {
-  const g = proxyGroups.value.find(x => x.name === groupName)
-  if (!isRunning.value) { if (g) g.now = nodeName; return }
-  await SelectProxy(groupName, nodeName)
-  await loadOnlineNodes()
+const runTest = async () => {
+  if (!selectedGroup.value) return
+  await StartAsyncTest(selectedGroup.value)
 }
 
-const handleUpdateSub = async () => {
-  const res = await UpdateSubscription(subUrl.value, customUA.value)
-  alert(res); await loadOfflineData()
-}
-
-// ================== 辅助函数 ==================
-const startTrafficMonitor = () => {
-  if (trafficWs) return
-  trafficWs = new WebSocket('ws://127.0.0.1:9090/traffic')
-  trafficWs.onmessage = (e) => {
-    const d = JSON.parse(e.data)
-    upSpeed.value = formatBytes(d.up) + '/s'
-    downSpeed.value = formatBytes(d.down) + '/s'
+// ✨ 模仿 Stelliberty 的特性切换逻辑
+const toggleFeature = async (key: string, value: any) => {
+  if (!isRunning.value) {
+    alert("请先启动代理后再修改特性")
+    return
   }
-}
-const stopTrafficMonitor = () => { if (trafficWs) { trafficWs.close(); trafficWs = null } }
-const formatBytes = (b: number) => {
-  if (b === 0) return '0 B'
-  const k = 1024; const s = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(b) / Math.log(k))
-  return parseFloat((b / Math.pow(k, i)).toFixed(2)) + ' ' + s[i]
+  const payload: any = {}
+  payload[key] = value
+  const res = await UpdateClashSettings(payload)
+  console.log(res)
 }
 </script>
 
@@ -142,103 +96,131 @@ const formatBytes = (b: number) => {
     <aside class="sidebar">
       <div class="logo">GoclashZ</div>
       <nav>
-        <button :class="{ active: currentTab === 'dashboard' }" @click="currentTab = 'dashboard'">📊 仪表盘</button>
-        <button :class="{ active: currentTab === 'settings' }" @click="currentTab = 'settings'">⚙️ 设置</button>
+        <button :class="{active: currentTab==='dashboard'}" @click="currentTab='dashboard'">📊 仪表盘</button>
+        <button :class="{active: currentTab==='logs'}" @click="currentTab='logs'">📜 实时日志</button>
+        <button :class="{active: currentTab==='settings'}" @click="currentTab='settings'">⚙️ 特性设置</button>
       </nav>
     </aside>
 
     <main class="main-content">
-      <div v-if="currentTab === 'dashboard'">
+      <div v-if="currentTab === 'dashboard'" class="tab-content">
         <header class="header">
-          <div class="status-wrapper">
-            <div class="mode-selector glass">
-              <button :class="{active: currentMode === 'rule'}" @click="currentMode='rule'; isRunning && SetConfigMode('Rule')">规则</button>
-              <button :class="{active: currentMode === 'global'}" @click="currentMode='global'; isRunning && SetConfigMode('Global')">全局</button>
-              <button :class="{active: currentMode === 'direct'}" @click="currentMode='direct'; isRunning && SetConfigMode('Direct')">直连</button>
-            </div>
-            <p class="status-text"><span class="dot" :class="{ active: isRunning }"></span> {{ statusMessage }}</p>
+          <div class="status-indicator">
+            <span class="dot" :class="{active: isRunning}"></span>
+            <span class="status-text">{{ statusMessage }}</span>
           </div>
           <div class="actions">
-            <button class="btn-test" @click="runTest" :disabled="isTesting">{{ isTesting ? '探测中...' : '⚡ 测速' }}</button>
+            <button class="btn-test" @click="runTest">⚡ 测速</button>
             <button v-if="!isRunning" class="btn-start" @click="handleStart">▶ 启动</button>
             <button v-else class="btn-stop" @click="handleStop">■ 停止</button>
           </div>
         </header>
 
-        <section class="traffic-card glass">
-          <div class="t-item"><span class="label">UP</span><span class="value up">{{ upSpeed }}</span></div>
-          <div class="t-item"><span class="label">DOWN</span><span class="value down">{{ downSpeed }}</span></div>
-        </section>
-
-        <section v-if="proxyGroups.length > 0">
+        <section class="node-area glass">
           <div class="group-tabs">
-            <button v-for="g in proxyGroups" :key="g.name" :class="{ active: selectedGroup === g.name }" @click="selectedGroup = g.name">{{ g.name }}</button>
+            <button v-for="g in proxyGroups" :key="g.name" :class="{active: selectedGroup === g.name}" @click="selectedGroup=g.name">{{ g.name }}</button>
           </div>
-          <div class="node-list glass">
-            <div v-for="g in proxyGroups" v-show="selectedGroup === g.name" :key="g.name">
-              <div class="node-grid">
-                <button v-for="node in g.proxies" :key="node" :class="{ active: g.now === node }" @click="handleNodeSelect(g.name, node)" class="node-btn">
-                  <span class="n-name">{{ node }}</span>
-                  <span v-if="nodeDelays[node]" :class="['n-delay', { slow: nodeDelays[node] > 500, err: nodeDelays[node] === -1 }]">
-                    {{ nodeDelays[node] === -1 ? '超时' : nodeDelays[node] + 'ms' }}
-                  </span>
-                </button>
-              </div>
-            </div>
+          <div class="node-grid">
+             <div v-for="n in proxyGroups.find(x=>x.name===selectedGroup)?.proxies" :key="n" class="node-card">
+                <span class="n-name">{{ n }}</span>
+                <span v-if="nodeDelays[n]" :class="['n-delay', {err: nodeDelays[n]==-1}]">
+                   {{ nodeDelays[n] == -1 ? 'Error' : nodeDelays[n]+'ms' }}
+                </span>
+             </div>
           </div>
         </section>
       </div>
 
-      <div v-else class="settings-view">
-        <h2 class="title">订阅与更新</h2>
-        <div class="card glass">
-          <div class="field"><label>订阅链接</label><input v-model="subUrl" /></div>
-          <div class="field"><label>测速地址</label><input v-model="testUrl" /></div>
-          <button class="btn-update" @click="handleUpdateSub">🚀 更新订阅</button>
+      <div v-if="currentTab === 'logs'" class="tab-content animate-in">
+        <div class="view-header">
+           <h2>内核实时输出</h2>
+           <button class="btn-clear" @click="logs = []">🗑️ 清空日志</button>
         </div>
+        <div class="log-viewer">
+           <div v-for="(log, i) in logs" :key="i" class="log-line">
+              <span :class="['log-label', log.type.toLowerCase()]">[{{ log.type.toUpperCase() }}]</span>
+              <span class="log-msg">{{ log.payload }}</span>
+           </div>
+           <div v-if="logs.length === 0" class="empty-hint">等待内核输出日志...</div>
+        </div>
+      </div>
+
+      <div v-if="currentTab === 'settings'" class="tab-content animate-in">
+         <h2 class="view-header">Clash 高级特性</h2>
+         <div class="feature-list">
+            <div class="feature-item glass">
+               <div class="f-text">
+                  <h3>允许局域网 (Allow LAN)</h3>
+                  <p>开启后，同一 WiFi 下的其他手机/电脑可连接此代理</p>
+               </div>
+               <label class="switch">
+                  <input type="checkbox" v-model="features['allow-lan']" @change="toggleFeature('allow-lan', features['allow-lan'])">
+                  <span class="slider"></span>
+               </label>
+            </div>
+
+            <div class="feature-item glass">
+               <div class="f-text">
+                  <h3>IPv6 支持</h3>
+                  <p>是否允许代理 IPv6 网络流量</p>
+               </div>
+               <label class="switch">
+                  <input type="checkbox" v-model="features['ipv6']" @change="toggleFeature('ipv6', features['ipv6'])">
+                  <span class="slider"></span>
+               </label>
+            </div>
+
+            <div class="feature-item glass">
+               <div class="f-text">
+                  <h3>TUN 模式 (全虚拟网卡)</h3>
+                  <p>真正的全局代理，接管不支持代理设置的游戏或软件</p>
+               </div>
+               <label class="switch">
+                  <input type="checkbox" v-model="features.tun.enable" @change="toggleFeature('tun', features.tun)">
+                  <span class="slider"></span>
+               </label>
+            </div>
+         </div>
       </div>
     </main>
   </div>
 </template>
 
 <style>
-/* 核心样式 */
-:root { --bg: #0f172a; --panel: rgba(30, 41, 59, 0.7); --border: rgba(255,255,255,0.1); --accent: #3b82f6; --success: #10b981; --danger: #ef4444; }
-body { margin: 0; background: var(--bg); color: #f8fafc; font-family: sans-serif; }
-.app-container { display: flex; height: 100vh; }
-.sidebar { width: 200px; background: rgba(15,23,42,0.8); border-right: 1px solid var(--border); padding: 20px; }
-.sidebar button { width: 100%; padding: 12px; margin-bottom: 10px; background: transparent; border: none; color: #94a3b8; text-align: left; cursor: pointer; border-radius: 8px; }
-.sidebar button.active { background: var(--accent); color: white; }
-.main-content { flex: 1; padding: 30px; overflow-y: auto; }
-.glass { background: var(--panel); backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: 12px; }
-.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-.mode-selector { display: flex; padding: 4px; }
-.mode-selector button { padding: 6px 15px; background: transparent; border: none; color: #94a3b8; cursor: pointer; border-radius: 6px; }
-.mode-selector button.active { background: var(--accent); color: white; }
-.status-text { display: flex; align-items: center; gap: 8px; font-weight: bold; }
-.dot { width: 10px; height: 10px; background: var(--danger); border-radius: 50%; }
-.dot.active { background: var(--success); box-shadow: 0 0 8px var(--success); }
-.actions button { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; }
-.btn-start { background: var(--success); color: white; }
-.btn-stop { background: var(--danger); color: white; }
-.btn-test { background: #6366f1; color: white; margin-right: 10px; }
-.traffic-card { display: flex; justify-content: space-around; padding: 20px; margin-bottom: 30px; }
-.t-item { display: flex; flex-direction: column; align-items: center; }
-.value { font-size: 1.5rem; font-weight: bold; font-family: monospace; }
-.up { color: #f59e0b; } .down { color: #3b82f6; }
-.group-tabs { display: flex; gap: 8px; margin-bottom: 20px; overflow-x: auto; }
-.tab-btn { padding: 8px 15px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 6px; color: #94a3b8; cursor: pointer; white-space: nowrap; }
-.tab-btn.active { background: var(--accent); color: white; }
-.node-list { padding: 20px; }
-.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
-.node-btn { background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 12px 8px; border-radius: 8px; color: #94a3b8; cursor: pointer; display: flex; flex-direction: column; align-items: center; }
-.node-btn.active { border-color: var(--success); color: var(--success); font-weight: bold; }
-.n-name { font-size: 0.9rem; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
-.n-delay { font-size: 0.75rem; color: var(--success); margin-top: 4px; }
-.n-delay.slow { color: #f59e0b; }
-.n-delay.err { color: var(--danger); }
-.settings-view .card { padding: 25px; display: flex; flex-direction: column; gap: 15px; }
-.field { display: flex; flex-direction: column; gap: 8px; }
-.field input { background: rgba(0,0,0,0.3); border: 1px solid var(--border); padding: 10px; border-radius: 6px; color: white; }
-.btn-update { background: var(--accent); color: white; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+/* 核心布局与侧边栏样式同前，以下为新增样式 */
+
+/* 日志浏览器 */
+.log-viewer {
+  height: 75vh;
+  background: #020617;
+  border-radius: 12px;
+  padding: 20px;
+  overflow-y: auto;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.85rem;
+  border: 1px solid var(--border-color);
+}
+.log-line { margin-bottom: 6px; white-space: pre-wrap; word-break: break-all; line-height: 1.4; border-bottom: 1px solid #1e293b; padding-bottom: 4px;}
+.log-label { font-weight: bold; margin-right: 10px; min-width: 60px; display: inline-block;}
+.log-label.info { color: #3b82f6; }
+.log-label.warning { color: #f59e0b; }
+.log-label.error { color: #ef4444; }
+.log-msg { color: #cbd5e1; }
+
+/* 特性列表 */
+.feature-list { display: flex; flex-direction: column; gap: 15px; }
+.feature-item { display: flex; justify-content: space-between; align-items: center; padding: 25px; }
+.f-text h3 { margin: 0 0 5px 0; font-size: 1.1rem; color: #f8fafc; }
+.f-text p { margin: 0; font-size: 0.85rem; color: #94a3b8; }
+
+/* 现代开关 (CSS Switch) */
+.switch { position: relative; display: inline-block; width: 46px; height: 24px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #334155; transition: .4s; border-radius: 34px; }
+.slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+input:checked + .slider { background-color: var(--accent); }
+input:checked + .slider:before { transform: translateX(22px); }
+
+.animate-in { animation: fadeIn 0.4s ease-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 </style>
