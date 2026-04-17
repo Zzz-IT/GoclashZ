@@ -87,7 +87,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+// 1. 修改：补全 onUnmounted 的导入
+import { ref, onMounted, onUnmounted } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 
 const ICONS = {
@@ -103,49 +104,42 @@ const currentPath = ref('');
 const localConfigs = ref<string[]>([]);
 const activeMenu = ref<string | null>(null);
 
-// 修改 fetchConfigs 函数
+// 2. 统一判断逻辑：解决 TS2451 重复声明问题
+const isCurrentConfig = (filename: string) => {
+  if (!currentPath.value) return false;
+  // 提取文件名进行对比，忽略路径差异
+  const currentFile = currentPath.value.split(/[\\/]/).pop();
+  return currentFile === filename;
+};
+
 const fetchConfigs = async () => {
   try {
-    // 1. 获取本地文件列表
+    // 获取本地文件列表
     const list = await API.GetLocalConfigs();
-    localConfigs.value = list || [];
+    // 过滤掉运行时的 config.yaml，避免干扰
+    localConfigs.value = (list || []).filter(name => name !== 'config.yaml');
 
-    // 2. 获取初始化数据（包含当前运行的配置名）
     const data: any = await API.GetInitialData();
-
-    // 优先使用后端记录的 activeConfig
     if (data && data.activeConfig) {
       currentPath.value = data.activeConfig;
     } else if (data && data.configPath) {
-      // 备选方案：从路径中截取文件名
-      currentPath.value = data.configPath.split(/[\\/]/).pop() || '';
+      currentPath.value = data.configPath;
     }
   } catch (e) {
     console.error("同步状态失败:", e);
   }
 };
 
-// 修改判断逻辑，确保匹配更准确
-const isCurrentConfig = (filename: string) => {
-  if (!currentPath.value) return false;
-  // 只要 currentPath 包含或等于文件名，就认为是在运行
-  return currentPath.value === filename || currentPath.value.endsWith(filename);
-};
-
 const toggleMenu = (filename: string) => {
   activeMenu.value = activeMenu.value === filename ? null : filename;
 };
 
-// 【核心逻辑】点击卡片选择并应用
 const handleSelectConfig = async (filename: string) => {
   if (isCurrentConfig(filename) || selecting.value) return;
-
   selecting.value = filename;
   try {
-    // 调用后端：切换内核配置文件并重启内核
     await API.SelectLocalConfig(filename);
-    currentPath.value = filename; // 更新前端选中状态
-    console.log(`Successfully applied: ${filename}`);
+    currentPath.value = filename;
   } catch (error) {
     alert("切换失败: " + error);
   } finally {
@@ -206,7 +200,17 @@ const handleDelete = async (filename: string) => {
   }
 };
 
-onMounted(fetchConfigs);
+// 3. 补全监听逻辑：修复 TS2552 找不到 onUnmounted 问题
+onMounted(() => {
+  fetchConfigs();
+  (window as any).runtime.EventsOn("config-changed", (newName: string) => {
+    currentPath.value = newName;
+  });
+});
+
+onUnmounted(() => {
+  (window as any).runtime.EventsOff("config-changed");
+});
 </script>
 
 <style scoped>

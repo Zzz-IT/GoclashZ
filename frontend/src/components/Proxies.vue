@@ -187,9 +187,11 @@ onMounted(async () => {
   });
 
   // 3. 监听配置切换事件 (新增：解决切换配置后节点不刷新)
-  EventsOn("config-changed", () => {
-    console.log("检测到内核配置已更新，正在重新加载节点...");
-    loadData(); // 使用你代码中定义好的加载函数
+  EventsOn("config-changed", async () => {
+      console.log("检测到内核配置已更新，正在重新加载节点...");
+      // ⚠️ 关键：重置当前选中的组，防止新旧配置组名不一致导致错误
+      currentGroup.value = '';
+      await loadData();
   });
 });
 

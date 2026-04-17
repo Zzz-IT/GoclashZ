@@ -222,7 +222,7 @@ func (a *App) getProfilesDir() string {
 	return filepath.Join(".", "core", "bin")
 }
 
-// GetLocalConfigs 获取所有本地配置文件列表
+// 修改 GetLocalConfigs，排除 config.yaml
 func (a *App) GetLocalConfigs() ([]string, error) {
 	dir := a.getProfilesDir()
 	files, err := os.ReadDir(dir)
@@ -232,7 +232,9 @@ func (a *App) GetLocalConfigs() ([]string, error) {
 
 	var configs []string
 	for _, file := range files {
-		if !file.IsDir() && (strings.HasSuffix(file.Name(), ".yaml") || strings.HasSuffix(file.Name(), ".yml")) {
+		// ⚠️ 关键：排除 config.yaml，它不是用户的订阅源，只是运行时副本
+		if !file.IsDir() && file.Name() != "config.yaml" &&
+			(strings.HasSuffix(file.Name(), ".yaml") || strings.HasSuffix(file.Name(), ".yml")) {
 			configs = append(configs, file.Name())
 		}
 	}
@@ -295,24 +297,30 @@ func (a *App) DeleteConfig(fileName string) error {
 	return os.Remove(path)
 }
 
-// 修改 SelectLocalConfig 方法，记录选中的名字
+// 修改 SelectLocalConfig，增加 API 就绪等待
 func (a *App) SelectLocalConfig(fileName string) error {
 	a.mu.Lock()
-	a.activeConfig = fileName // 记录状态
+	a.activeConfig = fileName
 	a.mu.Unlock()
 
-	clash.Stop()           //
-	sys.ClearSystemProxy() //
+	clash.Stop()
+	sys.ClearSystemProxy()
 
-	// 覆盖 config.yaml
 	sourcePath := filepath.Join(".", "core", "bin", fileName)
 	destPath := filepath.Join(".", "core", "bin", "config.yaml")
-	content, _ := os.ReadFile(sourcePath)
+	content, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return err
+	}
 	os.WriteFile(destPath, content, 0644)
 
-	clash.Start(a.ctx) // 重启内核
+	if err := clash.Start(a.ctx); err != nil {
+		return err
+	}
 
-	// 发送全局广播通知所有组件：配置已变动！
+	// ⚠️ 关键：等待内核 API 启动就绪，否则前端刷新会报错或拿不到新节点
+	time.Sleep(800 * time.Millisecond)
+
 	runtime.EventsEmit(a.ctx, "config-changed", fileName)
 	return nil
 }
