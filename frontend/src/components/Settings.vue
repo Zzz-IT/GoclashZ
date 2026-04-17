@@ -20,6 +20,14 @@
           </div>
           <span class="arrow">➔</span>
         </div>
+
+        <div class="setting-item clickable" @click="view = 'dns'">
+          <div class="info">
+            <h4>DNS 服务器配置 (DNS Config)</h4>
+            <p>配置防污染解析、Fake-IP 以及策略路由所用的名称服务器。</p>
+          </div>
+          <span class="arrow">➔</span>
+        </div>
       </div>
     </div>
 
@@ -47,11 +55,11 @@
           <div class="info">
             <h4>网卡驱动安装</h4>
             <p class="status-msg">
-              检测状态: <span :class="tunStatus.hasWintun ? 'green-text' : 'red-text'">{{ tunStatus.hasWintun ? 'wintun.dll 已就绪' : '缺失驱动文件' }}</span>
+              检测状态: <span :class="tunStatus.hasWintun ? 'green-text' : 'red-text'">{{ tunStatus.hasWintun ? 'wintun 已就绪' : '缺失驱动文件' }}</span>
             </p>
           </div>
           <button class="action-btn" @click="installDriver" :disabled="isInstalling || tunStatus.hasWintun">
-            {{ isInstalling ? '处理中...' : (tunStatus.hasWintun ? '已安装' : '立即安装') }}
+            {{ isInstalling ? '处理中...' : (tunStatus.hasWintun ? '已安装' : '安装驱动') }}
           </button>
         </div>
 
@@ -92,7 +100,7 @@
 
         <div class="setting-item">
           <div class="info"><h4>DNS 劫持 (DNS Hijack)</h4></div>
-          <input type="text" class="modern-input" :value="tunConfig.dnsHijack.join(', ')" @blur="updateDnsHijack" placeholder="如 any:53" :disabled="!tunStatus.hasWintun" />
+          <input type="text" class="modern-input" :value="tunConfig.dnsHijack.join(', ')" @blur="updateTunDnsHijack" placeholder="如 any:53" :disabled="!tunStatus.hasWintun" />
         </div>
 
         <div class="divider"></div>
@@ -111,14 +119,149 @@
 
       </div>
     </div>
+
+    <div v-else-if="view === 'dns'" class="settings-page slide-in">
+      <div class="sub-header">
+        <button class="back-btn" @click="view = 'main'">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        </button>
+        <h3>DNS 服务器配置</h3>
+      </div>
+
+      <div class="glass-card setting-group scrollable">
+
+        <div class="setting-item">
+          <div class="info"><h4>启用 DNS 解析 (Enable DNS)</h4></div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="dnsConfig.enable" @change="saveDns">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info"><h4>开启 IPv6 解析 (IPv6 Resolution)</h4></div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="dnsConfig.ipv6" @change="saveDns" :disabled="!dnsConfig.enable">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info"><h4>增强模式 (Enhanced Mode)</h4></div>
+          <select class="modern-select" v-model="dnsConfig.enhancedMode" @change="saveDns" :disabled="!dnsConfig.enable">
+            <option value="fake-ip">Fake-IP (推荐)</option>
+            <option value="redir-host">Redir-Host</option>
+            <option value="normal">Normal</option>
+          </select>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info"><h4>Fake-IP 范围 (Fake-IP Range)</h4></div>
+          <input type="text" class="modern-input" v-model="dnsConfig.fakeIpRange" @blur="saveDns" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip'" />
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item col-item">
+          <div class="info"><h4>Fake-IP 缓存过滤器 (Fake-IP Filter)</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.fakeIpFilter || []).join('\n')" @blur="updateDnsArray($event, 'fakeIpFilter')" rows="3" placeholder="如 *.lan&#10;*.localdomain" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip'"></textarea>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info"><h4>使用系统 DNS (Use System Hosts)</h4></div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="dnsConfig.useSystemHosts" @change="saveDns" :disabled="!dnsConfig.enable">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info"><h4>使用系统 Hosts (Use Hosts)</h4></div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="dnsConfig.useHosts" @change="saveDns" :disabled="!dnsConfig.enable">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item col-item">
+          <div class="info"><h4>默认名称服务器 (Default Nameservers)</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.defaultNameserver || []).join('\n')" @blur="updateDnsArray($event, 'defaultNameserver')" rows="2" placeholder="纯IP服务器，如 114.114.114.114" :disabled="!dnsConfig.enable"></textarea>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item col-item">
+          <div class="info"><h4>主名称服务器 (Nameservers)</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.nameserver || []).join('\n')" @blur="updateDnsArray($event, 'nameserver')" rows="3" placeholder="推荐使用 DoH / DoT" :disabled="!dnsConfig.enable"></textarea>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item col-item">
+          <div class="info"><h4>备用名称服务器 (Fallback)</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.fallback || []).join('\n')" @blur="updateDnsArray($event, 'fallback')" rows="3" placeholder="用于解析境外域名，推荐使用 DoH / DoT" :disabled="!dnsConfig.enable"></textarea>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info"><h4>启用 GeoIP 回退 (Fallback Filter GeoIP)</h4></div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="dnsConfig.fallbackFilter.geoip" @change="saveDns" :disabled="!dnsConfig.enable">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info"><h4>GeoIP 代码 (GeoIP Code)</h4></div>
+          <input type="text" class="modern-input" v-model="dnsConfig.fallbackFilter.geoipCode" @blur="saveDns" :disabled="!dnsConfig.enable || !dnsConfig.fallbackFilter.geoip" placeholder="默认 CN" />
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item col-item">
+          <div class="info"><h4>IPCIDR 过滤 (Fallback Filter IPCIDR)</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.fallbackFilter.ipcidr || []).join('\n')" @blur="updateFallbackFilterIpcidr" rows="3" placeholder="如 240.0.0.0/4" :disabled="!dnsConfig.enable"></textarea>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item col-item">
+          <div class="info"><h4>指定域名解析服务器 (Nameserver Policy)</h4></div>
+          <textarea class="modern-textarea" :value="formatNameserverPolicy(dnsConfig.nameserverPolicy)" @blur="updateNameserverPolicy" rows="4" placeholder="geosite:cn: https://doh.pub/dns-query" :disabled="!dnsConfig.enable"></textarea>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item col-item">
+          <div class="info"><h4>代理节点解析服务器 (Proxy Server Nameserver)</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.proxyServerNameserver || []).join('\n')" @blur="updateDnsArray($event, 'proxyServerNameserver')" rows="3" placeholder="用于解析代理节点的域名" :disabled="!dnsConfig.enable"></textarea>
+        </div>
+
+      </div>
+    </div>
+
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
-import { FixUWPNetwork, CheckTunEnv, GetTunConfig, SaveTunConfig, InstallTunDriver } from '../../wailsjs/go/main/App';
+import { FixUWPNetwork, CheckTunEnv, GetTunConfig, SaveTunConfig, InstallTunDriver, GetDNSConfig, SaveDNSConfig } from '../../wailsjs/go/main/App';
 
-// 接收来自 App.vue 的跳转参数
 const props = defineProps({
   initialView: {
     type: String,
@@ -126,42 +269,52 @@ const props = defineProps({
   }
 });
 
-// 唯一声明一次 view，避免 TS2451 错误
 const view = ref(props.initialView);
-
-// 监听从 App.vue 传来的变化，实现点击侧边栏和主页快捷按钮时自由切换
-watch(() => props.initialView, (newVal) => {
-  view.value = newVal;
-});
+watch(() => props.initialView, (newVal) => { view.value = newVal; });
 
 const isInstalling = ref(false);
-
-// 定义明确的数据类型，解决 Record<string, boolean> 匹配错误
 const tunStatus = ref<Record<string, boolean>>({ hasWintun: false, isAdmin: false });
 
 const tunConfig = ref({
-  enable: false,
-  stack: 'gvisor',
-  device: '',
-  autoRoute: true,
-  autoDetect: true,
-  dnsHijack: ['any:53'],
-  strictRoute: true,
-  mtu: 1500
+  enable: false, stack: 'gvisor', device: '', autoRoute: true, autoDetect: true,
+  dnsHijack: ['any:53'], strictRoute: true, mtu: 1500
 });
 
-const loadEnv = async () => {
+// DNS 配置响应式对象
+const dnsConfig = ref<any>({
+  enable: true, ipv6: false, enhancedMode: 'fake-ip', fakeIpRange: '198.18.0.1/16',
+  fakeIpFilter: ['*.lan', '*.localdomain'],
+  useSystemHosts: true,
+  useHosts: true,
+  defaultNameserver: ['223.5.5.5', '114.114.114.114'],
+  nameserver: ['https://doh.pub/dns-query'],
+  fallback: ['https://doh.dns.sb/dns-query'],
+  fallbackFilter: {
+      geoip: true,
+      geoipCode: 'CN',
+      ipcidr: ['240.0.0.0/4', '0.0.0.0/32']
+  },
+  nameserverPolicy: { 'geosite:cn': 'https://doh.pub/dns-query' },
+  proxyServerNameserver: ['https://doh.pub/dns-query']
+});
+
+const loadData = async () => {
   try {
     const status = await CheckTunEnv();
     tunStatus.value = status;
-    const conf = await GetTunConfig();
-    if (conf) tunConfig.value = conf;
+    const tunConf = await GetTunConfig();
+    if (tunConf) tunConfig.value = tunConf;
+
+    // 加载 DNS 配置
+    const dnsConf = await (GetDNSConfig as any)();
+    if (dnsConf) dnsConfig.value = dnsConf;
+
   } catch (e) {
-    console.error('加载失败', e);
+    console.error('加载配置失败', e);
   }
 };
 
-onMounted(() => { loadEnv(); });
+onMounted(() => { loadData(); });
 
 const fixUWP = async () => {
   try {
@@ -172,11 +325,10 @@ const fixUWP = async () => {
   }
 };
 
-// 拦截非法开启 TUN
 const handleTunToggle = async (e: Event) => {
   if (tunConfig.value.enable && !tunStatus.value.hasWintun) {
     e.preventDefault();
-    tunConfig.value.enable = false; // 强制拨回关闭状态
+    tunConfig.value.enable = false;
     alert('⚠️ 无法开启 TUN 模式：\n请先点击下方的“安装驱动”按钮下载并配置 wintun.dll。');
     return;
   }
@@ -187,12 +339,11 @@ const installDriver = async () => {
   isInstalling.value = true;
   try {
     await InstallTunDriver();
-    await loadEnv();
-
+    await loadData();
     if (tunStatus.value.hasWintun) {
        alert('✅ 驱动安装成功，现在可以开启 TUN 模式了！');
     } else {
-       alert('❌ 安装命令已执行，但系统仍未检测到 wintun.dll。\n请确认网络是否通畅或尝试以管理员身份运行程序。');
+       alert('❌ 系统仍未检测到 wintun.dll。请确认网络或以管理员运行。');
     }
   } catch (e) {
     alert('安装提示: ' + e);
@@ -202,86 +353,100 @@ const installDriver = async () => {
 };
 
 const saveTun = async () => {
-  try {
-    await SaveTunConfig(tunConfig.value);
-  } catch (e) {
-    console.error('保存失败', e);
-  }
+  try { await SaveTunConfig(tunConfig.value); } catch (e) { console.error('保存失败', e); }
 };
 
-// 处理数组格式的字符串输入
-const updateDnsHijack = (e: Event) => {
+const updateTunDnsHijack = (e: Event) => {
   const val = (e.target as HTMLInputElement).value;
   tunConfig.value.dnsHijack = val.split(',').map(s => s.trim()).filter(s => s);
   saveTun();
 };
+
+const saveDns = async () => {
+  try { await (SaveDNSConfig as any)(dnsConfig.value); } catch (e) { console.error('DNS 保存失败', e); }
+};
+
+// 处理多行文本框的数组更新（换行符分割）
+const updateDnsArray = (e: Event, key: string) => {
+  const val = (e.target as HTMLTextAreaElement).value;
+  dnsConfig.value[key] = val.split('\n').map(s => s.trim()).filter(s => s);
+  saveDns();
+};
+
+// 专门处理 fallbackFilter 的 IPCIDR 数组
+const updateFallbackFilterIpcidr = (e: Event) => {
+    const val = (e.target as HTMLTextAreaElement).value;
+    dnsConfig.value.fallbackFilter.ipcidr = val.split('\n').map(s => s.trim()).filter(s => s);
+    saveDns();
+};
+
+// 格式化展示 nameserver-policy 对象
+const formatNameserverPolicy = (policy: Record<string, string>) => {
+  if (!policy) return '';
+  return Object.entries(policy).map(([k, v]) => `${k}: ${v}`).join('\n');
+};
+
+// 解析输入框内的内容转为 nameserver-policy 对象
+const updateNameserverPolicy = (e: Event) => {
+  const val = (e.target as HTMLTextAreaElement).value;
+  const policy: Record<string, string> = {};
+
+  val.split('\n').forEach(line => {
+    line = line.trim();
+    if (!line) return;
+
+    let idx = line.indexOf(': ');
+    if (idx === -1) idx = line.lastIndexOf(':');
+
+    if (idx > 0) {
+      const k = line.substring(0, idx).trim();
+      const v = line.substring(idx + 1).trim();
+      if (k && v) policy[k] = v;
+    }
+  });
+
+  dnsConfig.value.nameserverPolicy = policy;
+  saveDns();
+};
 </script>
 
 <style scoped>
-.settings-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-}
-
-.settings-page {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  flex: 1;
-}
-
-.setting-group {
-  padding: 20px 24px;
-  margin-bottom: 20px;
-}
-
-.scrollable {
-  overflow-y: auto;
-  padding-right: 12px;
-}
+.settings-container { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.settings-page { display: flex; flex-direction: column; height: 100%; flex: 1; }
+.setting-group { padding: 20px 24px; margin-bottom: 20px; }
+.scrollable { overflow-y: auto; padding-right: 12px; padding-bottom: 20px; }
 
 h3 { margin: 0 0 20px 0; color: var(--text-main); font-size: 1.1rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 12px; }
 h4 { margin: 0 0 6px 0; color: var(--text-main); font-size: 1rem;}
 p { margin: 0; font-size: 0.85rem; color: var(--text-sub); max-width: 80%; }
 
 .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; }
+.col-item { flex-direction: column; align-items: stretch; gap: 10px; padding: 16px 0; } /* 专为 textarea 设计 */
 .setting-item.clickable { cursor: pointer; padding: 16px; border-radius: 12px; margin: 0 -16px; transition: 0.2s; }
 .setting-item.clickable:hover { background: var(--surface-hover); }
 
 .arrow { color: var(--text-sub); font-size: 1.2rem; }
 .divider { height: 1px; background: var(--glass-border); opacity: 0.5; margin: 0; }
 
-/* 按钮与输入框 */
 .action-btn { padding: 8px 16px; border-radius: 8px; border: none; background: rgba(79, 70, 229, 0.1); color: var(--accent); font-weight: bold; cursor: pointer; transition: 0.2s; white-space: nowrap;}
 .action-btn:hover:not(:disabled) { background: var(--accent); color: white; }
 .action-btn:disabled { opacity: 0.5; cursor: not-allowed; background: var(--surface-hover); color: var(--text-muted); }
 
-.modern-input, .modern-select { background: var(--surface-hover); border: 1px solid var(--glass-border); color: var(--text-main); padding: 8px 12px; border-radius: 8px; outline: none; text-align: right; }
-.modern-input:disabled, .modern-select:disabled { opacity: 0.5; cursor: not-allowed; }
+.modern-input, .modern-select, .modern-textarea { background: var(--surface-hover); border: 1px solid var(--glass-border); color: var(--text-main); padding: 8px 12px; border-radius: 8px; outline: none; }
+.modern-input { text-align: right; }
+.modern-textarea { resize: vertical; font-family: monospace; font-size: 0.85rem; line-height: 1.5; text-align: left; }
+.modern-input:disabled, .modern-select:disabled, .modern-textarea:disabled { opacity: 0.5; cursor: not-allowed; }
 .num-input { width: 80px; }
 
-/* 现代开关 (CSS Switch) - 修复夜间模式白条 */
 .modern-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
 .modern-switch input { opacity: 0; width: 0; height: 0; }
-.slider {
-  position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
-  background-color: var(--glass-border);
-  transition: .3s; border-radius: 24px;
-}
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--glass-border); transition: .3s; border-radius: 24px; }
 .dark .slider { background-color: rgba(255, 255, 255, 0.2); }
-
-.slider:before {
-  position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px;
-  background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-}
-
+.slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3);}
 input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
 input:checked + .slider { background-color: var(--accent); }
 input:checked + .slider:before { transform: translateX(20px); }
 
-/* 子页面动画与样式 */
 .slide-in { animation: slideIn 0.2s ease forwards; }
 @keyframes slideIn { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
 

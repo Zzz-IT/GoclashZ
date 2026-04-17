@@ -4,17 +4,31 @@ import {clash} from '../models';
 
 export function CheckTunEnv():Promise<Record<string, boolean>>;
 
+export function DeleteConfig(arg1:string):Promise<void>;
+
 export function FixUWPNetwork():Promise<void>;
 
+export function GetDNSConfig():Promise<clash.DNSConfig>;
+
 export function GetInitialData():Promise<Record<string, any>>;
+
+export function GetLocalConfigs():Promise<Array<string>>;
 
 export function GetProxyStatus():Promise<boolean>;
 
 export function GetTunConfig():Promise<clash.TunConfig>;
 
+export function ImportLocalConfig():Promise<void>;
+
 export function InstallTunDriver():Promise<void>;
 
+export function OpenConfigFile(arg1:string):Promise<void>;
+
+export function RenameConfig(arg1:string,arg2:string):Promise<void>;
+
 export function RunProxy():Promise<void>;
+
+export function SaveDNSConfig(arg1:clash.DNSConfig):Promise<void>;
 
 export function SaveTunConfig(arg1:clash.TunConfig):Promise<void>;
 

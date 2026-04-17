@@ -243,3 +243,121 @@ func UpdateTunConfig(newTun *TunConfig) error {
 
 	return os.WriteFile(configPath, out, 0644)
 }
+
+// -------------------- DNS 配置相关 --------------------
+
+// FallbackFilterConfig 映射 yaml 中 dns.fallback-filter 配置块
+type FallbackFilterConfig struct {
+	GeoIP     bool     `yaml:"geoip" json:"geoip"`
+	GeoIPCode string   `yaml:"geoip-code" json:"geoipCode"`
+	IPCIDR    []string `yaml:"ipcidr" json:"ipcidr"`
+	Domain    []string `yaml:"domain,omitempty" json:"domain"` // 截图虽然没有明确展示domain，但这是clash的常见配置
+}
+
+// DNSConfig 映射 yaml 中的 dns 配置块
+type DNSConfig struct {
+	Enable                bool                 `yaml:"enable" json:"enable"`
+	IPv6                  bool                 `yaml:"ipv6" json:"ipv6"`
+	EnhancedMode          string               `yaml:"enhanced-mode" json:"enhancedMode"`
+	FakeIPRange           string               `yaml:"fake-ip-range,omitempty" json:"fakeIpRange"`
+	FakeIPFilter          []string             `yaml:"fake-ip-filter,omitempty" json:"fakeIpFilter"`
+	UseSystemHosts        bool                 `yaml:"use-system-hosts,omitempty" json:"useSystemHosts"`
+	UseHosts              bool                 `yaml:"use-hosts,omitempty" json:"useHosts"`
+	DefaultNameserver     []string             `yaml:"default-nameserver,omitempty" json:"defaultNameserver"`
+	Nameserver            []string             `yaml:"nameserver" json:"nameserver"`
+	Fallback              []string             `yaml:"fallback,omitempty" json:"fallback"`
+	FallbackFilter        FallbackFilterConfig `yaml:"fallback-filter" json:"fallbackFilter"` // 新增
+	NameserverPolicy      map[string]string    `yaml:"nameserver-policy,omitempty" json:"nameserverPolicy"`
+	ProxyServerNameserver []string             `yaml:"proxy-server-nameserver,omitempty" json:"proxyServerNameserver"`
+}
+
+// GetDNSConfig 读取 DNS 配置
+func GetDNSConfig() (*DNSConfig, error) {
+	pwd, _ := os.Getwd()
+	configPath := filepath.Join(pwd, "core", "bin", "config.yaml")
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var root map[string]interface{}
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, err
+	}
+
+	// 初始化默认值
+	conf := &DNSConfig{
+		Enable:            true,
+		IPv6:              false,
+		EnhancedMode:      "fake-ip",
+		FakeIPRange:       "198.18.0.1/16",
+		FakeIPFilter:      []string{"*.lan", "*.localdomain", "*.example", "*.invalid", "*.localhost", "*.test", "lan", "localdomain", "localhost"},
+		UseSystemHosts:    true,
+		UseHosts:          true,
+		DefaultNameserver: []string{"223.5.5.5", "114.114.114.114"},
+		Nameserver:        []string{"https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"},
+		Fallback:          []string{"https://doh.dns.sb/dns-query", "https://dns.cloudflare.com/dns-query"},
+		FallbackFilter: FallbackFilterConfig{
+			GeoIP:     true,
+			GeoIPCode: "CN",
+			IPCIDR:    []string{"240.0.0.0/4", "0.0.0.0/32"},
+		},
+		NameserverPolicy:      map[string]string{"geosite:cn": "https://doh.pub/dns-query"},
+		ProxyServerNameserver: []string{"https://doh.pub/dns-query"},
+	}
+
+	if dnsMap, ok := root["dns"].(map[string]interface{}); ok {
+		raw, _ := yaml.Marshal(dnsMap)
+		yaml.Unmarshal(raw, conf)
+
+		// 兼容部分内核写法
+		if fakeRange, ok := dnsMap["fake-ip-range"].(string); ok {
+			conf.FakeIPRange = fakeRange
+		}
+	}
+
+	return conf, nil
+}
+
+// UpdateDNSConfig 写入 DNS 配置
+func UpdateDNSConfig(newDNS *DNSConfig) error {
+	pwd, _ := os.Getwd()
+	configPath := filepath.Join(pwd, "core", "bin", "config.yaml")
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+
+	var root map[string]interface{}
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return err
+	}
+
+	// 转换为 map 进行精确控制
+	dnsMap := map[string]interface{}{
+		"enable":                  newDNS.Enable,
+		"ipv6":                    newDNS.IPv6,
+		"enhanced-mode":           newDNS.EnhancedMode,
+		"fake-ip-range":           newDNS.FakeIPRange,
+		"fake-ip-filter":          newDNS.FakeIPFilter,
+		"use-system-hosts":        newDNS.UseSystemHosts,
+		"use-hosts":               newDNS.UseHosts,
+		"default-nameserver":      newDNS.DefaultNameserver,
+		"nameserver":              newDNS.Nameserver,
+		"fallback":                newDNS.Fallback,
+		"fallback-filter":         newDNS.FallbackFilter, // 新增
+		"nameserver-policy":       newDNS.NameserverPolicy,
+		"proxy-server-nameserver": newDNS.ProxyServerNameserver,
+	}
+
+	root["dns"] = dnsMap
+
+	out, err := yaml.Marshal(root)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(configPath, out, 0644)
+}

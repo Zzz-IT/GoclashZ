@@ -6,6 +6,11 @@ import (
 	"goclashz/core/clash"
 	"goclashz/core/sys"
 	"goclashz/core/traffic"
+	"os"
+	"os/exec"
+	"path/filepath"
+	stdruntime "runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -188,4 +193,97 @@ func (a *App) InstallTunDriver() error {
 	// 在这里可以放置你针对 wintun.dll 下载/解压的具体逻辑
 	// 如果用户已有 wintun.dll，CheckTunEnv 会自动变为 true
 	return nil
+}
+func (a *App) GetDNSConfig() (*clash.DNSConfig, error) {
+	return clash.GetDNSConfig()
+}
+
+func (a *App) SaveDNSConfig(cfg *clash.DNSConfig) error {
+	err := clash.UpdateDNSConfig(cfg)
+	if err == nil && clash.IsRunning() {
+		// 可选：重启内核
+	}
+	return err
+}
+
+// ==========================================
+// --- 本地配置文件管理 (新增) ---
+// ==========================================
+
+func (a *App) getProfilesDir() string {
+	// 假定配置放在 core/bin 下
+	return filepath.Join(".", "core", "bin")
+}
+
+// GetLocalConfigs 获取所有本地配置文件列表
+func (a *App) GetLocalConfigs() ([]string, error) {
+	dir := a.getProfilesDir()
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var configs []string
+	for _, file := range files {
+		if !file.IsDir() && (strings.HasSuffix(file.Name(), ".yaml") || strings.HasSuffix(file.Name(), ".yml")) {
+			configs = append(configs, file.Name())
+		}
+	}
+	return configs, nil
+}
+
+// ImportLocalConfig 导入本地配置文件
+func (a *App) ImportLocalConfig() error {
+	filePath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "选择本地配置文件",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "YAML 配置", Pattern: "*.yaml;*.yml"},
+		},
+	})
+	if err != nil || filePath == "" {
+		return err
+	}
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+
+	fileName := filepath.Base(filePath)
+	destDir := a.getProfilesDir()
+	os.MkdirAll(destDir, 0755)
+	destPath := filepath.Join(destDir, fileName)
+
+	return os.WriteFile(destPath, content, 0644)
+}
+
+// RenameConfig 重命名配置文件
+func (a *App) RenameConfig(oldName, newName string) error {
+	if !strings.HasSuffix(newName, ".yaml") && !strings.HasSuffix(newName, ".yml") {
+		newName += ".yaml"
+	}
+	oldPath := filepath.Join(a.getProfilesDir(), oldName)
+	newPath := filepath.Join(a.getProfilesDir(), newName)
+	return os.Rename(oldPath, newPath)
+}
+
+// OpenConfigFile 使用系统默认应用打开配置文件
+func (a *App) OpenConfigFile(fileName string) error {
+	path := filepath.Join(a.getProfilesDir(), fileName)
+	var cmd *exec.Cmd
+	switch stdruntime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", "", path)
+	case "darwin":
+		cmd = exec.Command("open", path)
+	default:
+		cmd = exec.Command("xdg-open", path)
+	}
+	return cmd.Start()
+}
+
+// DeleteConfig 删除配置文件
+func (a *App) DeleteConfig(fileName string) error {
+	path := filepath.Join(a.getProfilesDir(), fileName)
+	return os.Remove(path)
 }

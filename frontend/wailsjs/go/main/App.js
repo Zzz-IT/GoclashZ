@@ -6,12 +6,24 @@ export function CheckTunEnv() {
   return window['go']['main']['App']['CheckTunEnv']();
 }
 
+export function DeleteConfig(arg1) {
+  return window['go']['main']['App']['DeleteConfig'](arg1);
+}
+
 export function FixUWPNetwork() {
   return window['go']['main']['App']['FixUWPNetwork']();
 }
 
+export function GetDNSConfig() {
+  return window['go']['main']['App']['GetDNSConfig']();
+}
+
 export function GetInitialData() {
   return window['go']['main']['App']['GetInitialData']();
+}
+
+export function GetLocalConfigs() {
+  return window['go']['main']['App']['GetLocalConfigs']();
 }
 
 export function GetProxyStatus() {
@@ -22,12 +34,28 @@ export function GetTunConfig() {
   return window['go']['main']['App']['GetTunConfig']();
 }
 
+export function ImportLocalConfig() {
+  return window['go']['main']['App']['ImportLocalConfig']();
+}
+
 export function InstallTunDriver() {
   return window['go']['main']['App']['InstallTunDriver']();
 }
 
+export function OpenConfigFile(arg1) {
+  return window['go']['main']['App']['OpenConfigFile'](arg1);
+}
+
+export function RenameConfig(arg1, arg2) {
+  return window['go']['main']['App']['RenameConfig'](arg1, arg2);
+}
+
 export function RunProxy() {
   return window['go']['main']['App']['RunProxy']();
+}
+
+export function SaveDNSConfig(arg1) {
+  return window['go']['main']['App']['SaveDNSConfig'](arg1);
 }
 
 export function SaveTunConfig(arg1) {
