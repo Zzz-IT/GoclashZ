@@ -160,3 +160,86 @@ func DownloadSubscription(subUrl string, userAgent string) error {
 	_, err = io.Copy(out, resp.Body)
 	return err
 }
+
+// TunConfig 映射 yaml 中的 tun 配置块
+type TunConfig struct {
+	Enable              bool     `yaml:"enable" json:"enable"`
+	Stack               string   `yaml:"stack" json:"stack"`
+	Device              string   `yaml:"device,omitempty" json:"device"`
+	AutoRoute           bool     `yaml:"auto-route" json:"autoRoute"`
+	AutoDetectInterface bool     `yaml:"auto-detect-interface" json:"autoDetect"`
+	DNSHijack           []string `yaml:"dns-hijack" json:"dnsHijack"`
+	StrictRoute         bool     `yaml:"strict-route" json:"strictRoute"`
+	MTU                 int      `yaml:"mtu" json:"mtu"`
+}
+
+// GetTunConfig 从 config.yaml 读取 TUN 配置
+func GetTunConfig() (*TunConfig, error) {
+	pwd, _ := os.Getwd()
+	configPath := filepath.Join(pwd, "core", "bin", "config.yaml")
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var root map[string]interface{}
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, err
+	}
+
+	// 初始化默认值
+	conf := &TunConfig{
+		Enable:              false,
+		Stack:               "gvisor",
+		Device:              "",
+		AutoRoute:           true,
+		AutoDetectInterface: true,
+		DNSHijack:           []string{"any:53"},
+		StrictRoute:         true,
+		MTU:                 1500,
+	}
+
+	if tunMap, ok := root["tun"].(map[string]interface{}); ok {
+		raw, _ := yaml.Marshal(tunMap)
+		yaml.Unmarshal(raw, conf)
+	}
+
+	return conf, nil
+}
+
+// UpdateTunConfig 将新的 TUN 配置写入 config.yaml
+func UpdateTunConfig(newTun *TunConfig) error {
+	pwd, _ := os.Getwd()
+	configPath := filepath.Join(pwd, "core", "bin", "config.yaml")
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+
+	var root map[string]interface{}
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return err
+	}
+
+	root["tun"] = newTun
+
+	// TUN 模式通常依赖 DNS 拦截
+	if newTun.Enable {
+		if _, ok := root["dns"]; !ok {
+			root["dns"] = map[string]interface{}{
+				"enable":        true,
+				"enhanced-mode": "fake-ip",
+				"nameserver":    []string{"119.29.29.29", "223.5.5.5"},
+			}
+		}
+	}
+
+	out, err := yaml.Marshal(root)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(configPath, out, 0644)
+}

@@ -18,8 +18,20 @@ export function GetProxyStatus() {
   return window['go']['main']['App']['GetProxyStatus']();
 }
 
+export function GetTunConfig() {
+  return window['go']['main']['App']['GetTunConfig']();
+}
+
+export function InstallTunDriver() {
+  return window['go']['main']['App']['InstallTunDriver']();
+}
+
 export function RunProxy() {
   return window['go']['main']['App']['RunProxy']();
+}
+
+export function SaveTunConfig(arg1) {
+  return window['go']['main']['App']['SaveTunConfig'](arg1);
 }
 
 export function SelectProxy(arg1, arg2) {

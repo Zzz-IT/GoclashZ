@@ -164,3 +164,28 @@ func (a *App) FixUWPNetwork() error {
 	}
 	return sys.ExemptAllUWP()
 }
+
+// 在 app.go 底部添加以下方法
+
+func (a *App) GetTunConfig() (*clash.TunConfig, error) {
+	return clash.GetTunConfig()
+}
+
+func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
+	err := clash.UpdateTunConfig(cfg)
+	if err == nil && clash.IsRunning() {
+		// 可选：如果内核在运行且修改了配置，你可以在这执行重启
+		// clash.Stop()
+		// clash.Start(a.ctx)
+	}
+	return err
+}
+
+func (a *App) InstallTunDriver() error {
+	if !sys.CheckAdmin() {
+		return fmt.Errorf("请右键以管理员身份运行本程序来进行驱动安装")
+	}
+	// 在这里可以放置你针对 wintun.dll 下载/解压的具体逻辑
+	// 如果用户已有 wintun.dll，CheckTunEnv 会自动变为 true
+	return nil
+}

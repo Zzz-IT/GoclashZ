@@ -51,13 +51,21 @@
                 <div class="micro-title">内核状态</div>
                 <h2 class="cs-title">系统代理服务</h2>
                 <div class="cs-meta">
-                  <span>端口: 7890</span> • <span>当前模式: {{ currentModeName }}</span>
+                  <span>混合端口: 7890</span> • <span>当前模式: {{ currentModeName }}</span>
                 </div>
               </div>
-              <button class="primary-btn" :class="{ stop: isRunning }" @click="toggleProxy">
-                <span class="btn-icon" v-html="ICONS.power"></span>
-                {{ isRunning ? '断开连接' : '启动代理' }}
-              </button>
+
+              <div class="cs-actions">
+                <button class="secondary-btn" @click="goToTunSettings" title="配置虚拟网卡">
+                  <span class="btn-icon" v-html="ICONS.network"></span>
+                  虚拟网卡
+                </button>
+
+                <button class="primary-btn" :class="{ stop: isRunning }" @click="toggleProxy">
+                  <span class="btn-icon" v-html="ICONS.power"></span>
+                  {{ isRunning ? '断开连接' : '启动代理' }}
+                </button>
+              </div>
             </div>
 
             <div class="card-grid">
@@ -73,10 +81,10 @@
               </div>
 
               <div class="info-card tun-card">
-                <div class="micro-title">网络驱动</div>
+                <div class="micro-title">网卡驱动检测</div>
                 <div class="tun-status">
-                  <span class="tun-icon" v-html="tunStatus.hasWintun ? ICONS.check : ICONS.tool"></span>
-                  <span class="tun-text">{{ tunStatus.hasWintun ? 'Wintun 驱动已就绪' : '驱动缺失' }}</span>
+                  <span class="tun-icon" :class="tunStatus.hasWintun ? 'green-icon' : 'red-icon'" v-html="tunStatus.hasWintun ? ICONS.checkCircle : ICONS.alertCircle"></span>
+                  <span class="tun-text">{{ tunStatus.hasWintun ? 'Wintun 驱动正常' : '缺失底层驱动' }}</span>
                 </div>
               </div>
             </div>
@@ -97,13 +105,7 @@
           </div>
 
           <div v-else-if="currentTab === 'settings'" class="view-settings">
-            <div class="setting-row">
-              <div class="s-info">
-                <h4 class="s-title">UWP 回环豁免</h4>
-                <p class="s-desc">解决 Windows 商店应用无法通过代理联网的问题。</p>
-              </div>
-              <button class="outline-btn" @click="fixUWP">运行修复</button>
-            </div>
+            <Settings :initialView="targetSettingsView" />
           </div>
         </div>
       </main>
@@ -116,6 +118,7 @@ import { ref, onMounted, computed, nextTick } from 'vue';
 import * as API from '../wailsjs/go/main/App';
 import Proxies from './components/Proxies.vue';
 import Subscriptions from './components/Subscriptions.vue';
+import Settings from './components/Settings.vue';
 import {
   EventsOn,
   WindowSetLightTheme,
@@ -134,8 +137,9 @@ const ICONS = {
   sun: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`,
   moon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
   power: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"></path></svg>`,
-  check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>`,
-  tool: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`,
+  network: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>`,
+  checkCircle: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>`,
+  alertCircle: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`,
   min: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
   max: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>`,
   close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`
@@ -143,10 +147,12 @@ const ICONS = {
 
 const isDark = ref(false);
 const currentTab = ref('home');
+const targetSettingsView = ref('main'); // 用于控制 Settings 子页面
+
 const isRunning = ref(false);
 const traffic = ref({ up: '0.0', down: '0.0' });
 const currentMode = ref('rule');
-const tunStatus = ref<any>({ hasWintun: false });
+const tunStatus = ref<Record<string, boolean>>({ hasWintun: false, isAdmin: false });
 const logLines = ref<any[]>([]);
 const logBox = ref<HTMLElement | null>(null);
 
@@ -172,6 +178,21 @@ const toggleTheme = () => {
   isDark.value ? WindowSetDarkTheme() : WindowSetLightTheme();
 };
 
+// 导航到 TUN 设置页
+const goToTunSettings = () => {
+  targetSettingsView.value = 'tun'; // 告诉 Settings 组件默认打开 tun 视图
+  currentTab.value = 'settings';
+};
+
+// 如果用户点击了侧边栏的 Settings，确保它打开主页
+const watchCurrentTab = (newTab: string) => {
+  if (newTab === 'settings' && targetSettingsView.value !== 'tun') {
+      targetSettingsView.value = 'main';
+  } else if (newTab !== 'settings') {
+      targetSettingsView.value = 'main'; // 离开设置页时重置状态
+  }
+};
+
 const toggleProxy = async () => {
   try {
     isRunning.value ? await API.StopProxy() : await API.RunProxy();
@@ -184,16 +205,16 @@ const changeMode = async (mode: string) => {
   currentMode.value = mode;
 };
 
-const fixUWP = async () => {
-  try { await API.FixUWPNetwork(); alert("修复成功：已应用 UWP 豁免限制。"); } catch (e) { alert(e); }
-};
-
 onMounted(async () => {
   WindowSetLightTheme();
   isRunning.value = await API.GetProxyStatus();
   const data: any = await API.GetInitialData();
   if (data) currentMode.value = data.mode;
-  tunStatus.value = await API.CheckTunEnv();
+
+  try {
+    const status = await API.CheckTunEnv();
+    tunStatus.value = status as Record<string, boolean>;
+  } catch (e) { console.error("TUN Env Check Error:", e); }
 
   EventsOn("traffic-data", (data: any) => { traffic.value = data; });
 
@@ -209,7 +230,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* 核心：修复无边框窗口按钮样式 */
+/* 窗口控制 */
 .window-controls { display: flex; align-items: center; gap: 2px; margin-left: 12px; }
 .ctrl-btn { width: 28px !important; height: 28px !important; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
 .ctrl-btn :deep(svg) { width: 12px; height: 12px; }
@@ -254,12 +275,26 @@ onMounted(async () => {
 
 /* Dashboard 卡片 */
 .core-status-card { display: flex; justify-content: space-between; align-items: center; padding: 24px; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--surface); margin-bottom: 24px; }
-.cs-title { font-size: 1.25rem; font-weight: 500; margin: 4px 0 8px; }
-.cs-meta { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-sub); }
+.cs-title { font-size: 1.25rem; font-weight: 600; margin: 4px 0 8px; }
+.cs-meta { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-sub); }
 
-.primary-btn { display: flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: 6px; border: none; background: var(--accent); color: var(--accent-fg); font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+/* 控制台动作区域 */
+.cs-actions { display: flex; gap: 12px; align-items: center; }
+
+.primary-btn, .secondary-btn {
+  display: flex; align-items: center; gap: 8px; padding: 10px 20px;
+  border-radius: 8px; border: none; font-size: 0.85rem; font-weight: 500;
+  cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.primary-btn { background: var(--accent); color: var(--accent-fg); }
 .primary-btn.stop { background: #ef4444; }
 .primary-btn:hover { opacity: 0.85; transform: translateY(-1px); }
+
+.secondary-btn { background: var(--surface-hover); color: var(--text-main); border: 1px solid var(--glass-border); }
+.secondary-btn:hover { background: var(--glass-panel); border-color: var(--text-sub); }
+
+.btn-icon { width: 14px; height: 14px; }
 
 .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .info-card { padding: 20px; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--surface); }
@@ -267,20 +302,18 @@ onMounted(async () => {
 .seg-btn { flex: 1; padding: 6px 0; border: none; background: transparent; border-radius: 6px; font-size: 0.8rem; color: var(--text-sub); cursor: pointer; transition: 0.2s; }
 .seg-btn.active { background: var(--glass-panel); color: var(--text-main); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
 
+.tun-status { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+.tun-icon { display: inline-flex; align-items: center; justify-content: center; }
+.tun-icon :deep(svg) { width: 18px; height: 18px; }
+.green-icon { color: #10b981; }
+.red-icon { color: #ef4444; }
+.tun-text { font-size: 0.85rem; font-weight: 500; }
+
 /* 日志终端 */
 .terminal-box { background: var(--accent); color: var(--accent-fg); padding: 20px; border-radius: 8px; height: 500px; overflow-y: auto; font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.6; }
 .l-time { color: var(--text-muted); margin-right: 12px; opacity: 0.6; }
 .l-type { margin-right: 12px; font-weight: 600; }
 
-/* 设置 */
-.setting-row { display: flex; justify-content: space-between; align-items: center; padding: 20px; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--surface); }
-.s-title { font-size: 0.95rem; font-weight: 500; margin-bottom: 4px; }
-.s-desc { font-size: 0.8rem; color: var(--text-sub); }
-.outline-btn { padding: 8px 16px; border: 1px solid var(--glass-border); background: transparent; color: var(--text-main); font-size: 0.8rem; font-weight: 500; border-radius: 6px; cursor: pointer; transition: 0.2s; }
-.outline-btn:hover { background: var(--surface-hover); }
-
-.tun-status { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
-.tun-icon { width: 16px; height: 16px; color: var(--text-main); display: inline-flex; align-items: center; justify-content: center; }
-.tun-icon :deep(svg) { width: 16px; height: 16px; } /* 强制内部 SVG 匹配大小 */
-.tun-text { font-size: 0.85rem; font-weight: 500; }
+/* 设置组件容器占满 */
+.view-settings { height: 100%; display: flex; flex-direction: column; }
 </style>

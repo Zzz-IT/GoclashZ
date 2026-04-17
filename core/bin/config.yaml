@@ -1,8 +1,14 @@
-mixed-port: 7890
 allow-lan: false
-mode: rule
+dns:
+    enable: true
+    enhanced-mode: fake-ip
+    nameserver:
+        - 119.29.29.29
+        - 223.5.5.5
+external-controller: 127.0.0.1:9090
 log-level: info
-external-controller: 127.0.0.1:9090  # 👉 新增这一行！
+mixed-port: 7890
+mode: rule
 proxies:
     - name: Laxgo
       network: ws
@@ -25,3 +31,12 @@ proxy-groups:
       type: select
 rules:
     - MATCH,PROXY
+tun:
+    enable: false
+    stack: gvisor
+    auto-route: true
+    auto-detect-interface: true
+    dns-hijack:
+        - any:53
+    strict-route: true
+    mtu: 1500
