@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -73,6 +74,33 @@ func GetProxies() ([]ProxyNode, error) {
 		}
 	}
 	return nodes, nil
+}
+
+// GetProxyDelay 获取指定节点的延迟 (Ping)
+func GetProxyDelay(name string, testUrl string) (int, error) {
+	// 1. 对节点名称进行转义，处理空格、表情符号等
+	escapedName := url.PathEscape(name)
+	// 2. 构造请求地址，设置超时和测试 URL
+	// 默认 5000ms 超时
+	fullUrl := fmt.Sprintf("%s/proxies/%s/delay?timeout=5000&url=%s", apiUrl, escapedName, url.QueryEscape(testUrl))
+
+	resp, err := http.Get(fullUrl)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("测速失败，状态码: %d", resp.StatusCode)
+	}
+
+	// 解析返回结果 {"delay": 123}
+	var result map[string]int
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, err
+	}
+
+	return result["delay"], nil
 }
 
 // SwitchProxy 切换策略组里的节点

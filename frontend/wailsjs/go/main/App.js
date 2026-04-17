@@ -6,6 +6,14 @@ export function GetInitialData() {
   return window['go']['main']['App']['GetInitialData']();
 }
 
+export function GetNodeDelay(arg1, arg2) {
+  return window['go']['main']['App']['GetNodeDelay'](arg1, arg2);
+}
+
+export function GetOfflineDelay(arg1) {
+  return window['go']['main']['App']['GetOfflineDelay'](arg1);
+}
+
 export function GetProxyNodes() {
   return window['go']['main']['App']['GetProxyNodes']();
 }
@@ -26,6 +34,14 @@ export function SetConfigMode(arg1) {
   return window['go']['main']['App']['SetConfigMode'](arg1);
 }
 
+export function StartAsyncTest(arg1) {
+  return window['go']['main']['App']['StartAsyncTest'](arg1);
+}
+
 export function StopProxy() {
   return window['go']['main']['App']['StopProxy']();
+}
+
+export function UpdateSubscription(arg1, arg2) {
+  return window['go']['main']['App']['UpdateSubscription'](arg1, arg2);
 }

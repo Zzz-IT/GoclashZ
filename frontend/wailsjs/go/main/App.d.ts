@@ -4,6 +4,10 @@ import {clash} from '../models';
 
 export function GetInitialData():Promise<Record<string, any>>;
 
+export function GetNodeDelay(arg1:string,arg2:string):Promise<number>;
+
+export function GetOfflineDelay(arg1:string):Promise<number>;
+
 export function GetProxyNodes():Promise<Array<clash.ProxyNode>>;
 
 export function GetProxyStatus():Promise<boolean>;
@@ -14,4 +18,8 @@ export function SelectProxy(arg1:string,arg2:string):Promise<string>;
 
 export function SetConfigMode(arg1:string):Promise<string>;
 
+export function StartAsyncTest(arg1:string):Promise<string>;
+
 export function StopProxy():Promise<string>;
+
+export function UpdateSubscription(arg1:string,arg2:string):Promise<string>;
