@@ -24,7 +24,11 @@ export function StartAsyncTest(arg1:string):Promise<string>;
 
 export function StartStreamingLogs():Promise<void>;
 
+export function StartTrafficStream():Promise<void>;
+
 export function StopProxy():Promise<string>;
+
+export function StopTrafficStream():Promise<void>;
 
 export function UpdateClashSettings(arg1:Record<string, any>):Promise<string>;
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"goclashz/core/clash"
 	"goclashz/core/sys"
+	"goclashz/core/traffic"
 )
 
 // App struct
@@ -29,6 +30,16 @@ func (a *App) shutdown(ctx context.Context) {
 	sys.ClearSystemProxy()
 }
 
+// StartTrafficStream 供前端启动时调用
+func (a *App) StartTrafficStream() {
+	traffic.StartTrafficMonitor(a.ctx)
+}
+
+// StopTrafficStream 供前端停止或应用退出时调用
+func (a *App) StopTrafficStream() {
+	traffic.StopTrafficMonitor()
+}
+
 // ================== 核心代理控制 ==================
 
 func (a *App) RunProxy() string {
@@ -41,12 +52,17 @@ func (a *App) RunProxy() string {
 	if err != nil {
 		return "内核已启动，但代理接管失败: " + err.Error()
 	}
-	return "✅ 代理已启动并接管系统"
+	// 启动成功后，开启网速和日志推送
+	go a.StartTrafficStream()
+	go a.StartStreamingLogs()
+
+	return "✅ 代理已启动"
 }
 
 func (a *App) StopProxy() string {
 	clash.Stop()
 	sys.ClearSystemProxy()
+	a.StopTrafficStream()
 	return "🛑 代理已停止"
 }
 

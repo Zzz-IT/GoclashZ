@@ -46,8 +46,16 @@ export function StartStreamingLogs() {
   return window['go']['main']['App']['StartStreamingLogs']();
 }
 
+export function StartTrafficStream() {
+  return window['go']['main']['App']['StartTrafficStream']();
+}
+
 export function StopProxy() {
   return window['go']['main']['App']['StopProxy']();
+}
+
+export function StopTrafficStream() {
+  return window['go']['main']['App']['StopTrafficStream']();
 }
 
 export function UpdateClashSettings(arg1) {
