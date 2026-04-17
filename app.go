@@ -25,6 +25,23 @@ type App struct {
 	activeConfig  string
 }
 
+// 在 App 结构体下新增一个内部方法
+func (a *App) startProxyService() error {
+	// 1. 启动内核 (现在是幂等的，运行中也会返回 nil)
+	if err := clash.Start(a.ctx); err != nil {
+		return err
+	}
+
+	// 2. 强制设置系统代理
+	if err := sys.SetSystemProxy("127.0.0.1", 7890); err != nil {
+		return err
+	}
+
+	// 3. 启动流量监控
+	go a.StartTrafficStream()
+	return nil
+}
+
 func NewApp() *App {
 	return &App{}
 }
@@ -40,22 +57,9 @@ func (a *App) shutdown(ctx context.Context) {
 
 // --- 代理核心控制 ---
 
+// 修改 RunProxy
 func (a *App) RunProxy() error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	if err := clash.Start(a.ctx); err != nil {
-		return err
-	}
-
-	// 设置系统代理 (HTTP/Socks 模式)
-	// 这里不再强制要求管理员权限，因为设置系统代理通常不需要它
-	if err := sys.SetSystemProxy("127.0.0.1", 7890); err != nil {
-		return err
-	}
-
-	go a.StartTrafficStream()
-	return nil
+	return a.startProxyService()
 }
 
 // 只有在用户手动点击“检查环境”时才调用
@@ -298,34 +302,32 @@ func (a *App) DeleteConfig(fileName string) error {
 	return os.Remove(path)
 }
 
-// 修改 SelectLocalConfig，增加 API 就绪等待
+// 修改 SelectLocalConfig
 func (a *App) SelectLocalConfig(fileName string) error {
-	a.mu.Lock() // 使用 App 的锁保护整个切换流程
-	defer a.mu.Unlock()
-
+	a.mu.Lock()
 	a.activeConfig = fileName
+	a.mu.Unlock()
 
-	// 1. 停止内核
+	// 先彻底停止
 	clash.Stop()
 	sys.ClearSystemProxy()
 
-	// 2. 配置文件同步
+	// 复制文件逻辑保持不变...
 	sourcePath := filepath.Join(".", "core", "bin", fileName)
 	destPath := filepath.Join(".", "core", "bin", "config.yaml")
 	content, err := os.ReadFile(sourcePath)
 	if err != nil {
-		return fmt.Errorf("读取配置失败: %v", err)
+		return err
 	}
 	os.WriteFile(destPath, content, 0644)
 
-	// 3. 启动内核
-	if err := clash.Start(a.ctx); err != nil {
+	// 👈 关键修改：使用统一的启动服务逻辑
+	// 这样选择配置后，系统代理也会自动开启
+	if err := a.startProxyService(); err != nil {
 		return err
 	}
 
-	// 等待 API 就绪
 	time.Sleep(800 * time.Millisecond)
-
 	runtime.EventsEmit(a.ctx, "config-changed", fileName)
 	return nil
 }
