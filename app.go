@@ -170,3 +170,13 @@ func (a *App) UpdateClashSettings(settings map[string]interface{}) string {
 	}
 	return "✅ 特性已更新"
 }
+
+// 在 app.go 中添加
+
+// CheckTunEnv 检查 TUN 环境：返回 (是否是管理员, 是否有 dll)
+func (a *App) CheckTunEnv() map[string]bool {
+	return map[string]bool{
+		"isAdmin":   sys.CheckAdmin(),
+		"hasWintun": sys.CheckWintun(),
+	}
+}
