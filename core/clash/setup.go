@@ -11,26 +11,34 @@ import (
 	"time"
 )
 
-// PrepareEnv 检查并准备运行环境（自动下载内核、生成初始配置）
 func PrepareEnv(dirPath string, exePath string) error {
-	// 1. 如果目录不存在，自动创建 core/bin 文件夹
+	// 1. 创建目录...
 	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-		err := os.MkdirAll(dirPath, 0755)
-		if err != nil {
-			return fmt.Errorf("创建目录失败: %v", err)
-		}
+		os.MkdirAll(dirPath, 0755)
 	}
 
-	// 2. 检查 clash.exe 是否存在，不存在则自动下载
+	// 2. 检查 clash.exe...
 	if _, err := os.Stat(exePath); os.IsNotExist(err) {
-		fmt.Println("👉 未检测到内核，正在从云端自动下载 (请保持网络畅通)...")
-		err := downloadAndExtractKernel(dirPath, exePath)
-		if err != nil {
-			return fmt.Errorf("下载内核失败: %v", err)
+		fmt.Println("👉 未检测到内核，正在自动下载...")
+		if err := downloadAndExtractKernel(dirPath, exePath); err != nil {
+			return err
 		}
 	}
 
-	// 3. 检查 config.yaml 是否存在，不存在则生成一个最基础的配置
+	// 👉 新增：3. 检查 wintun.dll (为 TUN 模式铺垫)
+	wintunPath := filepath.Join(dirPath, "wintun.dll")
+	if _, err := os.Stat(wintunPath); os.IsNotExist(err) {
+		fmt.Println("👉 未检测到 wintun.dll，正在下载 TUN 驱动依赖...")
+		// wintun.dll 下载 (使用 wireguard 官方源或你自己的镜像源)
+		dllUrl := "https://ghproxy.net/https://github.com/wintun/wintun/releases/download/v0.14.1/wintun-amd64.dll"
+		err := downloadSingleFile(dllUrl, wintunPath)
+		if err != nil {
+			// 下载失败不阻断程序运行，只在控制台警告 (因为用户可能不用 TUN)
+			fmt.Printf("⚠️ 警告: wintun.dll 下载失败，TUN 模式可能不可用: %v\n", err)
+		} else {
+			fmt.Println("✅ wintun.dll 准备就绪")
+		}
+	}
 	configPath := filepath.Join(dirPath, "config.yaml")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		fmt.Println("👉 未检测到配置文件，正在生成默认极简配置...")
@@ -136,5 +144,39 @@ func downloadAndExtractKernel(destDir, finalExePath string) error {
 	// 6. 扫尾工作：删除下载的 .zip 压缩包
 	os.Remove(zipPath)
 	fmt.Println("🎉 内核彻底部署成功，准备点火！")
+	return nil
+}
+
+// 👉 新增：通用单文件流式下载器 (复用你已有的流式思想，用于下 DLL 等小文件)
+func downloadSingleFile(url, destPath string) error {
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 GoclashZ/1.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("状态码异常: %d", resp.StatusCode)
+	}
+
+	out, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(out, resp.Body)
+	out.Close()
+
+	if err != nil {
+		os.Remove(destPath)
+		return err
+	}
 	return nil
 }

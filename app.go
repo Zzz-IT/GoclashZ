@@ -42,30 +42,30 @@ func (a *App) StopTrafficStream() {
 
 // ================== 核心代理控制 ==================
 
-func (a *App) RunProxy() string {
-	err := clash.Start()
+func (a *App) RunProxy() error {
+	// 传入 a.ctx 给内核，以便内核崩溃时可以发送事件
+	err := clash.Start(a.ctx)
 	if err != nil {
-		return err.Error()
+		return err // 前端直接抛出异常
 	}
-	// 设置系统代理 (7890 对应配置中的 mixed-port)
+
 	err = sys.SetSystemProxy("127.0.0.1", 7890)
 	if err != nil {
-		return "内核已启动，但代理接管失败: " + err.Error()
+		return fmt.Errorf("内核已启动，但系统代理接管失败: %v", err)
 	}
-	// 启动成功后，开启网速和日志推送
+
 	go a.StartTrafficStream()
 	go a.StartStreamingLogs()
 
-	return "✅ 代理已启动"
+	return nil // 返回 nil，前端 Promise resolve
 }
 
-func (a *App) StopProxy() string {
+func (a *App) StopProxy() error {
 	clash.Stop()
 	sys.ClearSystemProxy()
 	a.StopTrafficStream()
-	return "🛑 代理已停止"
+	return nil
 }
-
 func (a *App) GetProxyStatus() bool {
 	return clash.IsRunning()
 }
@@ -85,12 +85,12 @@ func (a *App) GetInitialData() map[string]interface{} {
 }
 
 // SetConfigMode 切换 Rule/Global/Direct
-func (a *App) SetConfigMode(mode string) string {
+func (a *App) SetConfigMode(mode string) error {
 	err := clash.UpdateMode(mode)
 	if err != nil {
-		return "切换失败: " + err.Error()
+		return fmt.Errorf("切换失败: %v", err)
 	}
-	return "✅ 模式已切换"
+	return nil
 }
 
 // UpdateSubscription 订阅下载更新
@@ -163,12 +163,12 @@ func (a *App) GetProxyNodes() []clash.ProxyNode {
 	return nodes
 }
 
-func (a *App) SelectProxy(groupName, nodeName string) string {
+func (a *App) SelectProxy(groupName, nodeName string) error {
 	err := clash.SwitchProxy(groupName, nodeName)
 	if err != nil {
-		return err.Error()
+		return err
 	}
-	return "✅ 已切换"
+	return nil
 }
 
 // 在 app.go 中增加
