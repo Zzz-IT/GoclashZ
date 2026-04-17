@@ -6,58 +6,43 @@ import (
 	"goclashz/core/clash"
 	"goclashz/core/sys"
 	"goclashz/core/traffic"
+	"sync"
+	"time"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// App struct
 type App struct {
-	ctx context.Context
+	ctx           context.Context
+	cancelTraffic context.CancelFunc
+	logRunning    bool
+	mu            sync.Mutex
 }
 
-// NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{}
 }
 
-// startup is called when the app starts
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 }
 
-// shutdown 执行清理操作
 func (a *App) shutdown(ctx context.Context) {
-	fmt.Println("正在关闭应用，清理系统代理...")
-	clash.Stop()
 	sys.ClearSystemProxy()
+	clash.Stop()
 }
 
-// StartTrafficStream 供前端启动时调用
-func (a *App) StartTrafficStream() {
-	traffic.StartTrafficMonitor(a.ctx)
-}
-
-// StopTrafficStream 供前端停止或应用退出时调用
-func (a *App) StopTrafficStream() {
-	traffic.StopTrafficMonitor()
-}
-
-// ================== 核心代理控制 ==================
+// --- 代理核心控制 ---
 
 func (a *App) RunProxy() error {
-	// 传入 a.ctx 给内核，以便内核崩溃时可以发送事件
-	err := clash.Start(a.ctx)
-	if err != nil {
-		return err // 前端直接抛出异常
+	if err := clash.Start(a.ctx); err != nil {
+		return err
 	}
-
-	err = sys.SetSystemProxy("127.0.0.1", 7890)
-	if err != nil {
-		return fmt.Errorf("内核已启动，但系统代理接管失败: %v", err)
+	if err := sys.SetSystemProxy("127.0.0.1", 7890); err != nil {
+		return err
 	}
-
 	go a.StartTrafficStream()
-	go a.StartStreamingLogs()
-
-	return nil // 返回 nil，前端 Promise resolve
+	return nil
 }
 
 func (a *App) StopProxy() error {
@@ -66,155 +51,109 @@ func (a *App) StopProxy() error {
 	a.StopTrafficStream()
 	return nil
 }
+
 func (a *App) GetProxyStatus() bool {
 	return clash.IsRunning()
 }
 
-// ================== 数据交互与配置 ==================
+// --- 配置与测速 ---
 
-// GetInitialData 启动前读取离线节点和模式
-func (a *App) GetInitialData() map[string]interface{} {
-	mode, groups, err := clash.GetStaticNodes()
-	if err != nil {
-		return map[string]interface{}{"error": err.Error()}
-	}
-	return map[string]interface{}{
-		"mode":   mode,
-		"groups": groups,
-	}
+func (a *App) GetInitialData() (map[string]interface{}, error) {
+	return clash.GetInitialData()
 }
 
-// SetConfigMode 切换 Rule/Global/Direct
 func (a *App) SetConfigMode(mode string) error {
-	err := clash.UpdateMode(mode)
-	if err != nil {
-		return fmt.Errorf("切换失败: %v", err)
-	}
-	return nil
-}
-
-// UpdateSubscription 订阅下载更新
-func (a *App) UpdateSubscription(url string, ua string) string {
-	err := clash.DownloadSubscription(url, ua)
-	if err != nil {
-		return "更新失败: " + err.Error()
-	}
-	return "✅ 订阅更新成功"
-}
-
-// ================== 测速引擎 ==================
-
-// GetNodeDelay 在线测速 (调用 Clash API)
-func (a *App) GetNodeDelay(name string, testUrl string) int {
-	delay, err := clash.GetProxyDelay(name, testUrl)
-	if err != nil {
-		return -1
-	}
-	return delay
-}
-
-// GetOfflineDelay 离线测速 (纯 TCP 探测)
-func (a *App) GetOfflineDelay(name string) int {
-	addrList, err := clash.GetRawProxyAddrs()
-	if err != nil {
-		return -1
-	}
-	for _, n := range addrList {
-		if n.Name == name {
-			return clash.TCPPing(n.Server, n.Port)
-		}
-	}
-	return -1
-}
-
-// StartAsyncTest 启动高并发异步测速 (Stelliberty 风格)
-func (a *App) StartAsyncTest(groupName string) string {
-	allNodes, err := clash.GetRawProxyAddrs()
-	if err != nil {
-		return "获取配置失败"
-	}
-
-	_, groups, _ := clash.GetStaticNodes()
-	var targetNodes []clash.RawProxyInfo
-	for _, g := range groups {
-		if g.Name == groupName {
-			for _, pName := range g.Proxies {
-				for _, raw := range allNodes {
-					if raw.Name == pName {
-						targetNodes = append(targetNodes, raw)
-					}
-				}
-			}
-		}
-	}
-
-	// 开启协程执行，通过 Wails Events 推送结果
-	go clash.BatchTestNodes(a.ctx, targetNodes)
-	return "🚀 测速开始"
-}
-
-// ================== 节点选择 ==================
-
-func (a *App) GetProxyNodes() []clash.ProxyNode {
-	nodes, err := clash.GetProxies()
-	if err != nil {
-		return nil
-	}
-	return nodes
+	return clash.UpdateMode(mode)
 }
 
 func (a *App) SelectProxy(groupName, nodeName string) error {
-	err := clash.SwitchProxy(groupName, nodeName)
-	if err != nil {
-		return err
-	}
-	return nil
+	return clash.SwitchProxy(groupName, nodeName)
 }
 
-// 在 app.go 中增加
+func (a *App) UpdateSub(url string) error {
+	return clash.UpdateSubscription(url)
+}
 
-// StartStreamingLogs 启动日志推送
+func (a *App) TestAllProxies(nodeNames []string) {
+	// 信号量控制 15 并发，实现数字瀑布流视觉效果
+	semaphore := make(chan struct{}, 15)
+	for _, name := range nodeNames {
+		semaphore <- struct{}{}
+		go func(nName string) {
+			defer func() { <-semaphore }()
+			delay, _ := clash.GetProxyDelay(nName)
+			runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
+				"name":  nName,
+				"delay": delay,
+			})
+		}(name)
+	}
+}
+
+// --- 实时流管理 ---
+
+func (a *App) StartTrafficStream() {
+	a.mu.Lock()
+	if a.cancelTraffic != nil {
+		a.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.cancelTraffic = cancel
+	a.mu.Unlock()
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			up, down := traffic.GetTraffic()
+			runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": up, "down": down})
+		}
+	}
+}
+
+func (a *App) StopTrafficStream() {
+	a.mu.Lock()
+	if a.cancelTraffic != nil {
+		a.cancelTraffic()
+		a.cancelTraffic = nil
+	}
+	a.mu.Unlock()
+}
+
 func (a *App) StartStreamingLogs() {
-	go clash.StartLogStream(a.ctx)
-}
-
-// UpdateClashSettings 更新特性设置
-func (a *App) UpdateClashSettings(settings map[string]interface{}) string {
-	err := clash.PatchConfig(settings)
-	if err != nil {
-		return "修改失败: " + err.Error()
+	a.mu.Lock()
+	if a.logRunning {
+		a.mu.Unlock()
+		return
 	}
-	return "✅ 特性已更新"
+	a.logRunning = true
+	a.mu.Unlock()
+	// 调用 api_client.go 中定义的 FetchLogs
+	go clash.FetchLogs(a.ctx)
 }
 
-// 在 app.go 中添加
+func (a *App) StopStreamingLogs() {
+	a.mu.Lock()
+	a.logRunning = false
+	a.mu.Unlock()
+}
 
-// CheckTunEnv 检查 TUN 环境：返回 (是否是管理员, 是否有 dll)
+// --- 系统工具 ---
+
+func (a *App) FixUWPNetwork() error {
+	if !sys.CheckAdmin() {
+		return fmt.Errorf("Need Admin Privileges")
+	}
+	return sys.ExemptAllUWP()
+}
+
 func (a *App) CheckTunEnv() map[string]bool {
 	return map[string]bool{
 		"isAdmin":   sys.CheckAdmin(),
 		"hasWintun": sys.CheckWintun(),
 	}
-}
-
-// FixUWPNetwork 提供给前端调用的 UWP 修复接口
-func (a *App) FixUWPNetwork() error {
-	// 检查是否具有管理员权限 (修改 UWP 回环需要管理员权限)
-	if !sys.CheckAdmin() {
-		return fmt.Errorf("权限不足，请右键以管理员身份重新运行本软件")
-	}
-
-	// 调用你在 uwp_win.go 中写好的底层方法
-	err := sys.ExemptAllUWP()
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// StopStreamingLogs 停止向前端推送实时日志
-func (a *App) StopStreamingLogs() {
-	// 如果你底层写了 Context 的 Cancel 或者有控制日志停止的 Channel，请在这里触发。
-	// 如果暂时还没写底层的停止逻辑，保持这个方法为空即可，先让前端编译通过。
-	fmt.Println("⚠️ 前端已离开日志页面，暂停日志流式传输...")
 }
