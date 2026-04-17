@@ -32,6 +32,8 @@ export function SaveDNSConfig(arg1:clash.DNSConfig):Promise<void>;
 
 export function SaveTunConfig(arg1:clash.TunConfig):Promise<void>;
 
+export function SelectLocalConfig(arg1:string):Promise<void>;
+
 export function SelectProxy(arg1:string,arg2:string):Promise<void>;
 
 export function SetConfigMode(arg1:string):Promise<void>;

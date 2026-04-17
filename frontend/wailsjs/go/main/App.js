@@ -62,6 +62,10 @@ export function SaveTunConfig(arg1) {
   return window['go']['main']['App']['SaveTunConfig'](arg1);
 }
 
+export function SelectLocalConfig(arg1) {
+  return window['go']['main']['App']['SelectLocalConfig'](arg1);
+}
+
 export function SelectProxy(arg1, arg2) {
   return window['go']['main']['App']['SelectProxy'](arg1, arg2);
 }

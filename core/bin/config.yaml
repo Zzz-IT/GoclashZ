@@ -1,66 +1,545 @@
-allow-lan: false
-dns:
-    default-nameserver:
-        - 223.5.5.5
-        - 114.114.114.114
-    enable: true
-    enhanced-mode: fake-ip
-    fake-ip-filter:
-        - '*.lan'
-        - '*.localdomain'
-        - '*.example'
-        - '*.invalid'
-        - '*.localhost'
-        - '*.test'
-        - lan
-        - localdomain
-        - localhost
-    fake-ip-range: 198.18.0.1/16
-    fallback:
-        - https://doh.dns.sb/dns-query
-        - https://dns.cloudflare.com/dns-query
-    ipv6: false
-    nameserver:
-        - 119.29.29.29
-        - 223.5.5.5
-    nameserver-policy:
-        geosite:cn: https://doh.pub/dns-query
-    proxy-server-nameserver:
-        - https://doh.pub/dns-query
-    use-hosts: true
-    use-system-hosts: true
-external-controller: 127.0.0.1:9090
-log-level: info
-mixed-port: 7890
+allow-lan: true
 mode: rule
+timeout: 20
+external-controller: 127.0.0.1:9090
+
+# 体验与性能（Mihomo 常用优化）
+unified-delay: true
+tcp-concurrent: true
+profile:
+  store-selected: true
+  store-fake-ip: true
+
+dns:
+  enable: true
+  ipv6: true
+  enhanced-mode: fake-ip
+  use-hosts: true
+
+  # 系统启动/DoH 不通时的兜底（纯 IP）
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+
+  # 默认（偏国内）
+  nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+    - 114.114.114.114
+
+  # 代理链路下解析（海外质量更好）
+  proxy-server-nameserver:
+    - https://1.1.1.1/dns-query
+    - https://8.8.8.8/dns-query
+
+  # 核心优化：按 geosite 分流 DNS（CN -> 国内；非 CN -> 国外 DoH）
+  nameserver-policy:
+    "geosite:cn":
+      - 223.5.5.5
+      - 119.29.29.29
+      - 114.114.114.114
+    "geosite:geolocation-!cn":
+      - https://1.1.1.1/dns-query
+      - https://8.8.8.8/dns-query
+
 proxies:
-    - name: Laxgo
-      network: ws
-      port: 443
-      server: laxgo.zhzz.us.ci
-      servername: laxgo.zhzz.us.ci
-      skip-cert-verify: false
-      tls: true
-      type: vless
-      udp: true
-      uuid: e77f526d-f03e-416d-8856-fb6b511c7eeb
-      ws-opts:
-        headers:
-            Host: laxgo.zhzz.us.ci
-        path: /ws
+  # ================= US Serv 01 | 142.202.4.72 =================
+  - name: US_Hypia
+    type: hysteria2
+    alpn:
+      - h3
+    down: "500 Mbps"
+    password: 740ab7963ce95a93
+    port: 47479
+    server: 66.63.182.165
+    skip-cert-verify: true
+    sni: www.apple.com
+    up: "500 Mbps"
+    
+  - name: US_Usargo
+    network: ws
+    port: 443
+    server: mfa.gov.ua
+    servername: usargo.zhzz.us.ci
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 7f7ad434-e0c0-4ba0-a9fa-f8dcf5f4230a
+    client-fingerprint: chrome
+    ech-opts:
+      enable: true
+      query-server-name: cloudflare-ech.com
+    ws-opts:
+      headers:
+        Host: usargo.zhzz.us.ci
+      path: /ws
+
+  # ================= US Serv 02 | 96.44.177.11 =================
+  - name: US2_Laxgo
+    type: vless
+    server: mfa.gov.ua
+    port: 443
+    udp: true
+    uuid: 1fd70767-abad-4469-84b7-59a5e492b977
+    tls: true
+    network: ws
+    servername: laxgo.zhzz.us.ci
+    client-fingerprint: chrome
+    ech-opts:
+      enable: true
+      query-server-name: cloudflare-ech.com
+    ws-opts:
+      path: /ws
+      headers:
+        Host: laxgo.zhzz.us.ci
+
+  # ================= UK Panel=================
+  - name: UK_Ukone
+    type: vless
+    server: panel-vip.uk.998521.xyz
+    port: 10441
+    uuid: 006e9fb1-a94f-4f83-ab7e-1d72a96c1ee1
+    udp: true
+    tls: false
+    network: tcp
+
+  - name: UK_Kingweb
+    type: vless
+    server: panel-vip.uk.998521.xyz
+    port: 20443
+    uuid: dbfe0f1a-a16b-40c4-bd27-770788c7c7a4
+    udp: true
+    tls: false
+    network: ws
+    ws-opts:
+      path: /
+      headers:
+        Host: panel-vip.uk.998521.xyz
+
+  # ================= DE Serv 01 | 45.141.36.130 =================
+  - name: DE_Delake
+    type: hysteria2
+    alpn:
+      - h3
+    down: "500 Mbps"
+    password: 402e179248368560
+    port: 47479
+    server: 45.141.36.130
+    skip-cert-verify: true
+    sni: www.apple.com  
+    up: "500 Mbps"
+
+  - name: DE_Dargo
+    network: ws
+    port: 443
+    server: mfa.gov.ua
+    servername: dargo.zhzz.us.ci
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 5f1985a2-012c-48a3-94c6-8050eddb53cc
+    client-fingerprint: chrome
+    ech-opts:
+      enable: true
+      query-server-name: cloudflare-ech.com
+    ws-opts:
+      headers:
+        Host: dargo.zhzz.us.ci
+      path: /ws
+
 proxy-groups:
-    - name: PROXY
-      proxies:
-        - Laxgo
-      type: select
+  # 统一入口：默认建议选 AUTO；也可手动切到某地区/某单节点
+  - name: PROXY
+    type: select
+    proxies:
+      - AUTO
+      - US
+      - UK
+      - DE
+      - US_Hypia
+      - US_Usargo
+      - US2_Laxgo
+      - UK_Ukone
+      - UK_Kingweb
+      - DE_Delake
+      - DE_Dargo
+
+  # 全局择优：只测“地区容灾组”，避免把所有节点都拿去测导致开销大
+  - name: AUTO
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    tolerance: 150
+    proxies:
+      - US
+      - UK
+      - DE
+
+  # 地区容灾（你的原设计保留）
+  - name: US
+    type: fallback
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    proxies:
+      - US_Hypia
+      - US_Usargo
+      - US2_Laxgo
+  
+  - name: UK
+    type: fallback
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    proxies:
+      - UK_Ukone
+      - UK_Kingweb  
+
+  - name: DE
+    type: fallback
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    proxies:
+      - DE_Delake
+      - DE_Dargo
 rules:
-    - MATCH,PROXY
-tun:
-    auto-detect-interface: true
-    auto-route: true
-    dns-hijack:
-        - any:53
-    enable: false
-    mtu: 1500
-    stack: gvisor
-    strict-route: true
+
+  # ================= 1. 本机 / 局域网 =================
+  # 本地流量必须直连（避免代理回环 / 性能问题）
+  - DOMAIN-SUFFIX,local,DIRECT
+  - DOMAIN-SUFFIX,localhost,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
+  - IP-CIDR,224.0.0.0/4,DIRECT,no-resolve
+  - IP-CIDR6,::1/128,DIRECT,no-resolve
+  - IP-CIDR6,fc00::/7,DIRECT,no-resolve
+  - IP-CIDR6,fe80::/10,DIRECT,no-resolve
+  - IP-CIDR6,fd00::/8,DIRECT,no-resolve
+
+
+  # ================= 2. IP检测 / 网络测试 =================
+  # 防止测试IP时误判为国内
+  - DOMAIN-SUFFIX,ipinfo.io,PROXY
+  - DOMAIN-SUFFIX,ping0.cc,PROXY
+  - DOMAIN-SUFFIX,ip.sb,PROXY
+  - DOMAIN-SUFFIX,ipleak.net,PROXY
+  - DOMAIN-SUFFIX,whoer.net,PROXY
+  - DOMAIN-SUFFIX,myip.com,PROXY
+  - DOMAIN-SUFFIX,ipify.org,PROXY
+  - DOMAIN-SUFFIX,whatismyip.com,PROXY
+  - DOMAIN-SUFFIX,whatismyipaddress.com,PROXY
+  - DOMAIN-SUFFIX,speedtest.net,PROXY
+  - DOMAIN-SUFFIX,test-ipv6.com,PROXY
+  - DOMAIN-SUFFIX,ip-api.com,PROXY
+  - DOMAIN-KEYWORD,whatismyip,PROXY
+
+
+  # ================= 3. 广告拦截 =================
+
+  # ===== Google / YouTube 广告 =====
+  # 全球最大广告投放体系（100%可拦）
+  - DOMAIN-SUFFIX,doubleclick.net,REJECT
+  - DOMAIN-SUFFIX,googleadservices.com,REJECT
+  - DOMAIN-SUFFIX,googlesyndication.com,REJECT
+  - DOMAIN,pagead.googleusercontent.com,REJECT
+  - DOMAIN,www.googletagservices.com,REJECT
+
+  # YouTube 广告请求（部分客户端）
+  - DOMAIN,youtube.com.pagead.google.com,PROXY
+  - DOMAIN,ads.youtube.com,PROXY
+
+  # ===== 国内广告联盟 =====
+  # APP 内广告主要来源
+  - DOMAIN-SUFFIX,pangolin-sdk-toutiao.com,REJECT
+  - DOMAIN-SUFFIX,pangolin-sdk-toutiao-b.com,REJECT
+  - DOMAIN,e.qq.com,REJECT
+  - DOMAIN,adashx.m.taobao.com,REJECT
+  - DOMAIN-SUFFIX,tanx.com,REJECT
+  - DOMAIN-SUFFIX,alimama.com,REJECT
+
+  # ===== 百度广告 =====
+  # 仅拦广告接口（避免误伤静态资源）
+  - DOMAIN-SUFFIX,cpro.baidu.com,REJECT
+  - DOMAIN-SUFFIX,pos.baidu.com,REJECT
+  - DOMAIN-SUFFIX,union.baidu.com,REJECT
+
+  # ===== 国际广告 / 追踪器 =====
+  # 用户行为分析 / 广告分发
+  - DOMAIN-SUFFIX,admob.com,REJECT
+  - DOMAIN-SUFFIX,adsrvr.org,REJECT
+  - DOMAIN-SUFFIX,scorecardresearch.com,REJECT
+  - DOMAIN-SUFFIX,zedo.com,REJECT
+
+  # ===== 自动广告补全 =====
+  # 包含广告 + 广告提供商域名 
+  - GEOSITE,category-ads-all,REJECT
+
+
+  # ================= 4. 国外服务  =================
+
+  # ===== Google / 基础服务 =====
+  - DOMAIN-SUFFIX,gstatic.com,PROXY
+  - DOMAIN-SUFFIX,googleapis.com,PROXY
+  - DOMAIN-SUFFIX,googleusercontent.com,PROXY
+  - DOMAIN-SUFFIX,googlevideo.com,PROXY
+  - DOMAIN-SUFFIX,gvt1.com,PROXY
+  - DOMAIN-SUFFIX,gvt2.com,PROXY
+  - DOMAIN-SUFFIX,gvt3.com,PROXY
+  - DOMAIN-SUFFIX,youtube.com,PROXY
+  - DOMAIN-SUFFIX,youtu.be,PROXY
+  - DOMAIN-SUFFIX,ytimg.com,PROXY
+  - DOMAIN-SUFFIX,ggpht.com,PROXY
+  - DOMAIN-SUFFIX,goog,PROXY
+  - DOMAIN-SUFFIX,g.cn,PROXY
+  - DOMAIN-SUFFIX,blogger.com,PROXY
+  - DOMAIN-SUFFIX,appspot.com,PROXY
+  - DOMAIN-SUFFIX,android.com,PROXY
+  - DOMAIN-KEYWORD,google,PROXY
+  - DOMAIN-KEYWORD,youtube,PROXY
+
+  # ===== 社交媒体 =====
+  - DOMAIN-SUFFIX,facebook.com,PROXY
+  - DOMAIN-SUFFIX,fb.com,PROXY
+  - DOMAIN-SUFFIX,fb.me,PROXY
+  - DOMAIN-SUFFIX,fbcdn.net,PROXY
+  - DOMAIN-SUFFIX,instagram.com,PROXY
+  - DOMAIN-SUFFIX,cdninstagram.com,PROXY
+  - DOMAIN-SUFFIX,whatsapp.com,PROXY
+  - DOMAIN-SUFFIX,whatsapp.net,PROXY
+  - DOMAIN-SUFFIX,messenger.com,PROXY
+  - DOMAIN-SUFFIX,twitter.com,PROXY
+  - DOMAIN-SUFFIX,x.com,PROXY
+  - DOMAIN-SUFFIX,t.co,PROXY
+  - DOMAIN-SUFFIX,twimg.com,PROXY
+
+
+  # 即时通讯
+  - DOMAIN-SUFFIX,telegram.org,PROXY
+  - DOMAIN-SUFFIX,t.me,PROXY
+  - DOMAIN-SUFFIX,tdesktop.com,PROXY
+  - DOMAIN-KEYWORD,whatsapp,PROXY
+
+  # Telegram IP（必须）
+  - IP-CIDR,91.108.0.0/16,PROXY,no-resolve
+  - IP-CIDR,149.154.160.0/20,PROXY,no-resolve
+
+  # ===== 流媒体 =====
+  - DOMAIN-SUFFIX,netflix.com,PROXY
+  - DOMAIN-SUFFIX,netflix.net,PROXY
+  - DOMAIN-SUFFIX,nflxext.com,PROXY
+  - DOMAIN-SUFFIX,nflximg.net,PROXY
+  - DOMAIN-SUFFIX,nflxvideo.net,PROXY
+  - DOMAIN-SUFFIX,spotify.com,PROXY
+  - DOMAIN-SUFFIX,spotifycdn.com,PROXY
+  - DOMAIN-SUFFIX,twitch.tv,PROXY
+  - DOMAIN-SUFFIX,jtvnw.net,PROXY
+  - DOMAIN-SUFFIX,ttvnw.net,PROXY
+  - DOMAIN-SUFFIX,hulu.com,PROXY
+  - DOMAIN-SUFFIX,hbo.com,PROXY
+  - DOMAIN-SUFFIX,hbomax.com,PROXY
+  - DOMAIN-SUFFIX,disneyplus.com,PROXY
+   
+  # ===== Steam =====
+  - DOMAIN-SUFFIX,steampowered.com,PROXY
+  - DOMAIN-SUFFIX,steamcommunity.com,PROXY
+  - DOMAIN-SUFFIX,steamcontent.com,PROXY
+  - DOMAIN-SUFFIX,steamstatic.com,PROXY
+  - DOMAIN-SUFFIX,steamcdn-a.akamaihd.net,PROXY
+  - DOMAIN-KEYWORD,steam,PROXY
+
+  # ===== AI / 开发 =====
+  - DOMAIN-SUFFIX,openai.com,PROXY
+  - DOMAIN-SUFFIX,chatgpt.com,PROXY
+  - DOMAIN-SUFFIX,oaistatic.com,PROXY
+  - DOMAIN-SUFFIX,oaiusercontent.com,PROXY
+  - DOMAIN-SUFFIX,ai.com,PROXY
+  - DOMAIN-SUFFIX,auth0.com,PROXY
+  - DOMAIN-SUFFIX,anthropic.com,PROXY
+  - DOMAIN-SUFFIX,claude.ai,PROXY
+  - DOMAIN-SUFFIX,perplexity.ai,PROXY
+  - DOMAIN-SUFFIX,github.com,PROXY
+  - DOMAIN-SUFFIX,githubusercontent.com,PROXY
+  - DOMAIN-SUFFIX,github.io,PROXY
+  - DOMAIN-KEYWORD,github,PROXY
+  - DOMAIN-KEYWORD,openai,PROXY
+  - DOMAIN-KEYWORD,chatgpt,PROXY
+  - DOMAIN-KEYWORD,anthropic,PROXY
+  - DOMAIN-KEYWORD,claude,PROXY
+  - DOMAIN-KEYWORD,cloudflare,PROXY
+
+  # ===== 社区 / 内容 =====
+  - DOMAIN-SUFFIX,reddit.com,PROXY
+  - DOMAIN-SUFFIX,redditmedia.com,PROXY
+  - DOMAIN-SUFFIX,discord.com,PROXY
+  - DOMAIN-SUFFIX,discordapp.com,PROXY
+  - DOMAIN-SUFFIX,discordapp.net,PROXY
+  - DOMAIN-SUFFIX,wikipedia.org,PROXY
+  - DOMAIN-SUFFIX,wikimedia.org,PROXY
+  - DOMAIN-SUFFIX,pinterest.com,PROXY
+  - DOMAIN-SUFFIX,pinimg.com,PROXY
+  - DOMAIN-SUFFIX,quora.com,PROXY
+  - DOMAIN-SUFFIX,quoracdn.net,PROXY
+  - DOMAIN-SUFFIX,medium.com,PROXY
+  - DOMAIN-SUFFIX,imgur.com,PROXY
+  - DOMAIN-SUFFIX,vimeo.com,PROXY
+  - DOMAIN-SUFFIX,vimeocdn.com,PROXY
+  - DOMAIN-SUFFIX,pornhub.com,PROXY
+  - DOMAIN-SUFFIX,phncdn.com,PROXY
+  - DOMAIN-SUFFIX,phprcdn.com,PROXY
+ # ===== 杂项 =====
+  - DOMAIN-KEYWORD,pornhub,PROXY
+  - DOMAIN-KEYWORD,xvideos,PROXY
+  - DOMAIN-KEYWORD,dropbox,PROXY
+  - DOMAIN-KEYWORD,amazon,PROXY
+
+
+  # ================= 5. 国内服务（厂商分类直连） =================
+
+ # ===== 银行/支付 =====
+  - DOMAIN-SUFFIX,cmbchina.com,DIRECT
+  - DOMAIN-SUFFIX,icbc.com.cn,DIRECT
+  - DOMAIN-SUFFIX,ccb.com,DIRECT
+  - DOMAIN-SUFFIX,boc.cn,DIRECT
+  - DOMAIN-SUFFIX,abchina.com,DIRECT
+  - DOMAIN-SUFFIX,bankcomm.com,DIRECT
+  - DOMAIN-SUFFIX,psbc.com.cn,DIRECT
+  - DOMAIN-SUFFIX,cib.com.cn,DIRECT
+  - DOMAIN-SUFFIX,pingan.com,DIRECT
+  - DOMAIN-SUFFIX,spdb.com.cn,DIRECT
+  - DOMAIN-SUFFIX,cebbank.com,DIRECT
+  - DOMAIN-SUFFIX,cmbc.com.cn,DIRECT
+  - DOMAIN-SUFFIX,unionpay.com,DIRECT
+  - DOMAIN-SUFFIX,95516.com,DIRECT
+  - DOMAIN-SUFFIX,alipay.com,DIRECT
+  - DOMAIN-SUFFIX,alipayobjects.com,DIRECT
+  - DOMAIN-SUFFIX,tenpay.com,DIRECT
+  - DOMAIN-SUFFIX,weixinpay.com,DIRECT
+
+  # ===== 腾讯 =====
+  - DOMAIN-SUFFIX,qq.com,DIRECT
+  - DOMAIN-SUFFIX,tencent.com,DIRECT
+  - DOMAIN-SUFFIX,wechat.com,DIRECT
+  - DOMAIN-SUFFIX,weixin.com,DIRECT
+  - DOMAIN-SUFFIX,qpic.cn,DIRECT
+  - DOMAIN-SUFFIX,qlogo.cn,DIRECT
+  - DOMAIN-SUFFIX,gtimg.cn,DIRECT
+  - DOMAIN-SUFFIX,gtimg.com,DIRECT
+  - DOMAIN-SUFFIX,weiyun.com,DIRECT
+  - DOMAIN-SUFFIX,smtcdns.com,DIRECT
+  - DOMAIN-SUFFIX,smtcdns.net,DIRECT
+
+  # ===== 阿里 =====
+  - DOMAIN-SUFFIX,taobao.com,DIRECT
+  - DOMAIN-SUFFIX,tmall.com,DIRECT
+  - DOMAIN-SUFFIX,alibaba.com,DIRECT
+  - DOMAIN-SUFFIX,aliyun.com,DIRECT
+  - DOMAIN-SUFFIX,alicdn.com,DIRECT
+  - DOMAIN-SUFFIX,tbcache.com,DIRECT
+  - DOMAIN-SUFFIX,dingtalk.com,DIRECT
+  - DOMAIN-SUFFIX,amap.com,DIRECT
+  - DOMAIN-SUFFIX,ele.me,DIRECT
+  - DOMAIN-SUFFIX,xiami.com,DIRECT
+  - DOMAIN-SUFFIX,1688.com,DIRECT
+  - DOMAIN-SUFFIX,aliyuncs.com,DIRECT
+
+  # ===== 京东 =====
+  - DOMAIN-SUFFIX,jd.com,DIRECT
+  - DOMAIN-SUFFIX,360buy.com,DIRECT
+  - DOMAIN-SUFFIX,360buyimg.com,DIRECT
+  - DOMAIN-SUFFIX,jdcloud.com,DIRECT
+
+  # ===== 字节 =====
+  - DOMAIN-SUFFIX,bytedance.com,DIRECT
+  - DOMAIN-SUFFIX,douyin.com,DIRECT
+  - DOMAIN-SUFFIX,toutiao.com,DIRECT
+  - DOMAIN-SUFFIX,ixigua.com,DIRECT
+  - DOMAIN-SUFFIX,snssdk.com,DIRECT
+  - DOMAIN-SUFFIX,pstatp.com,DIRECT
+  - DOMAIN-SUFFIX,amemv.com,DIRECT
+  - DOMAIN-SUFFIX,douyinvod.com,DIRECT
+  - DOMAIN-SUFFIX,douyinstatic.com,DIRECT
+
+  # ===== 百度 =====
+  - DOMAIN-SUFFIX,baidu.com,DIRECT
+  - DOMAIN-SUFFIX,bdimg.com,DIRECT
+  - DOMAIN-SUFFIX,bdstatic.com,DIRECT
+  - DOMAIN-SUFFIX,baidupcs.com,DIRECT
+  - DOMAIN-SUFFIX,hao123.com,DIRECT
+  - DOMAIN-SUFFIX,bcebos.com,DIRECT
+
+  # ===== 视频 / 内容 =====
+  - DOMAIN-SUFFIX,bilibili.com,DIRECT
+  - DOMAIN-SUFFIX,hdslb.com,DIRECT
+  - DOMAIN-SUFFIX,bilivideo.com,DIRECT
+  - DOMAIN-SUFFIX,acgvideo.com,DIRECT
+  - DOMAIN-SUFFIX,b23.tv,DIRECT
+  - DOMAIN-SUFFIX,iqiyi.com,DIRECT
+  - DOMAIN-SUFFIX,qy.net,DIRECT
+  - DOMAIN-SUFFIX,youku.com,DIRECT
+  - DOMAIN-SUFFIX,ykimg.com,DIRECT
+  - DOMAIN-SUFFIX,mgtv.com,DIRECT
+  - DOMAIN-SUFFIX,hitv.com,DIRECT
+  - DOMAIN-SUFFIX,douyu.com,DIRECT
+  - DOMAIN-SUFFIX,douyucdn.cn,DIRECT
+  - DOMAIN-SUFFIX,huya.com,DIRECT
+  - DOMAIN-SUFFIX,kuaishou.com,DIRECT
+  - DOMAIN-SUFFIX,yximgs.com,DIRECT
+  - DOMAIN-SUFFIX,cctv.com,DIRECT
+
+  # ===== 其他 =====
+  - DOMAIN-SUFFIX,zhihu.com,DIRECT
+  - DOMAIN-SUFFIX,zhimg.com,DIRECT
+  - DOMAIN-SUFFIX,meituan.com,DIRECT
+  - DOMAIN-SUFFIX,meituan.net,DIRECT
+  - DOMAIN-SUFFIX,pinduoduo.com,DIRECT
+  - DOMAIN-SUFFIX,yangkeduo.com,DIRECT
+  - DOMAIN-SUFFIX,xiaohongshu.com,DIRECT
+  - DOMAIN-SUFFIX,xhscdn.com,DIRECT
+  - DOMAIN-SUFFIX,weibo.com,DIRECT
+  - DOMAIN-SUFFIX,weibocdn.com,DIRECT
+  - DOMAIN-SUFFIX,sina.com.cn,DIRECT
+  - DOMAIN-SUFFIX,sohu.com,DIRECT
+  - DOMAIN-SUFFIX,sogou.com,DIRECT
+  - DOMAIN-SUFFIX,csdn.net,DIRECT
+  - DOMAIN-SUFFIX,ctrip.com,DIRECT
+  - DOMAIN-SUFFIX,qunar.com,DIRECT
+  - DOMAIN-SUFFIX,didiglobal.com,DIRECT
+  - DOMAIN-SUFFIX,xiaomi.com,DIRECT
+  - DOMAIN-SUFFIX,mi.com,DIRECT
+  - DOMAIN-SUFFIX,huawei.com,DIRECT
+  - DOMAIN-SUFFIX,vmall.com,DIRECT
+  - DOMAIN-SUFFIX,smzdm.com,DIRECT
+
+  # ================= 6. 系统服务 =================
+  # ===== Microsoft / Bing（全部直连）=====
+  - DOMAIN-SUFFIX,microsoft.com,DIRECT
+  - DOMAIN-SUFFIX,microsoftonline.com,DIRECT
+  - DOMAIN-SUFFIX,windows.com,DIRECT
+  - DOMAIN-SUFFIX,live.com,DIRECT
+  - DOMAIN-SUFFIX,office.com,DIRECT
+  - DOMAIN-SUFFIX,office365.com,DIRECT
+  - DOMAIN-SUFFIX,azureedge.net,DIRECT
+  - DOMAIN-SUFFIX,msftconnecttest.com,DIRECT
+
+  # Bing
+  - DOMAIN-SUFFIX,bing.com,DIRECT
+  - DOMAIN-SUFFIX,bing.net,DIRECT
+  - DOMAIN-SUFFIX,aria2.net,DIRECT
+  - DOMAIN-SUFFIX,xunlei.com,DIRECT
+  - DOMAIN-SUFFIX,sandai.net,DIRECT
+  - DOMAIN-SUFFIX,qbittorrent.org,DIRECT
+  - DOMAIN-SUFFIX,apple.com,DIRECT
+  - DOMAIN-SUFFIX,icloud.com,DIRECT
+
+
+
+  # ================= 7. 国内兜底 =================
+  - DOMAIN-SUFFIX,cn,DIRECT
+  - GEOIP,CN,DIRECT,no-resolve
+
+
+  # ================= 8. 最终兜底 =================
+  - MATCH,PROXY

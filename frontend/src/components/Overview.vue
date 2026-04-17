@@ -1,62 +1,219 @@
 <template>
-  <div class="overview-container">
-    <div class="glass-card status-card">
-      <div class="status-info">
-        <div class="indicator" :class="{ active: isRunning }"></div>
-        <div>
-          <h3>{{ isRunning ? 'GoclashZ 正在运行' : '系统代理已停止' }}</h3>
-          <p class="sub-text">安全、快速、轻量级的网络代理接管</p>
+  <div class="overview">
+    <div class="status-grid">
+      <div class="status-card glass-panel" :class="{ 'is-active': isRunning }">
+        <div class="card-icon" v-html="isRunning ? ICONS.powerOn : ICONS.powerOff"></div>
+        <div class="card-content">
+          <span class="label">系统服务状态</span>
+          <h3 class="value">{{ isRunning ? '正在运行' : '已停止' }}</h3>
         </div>
       </div>
-      <button class="primary-btn" :class="{ stop: isRunning }" @click="$emit('toggle')">
-        {{ isRunning ? '🛑 停止代理' : '🚀 启动代理' }}
-      </button>
+
+      <div class="status-card glass-panel">
+        <div class="card-icon" v-html="ICONS.config"></div>
+        <div class="card-content">
+          <span class="label">当前活跃配置</span>
+          <h3 class="value truncate" :title="activeConfigName">
+            {{ activeConfigName || '未选择配置' }}
+          </h3>
+        </div>
+      </div>
     </div>
 
-    <div class="grid-container">
-      <div class="glass-card module-card">
-        <h4>路由模式 (Mode)</h4>
-        <div class="mode-toggles">
-          <button class="mode-btn active">规则</button>
-          <button class="mode-btn">全局</button>
-          <button class="mode-btn">直连</button>
+    <div class="traffic-section glass-panel">
+      <div class="section-header">
+        <h3 class="section-title">实时流量监控</h3>
+        <div class="traffic-indicators">
+          <div class="indicator up">
+            <span class="dot"></span> 上传: {{ traffic.up }}
+          </div>
+          <div class="indicator down">
+            <span class="dot"></span> 下载: {{ traffic.down }}
+          </div>
         </div>
       </div>
-
-      <div class="glass-card module-card">
-        <h4>TUN 虚拟网卡</h4>
-        <p class="sub-text">接管所有非系统代理流量 (全局真路由)</p>
-        <button class="outline-btn">检查 TUN 环境</button>
+      <div class="chart-placeholder">
+        <p class="hint">内核：{{ clashVersion || 'Mihomo Core' }}</p>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-// 接收来自 App.vue 的状态和事件
-defineProps<{ isRunning: boolean }>();
-defineEmits(['toggle']);
+import { ref, onMounted, onUnmounted } from 'vue';
+import * as API from '../../wailsjs/go/main/App';
+
+// 图标定义
+const ICONS = {
+  powerOn: `<svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>`,
+  powerOff: `<svg viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>`,
+  config: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`
+};
+
+const isRunning = ref(false);
+const activeConfigName = ref('');
+const clashVersion = ref('');
+const traffic = ref({ up: '0 B/s', down: '0 B/s' });
+
+// 获取所有初始化数据
+const refreshAllData = async () => {
+  try {
+    const data: any = await API.GetInitialData();
+    if (data) {
+      // 1. 同步运行状态
+      isRunning.value = await API.GetProxyStatus();
+
+      // 2. 同步配置名称 (优先使用后端记录的 activeConfig)
+      if (data.activeConfig) {
+        activeConfigName.value = data.activeConfig;
+      } else if (data.configPath) {
+        // 如果后端没记，从完整路径截取文件名
+        activeConfigName.value = data.configPath.split(/[\\/]/).pop() || 'config.yaml';
+      }
+
+      clashVersion.value = data.version || '';
+    }
+  } catch (e) {
+    console.error("加载概览数据失败:", e);
+  }
+};
+
+// 事件监听回调：当配置发生改变时
+const onConfigChanged = (newName: string) => {
+  console.log("概览页同步新配置:", newName);
+  activeConfigName.value = newName;
+  refreshAllData(); // 重新拉取一次完整状态
+};
+
+onMounted(() => {
+  refreshAllData();
+
+  // 注册全局监听事件
+  (window as any).runtime.EventsOn("config-changed", onConfigChanged);
+
+  // 监听流量数据
+  (window as any).runtime.EventsOn("traffic-data", (data: any) => {
+    traffic.value = data;
+  });
+});
+
+onUnmounted(() => {
+  // 销毁监听，防止切换页面重复注册
+  (window as any).runtime.EventsOff("config-changed");
+  (window as any).runtime.EventsOff("traffic-data");
+});
 </script>
 
 <style scoped>
-.overview-container { display: flex; flex-direction: column; gap: 20px; }
-.status-card { display: flex; justify-content: space-between; align-items: center; padding: 24px; }
-.status-info { display: flex; align-items: center; gap: 16px; }
-.indicator { width: 14px; height: 14px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 10px #ef4444; transition: 0.3s; }
-.indicator.active { background: #10b981; box-shadow: 0 0 10px #10b981; }
-h3 { margin: 0 0 4px 0; font-size: 1.2rem; color: var(--text-main); }
-.sub-text { margin: 0; font-size: 0.9rem; color: var(--text-sub); }
-.primary-btn { padding: 10px 24px; border-radius: 12px; border: none; background: var(--accent); color: white; font-weight: bold; cursor: pointer; transition: 0.2s; }
-.primary-btn:hover { opacity: 0.9; transform: translateY(-1px); }
-.primary-btn.stop { background: #ef4444; }
+.overview {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
 
-.grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-.module-card { padding: 20px; display: flex; flex-direction: column; justify-content: center; }
-h4 { margin: 0 0 12px 0; color: var(--text-main); }
-.mode-toggles { display: flex; background: rgba(0,0,0,0.05); padding: 4px; border-radius: 10px; }
-.dark .mode-toggles { background: rgba(255,255,255,0.05); }
-.mode-btn { flex: 1; padding: 8px; border: none; background: transparent; border-radius: 6px; cursor: pointer; color: var(--text-sub); font-weight: bold; transition: 0.2s; }
-.mode-btn.active { background: var(--glass-bg); color: var(--accent); box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-.outline-btn { padding: 8px 16px; margin-top: 12px; border: 1px solid var(--accent); background: transparent; color: var(--accent); border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; }
-.outline-btn:hover { background: var(--accent); color: white; }
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+}
+
+.status-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--glass-border);
+}
+
+.status-card.is-active {
+  border-color: rgba(16, 185, 129, 0.3);
+  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.05);
+}
+
+.card-icon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-hover);
+  border-radius: 12px;
+}
+
+.card-icon :deep(svg) {
+  width: 24px;
+  height: 24px;
+}
+
+.card-content .label {
+  font-size: 0.8rem;
+  color: var(--text-sub);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.card-content .value {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.traffic-section {
+  padding: 24px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--glass-border);
+  min-height: 200px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.section-title {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.traffic-indicators {
+  display: flex;
+  gap: 16px;
+  font-size: 0.85rem;
+  font-family: monospace;
+}
+
+.indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.indicator.up .dot { width: 8px; height: 8px; border-radius: 50%; background: #3b82f6; }
+.indicator.down .dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; }
+
+.chart-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  color: var(--text-muted);
+}
+
+.hint {
+  font-size: 0.75rem;
+  margin-top: auto;
+}
 </style>

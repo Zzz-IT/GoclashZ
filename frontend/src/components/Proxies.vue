@@ -170,10 +170,13 @@ const getDelayColorClass = (delay: number | null) => {
   return 't-slow';
 };
 
+// 找到脚本末尾的 onMounted 逻辑并替换
 onMounted(async () => {
+  // 1. 初始加载数据
   await loadData();
+
+  // 2. 监听测速更新 (原有逻辑)
   EventsOn("proxy-delay-update", (data: any) => {
-    // 收到测速结果更新所有组中对应的节点
     localGroups.value.forEach(g => {
       const node = g.proxies.find((n: any) => n.name === data.name);
       if (node) {
@@ -182,9 +185,19 @@ onMounted(async () => {
       }
     });
   });
+
+  // 3. 监听配置切换事件 (新增：解决切换配置后节点不刷新)
+  EventsOn("config-changed", () => {
+    console.log("检测到内核配置已更新，正在重新加载节点...");
+    loadData(); // 使用你代码中定义好的加载函数
+  });
 });
 
-onUnmounted(() => EventsOff("proxy-delay-update"));
+// 记得在 onUnmounted 中销毁监听
+onUnmounted(() => {
+  EventsOff("proxy-delay-update");
+  EventsOff("config-changed");
+});
 </script>
 
 <style scoped>

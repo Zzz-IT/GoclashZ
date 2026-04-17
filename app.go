@@ -22,6 +22,7 @@ type App struct {
 	cancelTraffic context.CancelFunc
 	logRunning    bool
 	mu            sync.Mutex
+	activeConfig  string
 }
 
 func NewApp() *App {
@@ -78,9 +79,15 @@ func (a *App) GetProxyStatus() bool {
 // --- 配置与测速 ---
 
 func (a *App) GetInitialData() (map[string]interface{}, error) {
-	return clash.GetInitialData()
+	data, err := clash.GetInitialData() //
+	if err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	data["activeConfig"] = a.activeConfig // <--- 插入这一行
+	a.mu.Unlock()
+	return data, nil
 }
-
 func (a *App) SetConfigMode(mode string) error {
 	return clash.UpdateMode(mode)
 }
@@ -286,4 +293,26 @@ func (a *App) OpenConfigFile(fileName string) error {
 func (a *App) DeleteConfig(fileName string) error {
 	path := filepath.Join(a.getProfilesDir(), fileName)
 	return os.Remove(path)
+}
+
+// 修改 SelectLocalConfig 方法，记录选中的名字
+func (a *App) SelectLocalConfig(fileName string) error {
+	a.mu.Lock()
+	a.activeConfig = fileName // 记录状态
+	a.mu.Unlock()
+
+	clash.Stop()           //
+	sys.ClearSystemProxy() //
+
+	// 覆盖 config.yaml
+	sourcePath := filepath.Join(".", "core", "bin", fileName)
+	destPath := filepath.Join(".", "core", "bin", "config.yaml")
+	content, _ := os.ReadFile(sourcePath)
+	os.WriteFile(destPath, content, 0644)
+
+	clash.Start(a.ctx) // 重启内核
+
+	// 发送全局广播通知所有组件：配置已变动！
+	runtime.EventsEmit(a.ctx, "config-changed", fileName)
+	return nil
 }
