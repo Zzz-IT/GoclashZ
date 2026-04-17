@@ -66,3 +66,51 @@ func (a *App) StopProxy() string {
 func (a *App) GetProxyStatus() bool {
 	return clash.IsRunning()
 }
+
+// GetProxyNodes 获取节点列表供前端展示
+func (a *App) GetProxyNodes() []clash.ProxyNode {
+	// 只有在内核运行的情况下才去请求 API
+	if !clash.IsRunning() {
+		return nil
+	}
+
+	nodes, err := clash.GetProxies()
+	if err != nil {
+		fmt.Println("获取节点报错:", err)
+		return nil
+	}
+	return nodes
+}
+
+// SelectProxy 供前端点击节点时调用
+func (a *App) SelectProxy(groupName, nodeName string) string {
+	err := clash.SwitchProxy(groupName, nodeName)
+	if err != nil {
+		return "切换失败: " + err.Error()
+	}
+	return "✅ 节点已切换"
+}
+
+// GetInitialData 启动前获取基础信息和离线节点
+func (a *App) GetInitialData() map[string]interface{} {
+	mode, groups, err := clash.GetStaticNodes()
+
+	if err != nil {
+		// 如果 YAML 解析报错，把错误传给前端
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	return map[string]interface{}{
+		"mode":   mode,
+		"groups": groups,
+	}
+}
+
+// SetConfigMode 切换 Rule/Global/Direct
+func (a *App) SetConfigMode(mode string) string {
+	err := clash.UpdateMode(mode)
+	if err != nil {
+		return "失败: " + err.Error()
+	}
+	return "✅ 模式已切换至: " + mode
+}
