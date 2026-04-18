@@ -278,7 +278,7 @@ onUnmounted(() => {
 .status-badge.online { color: #10b981; background: rgba(16, 185, 129, 0.1); }
 .loading-tag { color: var(--text-muted); background: var(--surface-hover); }
 
-.sub-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--glass-border); pt: 12px; margin-top: 10px; padding-top: 10px; }
+.sub-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--glass-border); margin-top: 10px; padding-top: 10px; }
 .sub-hint { font-size: 0.75rem; color: var(--text-sub); font-style: italic; }
 
 /* 菜单项 */
