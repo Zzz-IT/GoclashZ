@@ -114,16 +114,12 @@ const isCurrentConfig = (filename: string) => {
 
 const fetchConfigs = async () => {
   try {
-    // 获取本地文件列表
     const list = await API.GetLocalConfigs();
-    // 过滤掉运行时的 config.yaml，避免干扰
-    localConfigs.value = (list || []).filter(name => name !== 'config.yaml');
+    localConfigs.value = (list || []).filter(name => !name.endsWith('config.yaml'));
 
     const data: any = await API.GetInitialData();
     if (data && data.activeConfig) {
-      currentPath.value = data.activeConfig;
-    } else if (data && data.configPath) {
-      currentPath.value = data.configPath;
+      currentPath.value = data.activeConfig; // 直接信任后端给的准确名字
     }
   } catch (e) {
     console.error("同步状态失败:", e);

@@ -115,24 +115,36 @@ func (a *App) loadActiveMode() string {
 	return "rule" // 默认规则模式
 }
 
+// --- 状态获取辅助方法（新增） ---
+
+func (a *App) getActiveConfig() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	// 如果内存为空，则从本地文件读取并缓存到内存
+	if a.activeConfig == "" {
+		a.activeConfig = a.loadActiveConfig()
+	}
+	return a.activeConfig
+}
+
+func (a *App) getActiveMode() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.activeMode == "" {
+		a.activeMode = a.loadActiveMode()
+	}
+	return a.activeMode
+}
+
 // --- 底层：确保内核运行 ---
 func (a *App) ensureCoreRunning() error {
 	if clash.IsRunning() {
 		return nil
 	}
 
-	a.mu.Lock()
-	mode := a.activeMode
-	if mode == "" {
-		mode = a.loadActiveMode()
-		a.activeMode = mode
-	}
-	// 获取当前配置文件名
-	activeCfg := a.activeConfig
-	if activeCfg == "" {
-		activeCfg = a.loadActiveConfig()
-	}
-	a.mu.Unlock()
+	// 👈 核心修复：使用安全方法获取并初始化状态，不再需要手动加锁
+	mode := a.getActiveMode()
+	activeCfg := a.getActiveConfig()
 
 	// 👈 核心：利用已有的配置生成流水线，直接根据模板重写 config.yaml (含模式、TUN、端口等)
 	if activeCfg != "" {
@@ -319,16 +331,9 @@ func (a *App) StopProxy() error {
 // --- 配置与测速 ---
 
 func (a *App) GetInitialData() (map[string]interface{}, error) {
-	a.mu.Lock()
-	activeConfig := a.activeConfig
-	if activeConfig == "" {
-		activeConfig = a.loadActiveConfig()
-	}
-	mode := a.activeMode
-	if mode == "" {
-		mode = a.loadActiveMode()
-	}
-	a.mu.Unlock()
+	// 👈 核心修复：通过安全方法获取准确的上下文
+	activeConfig := a.getActiveConfig()
+	mode := a.getActiveMode()
 
 	if !clash.IsRunning() {
 		data, err := clash.GetOfflineData(activeConfig)
@@ -336,7 +341,7 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 			return map[string]interface{}{"mode": mode, "groups": make(map[string]interface{})}, nil
 		}
 		
-		a.mergeOfflineNodes(data) // 👈 使用辅助方法合并
+		a.mergeOfflineNodes(data) 
 
 		data["activeConfig"] = activeConfig
 		data["mode"] = mode
@@ -346,39 +351,27 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 
 	data, err := clash.GetInitialData()
 	if err != nil {
-		// API 宕机/未就绪时触发降级，同样需要合并离线节点，防止 UI 重置跳变
+		// API 宕机/未就绪时触发降级
 		fallbackData, _ := clash.GetOfflineData(activeConfig)
 		if fallbackData != nil {
 			a.mergeOfflineNodes(fallbackData)
 			fallbackData["activeConfig"] = activeConfig
 			fallbackData["isOffline"] = true
-
-			// ✅ 修复：把内存中最新的 mode 覆盖给 fallback，防止从 YAML 读到旧数据导致界面跳变
-			a.mu.Lock()
-			if a.activeMode != "" {
-				fallbackData["mode"] = a.activeMode
-			}
-			a.mu.Unlock()
-
+			fallbackData["mode"] = mode // ✅ 使用准确的模式
 			return fallbackData, nil
 		}
 		return map[string]interface{}{"mode": "rule", "groups": make(map[string]interface{})}, nil
 	}
 
-	a.mu.Lock()
-	data["activeConfig"] = a.activeConfig
-	data["mode"] = a.activeMode
-	a.mu.Unlock()
+	// ✅ 核心修复：直接使用准确的局部变量，不要再用可能为空的 a.activeConfig
+	data["activeConfig"] = activeConfig
+	data["mode"] = mode
 	data["isOffline"] = false
 
-	// 注入节点组原始排序 (不管在线还是离线都尝试从本地 YAML 提取)
-	configName := activeConfig
-	if configName == "" {
-		configName = a.loadActiveConfig()
-	}
+	// 注入节点组原始排序
 	baseDir := getBaseDir()
-	configPath := filepath.Join(baseDir, "core", "bin", configName)
-	if configName == "" || configName == "config.yaml" {
+	configPath := filepath.Join(baseDir, "core", "bin", activeConfig)
+	if activeConfig == "" || activeConfig == "config.yaml" {
 		configPath = filepath.Join(baseDir, "core", "bin", "config.yaml")
 	}
 	if yamlData, err := os.ReadFile(configPath); err == nil {
@@ -451,16 +444,10 @@ func (a *App) UpdateClashMode(mode string) error {
 		return clash.UpdateMode(mode)
 	}
 
-	// 3. 如果内核没运行，只改文件（防止下次启动时丢失）
-	a.mu.Lock()
-	activeCfg := a.activeConfig
-	if activeCfg == "" {
-		activeCfg = a.loadActiveConfig()
-	}
-	a.mu.Unlock()
+	// 3. 如果内核没运行，只改文件
+	activeCfg := a.getActiveConfig() // 👈 替换为安全获取
 
 	if activeCfg != "" {
-		// 直接利用现成的流水线重构 config.yaml
 		return clash.BuildRuntimeConfig(activeCfg, mode)
 	}
 	return nil
@@ -742,10 +729,9 @@ func (a *App) RenameConfig(oldName, newName string) error {
 		a.activeConfig = newName // 更新内部记录
 		a.saveActiveConfig(newName)
 		a.mu.Unlock()
-		// 重新生成配置并启动
-		a.mu.Lock()
-		mode := a.activeMode
-		a.mu.Unlock()
+		
+		// 👈 核心修复：使用 getActiveMode 防止状态为空
+		mode := a.getActiveMode() 
 		clash.BuildRuntimeConfig(newName, mode)
 		a.ensureCoreRunning()
 	}
