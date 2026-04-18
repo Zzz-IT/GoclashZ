@@ -35,12 +35,10 @@ func Start(ctx context.Context) error {
 		return nil
 	}
 
-	// 👈 核心修复 1：使用绝对路径，抛弃 os.Getwd()
 	dirPath := filepath.Join(getExeDir(), "core", "bin")
 	exePath := filepath.Join(dirPath, "clash.exe")
 
-	// 👈 核心修复 2：启动前尝试清理残留的旧内核进程（Windows 专属）
-	// 防止主程序意外崩溃后，旧的 clash.exe 依然存活霸占端口
+	// 启动前尝试清理残留的旧内核进程
 	exec.Command("taskkill", "/F", "/IM", "clash.exe").Run()
 
 	if err := PrepareEnv(dirPath, exePath); err != nil {
@@ -48,6 +46,8 @@ func Start(ctx context.Context) error {
 	}
 
 	cmd := exec.Command(exePath, "-d", dirPath)
+	// 👇 核心修复：强制指定内核的工作目录，确保能加载 wintun.dll
+	cmd.Dir = dirPath 
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 	if err := cmd.Start(); err != nil {

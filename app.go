@@ -56,21 +56,31 @@ func (a *App) loadActiveConfig() string {
 
 // 在 App 结构体下新增一个内部方法
 func (a *App) startProxyService() error {
-	// 1. 启动内核 (现在是幂等的，运行中也会返回 nil)
+	// 👇 核心修复：启动前检查 TUN 状态与权限
+	tunCfg, err := clash.GetTunConfig()
+	if err == nil && tunCfg != nil && tunCfg.Enable {
+		if !sys.CheckWintun() {
+			return fmt.Errorf("TUN 模式驱动缺失，请前往【系统设置】->【虚拟网卡设置】安装 Wintun 驱动！")
+		}
+		if !sys.CheckAdmin() {
+			return fmt.Errorf("当前配置已开启 TUN 虚拟网卡模式，请彻底退出软件后，右键【以管理员身份运行】！")
+		}
+	}
+
+	// 1. 启动内核 
 	if err := clash.Start(a.ctx); err != nil {
 		return err
 	}
 
-	// 👇 新增：内核启动后，立即将离线选择的节点发给内核生效
+	// 离线节点状态同步
 	a.mu.Lock()
 	if len(a.offlineNodes) > 0 {
-		// 复制一份，防止携程中产生并发读写问题
 		nodesCopy := make(map[string]string)
 		for k, v := range a.offlineNodes {
 			nodesCopy[k] = v
 		}
 		go func(nodes map[string]string) {
-			time.Sleep(600 * time.Millisecond) // 等待半秒，确保内核 API 监听已就绪
+			time.Sleep(600 * time.Millisecond) 
 			for g, n := range nodes {
 				clash.SwitchProxy(g, n)
 			}
@@ -337,10 +347,26 @@ func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 
 func (a *App) InstallTunDriver() error {
 	if !sys.CheckAdmin() {
-		return fmt.Errorf("请右键以管理员身份运行本程序来进行驱动安装")
+		return fmt.Errorf("权限不足，请彻底退出软件后，右键【以管理员身份运行】再安装驱动")
 	}
-	// 在这里可以放置你针对 wintun.dll 下载/解压的具体逻辑
-	// 如果用户已有 wintun.dll，CheckTunEnv 会自动变为 true
+
+	dllPath := filepath.Join(getBaseDir(), "core", "bin", "wintun.dll")
+
+	// 如果驱动已存在且检测通过，直接返回
+	if sys.CheckWintun() {
+		return nil
+	}
+
+	// 驱动这种静态资源，直接利用上述健壮的下载器去官方稳定库拿
+	// 避免使用容易变动的 RAW 链接
+	wintunUrl := "https://github.com/wintun/wintun/releases/download/v0.14.1/wintun-amd64.dll"
+
+	// 如果你之前是因为这个 URL 报 404，现在的下载器会自动帮你切换到 ghproxy.net 等备用源
+	err := downloadFileWithRetry(dllPath, wintunUrl)
+	if err != nil {
+		return fmt.Errorf("下载 Wintun 驱动失败: %v", err)
+	}
+
 	return nil
 }
 func (a *App) GetDNSConfig() (*clash.DNSConfig, error) {

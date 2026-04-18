@@ -7,11 +7,18 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// 获取系统真实绝对路径，杜绝 os.Getwd() 的隐患
+func getSysExeDir() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "."
+	}
+	return filepath.Dir(exePath)
+}
+
 // CheckAdmin 检查当前程序是否以管理员权限运行
 func CheckAdmin() bool {
 	var sid *windows.SID
-
-	// 虽然这种方法比较老，但在 Windows 上非常稳定
 	err := windows.AllocateAndInitializeSid(
 		&windows.SECURITY_NT_AUTHORITY,
 		2,
@@ -34,8 +41,7 @@ func CheckAdmin() bool {
 
 // CheckWintun 检查核心目录下是否存在 wintun.dll
 func CheckWintun() bool {
-	pwd, _ := os.Getwd()
-	dllPath := filepath.Join(pwd, "core", "bin", "wintun.dll")
+	dllPath := filepath.Join(getSysExeDir(), "core", "bin", "wintun.dll")
 	_, err := os.Stat(dllPath)
 	return err == nil || !os.IsNotExist(err)
 }
