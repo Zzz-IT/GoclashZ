@@ -193,9 +193,16 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 
 // 修改 TestAllProxies 测速路由，融合在线和离线逻辑
 func (a *App) TestAllProxies(nodeNames []string) {
-	// 👈 彻底抛弃 Mihomo 内核测速 API
-	// 任何状态下统一走纯 Go 并发 TCP 握手，附带自定义 DNS 解析，实现瞬间响应
-	proxies, err := clash.GetRawProxyAddrs()
+	// 👇 新增：获取当前正在使用的配置文件名
+	a.mu.Lock()
+	active := a.activeConfig
+	if active == "" {
+		active = a.loadActiveConfig()
+	}
+	a.mu.Unlock()
+
+	// 👇 修复：将文件名传递给底层，确保读取到的节点 IP 和 UI 上的列表完全一致
+	proxies, err := clash.GetRawProxyAddrs(active)
 	if err != nil {
 		return
 	}
@@ -215,6 +222,7 @@ func (a *App) TestAllProxies(nodeNames []string) {
 
 			delay := -1 // 默认设为 -1 (超时/失败)
 
+			// 只有在字典里找到了这个节点，才会发起真实 TCP 握手
 			if info, ok := pMap[nName]; ok {
 				// 这里的 TCPPing 已经在上一版接管了设置页的自定义 DNS
 				delay = clash.TCPPing(info.Server, info.Port)

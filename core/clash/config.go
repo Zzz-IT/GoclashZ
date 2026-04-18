@@ -128,8 +128,20 @@ func GetOfflineData(fileName string) (map[string]interface{}, error) {
 }
 
 // GetRawProxyAddrs 获取所有节点的物理地址映射列表
-func GetRawProxyAddrs() ([]RawProxyInfo, error) {
-	configPath := getConfigPath() // 👈 使用绝对路径
+func GetRawProxyAddrs(fileName string) ([]RawProxyInfo, error) {
+	// 获取正确的运行目录路径
+	exePath, _ := os.Executable()
+	baseDir := filepath.Dir(exePath)
+
+	if fileName == "" || fileName == "config.yaml" {
+		fileName = "config.yaml"
+	}
+	configPath := filepath.Join(baseDir, "core", "bin", fileName)
+
+	// 如果指定的文件不存在，回退到主配置
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		configPath = filepath.Join(baseDir, "core", "bin", "config.yaml")
+	}
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -145,7 +157,7 @@ func GetRawProxyAddrs() ([]RawProxyInfo, error) {
 	for _, p := range conf.Proxies {
 		name, _ := p["name"].(string)
 		server, _ := p["server"].(string)
-		port := fmt.Sprintf("%v", p["port"])
+		port := fmt.Sprintf("%v", p["port"]) // 兼容 int 和 string 格式的端口
 		if name != "" && server != "" {
 			infos = append(infos, RawProxyInfo{Name: name, Server: server, Port: port})
 		}
