@@ -440,12 +440,23 @@ p { margin: 0; font-size: 0.85rem; color: var(--text-sub); max-width: 80%; }
 
 .modern-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
 .modern-switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--glass-border); transition: .3s; border-radius: 24px; }
-.dark .slider { background-color: rgba(255, 255, 255, 0.2); }
+
+/* 1. 修复无效的 .dark 匹配，直接使用全局动态变量 var(--surface-hover) 或更明显的背景色 */
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(120, 120, 120, 0.3); transition: .3s; border-radius: 24px; }
+
+/* 未选中时：保持白色圆形，因为无论白天黑夜，灰色底 + 白圆点都很清晰 */
 .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3);}
+
 input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
+
+/* 选中时：底色变为 accent（白天黑，黑夜白） */
 input:checked + .slider { background-color: var(--accent); }
-input:checked + .slider:before { transform: translateX(20px); }
+
+/* 2. 核心修复：选中时的圆点必须使用 accent-fg 进行反色匹配（白天白，黑夜黑） */
+input:checked + .slider:before { 
+  transform: translateX(20px); 
+  background-color: var(--accent-fg); 
+}
 
 .slide-in { animation: slideIn 0.2s ease forwards; }
 @keyframes slideIn { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }

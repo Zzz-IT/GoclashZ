@@ -20,11 +20,12 @@ import (
 type App struct {
 	ctx           context.Context
 	cancelTraffic context.CancelFunc
-	cancelLogs    context.CancelFunc 
+	cancelLogs    context.CancelFunc
 	logRunning    bool
 	mu            sync.Mutex
 	activeConfig  string
 	offlineNodes  map[string]string // 👈 新增：存储离线状态下选中的节点
+	isProxyActive bool              // 👈 新增：记录用户逻辑上的代理开关状态
 }
 
 // 1. 在 app.go 任意位置新增一个获取程序真实绝对路径的辅助方法
@@ -141,7 +142,13 @@ func (a *App) shutdown(_ context.Context) {
 
 // 修改 RunProxy
 func (a *App) RunProxy() error {
-	return a.startProxyService()
+	err := a.startProxyService()
+	if err == nil {
+		a.mu.Lock()
+		a.isProxyActive = true // 👈 记录用户主动开启
+		a.mu.Unlock()
+	}
+	return err
 }
 
 // 1. 提供给前端：检查 TUN 模式环境（驱动 + 权限）
@@ -158,6 +165,10 @@ func (a *App) ElevatePrivileges() error {
 }
 
 func (a *App) StopProxy() error {
+	a.mu.Lock()
+	a.isProxyActive = false // 👈 记录用户主动关闭
+	a.mu.Unlock()
+
 	clash.Stop()
 	sys.ClearSystemProxy()
 	a.StopTrafficStream()
@@ -165,7 +176,9 @@ func (a *App) StopProxy() error {
 }
 
 func (a *App) GetProxyStatus() bool {
-	return clash.IsRunning()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.isProxyActive // 👈 前端 UI 开关状态绑定到这里
 }
 
 // --- 配置与测速 ---
@@ -374,7 +387,12 @@ func (a *App) GetTunConfig() (*clash.TunConfig, error) {
 // 替换2：保存 TUN 配置并触发内核热重启
 func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 	err := clash.UpdateTunConfig(cfg)
-	if err == nil && clash.IsRunning() {
+
+	a.mu.Lock()
+	isActive := a.isProxyActive
+	a.mu.Unlock()
+
+	if err == nil && isActive { // 👈 核心修复
 		// TUN 模式的开启和关闭必须重启内核才能生效
 		clash.Stop()
 		a.startProxyService()
@@ -395,7 +413,12 @@ func (a *App) GetDNSConfig() (*clash.DNSConfig, error) {
 // 替换3：保存 DNS 配置并触发内核热重启
 func (a *App) SaveDNSConfig(cfg *clash.DNSConfig) error {
 	err := clash.UpdateDNSConfig(cfg)
-	if err == nil && clash.IsRunning() {
+
+	a.mu.Lock()
+	isActive := a.isProxyActive
+	a.mu.Unlock()
+
+	if err == nil && isActive { // 👈 核心修复
 		// 监听端口的改变和 fake-ip 的劫持需要重启内核
 		clash.Stop()
 		a.startProxyService()
@@ -524,10 +547,8 @@ func (a *App) SelectLocalConfig(fileName string) error {
 	a.mu.Lock()
 	a.activeConfig = fileName
 	a.saveActiveConfig(fileName) // 持久化保存到本地
+	wasActive := a.isProxyActive // 👈 核心修复：记住切换前用户是否“逻辑上”开启了代理
 	a.mu.Unlock()
-
-	// 记住切换前内核是否在运行
-	wasRunning := clash.IsRunning()
 
 	// 1. 先彻底停止现有的内核和代理，释放文件占用
 	clash.Stop()
@@ -538,8 +559,8 @@ func (a *App) SelectLocalConfig(fileName string) error {
 		return fmt.Errorf("生成运行时配置失败: %v", err)
 	}
 
-	// 3. 如果之前在运行，就重新启动代理加载新配置
-	if wasRunning {
+	// 3. 如果用户之前是开启状态，才重新启动代理接管系统网络
+	if wasActive {
 		if err := a.startProxyService(); err != nil {
 			return err
 		}
