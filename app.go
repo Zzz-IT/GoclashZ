@@ -191,28 +191,54 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	return data, nil
 }
 
-// 👈 新增：离线测速方法（不依赖内核，直接 TCP 握手）
-func (a *App) TestOfflineNodes() error {
-	proxies, err := clash.GetRawProxyAddrs() // 从 yaml 解析物理地址
-	if err != nil {
-		return err
-	}
+// 修改 TestAllProxies 测速路由，融合在线和离线逻辑
+func (a *App) TestAllProxies(nodeNames []string) {
+	if clash.IsRunning() {
+		// --- 在线状态：直接调取内核 API 测速真连接 ---
+		semaphore := make(chan struct{}, 15)
+		for _, name := range nodeNames {
+			semaphore <- struct{}{}
+			go func(nName string) {
+				defer func() { <-semaphore }()
+				delay, _ := clash.GetProxyDelay(nName)
+				runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
+					"name":  nName,
+					"delay": delay,
+				})
+			}(name)
+		}
+	} else {
+		// --- 离线状态：读取本地配置进行纯 TCP 握手测速 ---
+		proxies, err := clash.GetRawProxyAddrs()
+		if err != nil {
+			return
+		}
 
-	// 并发 15 个测速
-	semaphore := make(chan struct{}, 15)
-	for _, p := range proxies {
-		semaphore <- struct{}{}
-		go func(info clash.RawProxyInfo) {
-			defer func() { <-semaphore }()
-			delay := clash.TCPPing(info.Server, info.Port)
-			// 发送给前端更新 UI
-			runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-				"name":  info.Name,
-				"delay": delay,
-			})
-		}(p)
+		// 建立快速映射字典
+		pMap := make(map[string]clash.RawProxyInfo)
+		for _, p := range proxies {
+			pMap[p.Name] = p
+		}
+
+		semaphore := make(chan struct{}, 15)
+		for _, name := range nodeNames {
+			semaphore <- struct{}{}
+			go func(nName string) {
+				defer func() { <-semaphore }()
+
+				delay := -1
+				if info, ok := pMap[nName]; ok {
+					// 这里的 TCPPing 接下来会增强对 DNS 的支持
+					delay = clash.TCPPing(info.Server, info.Port)
+				}
+
+				runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
+					"name":  nName,
+					"delay": delay,
+				})
+			}(name)
+		}
 	}
-	return nil
 }
 
 func (a *App) SetConfigMode(mode string) error {
@@ -235,22 +261,6 @@ func (a *App) SelectProxy(groupName, nodeName string) error {
 
 func (a *App) UpdateSub(url string) error {
 	return clash.UpdateSubscription(url)
-}
-
-func (a *App) TestAllProxies(nodeNames []string) {
-	// 信号量控制 15 并发，实现数字瀑布流视觉效果
-	semaphore := make(chan struct{}, 15)
-	for _, name := range nodeNames {
-		semaphore <- struct{}{}
-		go func(nName string) {
-			defer func() { <-semaphore }()
-			delay, _ := clash.GetProxyDelay(nName)
-			runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-				"name":  nName,
-				"delay": delay,
-			})
-		}(name)
-	}
 }
 
 func (a *App) StartTrafficStream() {

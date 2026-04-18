@@ -1,12 +1,14 @@
 package clash
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings" // 👈 确保引入 strings
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -151,10 +153,73 @@ func GetRawProxyAddrs() ([]RawProxyInfo, error) {
 	return infos, nil
 }
 
-// TCPPing 纯 Go 实现的 TCP 握手探测（离线测速）
+// resolveWithCustomDNS 读取用户的 DNS 配置，并进行离线域名解析
+func resolveWithCustomDNS(domain string) string {
+	dnsCfg, err := GetDNSConfig()
+	dnsServer := "223.5.5.5:53" // 默认保底 DNS
+
+	if err == nil && dnsCfg != nil {
+		// 按照优先级组装配置里的 DNS 列表，优先取 proxy-server-nameserver
+		list := append(dnsCfg.ProxyServerNameserver, dnsCfg.Nameserver...)
+		list = append(list, dnsCfg.DefaultNameserver...)
+
+		for _, ns := range list {
+			// 简单清洗格式，试图从中提取出一个标准的 IP。
+			// 例如处理：https://223.5.5.5/dns-query -> 223.5.5.5
+			clean := strings.TrimPrefix(ns, "https://")
+			clean = strings.TrimPrefix(clean, "tls://")
+			clean = strings.TrimPrefix(clean, "tcp://")
+			clean = strings.TrimPrefix(clean, "udp://")
+
+			parts := strings.Split(clean, "/")
+			hostPort := parts[0]
+			host, _, err := net.SplitHostPort(hostPort)
+			if err != nil {
+				host = hostPort // 如果没有写端口的情况
+			}
+
+			// 如果能成功解析为 IP，说明找到了可用的自建/配置 DNS 地址
+			if net.ParseIP(host) != nil {
+				dnsServer = net.JoinHostPort(host, "53")
+				break
+			}
+		}
+	}
+
+	// 强制构建一个走特定 DNS 的底层 Resolver
+	r := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 2 * time.Second}
+			return d.DialContext(ctx, "udp", dnsServer)
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ips, err := r.LookupIPAddr(ctx, domain)
+	if err == nil && len(ips) > 0 {
+		return ips[0].IP.String() // 返回解析到的首个节点真实 IP
+	}
+	return ""
+}
+
+// TCPPing 纯 Go 实现的 TCP 握手探测（已接入自定义 DNS）
 func TCPPing(server string, port string) int {
+	ip := server
+
+	// 如果传入的 server 是一个域名而不是纯 IP，则走我们的自定义解析器
+	if net.ParseIP(server) == nil {
+		resolvedIP := resolveWithCustomDNS(server)
+		if resolvedIP != "" {
+			ip = resolvedIP
+		}
+		// 如果解析失败，这里也会保持原来的 domain，交由系统网络兜底尝试
+	}
+
 	start := time.Now()
-	address := net.JoinHostPort(server, port)
+	address := net.JoinHostPort(ip, port)
 
 	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
 	if err != nil {

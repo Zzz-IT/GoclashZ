@@ -102,10 +102,6 @@ export function TestAllProxies(arg1) {
   return window['go']['main']['App']['TestAllProxies'](arg1);
 }
 
-export function TestOfflineNodes() {
-  return window['go']['main']['App']['TestOfflineNodes']();
-}
-
 export function UpdateSub(arg1) {
   return window['go']['main']['App']['UpdateSub'](arg1);
 }

@@ -52,6 +52,4 @@ export function StopTrafficStream():Promise<void>;
 
 export function TestAllProxies(arg1:Array<string>):Promise<void>;
 
-export function TestOfflineNodes():Promise<void>;
-
 export function UpdateSub(arg1:string):Promise<void>;
