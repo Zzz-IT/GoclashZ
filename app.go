@@ -20,9 +20,19 @@ import (
 type App struct {
 	ctx           context.Context
 	cancelTraffic context.CancelFunc
+	cancelLogs    context.CancelFunc // 👈 新增：用于专门控制日志流的取消
 	logRunning    bool
 	mu            sync.Mutex
 	activeConfig  string
+}
+
+// 1. 在 app.go 任意位置新增一个获取程序真实绝对路径的辅助方法
+func getBaseDir() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "."
+	}
+	return filepath.Dir(exePath)
 }
 
 // 在 App 结构体下新增一个内部方法
@@ -50,7 +60,7 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 }
 
-func (a *App) shutdown(ctx context.Context) {
+func (a *App) shutdown(_ context.Context) {
 	sys.ClearSystemProxy()
 	clash.Stop()
 }
@@ -162,15 +172,24 @@ func (a *App) StartStreamingLogs() {
 		return
 	}
 	a.logRunning = true
+	// 👈 创建独立的子 Context 控制日志
+	logCtx, cancel := context.WithCancel(a.ctx)
+	a.cancelLogs = cancel
 	a.mu.Unlock()
-	// 调用 api_client.go 中定义的 FetchLogs
-	go clash.FetchLogs(a.ctx)
+
+	// 调用 api_client.go 中定义的 FetchLogs，传入受控的 logCtx
+	go clash.FetchLogs(logCtx)
 }
 
 func (a *App) StopStreamingLogs() {
 	a.mu.Lock()
-	a.logRunning = false
-	a.mu.Unlock()
+	defer a.mu.Unlock()
+
+	if a.logRunning && a.cancelLogs != nil {
+		a.cancelLogs()     // 👈 真正发送取消信号给后台协程
+		a.cancelLogs = nil // 清空
+		a.logRunning = false
+	}
 }
 
 // --- 系统工具 ---
@@ -223,8 +242,7 @@ func (a *App) SaveDNSConfig(cfg *clash.DNSConfig) error {
 // ==========================================
 
 func (a *App) getProfilesDir() string {
-	// 假定配置放在 core/bin 下
-	return filepath.Join(".", "core", "bin")
+	return filepath.Join(getBaseDir(), "core", "bin")
 }
 
 // 修改 GetLocalConfigs，排除 config.yaml
@@ -273,6 +291,10 @@ func (a *App) ImportLocalConfig() error {
 
 // RenameConfig 重命名配置文件
 func (a *App) RenameConfig(oldName, newName string) error {
+	// 👈 核心修复：净化文件名，防止类似 "../../Windows" 的路径穿越
+	oldName = filepath.Base(oldName)
+	newName = filepath.Base(newName)
+
 	if !strings.HasSuffix(newName, ".yaml") && !strings.HasSuffix(newName, ".yml") {
 		newName += ".yaml"
 	}
@@ -283,6 +305,7 @@ func (a *App) RenameConfig(oldName, newName string) error {
 
 // OpenConfigFile 使用系统默认应用打开配置文件
 func (a *App) OpenConfigFile(fileName string) error {
+	fileName = filepath.Base(fileName) // 👈 净化
 	path := filepath.Join(a.getProfilesDir(), fileName)
 	var cmd *exec.Cmd
 	switch stdruntime.GOOS {
@@ -298,6 +321,7 @@ func (a *App) OpenConfigFile(fileName string) error {
 
 // DeleteConfig 删除配置文件
 func (a *App) DeleteConfig(fileName string) error {
+	fileName = filepath.Base(fileName) // 👈 净化
 	path := filepath.Join(a.getProfilesDir(), fileName)
 	return os.Remove(path)
 }
@@ -312,9 +336,13 @@ func (a *App) SelectLocalConfig(fileName string) error {
 	clash.Stop()
 	sys.ClearSystemProxy()
 
-	// 复制文件逻辑保持不变...
-	sourcePath := filepath.Join(".", "core", "bin", fileName)
-	destPath := filepath.Join(".", "core", "bin", "config.yaml")
+	fileName = filepath.Base(fileName) // 👈 净化前端传来的文件名
+
+	// 👈 路径全部改为使用 getBaseDir() 作为基准
+	baseDir := getBaseDir()
+	sourcePath := filepath.Join(baseDir, "core", "bin", fileName)
+	destPath := filepath.Join(baseDir, "core", "bin", "config.yaml")
+
 	content, err := os.ReadFile(sourcePath)
 	if err != nil {
 		return err

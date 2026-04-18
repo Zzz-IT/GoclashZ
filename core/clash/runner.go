@@ -18,17 +18,30 @@ var (
 	isRunning bool
 )
 
+// 获取程序真实运行目录的辅助函数
+func getExeDir() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "."
+	}
+	return filepath.Dir(exePath)
+}
+
 func Start(ctx context.Context) error {
 	mu.Lock()
 	defer mu.Unlock()
 
 	if isRunning {
-		return nil // 👈 关键修改：如果已经在运行，直接返回 nil，不要报错
+		return nil
 	}
 
-	pwd, _ := os.Getwd()
-	dirPath := filepath.Join(pwd, "core", "bin")
+	// 👈 核心修复 1：使用绝对路径，抛弃 os.Getwd()
+	dirPath := filepath.Join(getExeDir(), "core", "bin")
 	exePath := filepath.Join(dirPath, "clash.exe")
+
+	// 👈 核心修复 2：启动前尝试清理残留的旧内核进程（Windows 专属）
+	// 防止主程序意外崩溃后，旧的 clash.exe 依然存活霸占端口
+	exec.Command("taskkill", "/F", "/IM", "clash.exe").Run()
 
 	if err := PrepareEnv(dirPath, exePath); err != nil {
 		return err
@@ -48,7 +61,7 @@ func Start(ctx context.Context) error {
 		c.Wait()
 		mu.Lock()
 		defer mu.Unlock()
-		if clashCmd == c { // 👈 只处理当前进程的退出
+		if clashCmd == c {
 			isRunning = false
 			clashCmd = nil
 		}
