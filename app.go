@@ -434,6 +434,27 @@ func (a *App) SaveDNSConfig(cfg *clash.DNSConfig) error {
 }
 
 
+// 获取基础网络设置
+func (a *App) GetNetworkConfig() (*clash.NetworkConfig, error) {
+	return clash.GetNetworkConfig()
+}
+
+// 保存基础网络设置并重启服务
+func (a *App) SaveNetworkConfig(cfg *clash.NetworkConfig) error {
+	err := clash.UpdateNetworkConfig(cfg)
+
+	a.mu.Lock()
+	isActive := a.isProxyActive
+	a.mu.Unlock()
+
+	// 这些设置直接影响内核底层行为，需要重启内核生效
+	if err == nil && isActive {
+		clash.Stop()
+		a.startProxyService()
+	}
+	return err
+}
+
 // ==========================================
 // --- 本地配置文件管理 (新增) ---
 // ==========================================

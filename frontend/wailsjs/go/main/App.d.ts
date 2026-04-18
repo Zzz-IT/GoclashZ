@@ -18,6 +18,8 @@ export function GetInitialData():Promise<Record<string, any>>;
 
 export function GetLocalConfigs():Promise<Array<string>>;
 
+export function GetNetworkConfig():Promise<clash.NetworkConfig>;
+
 export function GetProxyStatus():Promise<boolean>;
 
 export function GetTunConfig():Promise<clash.TunConfig>;
@@ -33,6 +35,8 @@ export function RenameConfig(arg1:string,arg2:string):Promise<void>;
 export function RunProxy():Promise<void>;
 
 export function SaveDNSConfig(arg1:clash.DNSConfig):Promise<void>;
+
+export function SaveNetworkConfig(arg1:clash.NetworkConfig):Promise<void>;
 
 export function SaveTunConfig(arg1:clash.TunConfig):Promise<void>;
 

@@ -28,6 +28,14 @@
           </div>
           <span class="arrow">➔</span>
         </div>
+        
+        <div class="setting-item clickable" @click="view = 'network'">
+          <div class="info">
+            <h4>基础 network 设置</h4>
+            <p>管理内核底层的连接行为、IPv6 栈以及测速逻辑。</p>
+          </div>
+          <span class="arrow">➔</span>
+        </div>
       </div>
     </div>
 
@@ -255,12 +263,87 @@
       </div>
     </div>
 
+    <div v-else-if="view === 'network'" class="settings-page slide-in">
+      <div class="sub-header">
+        <button class="back-btn" @click="view = 'main'">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        </button>
+        <h3>基础网络配置</h3>
+      </div>
+
+      <div class="glass-card setting-group scrollable">
+        <div class="setting-item">
+          <div class="info">
+            <h4>IPv6 支持</h4>
+            <p>开启后内核将解析并接管 IPv6 流量。若网络环境不支持可能导致卡顿。</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="netConfig.ipv6" @change="saveNet">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info">
+            <h4>统一延迟测试 (Unified Delay)</h4>
+            <p>开启后将去除握手损耗，显示更真实的节点响应延迟。</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="netConfig.unifiedDelay" @change="saveNet">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info">
+            <h4>TCP 并发连接</h4>
+            <p>同时向所有解析出的 IP 发起连接，取最快响应者。大幅提升首屏加载速度。</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="netConfig.tcpConcurrent" @change="saveNet">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info">
+            <h4>TCP 保持活动 (Keep Alive)</h4>
+            <p>降低在某些防火墙下的断连概率，保持长连接存活。</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="netConfig.tcpKeepAlive" @change="saveNet">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item sub-item" :class="{ 'disabled-fade': !netConfig.tcpKeepAlive }">
+          <div class="info">
+            <h4 class="sub-label">发送时间间隔 (Interval)</h4>
+            <p>单位为秒，建议值 15-30s</p>
+          </div>
+          <div class="input-with-unit">
+            <input 
+              type="number" 
+              class="modern-input num-input" 
+              v-model.number="netConfig.tcpKeepAliveInterval" 
+              :disabled="!netConfig.tcpKeepAlive"
+              @blur="saveNet"
+            />
+            <span class="unit">s</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
-import { FixUWPNetwork, CheckTunEnv, GetTunConfig, SaveTunConfig, InstallTunDriver, GetDNSConfig, SaveDNSConfig } from '../../wailsjs/go/main/App';
+import * as API from '../../wailsjs/go/main/App';
 
 const props = defineProps({
   initialView: {
@@ -298,16 +381,28 @@ const dnsConfig = ref<any>({
   proxyServerNameserver: ['https://doh.pub/dns-query']
 });
 
+const netConfig = ref({
+  ipv6: false,
+  unifiedDelay: true,
+  tcpConcurrent: true,
+  tcpKeepAlive: true,
+  tcpKeepAliveInterval: 15
+});
+
 const loadData = async () => {
   try {
-    const status = await CheckTunEnv();
+    const status = await API.CheckTunEnv();
     tunStatus.value = status;
-    const tunConf = await GetTunConfig();
+    const tunConf = await API.GetTunConfig();
     if (tunConf) tunConfig.value = tunConf;
 
     // 加载 DNS 配置
-    const dnsConf = await (GetDNSConfig as any)();
+    const dnsConf = await (API.GetDNSConfig as any)();
     if (dnsConf) dnsConfig.value = dnsConf;
+
+    // 加载基础网络配置
+    const netConf = await (API.GetNetworkConfig as any)();
+    if (netConf) netConfig.value = netConf;
 
   } catch (e) {
     console.error('加载配置失败', e);
@@ -318,7 +413,7 @@ onMounted(() => { loadData(); });
 
 const fixUWP = async () => {
   try {
-    await FixUWPNetwork();
+    await API.FixUWPNetwork();
     alert('✅ UWP 环回限制已成功解除！');
   } catch (e) {
     alert('修复失败，请尝试右键以管理员身份运行本软件。\n错误信息: ' + e);
@@ -338,7 +433,7 @@ const handleTunToggle = async (e: Event) => {
 const installDriver = async () => {
   isInstalling.value = true;
   try {
-    await InstallTunDriver();
+    await API.InstallTunDriver();
     await loadData();
     if (tunStatus.value.hasWintun) {
        alert('✅ 驱动安装成功，现在可以开启 TUN 模式了！');
@@ -353,7 +448,7 @@ const installDriver = async () => {
 };
 
 const saveTun = async () => {
-  try { await SaveTunConfig(tunConfig.value); } catch (e) { console.error('保存失败', e); }
+  try { await API.SaveTunConfig(tunConfig.value); } catch (e) { console.error('保存失败', e); }
 };
 
 const updateTunDnsHijack = (e: Event) => {
@@ -363,7 +458,16 @@ const updateTunDnsHijack = (e: Event) => {
 };
 
 const saveDns = async () => {
-  try { await (SaveDNSConfig as any)(dnsConfig.value); } catch (e) { console.error('DNS 保存失败', e); }
+  try { await (API.SaveDNSConfig as any)(dnsConfig.value); } catch (e) { console.error('DNS 保存失败', e); }
+};
+
+// 保存基础网络设置
+const saveNet = async () => {
+  try {
+    await (API.SaveNetworkConfig as any)(netConfig.value);
+  } catch (e) {
+    console.error('网络配置保存失败', e);
+  }
 };
 
 // 处理多行文本框的数组更新（换行符分割）
@@ -465,6 +569,44 @@ input:checked + .slider:before {
 .sub-header h3 { margin: 0; border: none; padding: 0; }
 .back-btn { background: var(--surface); border: 1px solid var(--glass-border); color: var(--text-main); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; }
 .back-btn:hover { background: var(--surface-hover); }
+
+/* 子选项缩进，使其看起来隶属于上一个开关 */
+.sub-item {
+  padding-left: 20px !important;
+  border-left: 2px solid var(--glass-border);
+  margin-left: 8px;
+  margin-top: -10px; /* 拉近与主开关的距离 */
+  margin-bottom: 10px;
+}
+
+.sub-label {
+  font-size: 0.9rem !important;
+  font-weight: 500 !important;
+}
+
+/* 禁用状态的淡出效果 */
+.disabled-fade {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* 带单位的输入框容器 */
+.input-with-unit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.unit {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.num-input {
+  width: 70px;
+  text-align: center;
+}
 
 .status-msg { margin-top: 4px; font-weight: 500; }
 .green-text { color: #10b981; }

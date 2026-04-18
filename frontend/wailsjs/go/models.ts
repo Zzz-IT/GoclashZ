@@ -73,6 +73,26 @@ export namespace clash {
 		}
 	}
 	
+	export class NetworkConfig {
+	    ipv6: boolean;
+	    unifiedDelay: boolean;
+	    tcpConcurrent: boolean;
+	    tcpKeepAlive: boolean;
+	    tcpKeepAliveInterval: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new NetworkConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ipv6 = source["ipv6"];
+	        this.unifiedDelay = source["unifiedDelay"];
+	        this.tcpConcurrent = source["tcpConcurrent"];
+	        this.tcpKeepAlive = source["tcpKeepAlive"];
+	        this.tcpKeepAliveInterval = source["tcpKeepAliveInterval"];
+	    }
+	}
 	export class TunConfig {
 	    enable: boolean;
 	    stack: string;

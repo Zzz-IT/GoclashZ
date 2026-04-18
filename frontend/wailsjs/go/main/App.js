@@ -34,6 +34,10 @@ export function GetLocalConfigs() {
   return window['go']['main']['App']['GetLocalConfigs']();
 }
 
+export function GetNetworkConfig() {
+  return window['go']['main']['App']['GetNetworkConfig']();
+}
+
 export function GetProxyStatus() {
   return window['go']['main']['App']['GetProxyStatus']();
 }
@@ -64,6 +68,10 @@ export function RunProxy() {
 
 export function SaveDNSConfig(arg1) {
   return window['go']['main']['App']['SaveDNSConfig'](arg1);
+}
+
+export function SaveNetworkConfig(arg1) {
+  return window['go']['main']['App']['SaveNetworkConfig'](arg1);
 }
 
 export function SaveTunConfig(arg1) {

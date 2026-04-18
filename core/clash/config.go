@@ -26,6 +26,15 @@ type ClashConfig struct {
 	ProxyGroups []map[string]interface{} `yaml:"proxy-groups"`
 }
 
+// NetworkConfig 基础网络配置
+type NetworkConfig struct {
+	IPv6                 bool `yaml:"ipv6" json:"ipv6"`
+	UnifiedDelay         bool `yaml:"unified-delay" json:"unifiedDelay"`
+	TCPConcurrent        bool `yaml:"tcp-concurrent" json:"tcpConcurrent"`
+	TCPKeepAlive         bool `yaml:"tcp-keep-alive" json:"tcpKeepAlive"`
+	TCPKeepAliveInterval int  `yaml:"tcp-keep-alive-interval" json:"tcpKeepAliveInterval"`
+}
+
 // OfflineGroup 专供前端在“未启动”状态下展示的节点组结构
 type OfflineGroup struct {
 	Name    string   `json:"name"`
@@ -310,7 +319,7 @@ func GetDNSConfig() (*DNSConfig, error) {
 	return conf, nil
 }
 
-// 替换原有的 UpdateDNSConfig 方法 (修复 listen 缺失问题)
+// UpdateDNSConfig 将新的 DNS 配置写入 config.yaml
 func UpdateDNSConfig(newDNS *DNSConfig) error {
 	configPath := getConfigPath()
 
@@ -351,6 +360,75 @@ func UpdateDNSConfig(newDNS *DNSConfig) error {
 	return os.WriteFile(configPath, out, 0644)
 }
 
+// GetNetworkConfig 获取基础网络配置
+func GetNetworkConfig() (*NetworkConfig, error) {
+	configPath := getConfigPath()
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var root map[string]interface{}
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, err
+	}
+
+	// 默认值设置
+	conf := &NetworkConfig{
+		IPv6:                 false,
+		UnifiedDelay:         true,
+		TCPConcurrent:        true,
+		TCPKeepAlive:         true,
+		TCPKeepAliveInterval: 15,
+	}
+
+	// 从 yaml 根路径读取
+	if v, ok := root["ipv6"].(bool); ok {
+		conf.IPv6 = v
+	}
+	if v, ok := root["unified-delay"].(bool); ok {
+		conf.UnifiedDelay = v
+	}
+	if v, ok := root["tcp-concurrent"].(bool); ok {
+		conf.TCPConcurrent = v
+	}
+	if v, ok := root["tcp-keep-alive"].(bool); ok {
+		conf.TCPKeepAlive = v
+	}
+	if v, ok := root["tcp-keep-alive-interval"].(int); ok {
+		conf.TCPKeepAliveInterval = v
+	}
+
+	return conf, nil
+}
+
+// UpdateNetworkConfig 更新基础网络配置
+func UpdateNetworkConfig(newCfg *NetworkConfig) error {
+	configPath := getConfigPath()
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+
+	var root map[string]interface{}
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return err
+	}
+
+	// 直接注入根节点
+	root["ipv6"] = newCfg.IPv6
+	root["unified-delay"] = newCfg.UnifiedDelay
+	root["tcp-concurrent"] = newCfg.TCPConcurrent
+	root["tcp-keep-alive"] = newCfg.TCPKeepAlive
+	root["tcp-keep-alive-interval"] = newCfg.TCPKeepAliveInterval
+
+	out, err := yaml.Marshal(root)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath, out, 0644)
+}
+
 // ==========================================
 // --- 运行时参数注入器 (借鉴 Stelliberty) ---
 // ==========================================
@@ -363,6 +441,7 @@ func BuildRuntimeConfig(profileName string) error {
 	// 1. 提取当前界面的全局设置 (避免被覆盖丢失)
 	userDns, _ := GetDNSConfig()
 	userTun, _ := GetTunConfig()
+	userNet, _ := GetNetworkConfig()
 
 	// 2. 读取选中的订阅文件作为 "Base Config" (只读模板)
 	profilePath := filepath.Join(baseDir, profileName)
@@ -377,6 +456,15 @@ func BuildRuntimeConfig(profileName string) error {
 	}
 
 	// 3. 运行时参数强制注入 (Injector)
+	// 注入基础网络设置
+	if userNet != nil {
+		root["ipv6"] = userNet.IPv6
+		root["unified-delay"] = userNet.UnifiedDelay
+		root["tcp-concurrent"] = userNet.TCPConcurrent
+		root["tcp-keep-alive"] = userNet.TCPKeepAlive
+		root["tcp-keep-alive-interval"] = userNet.TCPKeepAliveInterval
+	}
+
 	// 注入 TUN 配置
 	if userTun != nil {
 		root["tun"] = userTun
