@@ -363,8 +363,8 @@ func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 
 // 3. 提供给前端：安装驱动
 func (a *App) InstallTunDriver() error {
-	// 使用你 app.go 中已有的 downloadFileWithRetry 函数
-	return sys.InstallWintun(downloadFileWithRetry)
+	// 直接调用重构后的方法，它已内部集成了专属的 ZIP 解析逻辑
+	return sys.InstallWintun()
 }
 func (a *App) GetDNSConfig() (*clash.DNSConfig, error) {
 	return clash.GetDNSConfig()
