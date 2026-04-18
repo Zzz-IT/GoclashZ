@@ -160,13 +160,15 @@ const testSingleDelay = async (node: any) => {
 
 const formatDelay = (delay: number | null) => {
   if (delay === null) return '--';
-  if (delay === 0) return '-1ms';
+  // 👇 修复：小于等于 0 统称为超时
+  if (delay <= 0) return '超时'; 
   return `${delay}ms`;
 };
 
 const getDelayColorClass = (delay: number | null) => {
   if (delay === null) return 't-unknown';
-  if (delay === 0) return 't-fail';
+  // 👇 修复：把 <= 0 的情况优先拦截，赋予红色失败样式
+  if (delay <= 0) return 't-fail'; 
   if (delay < 250) return 't-fast';
   if (delay < 600) return 't-mid';
   return 't-slow';

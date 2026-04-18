@@ -193,51 +193,38 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 
 // 修改 TestAllProxies 测速路由，融合在线和离线逻辑
 func (a *App) TestAllProxies(nodeNames []string) {
-	if clash.IsRunning() {
-		// --- 在线状态：直接调取内核 API 测速真连接 ---
-		semaphore := make(chan struct{}, 15)
-		for _, name := range nodeNames {
-			semaphore <- struct{}{}
-			go func(nName string) {
-				defer func() { <-semaphore }()
-				delay, _ := clash.GetProxyDelay(nName)
-				runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-					"name":  nName,
-					"delay": delay,
-				})
-			}(name)
-		}
-	} else {
-		// --- 离线状态：读取本地配置进行纯 TCP 握手测速 ---
-		proxies, err := clash.GetRawProxyAddrs()
-		if err != nil {
-			return
-		}
+	// 👈 彻底抛弃 Mihomo 内核测速 API
+	// 任何状态下统一走纯 Go 并发 TCP 握手，附带自定义 DNS 解析，实现瞬间响应
+	proxies, err := clash.GetRawProxyAddrs()
+	if err != nil {
+		return
+	}
 
-		// 建立快速映射字典
-		pMap := make(map[string]clash.RawProxyInfo)
-		for _, p := range proxies {
-			pMap[p.Name] = p
-		}
+	// 建立快速映射字典
+	pMap := make(map[string]clash.RawProxyInfo)
+	for _, p := range proxies {
+		pMap[p.Name] = p
+	}
 
-		semaphore := make(chan struct{}, 15)
-		for _, name := range nodeNames {
-			semaphore <- struct{}{}
-			go func(nName string) {
-				defer func() { <-semaphore }()
+	// 调高并发量到 50，制造真正的“瞬间瀑布流”测速体验
+	semaphore := make(chan struct{}, 50)
+	for _, name := range nodeNames {
+		semaphore <- struct{}{}
+		go func(nName string) {
+			defer func() { <-semaphore }()
 
-				delay := -1
-				if info, ok := pMap[nName]; ok {
-					// 这里的 TCPPing 接下来会增强对 DNS 的支持
-					delay = clash.TCPPing(info.Server, info.Port)
-				}
+			delay := -1 // 默认设为 -1 (超时/失败)
 
-				runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-					"name":  nName,
-					"delay": delay,
-				})
-			}(name)
-		}
+			if info, ok := pMap[nName]; ok {
+				// 这里的 TCPPing 已经在上一版接管了设置页的自定义 DNS
+				delay = clash.TCPPing(info.Server, info.Port)
+			}
+
+			runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
+				"name":  nName,
+				"delay": delay,
+			})
+		}(name)
 	}
 }
 
