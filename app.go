@@ -191,43 +191,36 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	return data, nil
 }
 
-// 修改 TestAllProxies 测速路由，融合在线和离线逻辑
 func (a *App) TestAllProxies(nodeNames []string) {
-	// 👇 新增：获取当前正在使用的配置文件名
-	a.mu.Lock()
-	active := a.activeConfig
-	if active == "" {
-		active = a.loadActiveConfig()
-	}
-	a.mu.Unlock()
-
-	// 👇 修复：将文件名传递给底层，确保读取到的节点 IP 和 UI 上的列表完全一致
-	proxies, err := clash.GetRawProxyAddrs(active)
-	if err != nil {
-		return
+	// 1. 静默唤醒机制：如果内核未运行，在后台启动它以提供测速 API
+	// 注意：这里只启动进程，不调用 sys.SetSystemProxy，所以不会影响用户的系统网络（真正的离线测试）
+	if !clash.IsRunning() {
+		if err := clash.Start(a.ctx); err != nil {
+			return // 启动失败直接退出
+		}
+		// 给予内核 1 秒钟的启动和加载配置时间，确保 API 端口(9090)已就绪
+		time.Sleep(1 * time.Second)
 	}
 
-	// 建立快速映射字典
-	pMap := make(map[string]clash.RawProxyInfo)
-	for _, p := range proxies {
-		pMap[p.Name] = p
-	}
+	// 2. 并发控制（滑动窗口）：严格限制并发数
+	// 并发过高会导致内核网络栈或本地连接池雪崩，产生大量无辜的超时(-1)
+	// 建议值：8 到 10 之间
+	concurrency := 8
+	semaphore := make(chan struct{}, concurrency)
 
-	// 调高并发量到 50，制造真正的“瞬间瀑布流”测速体验
-	semaphore := make(chan struct{}, 50)
 	for _, name := range nodeNames {
-		semaphore <- struct{}{}
+		semaphore <- struct{}{} // 获取令牌
+
 		go func(nName string) {
-			defer func() { <-semaphore }()
+			defer func() { <-semaphore }() // 释放令牌
 
-			delay := -1 // 默认设为 -1 (超时/失败)
-
-			// 只有在字典里找到了这个节点，才会发起真实 TCP 握手
-			if info, ok := pMap[nName]; ok {
-				// 这里的 TCPPing 已经在上一版接管了设置页的自定义 DNS
-				delay = clash.TCPPing(info.Server, info.Port)
+			// 3. 调用内核 HTTP 测速 API（由内核自动处理复杂协议握手和自定义 DNS）
+			delay, err := clash.GetProxyDelay(nName)
+			if err != nil || delay <= 0 {
+				delay = -1 // 发生错误或超时，统一视为 -1
 			}
 
+			// 发送给前端更新 UI
 			runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
 				"name":  nName,
 				"delay": delay,

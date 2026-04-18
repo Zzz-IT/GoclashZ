@@ -35,30 +35,53 @@ func FetchLogs(ctx context.Context) {
 	}
 }
 
-// GetProxyDelay 调用内核 API 测试节点真连接延迟
-func GetProxyDelay(nodeName string) (int, error) {
-	encodedName := url.PathEscape(nodeName)
-	apiURL := fmt.Sprintf("http://127.0.0.1:9090/proxies/%s/delay?timeout=5000&url=http://www.gstatic.com/generate_204", encodedName)
+// GetProxyDelay 调用内核 API 测试真实延迟
+func GetProxyDelay(proxyName string) (int, error) {
+	// ⚠️ 极其关键：必须对节点名进行 URL 编码，防止空格 and 特殊符号导致 400 Bad Request
+	encodedName := url.PathEscape(proxyName)
 
+	// 测速目标和超时设置 (5000ms)
+	testUrl := "http://www.gstatic.com/generate_204"
+	timeout := 5000
+
+	apiURL := fmt.Sprintf("http://127.0.0.1:9090/proxies/%s/delay?timeout=%d&url=%s",
+		encodedName, timeout, testUrl)
+
+	// HTTP 客户端的超时应略大于内核传入的 timeout
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: 6 * time.Second,
 	}
-	resp, err := client.Get(apiURL)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
-		return 0, err
+		return -1, err
+	}
+
+	// 如果你的 API 配置了 secret，记得取消下面这行的注释：
+	// req.Header.Set("Authorization", "Bearer YOUR_SECRET")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return -1, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("timeout")
+	if resp.StatusCode != 200 {
+		return -1, fmt.Errorf("测速请求失败，状态码: %d", resp.StatusCode)
 	}
 
 	var result struct {
 		Delay int `json:"delay"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return 0, err
+		return -1, err
 	}
+
+	// 内核有时超时会返回 0，统一转为 -1
+	if result.Delay == 0 {
+		return -1, nil
+	}
+
 	return result.Delay, nil
 }
 
