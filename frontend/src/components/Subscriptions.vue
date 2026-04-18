@@ -290,24 +290,22 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;  /* 👈 缩小尺寸 */
-  height: 24px; /* 👈 缩小尺寸 */
+  width: 22px;  /* 👈 缩小外框 */
+  height: 22px;
   border-radius: 4px;
-  padding: 0;   /* 清除默认内边距 */
 }
 
-/* 强制 SVG 尺寸 */
+/* 强制 SVG 尺寸变小 */
 .icon-btn :deep(svg) {
-  width: 14px !important;
-  height: 14px !important;
+  width: 12px !important; /* 👈 缩小图标本体 */
+  height: 12px !important;
 }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
 /* 修改原有的 sub-actions 防止被遮挡 */
 .sub-actions { position: relative; }
 
-/* 彻底修复菜单透明问题 */
-/* 2. 修复弹出菜单：实色背景，不透明 */
+/* 2. 彻底解决菜单透明/看不清的问题 */
 .dropdown-menu {
   position: absolute;
   right: 0;
@@ -315,12 +313,12 @@ onUnmounted(() => {
   width: 130px;
 
   /* 👈 关键修改：使用完全不透明的实色背景 */
-  background: #2d2d2d;
+  background: #282828 !important;
   border: 1px solid #454545;
   border-radius: 6px;
 
-  /* 加重投影，让它在 Mica 背景上更明显 */
-  box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+  /* 强阴影，增加悬浮感 */
+  box-shadow: 0 10px 25px rgba(0,0,0,0.6);
 
   z-index: 999;
   overflow: hidden;
@@ -339,8 +337,10 @@ onUnmounted(() => {
 }
 
 .menu-item:hover {
-  background: #3e3e3e; /* 悬浮高亮也是实色 */
+  background: #3a3a3a; /* 实色高亮 */
 }
+
+.menu-item.danger { color: #ff5555; }
 
 .menu-divider {
   height: 1px;

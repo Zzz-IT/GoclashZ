@@ -52,11 +52,12 @@ type ProxyGroupSchema struct {
 
 // GetStaticNodesV2 从指定的本地文件读取节点，模拟 API 返回格式
 func GetStaticNodesV2(fileName string) (string, []ProxyGroupSchema, error) {
+	// 👈 使用绝对路径，确保在不同环境下都能找到文件
 	exePath, _ := os.Executable()
 	baseDir := filepath.Dir(exePath)
 	configPath := filepath.Join(baseDir, "core", "bin", fileName)
 
-	// 如果指定文件不存在，退回到 config.yaml
+	// 如果指定的文件不存在，回退到主配置文件
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		configPath = filepath.Join(baseDir, "core", "bin", "config.yaml")
 	}
@@ -89,7 +90,7 @@ func GetStaticNodesV2(fileName string) (string, []ProxyGroupSchema, error) {
 		groups = append(groups, ProxyGroupSchema{
 			Name: name,
 			Type: gType,
-			Now:  "", // 离线状态下没有“当前选中”，前端处理即可
+			Now:  "", // 离线状态下默认无选中
 			All:  all,
 		})
 	}

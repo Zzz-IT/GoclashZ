@@ -119,31 +119,32 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	activeName := a.activeConfig
 	a.mu.Unlock()
 
-	// 1. 优先获取内核状态
+	// 1. 检查内核是否运行
 	running := clash.IsRunning()
 
 	if !running {
-		// 👈 统一逻辑：内核未启动时，手动解析本地文件
-		// 如果 activeName 为空，默认读取 config.yaml
+		// 👈 核心修复：内核未启动时，手动解析本地文件并模拟内核返回的数据结构
+		// 如果用户选了某个配置，就读那个配置，否则读默认的 config.yaml
 		targetFile := "config.yaml"
 		if activeName != "" {
 			targetFile = activeName
 		}
 
-		mode, groups, err := clash.GetStaticNodesV2(targetFile) // 使用增强版的解析方法
+		// 调用增强版的静态解析函数
+		mode, groups, err := clash.GetStaticNodesV2(targetFile)
 		if err != nil {
 			return nil, err
 		}
 
 		return map[string]interface{}{
 			"mode":         mode,
-			"proxyGroups":  groups, // 这里的结构现在与内核 API 完全一致
+			"proxyGroups":  groups, // 这里的字段名必须和内核 API 返回的一致
 			"activeConfig": activeName,
 			"isRunning":    false,
 		}, nil
 	}
 
-	// 2. 内核运行时，通过 API 获取
+	// 2. 内核运行时，走原有的 API 逻辑
 	data, err := clash.GetInitialData()
 	if err != nil {
 		return nil, err
