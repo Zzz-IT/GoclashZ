@@ -140,7 +140,8 @@ func (a *App) startProxyService() error {
 	a.mu.Unlock()
 
 	// 2. 强制设置系统代理
-	if err := sys.SetSystemProxy("127.0.0.1", 7890); err != nil {
+	bypass := "localhost;127.*;10.*;172.16.*;192.168.*;<local>"
+	if err := sys.EnableSystemProxy("127.0.0.1", 7890, bypass); err != nil {
 		return err
 	}
 
@@ -160,7 +161,7 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) shutdown(_ context.Context) {
-	sys.ClearSystemProxy()
+	sys.DisableSystemProxy()
 	clash.Stop()
 }
 
@@ -196,7 +197,7 @@ func (a *App) StopProxy() error {
 	a.mu.Unlock()
 
 	clash.Stop()
-	sys.ClearSystemProxy()
+	sys.DisableSystemProxy()
 	a.StopTrafficStream()
 	return nil
 }
@@ -593,7 +594,7 @@ func (a *App) SelectLocalConfig(fileName string) error {
 	a.mu.Unlock()
 
 	clash.Stop()
-	sys.ClearSystemProxy()
+	sys.DisableSystemProxy()
 
 	if err := clash.BuildRuntimeConfig(fileName); err != nil {
 		return fmt.Errorf("生成运行时配置失败: %v", err)
