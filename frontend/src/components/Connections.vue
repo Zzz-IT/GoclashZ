@@ -72,6 +72,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
+// 引入 Wails 的事件监听方法
+import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 
 const ICONS = {
   pause: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`,
@@ -84,39 +86,39 @@ const connections = ref<any[]>([]);
 const isPaused = ref(false);
 const showModal = ref(false);
 const selectedConn = ref<any>(null);
-let timer: ReturnType<typeof setInterval> | null = null;
 
-const fetchConnections = async () => {
-  if (isPaused.value) return;
-  try {
-    const data: any = await (API as any).GetConnections();
-    
-    // 增强健壮性：严格判断 data.connections 必须存在且为数组
+// 核心重构：移除 fetchConnections 和 setInterval，改为被动响应事件
+onMounted(async () => {
+  // 1. 注册 Wails 事件监听，接收内核主动推送的数据
+  EventsOn("connections-update", (data: any) => {
+    if (isPaused.value) return; // 如果暂停，直接丢弃新数据即可
+
     if (data && Array.isArray(data.connections)) {
       connections.value = data.connections;
       // 同步更新打开的详情弹窗数据
       if (showModal.value && selectedConn.value) {
         const updated = data.connections.find((c: any) => c.id === selectedConn.value.id);
         if (updated) selectedConn.value = updated;
-        else showModal.value = false; // 如果在后台已经被关闭，则退出弹窗
+        else showModal.value = false;
       }
     } else {
-      // 容错处理：如果内核尚未完全启动或数据异常，清空列表
       connections.value = [];
     }
+  });
+
+  // 2. 通知 Go 后端，界面已打开，请向内核发起 WebSocket 连接
+  try {
+    await (API as any).StartConnectionMonitor();
   } catch (e) {
-    console.error("加载连接数据失败", e);
+    console.error("启动连接监控失败:", e);
   }
-};
+});
 
-const startTimer = () => {
-  fetchConnections();
-  timer = setInterval(fetchConnections, 1000); // 1秒一次的心跳轮询
-};
-
-onMounted(() => { startTimer(); });
-
-onUnmounted(() => { if (timer) clearInterval(timer); });
+onUnmounted(() => {
+  // 核心重构：离开页面时，销毁监听并通知后端掐断 WebSocket，极致节省内存
+  EventsOff("connections-update");
+  (API as any).StopConnectionMonitor();
+});
 
 // 判断是否直连
 const isDirect = (conn: any) => {
@@ -155,7 +157,8 @@ const closeAll = async () => {
   if (confirm('确定要强行切断当前所有的网络连接吗？')) {
     try {
       await (API as any).CloseAllConnections();
-      connections.value = [];
+      // 注意：这里不需要再调用 fetchConnections 了，
+      // 因为内核切断连接后，会自动通过 WebSocket 瞬间推个空数组过来，UI会自动清空！
       if (showModal.value) closeDetail();
     } catch (e) { alert("操作失败: " + e); }
   }
@@ -166,7 +169,7 @@ const closeSingleConnection = async (id: string) => {
   try {
     await (API as any).CloseConnection(id);
     closeDetail();
-    fetchConnections();
+    // 同理，不需要再手动轮询刷新了，WebSocket 会瞬间反馈变化
   } catch (e) { alert("断开失败: " + e); }
 };
 </script>

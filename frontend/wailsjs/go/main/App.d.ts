@@ -52,9 +52,13 @@ export function SelectProxy(arg1:string,arg2:string):Promise<void>;
 
 export function SetConfigMode(arg1:string):Promise<void>;
 
+export function StartConnectionMonitor():Promise<void>;
+
 export function StartStreamingLogs():Promise<void>;
 
 export function StartTrafficStream():Promise<void>;
+
+export function StopConnectionMonitor():Promise<void>;
 
 export function StopProxy():Promise<void>;
 

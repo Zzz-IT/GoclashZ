@@ -102,12 +102,20 @@ export function SetConfigMode(arg1) {
   return window['go']['main']['App']['SetConfigMode'](arg1);
 }
 
+export function StartConnectionMonitor() {
+  return window['go']['main']['App']['StartConnectionMonitor']();
+}
+
 export function StartStreamingLogs() {
   return window['go']['main']['App']['StartStreamingLogs']();
 }
 
 export function StartTrafficStream() {
   return window['go']['main']['App']['StartTrafficStream']();
+}
+
+export function StopConnectionMonitor() {
+  return window['go']['main']['App']['StopConnectionMonitor']();
 }
 
 export function StopProxy() {

@@ -470,6 +470,16 @@ func (a *App) CloseAllConnections() error {
 	return clash.CloseAllConnections()
 }
 
+// StartConnectionMonitor 供前端调用：开启连接监控
+func (a *App) StartConnectionMonitor() error {
+	return clash.StartConnectionMonitor(a.ctx)
+}
+
+// StopConnectionMonitor 供前端调用：关闭连接监控
+func (a *App) StopConnectionMonitor() {
+	clash.StopConnectionMonitor()
+}
+
 // ==========================================
 // --- 本地配置文件管理 (新增) ---
 // ==========================================
