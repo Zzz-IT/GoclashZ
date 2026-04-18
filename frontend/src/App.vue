@@ -45,50 +45,7 @@
         </header>
 
         <div class="view-scroller">
-          <div v-if="currentTab === 'home'" class="view-home">
-            <div class="core-status-card">
-              <div class="cs-info">
-                <div class="micro-title">内核状态</div>
-                <h2 class="cs-title">系统代理服务</h2>
-                <div class="cs-meta">
-                  <span>混合端口: 7890</span> • <span>当前模式: {{ currentModeName }}</span>
-                </div>
-              </div>
-
-              <div class="cs-actions">
-                <button class="secondary-btn" @click="goToTunSettings" title="配置虚拟网卡">
-                  <span class="btn-icon" v-html="ICONS.network"></span>
-                  虚拟网卡
-                </button>
-
-                <button class="primary-btn" :class="{ stop: isRunning }" @click="toggleProxy">
-                  <span class="btn-icon" v-html="ICONS.power"></span>
-                  {{ isRunning ? '断开连接' : '启动代理' }}
-                </button>
-              </div>
-            </div>
-
-            <div class="card-grid">
-              <div class="info-card">
-                <div class="micro-title">分流规则模式</div>
-                <div class="segmented-control">
-                  <button v-for="m in modes" :key="m.id"
-                          :class="['seg-btn', { active: currentMode === m.id }]"
-                          @click="changeMode(m.id)">
-                    {{ m.name }}
-                  </button>
-                </div>
-              </div>
-
-              <div class="info-card tun-card">
-                <div class="micro-title">网卡驱动检测</div>
-                <div class="tun-status">
-                  <span class="tun-icon" :class="tunStatus.hasWintun ? 'green-icon' : 'red-icon'" v-html="tunStatus.hasWintun ? ICONS.checkCircle : ICONS.alertCircle"></span>
-                  <span class="tun-text">{{ tunStatus.hasWintun ? 'Wintun 驱动正常' : '缺失底层驱动' }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
+          <Overview v-if="currentTab === 'home'" />
 
           <Subscriptions v-else-if="currentTab === 'subs'" />
 
@@ -118,6 +75,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, nextTick } from 'vue';
 import * as API from '../wailsjs/go/main/App';
+import Overview from './components/Overview.vue';
 import Proxies from './components/Proxies.vue';
 import Subscriptions from './components/Subscriptions.vue';
 import Connections from './components/Connections.vue';

@@ -74,6 +74,7 @@ const ICONS = {
   mode: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`
 };
 
+// ✅ 新增状态对象，替代原来的 isRunning
 const status = ref({ systemProxy: false, tun: false });
 const activeConfigName = ref('');
 const currentMode = ref('rule');
@@ -88,22 +89,23 @@ const refreshAllData = async () => {
       if (data.mode) currentMode.value = data.mode;
       clashVersion.value = data.version || '';
     }
-    // 获取双轨状态
-    const s: any = await API.GetProxyStatus();
-    if (s) {
-        status.value = s;
-    }
+    
+    // ✅ 获取后端双轨制状态
+    const proxyStatus: any = await API.GetProxyStatus();
+    status.value = proxyStatus;
+    
   } catch (e) {
     console.error("加载概览数据失败:", e);
   }
 };
 
+// ✅ 新增的两个切换方法
 const toggleSysProxy = async () => {
   const target = !status.value.systemProxy;
   try {
     await API.ToggleSystemProxy(target);
-    const s: any = await API.GetProxyStatus();
-    if (s) status.value = s;
+    const newStatus: any = await API.GetProxyStatus();
+    status.value = newStatus;
   } catch (e) {
     alert("系统代理操作失败: " + e);
   }
@@ -113,8 +115,8 @@ const toggleTun = async () => {
   const target = !status.value.tun;
   try {
     await API.ToggleTunMode(target);
-    const s: any = await API.GetProxyStatus();
-    if (s) status.value = s;
+    const newStatus: any = await API.GetProxyStatus();
+    status.value = newStatus;
   } catch (e) {
     alert("虚拟网卡操作失败: " + e);
   }
@@ -130,7 +132,7 @@ const handleModeChange = async () => {
 
 const onConfigChanged = (newName: string) => {
   activeConfigName.value = newName;
-  refreshAllData();
+  refreshAllData(); 
 };
 
 onMounted(() => {
@@ -170,6 +172,7 @@ onUnmounted(() => {
   border: 1px solid var(--glass-border);
 }
 
+/* ✅ 新增的按钮控制面板样式 */
 .control-panel {
   display: flex;
   flex-direction: row !important;
