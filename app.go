@@ -12,6 +12,7 @@ import (
 	stdruntime "runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -233,8 +234,7 @@ func (a *App) ToggleTunMode(enable bool) error {
 			return fmt.Errorf("缺失 Wintun 驱动，请先在设置中安装")
 		}
 		if !sys.CheckAdmin() {
-			sys.RequestAdmin()
-			return fmt.Errorf("正在请求系统管理员权限，请允许...")
+			return fmt.Errorf("开启虚拟网卡需要管理员权限，请以管理员身份重启软件，或在设置中点击提权")
 		}
 	}
 
@@ -747,6 +747,7 @@ func (a *App) OpenConfigFile(fileName string) error {
 	case "windows":
 		// ⚠️ 修复：避免使用 cmd /c，防止 Shell 元字符注入
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	case "darwin":
 		cmd = exec.Command("open", path)
 	default:

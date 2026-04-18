@@ -67,7 +67,10 @@ func Start(ctx context.Context) error {
 	// ⚠️ 修复：加入 /FI 过滤器精准匹配进程名称，防止 PID 欺骗与误杀
 	if pidData, err := os.ReadFile(pidFile); err == nil {
 		pidStr := string(pidData)
-		exec.Command("taskkill", "/F", "/FI", "IMAGENAME eq clash.exe", "/PID", pidStr).Run()
+		killCmd := exec.Command("taskkill", "/F", "/FI", "IMAGENAME eq clash.exe", "/PID", pidStr)
+		// 👇 将杀进程操作独立出来，并添加隐藏窗口属性
+		killCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		killCmd.Run()
 		os.Remove(pidFile)
 	}
 
