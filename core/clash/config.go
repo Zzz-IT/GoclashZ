@@ -310,9 +310,9 @@ func GetDNSConfig() (*DNSConfig, error) {
 	return conf, nil
 }
 
-// UpdateDNSConfig 写入 DNS 配置
+// 替换原有的 UpdateDNSConfig 方法 (修复 listen 缺失问题)
 func UpdateDNSConfig(newDNS *DNSConfig) error {
-	configPath := getConfigPath() // 👈 使用绝对路径
+	configPath := getConfigPath()
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -324,9 +324,9 @@ func UpdateDNSConfig(newDNS *DNSConfig) error {
 		return err
 	}
 
-	// 转换为 map 进行精确控制
 	dnsMap := map[string]interface{}{
 		"enable":                  newDNS.Enable,
+		"listen":                  "0.0.0.0:1053", // 👈 核心修复：必须有监听端口
 		"ipv6":                    newDNS.IPv6,
 		"enhanced-mode":           newDNS.EnhancedMode,
 		"fake-ip-range":           newDNS.FakeIPRange,
@@ -336,7 +336,7 @@ func UpdateDNSConfig(newDNS *DNSConfig) error {
 		"default-nameserver":      newDNS.DefaultNameserver,
 		"nameserver":              newDNS.Nameserver,
 		"fallback":                newDNS.Fallback,
-		"fallback-filter":         newDNS.FallbackFilter, // 新增
+		"fallback-filter":         newDNS.FallbackFilter,
 		"nameserver-policy":       newDNS.NameserverPolicy,
 		"proxy-server-nameserver": newDNS.ProxyServerNameserver,
 	}
@@ -350,3 +350,64 @@ func UpdateDNSConfig(newDNS *DNSConfig) error {
 
 	return os.WriteFile(configPath, out, 0644)
 }
+
+// ==========================================
+// --- 运行时参数注入器 (借鉴 Stelliberty) ---
+// ==========================================
+
+// BuildRuntimeConfig 核心流水线：基础配置 + 用户设置 = 最终运行配置
+func BuildRuntimeConfig(profileName string) error {
+	configPath := getConfigPath() // 目标: core/bin/config.yaml
+	baseDir := filepath.Dir(configPath)
+
+	// 1. 提取当前界面的全局设置 (避免被覆盖丢失)
+	userDns, _ := GetDNSConfig()
+	userTun, _ := GetTunConfig()
+
+	// 2. 读取选中的订阅文件作为 "Base Config" (只读模板)
+	profilePath := filepath.Join(baseDir, profileName)
+	baseData, err := os.ReadFile(profilePath)
+	if err != nil {
+		return fmt.Errorf("读取基础配置失败: %v", err)
+	}
+
+	var root map[string]interface{}
+	if err := yaml.Unmarshal(baseData, &root); err != nil {
+		return fmt.Errorf("解析基础配置失败: %v", err)
+	}
+
+	// 3. 运行时参数强制注入 (Injector)
+	// 注入 TUN 配置
+	if userTun != nil {
+		root["tun"] = userTun
+	}
+
+	// 注入 DNS 配置
+	if userDns != nil && userDns.Enable {
+		root["dns"] = map[string]interface{}{
+			"enable":                  userDns.Enable,
+			"listen":                  "0.0.0.0:1053", // 👈 核心修复：向内核暴露本地 DNS 端口
+			"ipv6":                    userDns.IPv6,
+			"enhanced-mode":           userDns.EnhancedMode,
+			"fake-ip-range":           userDns.FakeIPRange,
+			"fake-ip-filter":          userDns.FakeIPFilter,
+			"use-system-hosts":        userDns.UseSystemHosts,
+			"use-hosts":               userDns.UseHosts,
+			"default-nameserver":      userDns.DefaultNameserver,
+			"nameserver":              userDns.Nameserver,
+			"fallback":                userDns.Fallback,
+			"fallback-filter":         userDns.FallbackFilter,
+			"nameserver-policy":       userDns.NameserverPolicy,
+			"proxy-server-nameserver": userDns.ProxyServerNameserver,
+		}
+	}
+
+	// 4. 序列化并生成最终的 config.yaml
+	out, err := yaml.Marshal(root)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(configPath, out, 0644)
+}
+

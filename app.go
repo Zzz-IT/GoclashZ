@@ -351,15 +351,17 @@ func (a *App) GetTunConfig() (*clash.TunConfig, error) {
 	return clash.GetTunConfig()
 }
 
+// 替换2：保存 TUN 配置并触发内核热重启
 func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 	err := clash.UpdateTunConfig(cfg)
 	if err == nil && clash.IsRunning() {
-		// 可选：如果内核在运行且修改了配置，你可以在这执行重启
-		// clash.Stop()
-		// clash.Start(a.ctx)
+		// TUN 模式的开启和关闭必须重启内核才能生效
+		clash.Stop()
+		a.startProxyService()
 	}
 	return err
 }
+
 
 // 3. 提供给前端：安装驱动
 func (a *App) InstallTunDriver() error {
@@ -370,13 +372,17 @@ func (a *App) GetDNSConfig() (*clash.DNSConfig, error) {
 	return clash.GetDNSConfig()
 }
 
+// 替换3：保存 DNS 配置并触发内核热重启
 func (a *App) SaveDNSConfig(cfg *clash.DNSConfig) error {
 	err := clash.UpdateDNSConfig(cfg)
 	if err == nil && clash.IsRunning() {
-		// 可选：重启内核
+		// 监听端口的改变和 fake-ip 的劫持需要重启内核
+		clash.Stop()
+		a.startProxyService()
 	}
 	return err
 }
+
 
 // ==========================================
 // --- 本地配置文件管理 (新增) ---
@@ -482,34 +488,28 @@ func (a *App) ClearBaseConfig() error {
 	return os.WriteFile(destPath, []byte(emptyConfig), 0644)
 }
 
-// 修改 SelectLocalConfig
+// 替换1：切换本地配置时，使用流水线生成机制
 func (a *App) SelectLocalConfig(fileName string) error {
+	fileName = filepath.Base(fileName) // 净化前端传来的文件名
+
 	a.mu.Lock()
 	a.activeConfig = fileName
-	a.saveActiveConfig(fileName) // 👈 持久化保存到本地
+	a.saveActiveConfig(fileName) // 持久化保存到本地
 	a.mu.Unlock()
 
-	// 👈 记住切换前内核是否在运行
+	// 记住切换前内核是否在运行
 	wasRunning := clash.IsRunning()
 
-	// 先彻底停止现有的内核和代理
+	// 1. 先彻底停止现有的内核和代理，释放文件占用
 	clash.Stop()
 	sys.ClearSystemProxy()
 
-	fileName = filepath.Base(fileName) // 净化前端传来的文件名
-
-	// 👈 路径全部改为使用 getBaseDir() 作为基准
-	baseDir := getBaseDir()
-	sourcePath := filepath.Join(baseDir, "core", "bin", fileName)
-	destPath := filepath.Join(baseDir, "core", "bin", "config.yaml")
-
-	content, err := os.ReadFile(sourcePath)
-	if err != nil {
-		return err
+	// 2. 调用注入器流水线：读取选中的 yaml，注入用户 DNS/TUN，生成 config.yaml
+	if err := clash.BuildRuntimeConfig(fileName); err != nil {
+		return fmt.Errorf("生成运行时配置失败: %v", err)
 	}
-	os.WriteFile(destPath, content, 0644)
 
-	// 👈 核心修改：如果之前在运行，就重新启动代理。如果没在运行，就不启动！
+	// 3. 如果之前在运行，就重新启动代理加载新配置
 	if wasRunning {
 		if err := a.startProxyService(); err != nil {
 			return err
@@ -520,3 +520,4 @@ func (a *App) SelectLocalConfig(fileName string) error {
 	runtime.EventsEmit(a.ctx, "config-changed", fileName)
 	return nil
 }
+
