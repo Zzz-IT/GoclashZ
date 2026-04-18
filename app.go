@@ -28,6 +28,32 @@ type App struct {
 	isProxyActive bool              // 👈 新增：记录用户逻辑上的代理开关状态
 }
 
+// 1. 在 app.go 任意位置新增这个辅助方法，用于将离线缓存合并到数据源
+func (a *App) mergeOfflineNodes(data map[string]interface{}) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if groups, ok := data["groups"].(map[string]interface{}); ok {
+		for gName, groupData := range groups {
+			if gMap, ok2 := groupData.(map[string]interface{}); ok2 {
+				// 优先使用离线选择
+				if a.offlineNodes != nil {
+					if selNode, exists := a.offlineNodes[gName]; exists {
+						gMap["now"] = selNode
+					}
+				}
+				// 兜底：没有当前选中项，默认选中第一项
+				if gMap["now"] == "" {
+					if lenRaw, has := gMap["all"]; has {
+						if allArr, ok3 := lenRaw.([]string); ok3 && len(allArr) > 0 {
+							gMap["now"] = allArr[0]
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 // 1. 在 app.go 任意位置新增一个获取程序真实绝对路径的辅助方法
 func getBaseDir() string {
 	exePath, err := os.Executable()
@@ -191,49 +217,30 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	}
 	a.mu.Unlock()
 
-	// 👈 核心修复：判断内核是否在运行
 	if !clash.IsRunning() {
-		// 1. 如果内核没开，直接读本地文件 (离线模式)
 		data, err := clash.GetOfflineData(activeConfig)
 		if err != nil {
-			// 如果连文件也读不到，返回最基础的空结构，防止前端报错
 			return map[string]interface{}{"mode": "rule", "groups": make(map[string]interface{})}, nil
 		}
-
-		// 👇 新增：将我们离线记录的选中项合并回数据中返回给前端
-		a.mu.Lock()
-		if groups, ok := data["groups"].(map[string]interface{}); ok {
-			for gName, groupData := range groups {
-				if gMap, ok2 := groupData.(map[string]interface{}); ok2 {
-					// 如果有离线选择，优先使用
-					if a.offlineNodes != nil {
-						if selNode, exists := a.offlineNodes[gName]; exists {
-							gMap["now"] = selNode
-						}
-					}
-					// 如果依旧没有当前选中项，默认选中第一项（防止前端出现空白）
-					if gMap["now"] == "" {
-						if lenRaw, has := gMap["all"]; has {
-							if allArr, ok3 := lenRaw.([]string); ok3 && len(allArr) > 0 {
-								gMap["now"] = allArr[0]
-							}
-						}
-					}
-				}
-			}
-		}
-		a.mu.Unlock()
+		
+		a.mergeOfflineNodes(data) // 👈 使用辅助方法合并
 
 		data["activeConfig"] = activeConfig
-		data["isOffline"] = true // 标记为离线
+		data["isOffline"] = true
 		return data, nil
 	}
 
-	// 2. 如果内核在运行，尝试从 API 获取 (在线模式)
 	data, err := clash.GetInitialData()
 	if err != nil {
-		// 如果 API 请求由于某种原因失败（比如内核刚启动还没加载完），降级回离线模式
-		return clash.GetOfflineData(activeConfig)
+		// ⚠️ 核心修复：API 宕机/未就绪时触发降级，同样需要合并离线节点，防止 UI 重置跳变
+		fallbackData, _ := clash.GetOfflineData(activeConfig)
+		if fallbackData != nil {
+			a.mergeOfflineNodes(fallbackData)
+			fallbackData["activeConfig"] = activeConfig
+			fallbackData["isOffline"] = true
+			return fallbackData, nil
+		}
+		return map[string]interface{}{"mode": "rule", "groups": make(map[string]interface{})}, nil
 	}
 
 	a.mu.Lock()
@@ -542,31 +549,37 @@ func (a *App) ClearBaseConfig() error {
 
 // 替换1：切换本地配置时，使用流水线生成机制
 func (a *App) SelectLocalConfig(fileName string) error {
-	fileName = filepath.Base(fileName) // 净化前端传来的文件名
+	fileName = filepath.Base(fileName)
 
 	a.mu.Lock()
 	a.activeConfig = fileName
-	a.saveActiveConfig(fileName) // 持久化保存到本地
-	wasActive := a.isProxyActive // 👈 核心修复：记住切换前用户是否“逻辑上”开启了代理
+	a.saveActiveConfig(fileName)
+	wasActive := a.isProxyActive
 	a.mu.Unlock()
 
-	// 1. 先彻底停止现有的内核和代理，释放文件占用
 	clash.Stop()
 	sys.ClearSystemProxy()
 
-	// 2. 调用注入器流水线：读取选中的 yaml，注入用户 DNS/TUN，生成 config.yaml
 	if err := clash.BuildRuntimeConfig(fileName); err != nil {
 		return fmt.Errorf("生成运行时配置失败: %v", err)
 	}
 
-	// 3. 如果用户之前是开启状态，才重新启动代理接管系统网络
 	if wasActive {
 		if err := a.startProxyService(); err != nil {
 			return err
 		}
+		// ⚠️ 核心修复：使用轮询检测内核复活，替代卡死界面的硬编码 time.Sleep
+		for i := 0; i < 20; i++ {
+			time.Sleep(100 * time.Millisecond)
+			if clash.IsRunning() {
+				break
+			}
+		}
+	} else {
+		// 如果只是离线切换，稍微让文件系统缓一下即可
+		time.Sleep(200 * time.Millisecond)
 	}
 
-	time.Sleep(800 * time.Millisecond)
 	runtime.EventsEmit(a.ctx, "config-changed", fileName)
 	return nil
 }

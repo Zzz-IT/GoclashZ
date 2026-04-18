@@ -219,10 +219,23 @@ onMounted(async () => {
   EventsOn("traffic-data", (data: any) => { traffic.value = data; });
 
   API.StartStreamingLogs();
+  
+  // ⚠️ 核心修复：增加滚动防抖计时器
+  let scrollTimer: ReturnType<typeof setTimeout> | null = null;
+  
   EventsOn("log-message", (log: any) => {
     logLines.value.push({ ...log, time: new Date().toLocaleTimeString('zh-CN', { hour12: false }) });
     if (logLines.value.length > 200) logLines.value.shift();
-    nextTick(() => { if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight; });
+    
+    // 聚合 DOM 渲染指令，每 100ms 最多执行一次到底部对齐
+    if (!scrollTimer) {
+      scrollTimer = setTimeout(() => {
+        if (logBox.value) {
+          logBox.value.scrollTop = logBox.value.scrollHeight;
+        }
+        scrollTimer = null;
+      }, 100);
+    }
   });
 
   EventsOn("clash-exited", () => { isRunning.value = false; });

@@ -130,14 +130,8 @@ const testAllDelays = () => {
   });
 
   if (nodesArray.length > 0) {
-    API.TestAllProxies(nodesArray).finally(() => {
-        setTimeout(() => {
-            isTesting.value = false;
-            if(activeGroupData.value) {
-               activeGroupData.value.proxies.forEach((n:any) => n.testing = false);
-            }
-        }, 1500);
-    });
+    // ⚠️ 核心修复：这里只发送触发指令，不依赖返回值结束状态
+    API.TestAllProxies(nodesArray);
   } else {
     isTesting.value = false;
   }
@@ -175,7 +169,6 @@ const getDelayColorClass = (delay: number | null) => {
 };
 
 onMounted(async () => {
-  // 1. 先注册监听器，确保在 loadData 过程中如果触发了事件也能捕获
   EventsOn("proxy-delay-update", (data: any) => {
     localGroups.value.forEach(g => {
       const node = g.proxies.find((n: any) => n.name === data.name);
@@ -187,19 +180,25 @@ onMounted(async () => {
   });
 
   EventsOn("config-changed", async () => {
-      console.log("检测到配置已更新，正在重新加载节点列表...");
-      // 彻底重置状态，强制触发验证逻辑
       currentGroup.value = '';
       await loadData();
   });
 
-  // 2. 初始加载
+  // ⚠️ 核心修复：统一监听后端 Go 语言 WaitGroup 触发的全局完成事件
+  EventsOn("proxy-test-finished", () => {
+    isTesting.value = false;
+    if(activeGroupData.value) {
+        activeGroupData.value.proxies.forEach((n:any) => n.testing = false);
+    }
+  });
+
   await loadData();
 });
 
 onUnmounted(() => {
   EventsOff("proxy-delay-update");
   EventsOff("config-changed");
+  EventsOff("proxy-test-finished"); // 记得注销
 });
 </script>
 

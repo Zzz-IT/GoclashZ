@@ -15,7 +15,14 @@ import (
 
 // FetchLogs 从内核获取实时日志流并推送至前端
 func FetchLogs(ctx context.Context) {
-	resp, err := http.Get("http://127.0.0.1:9090/logs")
+	// ⚠️ 核心修复：使用带有 Context 的请求，当 ctx 被取消时，网络请求立刻中断，解除 scanner.Scan() 的阻塞
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:9090/logs", nil)
+	if err != nil {
+		return
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		return
 	}
@@ -23,14 +30,9 @@ func FetchLogs(ctx context.Context) {
 
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			var logData interface{}
-			if err := json.Unmarshal(scanner.Bytes(), &logData); err == nil {
-				runtime.EventsEmit(ctx, "log-message", logData)
-			}
+		var logData interface{}
+		if err := json.Unmarshal(scanner.Bytes(), &logData); err == nil {
+			runtime.EventsEmit(ctx, "log-message", logData)
 		}
 	}
 }
