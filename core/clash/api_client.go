@@ -44,8 +44,9 @@ func GetProxyDelay(proxyName string) (int, error) {
 	testUrl := "http://www.gstatic.com/generate_204"
 	timeout := 5000
 
+	// 👈 核心修复：必须对 testUrl 进行 QueryEscape 编码
 	apiURL := fmt.Sprintf("http://127.0.0.1:9090/proxies/%s/delay?timeout=%d&url=%s",
-		encodedName, timeout, testUrl)
+		encodedName, timeout, url.QueryEscape(testUrl))
 
 	// HTTP 客户端的超时应略大于内核传入的 timeout
 	client := &http.Client{
