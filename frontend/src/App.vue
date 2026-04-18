@@ -94,6 +94,8 @@
 
           <Proxies v-else-if="currentTab === 'proxies'" />
 
+          <Connections v-else-if="currentTab === 'connections'" />
+
           <div v-else-if="currentTab === 'logs'" class="view-logs">
             <div class="terminal-box" ref="logBox">
               <div v-for="(log, i) in logLines" :key="i" :class="['log-line', log.type]">
@@ -118,6 +120,7 @@ import { ref, onMounted, computed, nextTick } from 'vue';
 import * as API from '../wailsjs/go/main/App';
 import Proxies from './components/Proxies.vue';
 import Subscriptions from './components/Subscriptions.vue';
+import Connections from './components/Connections.vue';
 import Settings from './components/Settings.vue';
 import {
   EventsOn,
@@ -142,7 +145,8 @@ const ICONS = {
   alertCircle: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`,
   min: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
   max: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>`,
-  close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`
+  close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+  connections: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`,
 };
 
 const isDark = ref(false);
@@ -160,6 +164,7 @@ const menu = [
   { id: 'home', label: '控制台', icon: ICONS.home },
   { id: 'subs', label: '订阅管理', icon: ICONS.subs },
   { id: 'proxies', label: '代理节点', icon: ICONS.proxies },
+  { id: 'connections', label: '当前连接', icon: ICONS.connections },
   { id: 'logs', label: '实时日志', icon: ICONS.logs },
   { id: 'settings', label: '系统设置', icon: ICONS.settings }
 ];

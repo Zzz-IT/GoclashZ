@@ -179,3 +179,48 @@ func SwitchProxy(groupName, nodeName string) error {
 
 	return nil
 }
+
+// GetConnections 获取当前所有活跃连接
+func GetConnections() (map[string]interface{}, error) {
+	resp, err := http.Get("http://127.0.0.1:9090/connections")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var data map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// CloseConnection 断开指定的单个连接
+func CloseConnection(id string) error {
+	req, err := http.NewRequest(http.MethodDelete, "http://127.0.0.1:9090/connections/"+id, nil)
+	if err != nil {
+		return err
+	}
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
+// CloseAllConnections 断开所有活动连接
+func CloseAllConnections() error {
+	req, err := http.NewRequest(http.MethodDelete, "http://127.0.0.1:9090/connections", nil)
+	if err != nil {
+		return err
+	}
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
+}

@@ -6,11 +6,17 @@ export function CheckTunEnv():Promise<Record<string, boolean>>;
 
 export function ClearBaseConfig():Promise<void>;
 
+export function CloseAllConnections():Promise<void>;
+
+export function CloseConnection(arg1:string):Promise<void>;
+
 export function DeleteConfig(arg1:string):Promise<void>;
 
 export function ElevatePrivileges():Promise<void>;
 
 export function FixUWPNetwork():Promise<void>;
+
+export function GetConnections():Promise<Record<string, any>>;
 
 export function GetDNSConfig():Promise<clash.DNSConfig>;
 

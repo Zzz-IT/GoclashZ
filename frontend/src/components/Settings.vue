@@ -522,7 +522,20 @@ const updateNameserverPolicy = (e: Event) => {
 
 h3 { margin: 0 0 20px 0; color: var(--text-main); font-size: 1.1rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 12px; }
 h4 { margin: 0 0 6px 0; color: var(--text-main); font-size: 1rem;}
-p { margin: 0; font-size: 0.85rem; color: var(--text-sub); max-width: 80%; }
+p { 
+  margin: 0; 
+  font-size: 0.85rem; 
+  color: var(--text-sub); 
+  max-width: 100%;    /* 修改：允许占据全部可用宽度，不再强制 80% */
+  line-height: 1.5;   /* 顺便优化下行高，增加可读性 */
+}
+
+/* 1. 为 info 容器增加弹性布局指令 */
+.info {
+  flex: 1;           /* 占据左侧全部剩余空间 */
+  padding-right: 24px; /* 保护右侧间距，防止文字贴着开关 */
+  min-width: 0;      /* 防止 flex 容器溢出 */
+}
 
 .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; }
 .col-item { flex-direction: column; align-items: stretch; gap: 10px; padding: 16px 0; } /* 专为 textarea 设计 */

@@ -10,6 +10,14 @@ export function ClearBaseConfig() {
   return window['go']['main']['App']['ClearBaseConfig']();
 }
 
+export function CloseAllConnections() {
+  return window['go']['main']['App']['CloseAllConnections']();
+}
+
+export function CloseConnection(arg1) {
+  return window['go']['main']['App']['CloseConnection'](arg1);
+}
+
 export function DeleteConfig(arg1) {
   return window['go']['main']['App']['DeleteConfig'](arg1);
 }
@@ -20,6 +28,10 @@ export function ElevatePrivileges() {
 
 export function FixUWPNetwork() {
   return window['go']['main']['App']['FixUWPNetwork']();
+}
+
+export function GetConnections() {
+  return window['go']['main']['App']['GetConnections']();
 }
 
 export function GetDNSConfig() {

@@ -455,6 +455,20 @@ func (a *App) SaveNetworkConfig(cfg *clash.NetworkConfig) error {
 	return err
 }
 
+// --- 连接管理 (新增) ---
+
+func (a *App) GetConnections() (map[string]interface{}, error) {
+	return clash.GetConnections()
+}
+
+func (a *App) CloseConnection(id string) error {
+	return clash.CloseConnection(id)
+}
+
+func (a *App) CloseAllConnections() error {
+	return clash.CloseAllConnections()
+}
+
 // ==========================================
 // --- 本地配置文件管理 (新增) ---
 // ==========================================
