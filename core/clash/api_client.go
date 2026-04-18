@@ -13,15 +13,25 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// 关键修复：创建一个全局的、强制不走系统代理的 HTTP 客户端
+var localAPIClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy: nil, // 强制禁用代理，防止本地 9090 请求被 7890 系统代理劫持
+	},
+	Timeout: 10 * time.Second,
+}
+
 // FetchLogs 从内核获取实时日志流并推送至前端
 func FetchLogs(ctx context.Context) {
-	// ⚠️ 核心修复：使用带有 Context 的请求，当 ctx 被取消时，网络请求立刻中断，解除 scanner.Scan() 的阻塞
 	req, err := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:9090/logs", nil)
 	if err != nil {
 		return
 	}
 
-	client := &http.Client{}
+	// 单独的 client 也需要禁用代理，并且不要设置超时以保持长连接
+	client := &http.Client{
+		Transport: &http.Transport{Proxy: nil}, 
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return
@@ -39,29 +49,23 @@ func FetchLogs(ctx context.Context) {
 
 // GetProxyDelay 调用内核 API 测试真实延迟
 func GetProxyDelay(proxyName string) (int, error) {
-	// ⚠️ 极其关键：必须对节点名进行 URL 编码，防止空格 and 特殊符号导致 400 Bad Request
 	encodedName := url.PathEscape(proxyName)
-
-	// 测速目标和超时设置 (5000ms)
 	testUrl := "http://www.gstatic.com/generate_204"
 	timeout := 5000
 
-	// 👈 核心修复：必须对 testUrl 进行 QueryEscape 编码
 	apiURL := fmt.Sprintf("http://127.0.0.1:9090/proxies/%s/delay?timeout=%d&url=%s",
 		encodedName, timeout, url.QueryEscape(testUrl))
 
-	// HTTP 客户端的超时应略大于内核传入的 timeout
+	// 测速 client 必须禁用代理
 	client := &http.Client{
-		Timeout: 6 * time.Second,
+		Transport: &http.Transport{Proxy: nil},
+		Timeout:   6 * time.Second,
 	}
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return -1, err
 	}
-
-	// 如果你的 API 配置了 secret，记得取消下面这行的注释：
-	// req.Header.Set("Authorization", "Bearer YOUR_SECRET")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -80,7 +84,6 @@ func GetProxyDelay(proxyName string) (int, error) {
 		return -1, err
 	}
 
-	// 内核有时超时会返回 0，统一转为 -1
 	if result.Delay == 0 {
 		return -1, nil
 	}
@@ -90,33 +93,30 @@ func GetProxyDelay(proxyName string) (int, error) {
 
 // GetInitialData 获取模式和代理组信息
 func GetInitialData() (map[string]interface{}, error) {
-	// 获取基础配置 (Mode)
-	respConfig, err := http.Get("http://127.0.0.1:9090/configs")
+	// 使用 localAPIClient 替换 http.Get
+	respConfig, err := localAPIClient.Get("http://127.0.0.1:9090/configs")
 	if err != nil {
 		return nil, err
 	}
 	defer respConfig.Body.Close()
 
 	var config map[string]interface{}
-	// 修正：这里使用 respConfig.Body
 	if err := json.NewDecoder(respConfig.Body).Decode(&config); err != nil {
 		return nil, err
 	}
 
-	// 获取代理列表 (Groups)
-	respProxies, err := http.Get("http://127.0.0.1:9090/proxies")
+	// 使用 localAPIClient 替换 http.Get
+	respProxies, err := localAPIClient.Get("http://127.0.0.1:9090/proxies")
 	if err != nil {
 		return nil, err
 	}
 	defer respProxies.Body.Close()
 
 	var proxies map[string]interface{}
-	// 修正：这里使用 respProxies.Body，而不是直接用 respProxies
 	if err := json.NewDecoder(respProxies.Body).Decode(&proxies); err != nil {
 		return nil, err
 	}
 
-	// 整合数据
 	return map[string]interface{}{
 		"mode":   config["mode"],
 		"groups": proxies["proxies"],
@@ -125,19 +125,17 @@ func GetInitialData() (map[string]interface{}, error) {
 
 // UpdateMode 切换 Clash 路由模式 (rule, global, direct)
 func UpdateMode(mode string) error {
-	// 构造请求体
 	body := map[string]string{"mode": mode}
 	jsonBody, _ := json.Marshal(body)
 
-	// Mihomo/Clash API: PATCH /configs
 	req, err := http.NewRequest(http.MethodPatch, "http://127.0.0.1:9090/configs", bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	// 使用 localAPIClient
+	resp, err := localAPIClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -152,12 +150,9 @@ func UpdateMode(mode string) error {
 
 // SwitchProxy 切换特定策略组的节点
 func SwitchProxy(groupName, nodeName string) error {
-	// 构造请求体
 	body := map[string]string{"name": nodeName}
 	jsonBody, _ := json.Marshal(body)
 
-	// Mihomo/Clash API: PUT /proxies/{groupName}
-	// 注意：groupName 必须进行 URL 编码
 	apiURL := fmt.Sprintf("http://127.0.0.1:9090/proxies/%s", url.PathEscape(groupName))
 
 	req, err := http.NewRequest(http.MethodPut, apiURL, bytes.NewBuffer(jsonBody))
@@ -166,8 +161,8 @@ func SwitchProxy(groupName, nodeName string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	// 使用 localAPIClient
+	resp, err := localAPIClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -182,7 +177,8 @@ func SwitchProxy(groupName, nodeName string) error {
 
 // GetConnections 获取当前所有活跃连接
 func GetConnections() (map[string]interface{}, error) {
-	resp, err := http.Get("http://127.0.0.1:9090/connections")
+	// 使用 localAPIClient 替换 http.Get
+	resp, err := localAPIClient.Get("http://127.0.0.1:9090/connections")
 	if err != nil {
 		return nil, err
 	}
@@ -201,8 +197,8 @@ func CloseConnection(id string) error {
 	if err != nil {
 		return err
 	}
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	// 使用 localAPIClient
+	resp, err := localAPIClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -216,8 +212,8 @@ func CloseAllConnections() error {
 	if err != nil {
 		return err
 	}
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	// 使用 localAPIClient
+	resp, err := localAPIClient.Do(req)
 	if err != nil {
 		return err
 	}

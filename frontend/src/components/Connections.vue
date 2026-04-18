@@ -90,7 +90,9 @@ const fetchConnections = async () => {
   if (isPaused.value) return;
   try {
     const data: any = await (API as any).GetConnections();
-    if (data && data.connections) {
+    
+    // 增强健壮性：严格判断 data.connections 必须存在且为数组
+    if (data && Array.isArray(data.connections)) {
       connections.value = data.connections;
       // 同步更新打开的详情弹窗数据
       if (showModal.value && selectedConn.value) {
@@ -98,6 +100,9 @@ const fetchConnections = async () => {
         if (updated) selectedConn.value = updated;
         else showModal.value = false; // 如果在后台已经被关闭，则退出弹窗
       }
+    } else {
+      // 容错处理：如果内核尚未完全启动或数据异常，清空列表
+      connections.value = [];
     }
   } catch (e) {
     console.error("加载连接数据失败", e);

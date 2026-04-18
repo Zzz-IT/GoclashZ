@@ -4,11 +4,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
+
+// 关键修复：创建一个忽略系统代理的专属 HTTP 客户端
+var localAPIClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy: nil, // 强制不走代理
+	},
+	Timeout: 5 * time.Second,
+}
 
 // GetTraffic 从内核 API 获取实时的上传下载字节流并格式化
 func GetTraffic() (string, string) {
-	resp, err := http.Get("http://127.0.0.1:9090/traffic")
+	// 使用 localAPIClient 替换 http.Get
+	resp, err := localAPIClient.Get("http://127.0.0.1:9090/traffic")
 	if err != nil {
 		return "0 B/s", "0 B/s"
 	}
