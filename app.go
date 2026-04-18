@@ -124,19 +124,24 @@ func (a *App) startProxyService() error {
 		}
 	}
 
-	configPath := clash.GetConfigPath()
-	
 	a.mu.Lock()
 	mode := a.activeMode
 	if mode == "" {
 		mode = a.loadActiveMode()
 		a.activeMode = mode
 	}
+	// 获取当前配置文件名
+	activeCfg := a.activeConfig
+	if activeCfg == "" {
+		activeCfg = a.loadActiveConfig()
+	}
 	a.mu.Unlock()
 
-	// 👈 核心：内核启动前，动态注入/修复运行时配置 (含模式)
-	if err := clash.InjectRuntimeConfig(configPath, isTunEnabled, mode); err != nil {
-		fmt.Printf("注入运行时配置警告: %v\n", err)
+	// 👈 核心：利用已有的配置生成流水线，直接根据模板重写 config.yaml (含模式、TUN、端口等)
+	if activeCfg != "" {
+		if err := clash.BuildRuntimeConfig(activeCfg, mode); err != nil {
+			fmt.Printf("生成运行时配置警告: %v\n", err)
+		}
 	}
 
 	// 启动内核 
@@ -266,12 +271,20 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 
 	data, err := clash.GetInitialData()
 	if err != nil {
-		// ⚠️ 核心修复：API 宕机/未就绪时触发降级，同样需要合并离线节点，防止 UI 重置跳变
+		// API 宕机/未就绪时触发降级，同样需要合并离线节点，防止 UI 重置跳变
 		fallbackData, _ := clash.GetOfflineData(activeConfig)
 		if fallbackData != nil {
 			a.mergeOfflineNodes(fallbackData)
 			fallbackData["activeConfig"] = activeConfig
 			fallbackData["isOffline"] = true
+
+			// ✅ 修复：把内存中最新的 mode 覆盖给 fallback，防止从 YAML 读到旧数据导致界面跳变
+			a.mu.Lock()
+			if a.activeMode != "" {
+				fallbackData["mode"] = a.activeMode
+			}
+			a.mu.Unlock()
+
 			return fallbackData, nil
 		}
 		return map[string]interface{}{"mode": "rule", "groups": make(map[string]interface{})}, nil
@@ -349,10 +362,18 @@ func (a *App) UpdateClashMode(mode string) error {
 	}
 
 	// 3. 如果内核没运行，只改文件（防止下次启动时丢失）
-	configPath := clash.GetConfigPath()
-	tunCfg, _ := clash.GetTunConfig()
-	isTun := tunCfg != nil && tunCfg.Enable
-	return clash.InjectRuntimeConfig(configPath, isTun, mode)
+	a.mu.Lock()
+	activeCfg := a.activeConfig
+	if activeCfg == "" {
+		activeCfg = a.loadActiveConfig()
+	}
+	a.mu.Unlock()
+
+	if activeCfg != "" {
+		// 直接利用现成的流水线重构 config.yaml
+		return clash.BuildRuntimeConfig(activeCfg, mode)
+	}
+	return nil
 }
 
 func (a *App) SelectProxy(groupName, nodeName string) error {

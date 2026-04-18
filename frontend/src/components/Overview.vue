@@ -65,7 +65,7 @@ const ICONS = {
 
 const isRunning = ref(false);
 const activeConfigName = ref('');
-const currentMode = ref(localStorage.getItem('clash_proxy_mode') || 'rule');
+const currentMode = ref('rule');
 const clashVersion = ref('');
 const traffic = ref({ up: '0 B/s', down: '0 B/s' });
 
@@ -87,7 +87,6 @@ const refreshAllData = async () => {
       // 3. 同步模式
       if (data.mode) {
           currentMode.value = data.mode;
-          localStorage.setItem('clash_proxy_mode', data.mode);
       }
 
       clashVersion.value = data.version || '';
@@ -99,7 +98,6 @@ const refreshAllData = async () => {
 
 // 处理模式切换
 const handleModeChange = async () => {
-    localStorage.setItem('clash_proxy_mode', currentMode.value);
     try {
         // 调用后端统一的更新接口 (兼顾运行时与持久化)
         await API.UpdateClashMode(currentMode.value);
