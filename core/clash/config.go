@@ -86,7 +86,20 @@ func GetOfflineData(fileName string) (map[string]interface{}, error) {
 
 	for _, g := range conf.ProxyGroups {
 		name, _ := g["name"].(string)
-		gType, _ := g["type"].(string)
+		gTypeRaw, _ := g["type"].(string) // 改个名字，获取原始 type
+
+		// 👇 新增类型转换，将其翻译为前端认识的 API 标准名称
+		gType := gTypeRaw
+		switch gTypeRaw {
+		case "select":
+			gType = "Selector"
+		case "url-test":
+			gType = "URLTest"
+		case "fallback":
+			gType = "Fallback"
+		case "load-balance":
+			gType = "LoadBalance"
+		}
 
 		var all []string
 		if pList, ok := g["proxies"].([]interface{}); ok {

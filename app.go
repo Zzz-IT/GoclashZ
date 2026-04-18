@@ -20,10 +20,11 @@ import (
 type App struct {
 	ctx           context.Context
 	cancelTraffic context.CancelFunc
-	cancelLogs    context.CancelFunc // 👈 新增：用于专门控制日志流的取消
+	cancelLogs    context.CancelFunc 
 	logRunning    bool
 	mu            sync.Mutex
 	activeConfig  string
+	offlineNodes  map[string]string // 👈 新增：存储离线状态下选中的节点
 }
 
 // 1. 在 app.go 任意位置新增一个获取程序真实绝对路径的辅助方法
@@ -60,6 +61,23 @@ func (a *App) startProxyService() error {
 		return err
 	}
 
+	// 👇 新增：内核启动后，立即将离线选择的节点发给内核生效
+	a.mu.Lock()
+	if len(a.offlineNodes) > 0 {
+		// 复制一份，防止携程中产生并发读写问题
+		nodesCopy := make(map[string]string)
+		for k, v := range a.offlineNodes {
+			nodesCopy[k] = v
+		}
+		go func(nodes map[string]string) {
+			time.Sleep(600 * time.Millisecond) // 等待半秒，确保内核 API 监听已就绪
+			for g, n := range nodes {
+				clash.SwitchProxy(g, n)
+			}
+		}(nodesCopy)
+	}
+	a.mu.Unlock()
+
 	// 2. 强制设置系统代理
 	if err := sys.SetSystemProxy("127.0.0.1", 7890); err != nil {
 		return err
@@ -71,7 +89,9 @@ func (a *App) startProxyService() error {
 }
 
 func NewApp() *App {
-	return &App{}
+	return &App{
+		offlineNodes: make(map[string]string), // 👈 初始化 map
+	}
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -127,6 +147,31 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 			// 如果连文件也读不到，返回最基础的空结构，防止前端报错
 			return map[string]interface{}{"mode": "rule", "groups": make(map[string]interface{})}, nil
 		}
+
+		// 👇 新增：将我们离线记录的选中项合并回数据中返回给前端
+		a.mu.Lock()
+		if groups, ok := data["groups"].(map[string]interface{}); ok {
+			for gName, groupData := range groups {
+				if gMap, ok2 := groupData.(map[string]interface{}); ok2 {
+					// 如果有离线选择，优先使用
+					if a.offlineNodes != nil {
+						if selNode, exists := a.offlineNodes[gName]; exists {
+							gMap["now"] = selNode
+						}
+					}
+					// 如果依旧没有当前选中项，默认选中第一项（防止前端出现空白）
+					if gMap["now"] == "" {
+						if lenRaw, has := gMap["all"]; has {
+							if allArr, ok3 := lenRaw.([]string); ok3 && len(allArr) > 0 {
+								gMap["now"] = allArr[0]
+							}
+						}
+					}
+				}
+			}
+		}
+		a.mu.Unlock()
+
 		data["activeConfig"] = activeConfig
 		data["isOffline"] = true // 标记为离线
 		return data, nil
@@ -175,6 +220,16 @@ func (a *App) SetConfigMode(mode string) error {
 }
 
 func (a *App) SelectProxy(groupName, nodeName string) error {
+	// 👇 新增拦截：如果内核没在运行，不要发送 HTTP 请求报错，而是将其存入离线缓存
+	if !clash.IsRunning() {
+		a.mu.Lock()
+		if a.offlineNodes == nil {
+			a.offlineNodes = make(map[string]string)
+		}
+		a.offlineNodes[groupName] = nodeName
+		a.mu.Unlock()
+		return nil
+	}
 	return clash.SwitchProxy(groupName, nodeName)
 }
 
