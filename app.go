@@ -113,44 +113,36 @@ func (a *App) GetProxyStatus() bool {
 
 func (a *App) GetInitialData() (map[string]interface{}, error) {
 	a.mu.Lock()
-	if a.activeConfig == "" {
-		a.activeConfig = a.loadActiveConfig()
+	activeConfig := a.activeConfig
+	if activeConfig == "" {
+		activeConfig = a.loadActiveConfig()
 	}
-	activeName := a.activeConfig
 	a.mu.Unlock()
 
-	// 1. 检查内核是否运行
-	running := clash.IsRunning()
-
-	if !running {
-		// 👈 核心修复：内核未启动时，手动解析本地文件并模拟内核返回的数据结构
-		// 如果用户选了某个配置，就读那个配置，否则读默认的 config.yaml
-		targetFile := "config.yaml"
-		if activeName != "" {
-			targetFile = activeName
-		}
-
-		// 调用增强版的静态解析函数
-		mode, groups, err := clash.GetStaticNodesV2(targetFile)
+	// 👈 核心修复：判断内核是否在运行
+	if !clash.IsRunning() {
+		// 1. 如果内核没开，直接读本地文件 (离线模式)
+		data, err := clash.GetOfflineData(activeConfig)
 		if err != nil {
-			return nil, err
+			// 如果连文件也读不到，返回最基础的空结构，防止前端报错
+			return map[string]interface{}{"mode": "rule", "groups": make(map[string]interface{})}, nil
 		}
-
-		return map[string]interface{}{
-			"mode":         mode,
-			"proxyGroups":  groups, // 这里的字段名必须和内核 API 返回的一致
-			"activeConfig": activeName,
-			"isRunning":    false,
-		}, nil
+		data["activeConfig"] = activeConfig
+		data["isOffline"] = true // 标记为离线
+		return data, nil
 	}
 
-	// 2. 内核运行时，走原有的 API 逻辑
+	// 2. 如果内核在运行，尝试从 API 获取 (在线模式)
 	data, err := clash.GetInitialData()
 	if err != nil {
-		return nil, err
+		// 如果 API 请求由于某种原因失败（比如内核刚启动还没加载完），降级回离线模式
+		return clash.GetOfflineData(activeConfig)
 	}
-	data["activeConfig"] = activeName
-	data["isRunning"] = true
+
+	a.mu.Lock()
+	data["activeConfig"] = a.activeConfig
+	a.mu.Unlock()
+	data["isOffline"] = false
 	return data, nil
 }
 

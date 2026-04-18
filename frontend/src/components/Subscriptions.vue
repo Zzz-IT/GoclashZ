@@ -282,57 +282,52 @@ onUnmounted(() => {
 .sub-hint { font-size: 0.75rem; color: var(--text-sub); font-style: italic; }
 
 /* 菜单项 */
+/* 1. 缩小三点图标按钮 */
 .icon-btn {
+  width: 24px !important;  /* 减小外圈 */
+  height: 24px !important;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   cursor: pointer;
   color: var(--text-sub);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;  /* 👈 缩小外框 */
-  height: 22px;
   border-radius: 4px;
 }
 
-/* 强制 SVG 尺寸变小 */
+/* 强制 SVG 图标缩小 */
 .icon-btn :deep(svg) {
-  width: 12px !important; /* 👈 缩小图标本体 */
-  height: 12px !important;
+  width: 14px !important;
+  height: 14px !important;
 }
+
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
-/* 修改原有的 sub-actions 防止被遮挡 */
-.sub-actions { position: relative; }
-
-/* 2. 彻底解决菜单透明/看不清的问题 */
+/* 2. 彻底修复菜单透明/看不清 */
 .dropdown-menu {
   position: absolute;
   right: 0;
-  top: 30px; /* 向下弹出 */
+  top: 30px; /* 改为向下弹出，避免被遮挡 */
   width: 130px;
-
-  /* 👈 关键修改：使用完全不透明的实色背景 */
-  background: #282828 !important;
-  border: 1px solid #454545;
+  background: #2a2a2a !important; /* 👈 使用纯实色背景，不随 Mica 变透 */
+  border: 1px solid #444;
   border-radius: 6px;
-
-  /* 强阴影，增加悬浮感 */
-  box-shadow: 0 10px 25px rgba(0,0,0,0.6);
-
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5); /* 加深阴影 */
   z-index: 999;
   overflow: hidden;
-  backdrop-filter: none; /* 👈 禁用毛玻璃，确保实色 */
+  backdrop-filter: none !important; /* 关闭模糊，确保实色 */
 }
 
 .menu-item {
+  background: transparent;
+  color: #eee;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  border: none;
   width: 100%;
   text-align: left;
-  padding: 8px 12px;
-  border: none;
-  background: transparent;
-  font-size: 0.8rem;
-  color: #eeeeee; /* 👈 确保文字亮色 */
   cursor: pointer;
 }
 

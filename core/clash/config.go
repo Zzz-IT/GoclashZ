@@ -50,57 +50,66 @@ type ProxyGroupSchema struct {
 	All  []string `json:"all"` // 包含的所有节点名
 }
 
-// GetStaticNodesV2 从指定的本地文件读取节点，模拟 API 返回格式
-func GetStaticNodesV2(fileName string) (string, []ProxyGroupSchema, error) {
-	// 👈 使用绝对路径，确保在不同环境下都能找到文件
+// GetOfflineData 核心方法：模拟内核 API 返回的格式，从本地文件中提取数据
+func GetOfflineData(fileName string) (map[string]interface{}, error) {
+	// 1. 获取路径
 	exePath, _ := os.Executable()
 	baseDir := filepath.Dir(exePath)
+
+	// 如果传入了空或者 config.yaml，直接指向主配置
+	if fileName == "" || fileName == "config.yaml" {
+		fileName = "config.yaml"
+	}
 	configPath := filepath.Join(baseDir, "core", "bin", fileName)
 
-	// 如果指定的文件不存在，回退到主配置文件
+	// 如果文件不存在，回退到主 config.yaml
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		configPath = filepath.Join(baseDir, "core", "bin", "config.yaml")
 	}
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return "rule", nil, nil
+		return nil, err
 	}
 
 	var conf struct {
 		Mode        string                   `yaml:"mode"`
 		ProxyGroups []map[string]interface{} `yaml:"proxy-groups"`
 	}
-	yaml.Unmarshal(data, &conf)
+	if err := yaml.Unmarshal(data, &conf); err != nil {
+		return nil, err
+	}
 
-	var groups []ProxyGroupSchema
+	// 2. 构造与内核 API 完全一致的 Map 结构
+	// 内核返回的 proxies 字段是一个 Map，Key 是组名
+	proxiesMap := make(map[string]interface{})
+
 	for _, g := range conf.ProxyGroups {
 		name, _ := g["name"].(string)
 		gType, _ := g["type"].(string)
 
 		var all []string
-		if proxies, ok := g["proxies"].([]interface{}); ok {
-			for _, p := range proxies {
-				if pStr, ok := p.(string); ok {
-					all = append(all, pStr)
+		if pList, ok := g["proxies"].([]interface{}); ok {
+			for _, p := range pList {
+				if s, ok := p.(string); ok {
+					all = append(all, s)
 				}
 			}
 		}
 
-		groups = append(groups, ProxyGroupSchema{
-			Name: name,
-			Type: gType,
-			Now:  "", // 离线状态下默认无选中
-			All:  all,
-		})
+		// 模拟内核的单组数据结构
+		proxiesMap[name] = map[string]interface{}{
+			"name": name,
+			"type": gType,
+			"now":  "", // 离线状态下没有当前选中项
+			"all":  all,
+		}
 	}
 
-	mode := conf.Mode
-	if mode == "" {
-		mode = "rule"
-	}
-
-	return mode, groups, nil
+	return map[string]interface{}{
+		"mode":   conf.Mode,
+		"groups": proxiesMap, // 这里的格式将完美契合前端 Proxies.vue 的逻辑
+	}, nil
 }
 
 // GetRawProxyAddrs 获取所有节点的物理地址映射列表

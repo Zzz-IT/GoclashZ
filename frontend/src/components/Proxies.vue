@@ -70,6 +70,7 @@ const activeGroupData = computed(() => {
 const loadData = async () => {
   try {
     const data: any = await API.GetInitialData();
+    // 👈 这里的 data.groups 现在在离线状态下也会有值了
     if (data && data.groups) {
       const processedGroups: any[] = [];
       Object.keys(data.groups).forEach(name => {
@@ -99,7 +100,7 @@ const loadData = async () => {
       }
     }
   } catch (e) {
-    console.error("数据加载失败", e);
+    console.error("加载失败", e);
   }
 };
 
