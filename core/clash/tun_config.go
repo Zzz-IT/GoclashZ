@@ -33,6 +33,11 @@ func InjectTunConfig(configPath string, enableTun bool) error {
 		}
 	}
 
+	// 👇 新增：无论是 TUN 还是普通系统代理模式，都必须确保这几个关键端口开放
+	configMap["mixed-port"] = 7890
+	configMap["external-controller"] = "127.0.0.1:9090"
+	configMap["allow-lan"] = true
+
 	// 重新写入
 	newData, err := yaml.Marshal(configMap)
 	if err != nil {

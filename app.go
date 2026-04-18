@@ -105,7 +105,7 @@ func (a *App) startProxyService() error {
 		}
 	}
 
-	configPath := filepath.Join(getBaseDir(), "core", "bin", "config.yaml")
+	configPath := clash.GetConfigPath()
 	
 	// 👈 核心：内核启动前，动态注入/修复 TUN 配置
 	if err := clash.InjectTunConfig(configPath, isTunEnabled); err != nil {

@@ -11,8 +11,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// getConfigPath 获取 config.yaml 的绝对路径
-func getConfigPath() string {
+// GetConfigPath 获取 config.yaml 的绝对路径（导出供 app.go 使用，确保路径一致）
+func GetConfigPath() string {
 	exePath, err := os.Executable()
 	if err != nil {
 		return filepath.Join("core", "bin", "config.yaml")
@@ -130,7 +130,7 @@ func GetOfflineData(fileName string) (map[string]interface{}, error) {
 
 // DownloadSubscription 下载订阅文件并覆盖本地 config.yaml
 func DownloadSubscription(subUrl string, userAgent string) error {
-	configPath := getConfigPath() // 👈 使用绝对路径
+	configPath := GetConfigPath() // 👈 使用绝对路径
 
 	client := &http.Client{Timeout: 60 * time.Second}
 	req, err := http.NewRequest("GET", subUrl, nil)
@@ -177,7 +177,7 @@ type TunConfig struct {
 
 // GetTunConfig 从 config.yaml 读取 TUN 配置
 func GetTunConfig() (*TunConfig, error) {
-	configPath := getConfigPath() // 👈 使用绝对路径
+	configPath := GetConfigPath() // 👈 使用绝对路径
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -211,7 +211,7 @@ func GetTunConfig() (*TunConfig, error) {
 
 // UpdateTunConfig 将新的 TUN 配置写入 config.yaml
 func UpdateTunConfig(newTun *TunConfig) error {
-	configPath := getConfigPath() // 👈 使用绝对路径
+	configPath := GetConfigPath() // 👈 使用绝对路径
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -273,7 +273,7 @@ type DNSConfig struct {
 
 // GetDNSConfig 读取 DNS 配置
 func GetDNSConfig() (*DNSConfig, error) {
-	configPath := getConfigPath() // 👈 使用绝对路径
+	configPath := GetConfigPath() // 👈 使用绝对路径
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -321,7 +321,7 @@ func GetDNSConfig() (*DNSConfig, error) {
 
 // UpdateDNSConfig 将新的 DNS 配置写入 config.yaml
 func UpdateDNSConfig(newDNS *DNSConfig) error {
-	configPath := getConfigPath()
+	configPath := GetConfigPath()
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -362,7 +362,7 @@ func UpdateDNSConfig(newDNS *DNSConfig) error {
 
 // GetNetworkConfig 获取基础网络配置
 func GetNetworkConfig() (*NetworkConfig, error) {
-	configPath := getConfigPath()
+	configPath := GetConfigPath()
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, err
@@ -404,7 +404,7 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 
 // UpdateNetworkConfig 更新基础网络配置
 func UpdateNetworkConfig(newCfg *NetworkConfig) error {
-	configPath := getConfigPath()
+	configPath := GetConfigPath()
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return err
@@ -435,7 +435,7 @@ func UpdateNetworkConfig(newCfg *NetworkConfig) error {
 
 // BuildRuntimeConfig 核心流水线：基础配置 + 用户设置 = 最终运行配置
 func BuildRuntimeConfig(profileName string) error {
-	configPath := getConfigPath() // 目标: core/bin/config.yaml
+	configPath := GetConfigPath() // 目标: core/bin/config.yaml
 	baseDir := filepath.Dir(configPath)
 
 	// 1. 提取当前界面的全局设置 (避免被覆盖丢失)
@@ -489,6 +489,13 @@ func BuildRuntimeConfig(profileName string) error {
 			"proxy-server-nameserver": userDns.ProxyServerNameserver,
 		}
 	}
+
+	// 👇 新增：强制注入混合代理端口和外部控制 API
+	// 确保在不启用 TUN 时，系统代理 (7890) 依然能够将流量送入内核
+	root["mixed-port"] = 7890
+	root["allow-lan"] = true
+	root["external-controller"] = "127.0.0.1:9090"
+	root["secret"] = "" // 确保没有意外的密码阻挡前端 WebSocket
 
 	// 4. 序列化并生成最终的 config.yaml
 	out, err := yaml.Marshal(root)
