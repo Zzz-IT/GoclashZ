@@ -1,93 +1,76 @@
 <template>
   <div class="overview-layout">
-    <section class="status-hero glass-panel">
-      <div class="hero-main">
-        <div class="orb-wrapper">
-          <div class="status-orb" :class="{ 'is-active': isRunning }"></div>
-          <div class="orb-ring" :class="{ 'is-active': isRunning }"></div>
+    <section class="hero-panel glass-panel">
+      <div class="status-core">
+        <div class="orb-visual">
+          <div class="orb" :class="{ 'active': isRunning }"></div>
+          <div class="orb-glow" v-if="isRunning"></div>
         </div>
-        <div class="status-details">
-          <span class="micro-title">内核状态报告</span>
-          <h2 class="status-text">{{ isRunning ? '网络接管中' : '服务待命' }}</h2>
-          <div class="version-badge">
-            <span class="icon" v-html="ICONS.cpu"></span>
-            {{ clashVersion || 'Mihomo Core' }}
-          </div>
+        <div class="status-meta">
+          <span class="micro-title">引擎状态</span>
+          <h2 class="status-heading">{{ isRunning ? '接管中' : '服务停止' }}</h2>
+          <span class="version-tag">{{ clashVersion || 'Mihomo Core' }}</span>
         </div>
       </div>
 
-      <div class="traffic-dashboard">
-        <div class="traffic-stat">
-          <div class="stat-header">
-            <span class="icon up" v-html="ICONS.arrowUp"></span>
-            <span class="micro-title">发送</span>
+      <div class="traffic-meter">
+        <div class="traffic-box">
+          <div class="t-header">
+            <span class="t-arrow up" v-html="ICONS.arrowUp"></span>
+            <span class="micro-title">上传</span>
           </div>
-          <span class="stat-value">{{ traffic.up }}</span>
+          <div class="t-val">{{ traffic.up }}</div>
         </div>
-        <div class="stat-divider"></div>
-        <div class="traffic-stat">
-          <div class="stat-header">
-            <span class="icon down" v-html="ICONS.arrowDown"></span>
-            <span class="micro-title">接收</span>
+        <div class="v-line"></div>
+        <div class="traffic-box">
+          <div class="t-header">
+            <span class="t-arrow down" v-html="ICONS.arrowDown"></span>
+            <span class="micro-title">下载</span>
           </div>
-          <span class="stat-value">{{ traffic.down }}</span>
+          <div class="t-val">{{ traffic.down }}</div>
         </div>
       </div>
     </section>
 
-    <section class="control-grid">
-      <div 
-        class="switch-card" 
-        :class="{ 'is-on': status.systemProxy }" 
-        @click="toggleSysProxy"
-      >
-        <div class="card-icon" v-html="ICONS.globe"></div>
-        <div class="card-info">
-          <span class="card-title">系统代理</span>
-          <span class="card-desc">{{ status.systemProxy ? '已修改系统 HTTP 代理设置' : '未接管系统流量' }}</span>
+    <section class="switch-row">
+      <div class="action-card" :class="{ 'on': status.systemProxy }" @click="toggleSysProxy">
+        <div class="card-content">
+          <div class="icon-ring" v-html="ICONS.sysProxy"></div>
+          <div class="text-group">
+            <span class="card-title">系统代理</span>
+            <span class="card-hint">{{ status.systemProxy ? '已修改系统网络层设置' : '未接管系统 HTTP 流量' }}</span>
+          </div>
         </div>
-        <div class="indicator-dot"></div>
+        <div class="status-node"></div>
       </div>
 
-      <div 
-        class="switch-card" 
-        :class="{ 'is-on': status.tun }" 
-        @click="toggleTun"
-      >
-        <div class="card-icon" v-html="ICONS.zap"></div>
-        <div class="card-info">
-          <span class="card-title">虚拟网卡 (TUN)</span>
-          <span class="card-desc">{{ status.tun ? '高优先级虚拟网卡已挂载' : '透明代理模式未启动' }}</span>
+      <div class="action-card" :class="{ 'on': status.tun }" @click="toggleTun">
+        <div class="card-content">
+          <div class="icon-ring" v-html="ICONS.tun"></div>
+          <div class="text-group">
+            <span class="card-title">虚拟网卡 (TUN)</span>
+            <span class="card-hint">{{ status.tun ? '高优先级虚拟设备已挂载' : '透明代理驱动未加载' }}</span>
+          </div>
         </div>
-        <div class="indicator-dot"></div>
+        <div class="status-node"></div>
       </div>
     </section>
 
-    <section class="config-bar glass-panel">
-      <div class="config-item">
-        <div class="item-label">
-          <span class="icon" v-html="ICONS.layers"></span>
-          <span class="micro-title">路由模式</span>
-        </div>
-        <div class="select-box">
-          <select v-model="currentMode" @change="handleModeChange">
-            <option value="rule">规则模式 (Rule)</option>
-            <option value="global">全局模式 (Global)</option>
-            <option value="direct">直连模式 (Direct)</option>
-          </select>
-        </div>
+    <section class="mode-section">
+      <div class="section-title">
+        <span class="micro-title">流量分配规则</span>
       </div>
-      
-      <div class="v-divider"></div>
-
-      <div class="config-item">
-        <div class="item-label">
-          <span class="icon" v-html="ICONS.file"></span>
-          <span class="micro-title">活跃配置文件</span>
+      <div class="segmented-control">
+        <div 
+          v-for="m in modes" 
+          :key="m.val" 
+          class="seg-item"
+          :class="{ active: currentMode === m.val }"
+          @click="handleModeChange(m.val)"
+        >
+          {{ m.label }}
         </div>
-        <div class="config-name truncate" :title="activeConfigName">
-          {{ activeConfigName || 'default_config.yaml' }}
-        </div>
+        <div class="seg-slider" :style="sliderStyle"></div>
       </div>
     </section>
   </div>
@@ -98,31 +81,33 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 
 const ICONS = {
-  cpu: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9zM15 2v2M9 2v2M20 15h2M20 9h2M15 20v2M9 20v2M2 15h2M2 9h2"/></svg>`,
-  arrowUp: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>`,
-  arrowDown: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12l7 7 7-7"/></svg>`,
-  globe: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
-  zap: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
-  layers: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>`,
-  file: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>`
+  // 系统代理：表示系统内核指令的环形网格
+  sysProxy: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3z"/></svg>`,
+  // TUN：表示物理链路插槽的线性图标
+  tun: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/><path d="M10 11v4"/><path d="M14 11v4"/></svg>`,
+  arrowUp: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5m-7 7 7-7 7 7"/></svg>`,
+  arrowDown: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14m-7-7 7 7 7-7"/></svg>`
 };
 
 const status = ref({ systemProxy: false, tun: false });
-const activeConfigName = ref('');
 const currentMode = ref('rule');
 const clashVersion = ref('');
 const traffic = ref({ up: '0 B/s', down: '0 B/s' });
 
-const isRunning = computed(() => status.value.systemProxy || status.value.tun);
+const modes = [
+  { label: '规则分流', val: 'rule' },
+  { label: '全局代理', val: 'global' },
+  { label: '直接连接', val: 'direct' }
+];
 
-const refreshAllData = async () => {
+const isRunning = computed(() => status.value.systemProxy || status.value.tun);
+const sliderStyle = computed(() => ({ transform: `translateX(${modes.findIndex(m => m.val === currentMode.value) * 100}%)` }));
+
+const refreshData = async () => {
   try {
     const data: any = await API.GetInitialData();
-    if (data) {
-      if (data.activeConfig) activeConfigName.value = data.activeConfig;
-      if (data.mode) currentMode.value = data.mode;
-      clashVersion.value = data.version || '';
-    }
+    if (data?.mode) currentMode.value = data.mode;
+    if (data?.version) clashVersion.value = data.version;
     status.value = await API.GetProxyStatus() as any;
   } catch (e) { console.error(e); }
 };
@@ -137,23 +122,17 @@ const toggleTun = async () => {
   status.value = await API.GetProxyStatus() as any;
 };
 
-const handleModeChange = () => API.UpdateClashMode(currentMode.value);
-
-const onConfigChanged = (newName: string) => {
-  activeConfigName.value = newName;
-  refreshAllData();
+const handleModeChange = (val: string) => {
+  currentMode.value = val;
+  API.UpdateClashMode(val);
 };
 
 onMounted(() => {
-  refreshAllData();
-  (window as any).runtime.EventsOn("config-changed", onConfigChanged);
+  refreshData();
   (window as any).runtime.EventsOn("traffic-data", (data: any) => traffic.value = data);
 });
 
-onUnmounted(() => {
-  (window as any).runtime.EventsOff("config-changed");
-  (window as any).runtime.EventsOff("traffic-data");
-});
+onUnmounted(() => (window as any).runtime.EventsOff("traffic-data"));
 </script>
 
 <style scoped>
@@ -161,246 +140,91 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  animation: slideUp 0.4s ease-out;
+  animation: fadeIn 0.4s ease-out;
   font-family: "Microsoft YaHei", -apple-system, sans-serif !important;
 }
 
-/* 顶部状态卡片 */
-.status-hero {
-  padding: 32px;
+/* 顶部面板：强化层次感 */
+.hero-panel {
+  padding: 24px 32px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--glass-panel);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03); /* 关键：浅色模式下的分界线 */
 }
 
-.hero-main {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-}
+.status-core { display: flex; align-items: center; gap: 24px; }
+.orb-visual { position: relative; width: 12px; height: 12px; }
+.orb { width: 100%; height: 100%; border-radius: 50%; background: var(--text-muted); transition: 0.4s; }
+.orb.active { background: #10b981; box-shadow: 0 0 12px #10b981; }
+.orb-glow { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 50%; background: #10b981; animation: pulse 2s infinite; }
 
-.orb-wrapper {
-  position: relative;
-  width: 14px;
-  height: 14px;
-}
+.status-heading { font-size: 1.6rem; font-weight: 600; margin: 4px 0; color: var(--text-main); }
+.version-tag { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-sub); opacity: 0.8; }
 
-.status-orb {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: var(--text-muted);
-  transition: all 0.6s ease;
-}
+.traffic-meter { display: flex; gap: 40px; }
+.traffic-box { text-align: right; }
+.t-header { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-bottom: 4px; }
+.t-arrow { width: 12px; height: 12px; }
+.t-arrow.up { color: #3b82f6; }
+.t-arrow.down { color: #10b981; }
+.t-val { font-family: var(--font-mono); font-size: 1.15rem; font-weight: 500; color: var(--text-main); }
+.v-line { width: 1px; height: 32px; background: var(--glass-border); align-self: center; }
 
-.orb-ring {
-  position: absolute;
-  top: -6px; left: -6px; right: -6px; bottom: -6px;
-  border: 1px solid var(--text-muted);
-  border-radius: 50%;
-  opacity: 0.2;
-}
-
-.status-orb.is-active {
-  background: #10b981;
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
-}
-
-.orb-ring.is-active {
-  border-color: #10b981;
-  animation: pulse 2.5s infinite;
-}
-
-.status-text {
-  font-size: 1.8rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  margin: 4px 0;
-  color: var(--text-main);
-}
-
-.version-badge {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--text-sub);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  opacity: 0.8;
-}
-
-.version-badge .icon { width: 14px; height: 14px; }
-
-/* 流量显示 */
-.traffic-dashboard {
-  display: flex;
-  gap: 40px;
-}
-
-.traffic-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.stat-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.stat-header .icon { width: 12px; height: 12px; }
-.stat-header .icon.up { color: #3b82f6; }
-.stat-header .icon.down { color: #10b981; }
-
-.stat-value {
-  font-family: var(--font-mono);
-  font-size: 1.25rem;
-  font-weight: 500;
-  color: var(--text-main);
-}
-
-.stat-divider {
-  width: 1px;
-  height: 40px;
-  background: var(--glass-border);
-}
-
-/* 控制切换区 */
-.control-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.switch-card {
-  padding: 24px;
-  border-radius: 16px;
+/* 开关卡片 */
+.switch-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.action-card {
+  padding: 20px 24px;
   background: var(--surface);
-  border: 1px solid transparent;
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
   display: flex;
-  align-items: flex-start;
-  gap: 16px;
+  justify-content: space-between;
+  align-items: center;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
 }
+.action-card:hover { transform: translateY(-2px); background: var(--surface-hover); }
+.action-card.on { background: var(--accent); border-color: transparent; }
 
-.switch-card:hover {
-  background: var(--surface-hover);
-  border-color: var(--glass-border);
-}
-
-.switch-card.is-on {
-  background: var(--accent);
-}
-
-.card-icon {
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface-hover);
-  border-radius: 12px;
-  color: var(--text-sub);
+.icon-ring { 
+  width: 40px; height: 40px; border-radius: 12px; background: var(--surface-hover);
+  display: flex; align-items: center; justify-content: center; color: var(--text-sub);
   transition: 0.3s;
 }
+.icon-ring :deep(svg) { width: 22px; height: 22px; }
+.on .icon-ring { background: rgba(255, 255, 255, 0.15); color: var(--accent-fg); }
 
-.is-on .card-icon {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--accent-fg);
+.card-title { display: block; font-size: 1rem; font-weight: 600; margin-bottom: 2px; color: var(--text-main); }
+.card-hint { font-size: 0.75rem; color: var(--text-sub); }
+.on .card-title { color: var(--accent-fg); }
+.on .card-hint { color: var(--accent-fg); opacity: 0.7; }
+
+.status-node { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
+.on .status-node { background: #10b981; box-shadow: 0 0 8px #10b981; }
+
+/* 分段选择器 */
+.segmented-control {
+  background: var(--surface);
+  padding: 4px; border-radius: 14px; display: flex; position: relative;
+  border: 1px solid var(--glass-border); overflow: hidden;
+}
+.seg-item {
+  flex: 1; text-align: center; padding: 12px 0; font-size: 0.9rem; font-weight: 500;
+  color: var(--text-sub); cursor: pointer; z-index: 1; transition: 0.3s;
+}
+.seg-item.active { color: var(--text-main); font-weight: 600; }
+.seg-slider {
+  position: absolute; top: 4px; left: 4px; width: calc(33.33% - 8px); height: calc(100% - 8px);
+  background: var(--glass-panel); border-radius: 10px; z-index: 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.card-title {
-  font-size: 1rem;
-  font-weight: 600;
-  display: block;
-  margin-bottom: 4px;
-  color: var(--text-main);
-}
+@keyframes pulse { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(2.5); opacity: 0; } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-.card-desc {
-  font-size: 0.8rem;
-  color: var(--text-sub);
-  line-height: 1.4;
-}
-
-.is-on .card-title { color: var(--accent-fg); }
-.is-on .card-desc { color: var(--accent-fg); opacity: 0.7; }
-
-.indicator-dot {
-  position: absolute;
-  top: 24px;
-  right: 24px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-muted);
-}
-.is-on .indicator-dot { background: #10b981; box-shadow: 0 0 10px #10b981; }
-
-/* 底部工具条 */
-.config-bar {
-  display: flex;
-  padding: 16px 24px;
-  align-items: center;
-  gap: 24px;
-}
-
-.config-item {
-  flex: 1;
-}
-
-.item-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-  color: var(--text-muted);
-}
-
-.item-label .icon { width: 14px; height: 14px; }
-
-.select-box select {
-  background: transparent;
-  border: none;
-  color: var(--text-main);
-  font-size: 0.9rem;
-  font-weight: 500;
-  outline: none;
-  cursor: pointer;
-  padding: 0;
-  width: 100%;
-}
-
-.config-name {
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--text-main);
-}
-
-.v-divider { width: 1px; height: 32px; background: var(--glass-border); }
-
-@keyframes pulse {
-  0% { transform: scale(1); opacity: 0.3; }
-  50% { transform: scale(1.5); opacity: 0; }
-  100% { transform: scale(1); opacity: 0.3; }
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
+.micro-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; color: var(--text-muted); }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.micro-title {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-weight: 600;
-  color: var(--text-muted);
-}
 </style>
