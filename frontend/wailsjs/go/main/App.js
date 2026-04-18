@@ -14,6 +14,10 @@ export function DeleteConfig(arg1) {
   return window['go']['main']['App']['DeleteConfig'](arg1);
 }
 
+export function ElevatePrivileges() {
+  return window['go']['main']['App']['ElevatePrivileges']();
+}
+
 export function FixUWPNetwork() {
   return window['go']['main']['App']['FixUWPNetwork']();
 }

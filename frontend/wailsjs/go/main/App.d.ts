@@ -8,6 +8,8 @@ export function ClearBaseConfig():Promise<void>;
 
 export function DeleteConfig(arg1:string):Promise<void>;
 
+export function ElevatePrivileges():Promise<void>;
+
 export function FixUWPNetwork():Promise<void>;
 
 export function GetDNSConfig():Promise<clash.DNSConfig>;

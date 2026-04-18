@@ -56,18 +56,29 @@ func (a *App) loadActiveConfig() string {
 
 // 在 App 结构体下新增一个内部方法
 func (a *App) startProxyService() error {
-	// 👇 核心修复：启动前检查 TUN 状态与权限
-	tunCfg, err := clash.GetTunConfig()
-	if err == nil && tunCfg != nil && tunCfg.Enable {
-		if !sys.CheckWintun() {
-			return fmt.Errorf("TUN 模式驱动缺失，请前往【系统设置】->【虚拟网卡设置】安装 Wintun 驱动！")
+	tunCfg, _ := clash.GetTunConfig()
+	isTunEnabled := tunCfg != nil && tunCfg.Enable
+
+	if isTunEnabled {
+		// 环境拦截
+		if !sys.IsWintunInstalled() {
+			return fmt.Errorf("缺失 Wintun 驱动，请先安装")
 		}
 		if !sys.CheckAdmin() {
-			return fmt.Errorf("当前配置已开启 TUN 虚拟网卡模式，请彻底退出软件后，右键【以管理员身份运行】！")
+			// 直接触发提权，而不是让用户干瞪眼
+			sys.RequestAdmin()
+			return fmt.Errorf("正在请求系统管理员权限，请在弹窗中允许...")
 		}
 	}
 
-	// 1. 启动内核 
+	configPath := filepath.Join(getBaseDir(), "core", "bin", "config.yaml")
+	
+	// 👈 核心：内核启动前，动态注入/修复 TUN 配置
+	if err := clash.InjectTunConfig(configPath, isTunEnabled); err != nil {
+		fmt.Printf("注入 TUN 配置警告: %v\n", err)
+	}
+
+	// 启动内核 
 	if err := clash.Start(a.ctx); err != nil {
 		return err
 	}
@@ -120,12 +131,17 @@ func (a *App) RunProxy() error {
 	return a.startProxyService()
 }
 
-// 只有在用户手动点击“检查环境”时才调用
+// 1. 提供给前端：检查 TUN 模式环境（驱动 + 权限）
 func (a *App) CheckTunEnv() map[string]bool {
 	return map[string]bool{
 		"isAdmin":   sys.CheckAdmin(),
-		"hasWintun": sys.CheckWintun(),
+		"hasWintun": sys.IsWintunInstalled(),
 	}
+}
+
+// 2. 提供给前端：自动提权并重启应用
+func (a *App) ElevatePrivileges() error {
+	return sys.RequestAdmin() // 将会呼出 UAC 窗口并重启软件
 }
 
 func (a *App) StopProxy() error {
@@ -345,29 +361,10 @@ func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 	return err
 }
 
+// 3. 提供给前端：安装驱动
 func (a *App) InstallTunDriver() error {
-	if !sys.CheckAdmin() {
-		return fmt.Errorf("权限不足，请彻底退出软件后，右键【以管理员身份运行】再安装驱动")
-	}
-
-	dllPath := filepath.Join(getBaseDir(), "core", "bin", "wintun.dll")
-
-	// 如果驱动已存在且检测通过，直接返回
-	if sys.CheckWintun() {
-		return nil
-	}
-
-	// 驱动这种静态资源，直接利用上述健壮的下载器去官方稳定库拿
-	// 避免使用容易变动的 RAW 链接
-	wintunUrl := "https://github.com/wintun/wintun/releases/download/v0.14.1/wintun-amd64.dll"
-
-	// 如果你之前是因为这个 URL 报 404，现在的下载器会自动帮你切换到 ghproxy.net 等备用源
-	err := downloadFileWithRetry(dllPath, wintunUrl)
-	if err != nil {
-		return fmt.Errorf("下载 Wintun 驱动失败: %v", err)
-	}
-
-	return nil
+	// 使用你 app.go 中已有的 downloadFileWithRetry 函数
+	return sys.InstallWintun(downloadFileWithRetry)
 }
 func (a *App) GetDNSConfig() (*clash.DNSConfig, error) {
 	return clash.GetDNSConfig()
