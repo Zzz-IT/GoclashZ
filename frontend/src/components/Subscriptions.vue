@@ -290,15 +290,16 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;   /* 👈 从 28px 缩小到 24px */
-  height: 24px;  /* 👈 从 28px 缩小到 24px */
+  width: 24px;  /* 👈 缩小尺寸 */
+  height: 24px; /* 👈 缩小尺寸 */
   border-radius: 4px;
+  padding: 0;   /* 清除默认内边距 */
 }
 
-/* 强制内部图标大小 */
+/* 强制 SVG 尺寸 */
 .icon-btn :deep(svg) {
-  width: 14px;
-  height: 14px;
+  width: 14px !important;
+  height: 14px !important;
 }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
@@ -306,33 +307,46 @@ onUnmounted(() => {
 .sub-actions { position: relative; }
 
 /* 彻底修复菜单透明问题 */
+/* 2. 修复弹出菜单：实色背景，不透明 */
 .dropdown-menu {
   position: absolute;
   right: 0;
-  top: 30px;
-  width: 140px;
-  /* 👈 使用实色背景，不再使用 var(--surface) 或者带透明的颜色 */
-  background: #252526; 
-  border: 1px solid #454545; 
+  top: 30px; /* 向下弹出 */
+  width: 130px;
+
+  /* 👈 关键修改：使用完全不透明的实色背景 */
+  background: #2d2d2d;
+  border: 1px solid #454545;
   border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5); /* 加深阴影增强层次感 */
-  z-index: 100;
+
+  /* 加重投影，让它在 Mica 背景上更明显 */
+  box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+
+  z-index: 999;
   overflow: hidden;
-  /* 👈 移除这一行，避免透明效果 */
+  backdrop-filter: none; /* 👈 禁用毛玻璃，确保实色 */
 }
 
 .menu-item {
-  width: 100%; text-align: left; padding: 10px 12px; border: none;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
   background: transparent;
-  font-size: 0.8rem; color: #cccccc; cursor: pointer;
-  transition: background 0.2s;
+  font-size: 0.8rem;
+  color: #eeeeee; /* 👈 确保文字亮色 */
+  cursor: pointer;
 }
 
 .menu-item:hover {
-  background: #37373d; /* 悬浮时稍亮一点的实色 */
+  background: #3e3e3e; /* 悬浮高亮也是实色 */
 }
-.menu-item.danger { color: #ef4444; }
-.menu-divider { height: 1px; background: var(--glass-border); margin: 4px 0; }
+
+.menu-divider {
+  height: 1px;
+  background: #454545;
+  margin: 2px 0;
+}
 
 .empty-state { padding: 30px; text-align: center; color: var(--text-muted); border: 1px dashed var(--glass-border); border-radius: 10px; }
 </style>

@@ -42,49 +42,59 @@ type RawProxyInfo struct {
 	Port   string `json:"port"`
 }
 
-// GetStaticNodes 从本地 config.yaml 读取节点，用于启动前展示
-func GetStaticNodes() (mode string, groups []OfflineGroup, err error) {
-	configPath := getConfigPath() // 👈 使用绝对路径
+// ProxyGroupSchema 模拟内核 API 的 Group 结构
+type ProxyGroupSchema struct {
+	Name string   `json:"name"`
+	Type string   `json:"type"`
+	Now  string   `json:"now"` // 当前选中节点
+	All  []string `json:"all"` // 包含的所有节点名
+}
 
+// GetStaticNodesV2 从指定的本地文件读取节点，模拟 API 返回格式
+func GetStaticNodesV2(fileName string) (string, []ProxyGroupSchema, error) {
+	exePath, _ := os.Executable()
+	baseDir := filepath.Dir(exePath)
+	configPath := filepath.Join(baseDir, "core", "bin", fileName)
+
+	// 如果指定文件不存在，退回到 config.yaml
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return "rule", nil, nil
+		configPath = filepath.Join(baseDir, "core", "bin", "config.yaml")
 	}
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return "", nil, fmt.Errorf("读取配置文件失败: %v", err)
+		return "rule", nil, nil
 	}
 
-	var conf ClashConfig
-	err = yaml.Unmarshal(data, &conf)
-	if err != nil {
-		return "", nil, fmt.Errorf("YAML 格式错误: %v", err)
+	var conf struct {
+		Mode        string                   `yaml:"mode"`
+		ProxyGroups []map[string]interface{} `yaml:"proxy-groups"`
 	}
+	yaml.Unmarshal(data, &conf)
 
+	var groups []ProxyGroupSchema
 	for _, g := range conf.ProxyGroups {
 		name, _ := g["name"].(string)
 		gType, _ := g["type"].(string)
 
-		var proxyList []string
-		if pList, ok := g["proxies"].([]interface{}); ok {
-			for _, p := range pList {
+		var all []string
+		if proxies, ok := g["proxies"].([]interface{}); ok {
+			for _, p := range proxies {
 				if pStr, ok := p.(string); ok {
-					proxyList = append(proxyList, pStr)
+					all = append(all, pStr)
 				}
 			}
 		}
 
-		// 过滤出常见的策略组类型
-		if gType == "select" || gType == "url-test" || gType == "fallback" {
-			groups = append(groups, OfflineGroup{
-				Name:    name,
-				Type:    gType,
-				Proxies: proxyList,
-			})
-		}
+		groups = append(groups, ProxyGroupSchema{
+			Name: name,
+			Type: gType,
+			Now:  "", // 离线状态下没有“当前选中”，前端处理即可
+			All:  all,
+		})
 	}
 
-	mode = conf.Mode
+	mode := conf.Mode
 	if mode == "" {
 		mode = "rule"
 	}
