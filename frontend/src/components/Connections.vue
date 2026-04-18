@@ -1,56 +1,62 @@
 <template>
   <div class="connections-view">
-    <div class="action-bar glass-panel">
-      <div class="stats">
-        <span class="count">活跃连接: {{ connections.length }}</span>
+    <template v-if="!selectedConn">
+      <div class="action-bar glass-panel">
+        <div class="stats">
+          <span class="count">活跃连接: {{ connections.length }}</span>
+        </div>
+        <div class="global-actions">
+          <button class="secondary-btn" @click="isPaused = !isPaused">
+            <span class="btn-icon" v-html="isPaused ? ICONS.play : ICONS.pause"></span>
+            {{ isPaused ? '继续刷新' : '暂停刷新' }}
+          </button>
+          <button class="primary-action-btn stop-btn" @click="closeAll">
+            <span class="btn-icon" v-html="ICONS.xCircle"></span>
+            断开全部
+          </button>
+        </div>
       </div>
-      <div class="global-actions">
-        <button class="secondary-btn" @click="isPaused = !isPaused">
-          <span class="btn-icon" v-html="isPaused ? ICONS.play : ICONS.pause"></span>
-          {{ isPaused ? '继续刷新' : '暂停刷新' }}
-        </button>
-        <button class="primary-action-btn stop-btn" @click="closeAll">
-          <span class="btn-icon" v-html="ICONS.xCircle"></span>
-          断开全部
-        </button>
-      </div>
-    </div>
 
-    <div class="scroll-content">
-      <div class="conn-grid" v-if="connections.length > 0">
-        <div v-for="conn in connections" :key="conn.id" class="conn-card" @click="openDetail(conn)">
-          <div class="conn-header">
-            <span class="host" :title="conn.metadata.host || conn.metadata.destinationIP">
-              {{ conn.metadata.host || conn.metadata.destinationIP }}
-            </span>
-            <span class="network">{{ conn.metadata.network }}</span>
-          </div>
-          <div class="conn-body">
-            <div class="tags">
-              <span :class="['tag', isDirect(conn) ? 'tag-direct' : 'tag-proxy']">
-                {{ getProxyName(conn) }}
+      <div class="scroll-content">
+        <div class="conn-grid" v-if="connections.length > 0">
+          <div v-for="conn in connections" :key="conn.id" class="conn-card" @click="openDetail(conn)">
+            <div class="conn-header">
+              <span class="host" :title="conn.metadata.host || conn.metadata.destinationIP">
+                {{ conn.metadata.host || conn.metadata.destinationIP }}
               </span>
-              <span class="tag tag-rule">{{ conn.rule }}</span>
+              <span class="network">{{ conn.metadata.network }}</span>
+            </div>
+            <div class="conn-body">
+              <div class="tags">
+                <span :class="['tag', isDirect(conn) ? 'tag-direct' : 'tag-proxy']">
+                  {{ getProxyName(conn) }}
+                </span>
+                <span class="tag tag-rule">{{ conn.rule }}</span>
+              </div>
+            </div>
+            <div class="conn-footer font-mono">
+              <span class="transfer">↑ {{ formatBytes(conn.upload) }}</span>
+              <span class="transfer">↓ {{ formatBytes(conn.download) }}</span>
             </div>
           </div>
-          <div class="conn-footer font-mono">
-            <span class="transfer">↑ {{ formatBytes(conn.upload) }}</span>
-            <span class="transfer">↓ {{ formatBytes(conn.download) }}</span>
-          </div>
+        </div>
+        <div v-else class="empty-state">
+          <p>当前没有流量经过</p>
         </div>
       </div>
-      <div v-else class="empty-state">
-        <p>当前没有流量经过</p>
-      </div>
-    </div>
+    </template>
 
-    <div v-if="showModal" class="modal-overlay" @click="closeDetail">
-      <div class="modal-content glass-panel" @click.stop>
-        <div class="modal-header">
+    <template v-else>
+      <div class="detail-page glass-panel">
+        <div class="detail-header">
+          <button class="secondary-btn back-btn" @click="closeDetail">
+            <span class="btn-icon" v-html="ICONS.back"></span> 返回列表
+          </button>
           <h3>连接详情</h3>
-          <button class="close-btn" @click="closeDetail" v-html="ICONS.x"></button>
+          <div class="header-placeholder"></div>
         </div>
-        <div class="modal-body" v-if="selectedConn">
+
+        <div class="detail-body scroll-content">
           <div class="detail-row"><span>ID:</span> <span class="font-mono">{{ selectedConn.id }}</span></div>
           <div class="detail-row"><span>网络:</span> <span>{{ selectedConn.metadata.network }}</span></div>
           <div class="detail-row"><span>源地址:</span> <span class="font-mono">{{ selectedConn.metadata.sourceIP }}:{{ selectedConn.metadata.sourcePort }}</span></div>
@@ -61,52 +67,48 @@
           <div class="detail-row"><span>下载流量:</span> <span class="font-mono">{{ formatBytes(selectedConn.download) }}</span></div>
           <div class="detail-row"><span>连接时间:</span> <span>{{ new Date(selectedConn.start).toLocaleString() }}</span></div>
         </div>
-        <div class="modal-footer">
+
+        <div class="detail-footer">
           <button class="danger-btn" @click="closeSingleConnection(selectedConn.id)">强行断开此连接</button>
         </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-// 引入 Wails 的事件监听方法
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 
 const ICONS = {
   pause: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`,
   play: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`,
   xCircle: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>`,
-  x: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`
+  x: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`,
+  back: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>`
 };
 
 const connections = ref<any[]>([]);
 const isPaused = ref(false);
-const showModal = ref(false);
 const selectedConn = ref<any>(null);
 
-// 核心重构：移除 fetchConnections 和 setInterval，改为被动响应事件
 onMounted(async () => {
-  // 1. 注册 Wails 事件监听，接收内核主动推送的数据
   EventsOn("connections-update", (data: any) => {
-    if (isPaused.value) return; // 如果暂停，直接丢弃新数据即可
+    if (isPaused.value) return;
 
     if (data && Array.isArray(data.connections)) {
       connections.value = data.connections;
-      // 同步更新打开的详情弹窗数据
-      if (showModal.value && selectedConn.value) {
+      if (selectedConn.value) {
         const updated = data.connections.find((c: any) => c.id === selectedConn.value.id);
         if (updated) selectedConn.value = updated;
-        else showModal.value = false;
+        else selectedConn.value = null; // 连接消失时自动退回列表
       }
     } else {
       connections.value = [];
     }
   });
 
-  // 2. 通知 Go 后端，界面已打开，请向内核发起 WebSocket 连接
   try {
     await (API as any).StartConnectionMonitor();
   } catch (e) {
@@ -115,25 +117,21 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  // 核心重构：离开页面时，销毁监听并通知后端掐断 WebSocket，极致节省内存
   EventsOff("connections-update");
   (API as any).StopConnectionMonitor();
 });
 
-// 判断是否直连
 const isDirect = (conn: any) => {
   const chains = conn.chains || [];
   return chains.includes('DIRECT') || chains.includes('REJECT');
 };
 
-// 获取最外层的代理名称
 const getProxyName = (conn: any) => {
   const chains = conn.chains || [];
   if (chains.length > 0) return chains[0];
   return 'Unknown';
 };
 
-// 字节单位格式化
 const formatBytes = (bytes: number) => {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -144,32 +142,25 @@ const formatBytes = (bytes: number) => {
 
 const openDetail = (conn: any) => {
   selectedConn.value = conn;
-  showModal.value = true;
 };
 
 const closeDetail = () => {
-  showModal.value = false;
   selectedConn.value = null;
 };
 
-// 断开所有
 const closeAll = async () => {
   if (confirm('确定要强行切断当前所有的网络连接吗？')) {
     try {
       await (API as any).CloseAllConnections();
-      // 注意：这里不需要再调用 fetchConnections 了，
-      // 因为内核切断连接后，会自动通过 WebSocket 瞬间推个空数组过来，UI会自动清空！
-      if (showModal.value) closeDetail();
+      if (selectedConn.value) closeDetail();
     } catch (e) { alert("操作失败: " + e); }
   }
 };
 
-// 断开单一
 const closeSingleConnection = async (id: string) => {
   try {
     await (API as any).CloseConnection(id);
     closeDetail();
-    // 同理，不需要再手动轮询刷新了，WebSocket 会瞬间反馈变化
   } catch (e) { alert("断开失败: " + e); }
 };
 </script>
@@ -212,21 +203,21 @@ const closeSingleConnection = async (id: string) => {
 
 .empty-state { height: 200px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-style: italic; }
 
-/* 详情弹窗样式 */
-.modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 100; }
-.modal-content { width: 440px; max-width: 90%; background: var(--glass-bg); padding: 24px; border-radius: 16px; display: flex; flex-direction: column; gap: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
-.modal-header { display: flex; justify-content: space-between; align-items: center; }
-.modal-header h3 { margin: 0; font-size: 1.1rem; color: var(--text-main); }
-.close-btn { background: none; border: none; cursor: pointer; color: var(--text-sub); width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
-.close-btn:hover { color: var(--text-main); }
+/* 详情子页样式 */
+.detail-page { display: flex; flex-direction: column; height: 100%; border-radius: 12px; background: var(--surface); border: 1px solid var(--glass-border); padding: 24px; box-sizing: border-box; }
+.detail-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--glass-border); padding-bottom: 16px; margin-bottom: 24px; }
+.detail-header h3 { margin: 0; font-size: 1.2rem; color: var(--text-main); font-weight: 600; }
+.back-btn { width: 100px; justify-content: center; }
+.header-placeholder { width: 100px; } /* 占位保证标题绝对居中 */
 
-.modal-body { display: flex; flex-direction: column; gap: 12px; }
-.detail-row { display: flex; justify-content: space-between; align-items: flex-start; font-size: 0.85rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 8px; }
-.detail-row span:first-child { color: var(--text-muted); width: 80px; flex-shrink: 0; }
-.detail-row span:last-child { color: var(--text-main); text-align: right; word-break: break-all; flex: 1; }
+.detail-body { display: flex; flex-direction: column; gap: 16px; flex: 1; padding-right: 12px; }
+.detail-row { display: flex; align-items: flex-start; font-size: 0.9rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 12px; }
+.detail-row span:first-child { color: var(--text-muted); width: 100px; flex-shrink: 0; font-weight: 500; }
+.detail-row span:last-child { color: var(--text-main); word-break: break-all; flex: 1; }
 .path-chain { color: #6366f1 !important; font-weight: 500; }
 
-.modal-footer { display: flex; justify-content: flex-end; margin-top: 8px; }
+.detail-footer { display: flex; justify-content: flex-end; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--glass-border); }
+
 .danger-btn { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: 500; font-size: 0.85rem; transition: 0.2s; }
 .danger-btn:hover { background: #ef4444; color: white; }
 </style>
