@@ -4,6 +4,8 @@ import {clash} from '../models';
 
 export function CheckTunEnv():Promise<Record<string, boolean>>;
 
+export function ClearBaseConfig():Promise<void>;
+
 export function DeleteConfig(arg1:string):Promise<void>;
 
 export function FixUWPNetwork():Promise<void>;

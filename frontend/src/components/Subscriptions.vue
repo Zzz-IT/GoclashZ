@@ -62,7 +62,7 @@
             <span class="sub-path font-mono">core/bin/{{ config }}</span>
           </div>
           <div class="sub-status">
-            <span v-if="isCurrentConfig(config)" class="status-badge online">● 正在运行</span>
+            <span v-if="isCurrentConfig(config)" class="status-badge online">● 正在使用</span>
             <span v-else-if="selecting === config" class="status-badge loading-tag">应用中...</span>
           </div>
         </div>
@@ -94,7 +94,7 @@ import * as API from '../../wailsjs/go/main/App';
 const ICONS = {
   refresh: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>`,
   link: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>`,
-  more: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>`
+  more: `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg>`
 };
 
 const url = ref('');
@@ -190,13 +190,31 @@ const handleEditFile = async (filename: string) => {
 
 const handleDelete = async (filename: string) => {
   activeMenu.value = null;
+
+  // 判断是否是正在使用的配置
   if (isCurrentConfig(filename)) {
-    alert("不能删除正在使用的配置！");
-    return;
+    const confirmClose = confirm(`【警告】"${filename}" 正在使用中！\n删除前需要强制关闭代理和虚拟网卡服务，是否继续？`);
+    if (!confirmClose) return;
+
+    // 确定删除正在使用的配置，先调用后端停止代理
+    await API.StopProxy();
+    currentPath.value = ''; // 前端状态清空
+  } else {
+    // 删除非正在使用的配置
+    if (!confirm(`确定彻底删除 ${filename} 吗？`)) return;
   }
-  if (confirm(`确定删除 ${filename}？`)) {
+
+  try {
     await API.DeleteConfig(filename);
-    await fetchConfigs();
+    await fetchConfigs(); // 重新拉取列表
+
+    // 核心逻辑：如果删除后列表空了，同步清空 config.yaml
+    if (localConfigs.value.length === 0) {
+      await (API as any).ClearBaseConfig(); // 调用我们刚才在后端写的新方法
+      alert("已删除所有订阅，并清空了运行环境。");
+    }
+  } catch (e) {
+    alert("删除失败: " + e);
   }
 };
 
@@ -267,17 +285,36 @@ onUnmounted(() => {
 .icon-btn { background: none; border: none; cursor: pointer; color: var(--text-sub); display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
+/* 修改原有的 sub-actions 防止被遮挡 */
 .sub-actions { position: relative; }
+
+/* 彻底修复菜单透明问题 */
 .dropdown-menu {
-  position: absolute; right: 0; bottom: 35px; width: 140px;
-  background: var(--surface); border: 1px solid var(--glass-border);
-  border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,0.15); z-index: 10;
+  position: absolute;
+  right: 0;
+  top: 32px; /* 从 bottom 改为 top，向下弹出，防止在卡片底部被遮挡 */
+  width: 140px;
+  /* 强制设定背景色，加上 rgba 后备颜色防止变量丢失导致透明 */
+  background: var(--surface, rgba(30, 30, 30, 0.95));
+  border: 1px solid var(--glass-border, #444);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  z-index: 999; /* 强制拉高层级 */
+  overflow: hidden;
+  /* 如果系统支持毛玻璃，给菜单加上毛玻璃 */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
+
 .menu-item {
   width: 100%; text-align: left; padding: 10px 12px; border: none;
-  background: none; font-size: 0.8rem; color: var(--text-main); cursor: pointer;
+  background: transparent; /* 让背景透明，透出 .dropdown-menu 的颜色 */
+  font-size: 0.8rem; color: var(--text-main, #eee); cursor: pointer;
+  transition: background 0.2s;
 }
-.menu-item:hover { background: var(--surface-hover); }
+
+/* 悬浮时加一个半透明的白底高亮 */
+.menu-item:hover { background: rgba(255, 255, 255, 0.1); }
 .menu-item.danger { color: #ef4444; }
 .menu-divider { height: 1px; background: var(--glass-border); margin: 4px 0; }
 

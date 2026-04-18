@@ -35,6 +35,24 @@ func getBaseDir() string {
 	return filepath.Dir(exePath)
 }
 
+// 记录当前选中的配置文件名到本地
+func (a *App) saveActiveConfig(fileName string) {
+	baseDir := getBaseDir()
+	activeFile := filepath.Join(baseDir, "core", "bin", "active_config.txt")
+	os.WriteFile(activeFile, []byte(fileName), 0644)
+}
+
+// 启动时读取上次选中的配置文件名
+func (a *App) loadActiveConfig() string {
+	baseDir := getBaseDir()
+	activeFile := filepath.Join(baseDir, "core", "bin", "active_config.txt")
+	data, err := os.ReadFile(activeFile)
+	if err == nil && len(data) > 0 {
+		return string(data)
+	}
+	return ""
+}
+
 // 在 App 结构体下新增一个内部方法
 func (a *App) startProxyService() error {
 	// 1. 启动内核 (现在是幂等的，运行中也会返回 nil)
@@ -94,12 +112,16 @@ func (a *App) GetProxyStatus() bool {
 // --- 配置与测速 ---
 
 func (a *App) GetInitialData() (map[string]interface{}, error) {
-	data, err := clash.GetInitialData() //
+	data, err := clash.GetInitialData()
 	if err != nil {
 		return nil, err
 	}
 	a.mu.Lock()
-	data["activeConfig"] = a.activeConfig // <--- 插入这一行
+	// 👈 如果内存中没有，则从文件加载上次的记录（下次打开软件自动读取）
+	if a.activeConfig == "" {
+		a.activeConfig = a.loadActiveConfig()
+	}
+	data["activeConfig"] = a.activeConfig
 	a.mu.Unlock()
 	return data, nil
 }
@@ -326,17 +348,36 @@ func (a *App) DeleteConfig(fileName string) error {
 	return os.Remove(path)
 }
 
+// ClearBaseConfig 清空基础配置（当所有订阅被删除时调用）
+func (a *App) ClearBaseConfig() error {
+	a.mu.Lock()
+	a.activeConfig = ""
+	a.saveActiveConfig("") // 清空本地记忆
+	a.mu.Unlock()
+
+	baseDir := getBaseDir()
+	destPath := filepath.Join(baseDir, "core", "bin", "config.yaml")
+
+	// 写入一个最基础的空结构，防止 Clash 内核解析时直接崩溃
+	emptyConfig := "mode: rule\nproxies: []\nproxy-groups: []\nrules: []\n"
+	return os.WriteFile(destPath, []byte(emptyConfig), 0644)
+}
+
 // 修改 SelectLocalConfig
 func (a *App) SelectLocalConfig(fileName string) error {
 	a.mu.Lock()
 	a.activeConfig = fileName
+	a.saveActiveConfig(fileName) // 👈 持久化保存到本地
 	a.mu.Unlock()
 
-	// 先彻底停止
+	// 👈 记住切换前内核是否在运行
+	wasRunning := clash.IsRunning()
+
+	// 先彻底停止现有的内核和代理
 	clash.Stop()
 	sys.ClearSystemProxy()
 
-	fileName = filepath.Base(fileName) // 👈 净化前端传来的文件名
+	fileName = filepath.Base(fileName) // 净化前端传来的文件名
 
 	// 👈 路径全部改为使用 getBaseDir() 作为基准
 	baseDir := getBaseDir()
@@ -349,10 +390,11 @@ func (a *App) SelectLocalConfig(fileName string) error {
 	}
 	os.WriteFile(destPath, content, 0644)
 
-	// 👈 关键修改：使用统一的启动服务逻辑
-	// 这样选择配置后，系统代理也会自动开启
-	if err := a.startProxyService(); err != nil {
-		return err
+	// 👈 核心修改：如果之前在运行，就重新启动代理。如果没在运行，就不启动！
+	if wasRunning {
+		if err := a.startProxyService(); err != nil {
+			return err
+		}
 	}
 
 	time.Sleep(800 * time.Millisecond)

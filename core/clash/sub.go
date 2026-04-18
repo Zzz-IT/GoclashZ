@@ -46,6 +46,12 @@ func UpdateSubscription(subURL string) error {
 		return err
 	}
 
+	// 👈 新增这一段：判断当前内核有没有在运行
+	// 如果内核根本没有启动，就不要向 9090 发送热重载请求，直接返回成功
+	if !IsRunning() {
+		return nil
+	}
+
 	// 订阅下载完成后，调用内核的 API 无缝热重载配置
 	return ReloadConfig()
 }

@@ -6,6 +6,10 @@ export function CheckTunEnv() {
   return window['go']['main']['App']['CheckTunEnv']();
 }
 
+export function ClearBaseConfig() {
+  return window['go']['main']['App']['ClearBaseConfig']();
+}
+
 export function DeleteConfig(arg1) {
   return window['go']['main']['App']['DeleteConfig'](arg1);
 }
