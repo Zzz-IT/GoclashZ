@@ -305,43 +305,64 @@ onUnmounted(() => {
 
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
-/* 2. 彻底修复菜单透明/看不清 */
+</style>
+
+<style scoped>
+/* 这里保留基本的排版尺寸，颜色交给全局控制 */
 .dropdown-menu {
   position: absolute;
   right: 0;
-  top: 30px; /* 改为向下弹出，避免被遮挡 */
-  width: 130px;
-  background: #2a2a2a !important; /* 👈 使用纯实色背景，不随 Mica 变透 */
-  border: 1px solid #444;
-  border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5); /* 加深阴影 */
+  top: 30px; 
+  width: 140px;
+  border-radius: 8px;
   z-index: 999;
   overflow: hidden;
-  backdrop-filter: none !important; /* 关闭模糊，确保实色 */
 }
 
 .menu-item {
-  background: transparent;
-  color: #eee;
-  padding: 8px 12px;
-  font-size: 0.8rem;
+  padding: 10px 14px;
+  font-size: 0.85rem;
   border: none;
   width: 100%;
   text-align: left;
   cursor: pointer;
+  transition: background 0.2s;
 }
 
-.menu-item:hover {
-  background: #3a3a3a; /* 实色高亮 */
+.menu-item.danger { 
+  color: #ef4444 !important; /* 删除按钮保持红色 */
 }
-
-.menu-item.danger { color: #ff5555; }
 
 .menu-divider {
   height: 1px;
-  background: #454545;
-  margin: 2px 0;
+  margin: 4px 0;
 }
 
 .empty-state { padding: 30px; text-align: center; color: var(--text-muted); border: 1px dashed var(--glass-border); border-radius: 10px; }
+</style>
+
+<style>
+/* * 新增一个不带 scoped 的 style 标签！
+ * 绕过 Vue 的作用域限制，直接根据外层的 .app-shell 状态强制应用纯实色
+ */
+
+/* ☀️ 日间模式 (白底黑字，纯实色) */
+.app-shell:not(.dark) .dropdown-menu {
+  background: #ffffff !important;
+  border: 1px solid #e4e4e7;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+.app-shell:not(.dark) .menu-item { background: transparent; color: #18181b; }
+.app-shell:not(.dark) .menu-item:hover { background: #f4f4f5; }
+.app-shell:not(.dark) .menu-divider { background: #e4e4e7; }
+
+/* 🌙 夜间模式 (黑底白字，纯实色) */
+.app-shell.dark .dropdown-menu {
+  background: #242427 !important; /* 深黑灰纯色 */
+  border: 1px solid #3f3f46;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+.app-shell.dark .menu-item { background: transparent; color: #f4f4f5; }
+.app-shell.dark .menu-item:hover { background: #3f3f46; }
+.app-shell.dark .menu-divider { background: #3f3f46; }
 </style>
