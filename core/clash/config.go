@@ -12,6 +12,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// getConfigPath 获取 config.yaml 的绝对路径
+func getConfigPath() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return filepath.Join("core", "bin", "config.yaml")
+	}
+	return filepath.Join(filepath.Dir(exePath), "core", "bin", "config.yaml")
+}
+
 // ClashConfig 映射完整的 YAML 结构
 type ClashConfig struct {
 	Mode        string                   `yaml:"mode"`
@@ -35,8 +44,7 @@ type RawProxyInfo struct {
 
 // GetStaticNodes 从本地 config.yaml 读取节点，用于启动前展示
 func GetStaticNodes() (mode string, groups []OfflineGroup, err error) {
-	pwd, _ := os.Getwd()
-	configPath := filepath.Join(pwd, "core", "bin", "config.yaml")
+	configPath := getConfigPath() // 👈 使用绝对路径
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return "rule", nil, nil
@@ -86,8 +94,7 @@ func GetStaticNodes() (mode string, groups []OfflineGroup, err error) {
 
 // GetRawProxyAddrs 获取所有节点的物理地址映射列表
 func GetRawProxyAddrs() ([]RawProxyInfo, error) {
-	pwd, _ := os.Getwd()
-	configPath := filepath.Join(pwd, "core", "bin", "config.yaml")
+	configPath := getConfigPath() // 👈 使用绝对路径
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -127,8 +134,7 @@ func TCPPing(server string, port string) int {
 
 // DownloadSubscription 下载订阅文件并覆盖本地 config.yaml
 func DownloadSubscription(subUrl string, userAgent string) error {
-	pwd, _ := os.Getwd()
-	configPath := filepath.Join(pwd, "core", "bin", "config.yaml")
+	configPath := getConfigPath() // 👈 使用绝对路径
 
 	client := &http.Client{Timeout: 60 * time.Second}
 	req, err := http.NewRequest("GET", subUrl, nil)
@@ -175,8 +181,7 @@ type TunConfig struct {
 
 // GetTunConfig 从 config.yaml 读取 TUN 配置
 func GetTunConfig() (*TunConfig, error) {
-	pwd, _ := os.Getwd()
-	configPath := filepath.Join(pwd, "core", "bin", "config.yaml")
+	configPath := getConfigPath() // 👈 使用绝对路径
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -210,8 +215,7 @@ func GetTunConfig() (*TunConfig, error) {
 
 // UpdateTunConfig 将新的 TUN 配置写入 config.yaml
 func UpdateTunConfig(newTun *TunConfig) error {
-	pwd, _ := os.Getwd()
-	configPath := filepath.Join(pwd, "core", "bin", "config.yaml")
+	configPath := getConfigPath() // 👈 使用绝对路径
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -273,8 +277,7 @@ type DNSConfig struct {
 
 // GetDNSConfig 读取 DNS 配置
 func GetDNSConfig() (*DNSConfig, error) {
-	pwd, _ := os.Getwd()
-	configPath := filepath.Join(pwd, "core", "bin", "config.yaml")
+	configPath := getConfigPath() // 👈 使用绝对路径
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -322,8 +325,7 @@ func GetDNSConfig() (*DNSConfig, error) {
 
 // UpdateDNSConfig 写入 DNS 配置
 func UpdateDNSConfig(newDNS *DNSConfig) error {
-	pwd, _ := os.Getwd()
-	configPath := filepath.Join(pwd, "core", "bin", "config.yaml")
+	configPath := getConfigPath() // 👈 使用绝对路径
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {

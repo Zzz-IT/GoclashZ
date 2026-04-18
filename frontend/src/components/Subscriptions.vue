@@ -282,7 +282,24 @@ onUnmounted(() => {
 .sub-hint { font-size: 0.75rem; color: var(--text-sub); font-style: italic; }
 
 /* 菜单项 */
-.icon-btn { background: none; border: none; cursor: pointer; color: var(--text-sub); display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; }
+.icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-sub);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;   /* 👈 从 28px 缩小到 24px */
+  height: 24px;  /* 👈 从 28px 缩小到 24px */
+  border-radius: 4px;
+}
+
+/* 强制内部图标大小 */
+.icon-btn :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
 /* 修改原有的 sub-actions 防止被遮挡 */
@@ -292,29 +309,28 @@ onUnmounted(() => {
 .dropdown-menu {
   position: absolute;
   right: 0;
-  top: 32px; /* 从 bottom 改为 top，向下弹出，防止在卡片底部被遮挡 */
+  top: 30px;
   width: 140px;
-  /* 强制设定背景色，加上 rgba 后备颜色防止变量丢失导致透明 */
-  background: var(--surface, rgba(30, 30, 30, 0.95));
-  border: 1px solid var(--glass-border, #444);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
-  z-index: 999; /* 强制拉高层级 */
+  /* 👈 使用实色背景，不再使用 var(--surface) 或者带透明的颜色 */
+  background: #252526; 
+  border: 1px solid #454545; 
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5); /* 加深阴影增强层次感 */
+  z-index: 100;
   overflow: hidden;
-  /* 如果系统支持毛玻璃，给菜单加上毛玻璃 */
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  /* 👈 移除这一行，避免透明效果 */
 }
 
 .menu-item {
   width: 100%; text-align: left; padding: 10px 12px; border: none;
-  background: transparent; /* 让背景透明，透出 .dropdown-menu 的颜色 */
-  font-size: 0.8rem; color: var(--text-main, #eee); cursor: pointer;
+  background: transparent;
+  font-size: 0.8rem; color: #cccccc; cursor: pointer;
   transition: background 0.2s;
 }
 
-/* 悬浮时加一个半透明的白底高亮 */
-.menu-item:hover { background: rgba(255, 255, 255, 0.1); }
+.menu-item:hover {
+  background: #37373d; /* 悬浮时稍亮一点的实色 */
+}
 .menu-item.danger { color: #ef4444; }
 .menu-divider { height: 1px; background: var(--glass-border); margin: 4px 0; }
 

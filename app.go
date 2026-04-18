@@ -112,19 +112,61 @@ func (a *App) GetProxyStatus() bool {
 // --- 配置与测速 ---
 
 func (a *App) GetInitialData() (map[string]interface{}, error) {
+	a.mu.Lock()
+	if a.activeConfig == "" {
+		a.activeConfig = a.loadActiveConfig()
+	}
+	activeName := a.activeConfig
+	a.mu.Unlock()
+
+	// 👈 核心逻辑：如果内核没运行，手动解析本地文件返回给前端
+	if !clash.IsRunning() {
+		mode, groups, err := clash.GetStaticNodes() // 调用 config.go 里的静态解析方法
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"mode":         mode,
+			"proxyGroups":  groups, // 统一前端字段名
+			"activeConfig": activeName,
+			"isRunning":    false,
+		}, nil
+	}
+
+	// 如果内核在运行，走原有的 API 逻辑
 	data, err := clash.GetInitialData()
 	if err != nil {
 		return nil, err
 	}
-	a.mu.Lock()
-	// 👈 如果内存中没有，则从文件加载上次的记录（下次打开软件自动读取）
-	if a.activeConfig == "" {
-		a.activeConfig = a.loadActiveConfig()
-	}
-	data["activeConfig"] = a.activeConfig
-	a.mu.Unlock()
+	data["activeConfig"] = activeName
+	data["isRunning"] = true
 	return data, nil
 }
+
+// 👈 新增：离线测速方法（不依赖内核，直接 TCP 握手）
+func (a *App) TestOfflineNodes() error {
+	proxies, err := clash.GetRawProxyAddrs() // 从 yaml 解析物理地址
+	if err != nil {
+		return err
+	}
+
+	// 并发 15 个测速
+	semaphore := make(chan struct{}, 15)
+	for _, p := range proxies {
+		semaphore <- struct{}{}
+		go func(info clash.RawProxyInfo) {
+			defer func() { <-semaphore }()
+			delay := clash.TCPPing(info.Server, info.Port)
+			// 发送给前端更新 UI
+			runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
+				"name":  info.Name,
+				"delay": delay,
+			})
+		}(p)
+	}
+	return nil
+}
+
 func (a *App) SetConfigMode(mode string) error {
 	return clash.UpdateMode(mode)
 }
@@ -152,8 +194,6 @@ func (a *App) TestAllProxies(nodeNames []string) {
 		}(name)
 	}
 }
-
-// --- 实时流管理 ---
 
 func (a *App) StartTrafficStream() {
 	a.mu.Lock()
