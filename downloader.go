@@ -26,6 +26,15 @@ func getLatestMihomoAssetURL(platform, arch, fileExt string) (string, error) {
 	}
 	defer resp.Body.Close()
 
+	// ⚠️ 修复：增加对 403 API 速率限制的精准识别
+	if resp.StatusCode == http.StatusForbidden {
+		remain := resp.Header.Get("X-RateLimit-Remaining")
+		if remain == "0" {
+			resetTime := resp.Header.Get("X-RateLimit-Reset")
+			return "", fmt.Errorf("触发 GitHub API 请求频率限制，请尝试切换代理节点或稍后重试（重置时间戳：%s）", resetTime)
+		}
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("GitHub API 请求失败，状态码: %d", resp.StatusCode)
 	}
@@ -69,8 +78,13 @@ func downloadFileWithRetry(targetPath string, directURL string) error {
 				time.Sleep(time.Duration(attempt*2) * time.Second) 
 			}
 
+			// ⚠️ 修复：优化 HttpClient 配置，避免 60 秒硬超时截断大文件
 			client := &http.Client{
-				Timeout: 60 * time.Second,
+				// Timeout: 60 * time.Second, // 删掉全局超时
+				Transport: &http.Transport{
+					ResponseHeaderTimeout: 15 * time.Second, // 仅对等待服务器响应头设置超时
+					IdleConnTimeout:       30 * time.Second,
+				},
 			}
 
 			req, _ := http.NewRequest("GET", url, nil)
@@ -93,7 +107,10 @@ func downloadFileWithRetry(targetPath string, directURL string) error {
 					return err
 				}
 
-				_, err = io.Copy(out, resp.Body)
+				// ⚠️ 修复：使用 io.CopyBuffer 控制内存并提供更稳定的流式写入
+				buf := make([]byte, 32*1024) // 32KB 缓冲
+				_, err = io.CopyBuffer(out, resp.Body, buf)
+				
 				resp.Body.Close()
 				out.Close()
 

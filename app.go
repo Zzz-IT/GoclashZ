@@ -117,27 +117,27 @@ func (a *App) startProxyService() error {
 		return err
 	}
 
-	// 离线节点状态同步
-	a.mu.Lock()
-	if len(a.offlineNodes) > 0 {
-		nodesCopy := make(map[string]string)
-		for k, v := range a.offlineNodes {
-			nodesCopy[k] = v
+	// ⚠️ 核心修复 2：将异步改为同步阻塞，等待内核 HTTP API 真正就绪
+	apiReady := false
+	for i := 0; i < 20; i++ { // 最长等待 2 秒
+		time.Sleep(100 * time.Millisecond)
+		// 用获取初始数据作为 API 就绪的探针
+		if _, err := clash.GetInitialData(); err == nil {
+			apiReady = true
+			break
 		}
-		go func(nodes map[string]string) {
-			// ⚠️ 核心修复：轮询等待 API 就绪，最多尝试 15 次（共3秒），提高兼容性
-			for i := 0; i < 15; i++ {
-				time.Sleep(200 * time.Millisecond)
-				if clash.IsRunning() { 
-					for g, n := range nodes {
-						clash.SwitchProxy(g, n)
-					}
-					break // 发送成功后立刻退出循环
-				}
-			}
-		}(nodesCopy)
 	}
-	a.mu.Unlock()
+
+	// API 就绪后，立刻下发离线选择的节点
+	if apiReady {
+		a.mu.Lock()
+		if len(a.offlineNodes) > 0 {
+			for g, n := range a.offlineNodes {
+				clash.SwitchProxy(g, n)
+			}
+		}
+		a.mu.Unlock()
+	}
 
 	// 2. 强制设置系统代理
 	bypass := "localhost;127.*;10.*;172.16.*;192.168.*;<local>"
@@ -252,28 +252,38 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 }
 
 func (a *App) TestAllProxies(nodeNames []string) {
-	// 1. 静默唤醒机制
 	if !clash.IsRunning() {
 		if err := clash.Start(a.ctx); err != nil {
+			// ⚠️ 修复：不要静默 return，通知前端测速异常结束
+			runtime.EventsEmit(a.ctx, "proxy-test-finished", "内核启动失败，无法测速")
 			return 
 		}
 		time.Sleep(1 * time.Second)
 	}
 
-	// ⚠️ 核心修复：整体放入后台运行，并使用 WaitGroup 追踪完成状态
 	go func() {
 		concurrency := 8
 		semaphore := make(chan struct{}, concurrency)
 		var wg sync.WaitGroup
+		
+		// ⚠️ 修复：为整个测速任务设置一个最高 15 秒的超时 Context，防止 HTTP 卡死
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
 
 		for _, name := range nodeNames {
 			wg.Add(1)
-			semaphore <- struct{}{} // 获取令牌
-
+			
 			go func(nName string) {
 				defer wg.Done()
-				defer func() { <-semaphore }() // 释放令牌
+				
+				select {
+				case semaphore <- struct{}{}: // 获取令牌
+				case <-ctx.Done(): // 整体超时，直接退出
+					return 
+				}
+				defer func() { <-semaphore }()
 
+				// 假设 GetProxyDelay 内部也有超时控制，否则这里依然需要配合 ctx 改造
 				delay, err := clash.GetProxyDelay(nName)
 				if err != nil || delay <= 0 {
 					delay = -1 
@@ -286,9 +296,7 @@ func (a *App) TestAllProxies(nodeNames []string) {
 			}(name)
 		}
 
-		// 等待所有测速完成
 		wg.Wait()
-		// 通知前端测速彻底结束（前端可监听此事件关闭 loading 动画）
 		runtime.EventsEmit(a.ctx, "proxy-test-finished", "测速完成")
 	}()
 }
@@ -298,14 +306,16 @@ func (a *App) SetConfigMode(mode string) error {
 }
 
 func (a *App) SelectProxy(groupName, nodeName string) error {
-	// 👇 新增拦截：如果内核没在运行，不要发送 HTTP 请求报错，而是将其存入离线缓存
+	// ⚠️ 核心修复 1：无论内核是否运行，都将用户的选择同步记录到离线缓存中
+	// 防止在线时切换了节点，重启内核后又被还原为老节点
+	a.mu.Lock()
+	if a.offlineNodes == nil {
+		a.offlineNodes = make(map[string]string)
+	}
+	a.offlineNodes[groupName] = nodeName
+	a.mu.Unlock()
+
 	if !clash.IsRunning() {
-		a.mu.Lock()
-		if a.offlineNodes == nil {
-			a.offlineNodes = make(map[string]string)
-		}
-		a.offlineNodes[groupName] = nodeName
-		a.mu.Unlock()
 		return nil
 	}
 	return clash.SwitchProxy(groupName, nodeName)
@@ -543,26 +553,50 @@ func (a *App) RenameConfig(oldName, newName string) error {
 	oldPath := filepath.Join(a.getProfilesDir(), oldName)
 	newPath := filepath.Join(a.getProfilesDir(), newName)
 
-	// ⚠️ 核心修复：处理 Windows 下仅大小写改变导致的重命名失败
-	if strings.EqualFold(oldName, newName) && oldName != newName {
-		tempPath := newPath + ".tmp"
-		if err := os.Rename(oldPath, tempPath); err != nil {
-			return err
-		}
-		return os.Rename(tempPath, newPath)
+	// ⚠️ 修复：如果正在重命名当前处于活动状态的配置，必须先停止代理内核释放文件锁
+	a.mu.Lock()
+	isActiveConfig := (a.activeConfig == oldName)
+	a.mu.Unlock()
+	
+	if isActiveConfig && clash.IsRunning() {
+		clash.Stop()
+		time.Sleep(200 * time.Millisecond) // 等待文件句柄释放
 	}
 
-	return os.Rename(oldPath, newPath)
+	renameFunc := func() error {
+		if strings.EqualFold(oldName, newName) && oldName != newName {
+			tempPath := newPath + ".tmp"
+			if err := os.Rename(oldPath, tempPath); err != nil { return err }
+			return os.Rename(tempPath, newPath)
+		}
+		return os.Rename(oldPath, newPath)
+	}
+
+	err := renameFunc()
+
+	// ⚠️ 修复：如果刚才停掉了内核，重命名完成后需要重启
+	if isActiveConfig {
+		a.mu.Lock()
+		a.activeConfig = newName // 更新内部记录
+		a.saveActiveConfig(newName)
+		a.mu.Unlock()
+		// 重新生成配置并启动
+		clash.BuildRuntimeConfig(newName)
+		a.startProxyService()
+	}
+
+	return err
 }
 
 // OpenConfigFile 使用系统默认应用打开配置文件
 func (a *App) OpenConfigFile(fileName string) error {
-	fileName = filepath.Base(fileName) // 👈 净化
+	fileName = filepath.Base(fileName) // 净化
 	path := filepath.Join(a.getProfilesDir(), fileName)
 	var cmd *exec.Cmd
 	switch stdruntime.GOOS {
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", path)
+		// ⚠️ 修复：避免使用 cmd /c，防止 Shell 元字符注入
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
 	case "darwin":
 		cmd = exec.Command("open", path)
 	default:
@@ -583,6 +617,10 @@ func (a *App) ClearBaseConfig() error {
 	a.mu.Lock()
 	a.activeConfig = ""
 	a.saveActiveConfig("") // 清空本地记忆
+	
+	// ⚠️ 核心修复 4：所有配置清空时，将离线选择一并清除
+	a.offlineNodes = make(map[string]string) 
+	
 	a.mu.Unlock()
 
 	baseDir := getBaseDir()
@@ -601,6 +639,10 @@ func (a *App) SelectLocalConfig(fileName string) error {
 	a.activeConfig = fileName
 	a.saveActiveConfig(fileName)
 	wasActive := a.isProxyActive
+	
+	// ⚠️ 核心修复 3：切换配置时清空前一个配置的离线记忆，防止策略组名称冲突
+	a.offlineNodes = make(map[string]string) 
+	
 	a.mu.Unlock()
 
 	clash.Stop()

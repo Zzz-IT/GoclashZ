@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync" // 必须引入
+	"sync"
 	"syscall"
+	"unsafe"
 
+	"golang.org/x/sys/windows"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -18,6 +20,29 @@ var (
 	isRunning         bool
 	isIntentionalStop bool // 👈 新增：标记是否为手动停止
 )
+
+// ⚠️ 修复：新增一个辅助函数，用于将进程加入到随主进程退出的 Job 中
+func assignProcessToJobObject(proc *os.Process) error {
+	job, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		return err
+	}
+	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
+		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
+			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+		},
+	}
+	_, err = windows.SetInformationJobObject(
+		job,
+		windows.JobObjectExtendedLimitInformation,
+		uintptr(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)),
+	)
+	if err != nil {
+		return err
+	}
+	return windows.AssignProcessToJobObject(job, windows.Handle(proc.Pid))
+}
 
 func getExeDir() string {
 	exePath, err := os.Executable()
@@ -39,10 +64,10 @@ func Start(ctx context.Context) error {
 	exePath := filepath.Join(dirPath, "clash.exe")
 	pidFile := filepath.Join(dirPath, "clash.pid")
 
-	// ⚠️ 核心修复：精准查杀上次遗留的自身进程，防止误杀其他应用
+	// ⚠️ 修复：加入 /FI 过滤器精准匹配进程名称，防止 PID 欺骗与误杀
 	if pidData, err := os.ReadFile(pidFile); err == nil {
 		pidStr := string(pidData)
-		exec.Command("taskkill", "/F", "/PID", pidStr).Run()
+		exec.Command("taskkill", "/F", "/FI", "IMAGENAME eq clash.exe", "/PID", pidStr).Run()
 		os.Remove(pidFile)
 	}
 
@@ -52,11 +77,18 @@ func Start(ctx context.Context) error {
 
 	cmd := exec.Command(exePath, "-d", dirPath)
 	cmd.Dir = dirPath
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	// ⚠️ 修复：必须设置 CREATE_BREAKAWAY_FROM_JOB 以允许加入新的 Job，并隐藏窗口
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: windows.CREATE_BREAKAWAY_FROM_JOB,
+	}
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("无法启动内核: %v", err)
 	}
+
+	// ⚠️ 修复：将刚启动的子进程绑定到 Job Object，防止主进程崩溃导致子进程残留
+	assignProcessToJobObject(cmd.Process)
 
 	clashCmd = cmd
 	isRunning = true
