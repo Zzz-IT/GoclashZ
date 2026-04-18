@@ -222,7 +222,10 @@ const handleDelete = async (filename: string) => {
 onMounted(() => {
   fetchConfigs();
   (window as any).runtime.EventsOn("config-changed", (newName: string) => {
-    currentPath.value = newName;
+    // 增加严格判断：忽略运行时的 config.yaml，防止覆盖真实选中的配置文件
+    if (newName && newName !== 'config.yaml') {
+      currentPath.value = newName;
+    }
   });
 });
 

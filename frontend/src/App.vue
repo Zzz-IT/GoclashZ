@@ -182,6 +182,11 @@ onMounted(async () => {
   const data: any = await API.GetInitialData();
   if (data) currentMode.value = data.mode;
 
+  // 👉 [新增] 监听全局状态同步事件，实时更新呼吸灯
+  window.addEventListener('proxy-status-sync', ((e: CustomEvent) => {
+    isRunning.value = e.detail.systemProxy || e.detail.tun;
+  }) as EventListener);
+
   try {
     const status = await API.CheckTunEnv();
     tunStatus.value = status as Record<string, boolean>;
@@ -209,7 +214,11 @@ onMounted(async () => {
     }
   });
 
-  EventsOn("clash-exited", () => { isRunning.value = false; });
+  EventsOn("clash-exited", () => { 
+    isRunning.value = false; 
+    // 进程退出时，也广播一下关闭状态
+    window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: { systemProxy: false, tun: false } }));
+  });
 });
 </script>
 

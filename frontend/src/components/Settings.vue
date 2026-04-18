@@ -396,14 +396,17 @@ const loadData = async () => {
     const tunConf = await API.GetTunConfig();
     if (tunConf) tunConfig.value = tunConf;
 
-    // 加载 DNS 配置
+    // 👉 [新增] 每次进入设置页，强制拉取当前真实运行状态，覆盖 UI 显示
+    const realStatus: any = await API.GetProxyStatus();
+    if (realStatus) {
+      tunConfig.value.enable = realStatus.tun;
+    }
+
     const dnsConf = await (API.GetDNSConfig as any)();
     if (dnsConf) dnsConfig.value = dnsConf;
 
-    // 加载基础网络配置
     const netConf = await (API.GetNetworkConfig as any)();
     if (netConf) netConfig.value = netConf;
-
   } catch (e) {
     console.error('加载配置失败', e);
   }
@@ -427,7 +430,18 @@ const handleTunToggle = async (e: Event) => {
     alert('⚠️ 无法开启 TUN 模式：\n请先点击下方的“安装驱动”按钮下载并配置 wintun.dll。');
     return;
   }
-  await saveTun();
+  
+  try {
+    // 👉 [新增] 设置页拨动开关时，直接调用内核指令同步改变状态
+    await API.ToggleTunMode(tunConfig.value.enable);
+    await saveTun(); // 保存配置
+
+    // 👉 [新增] 广播给控制台和左下角呼吸灯
+    const newStatus = await API.GetProxyStatus();
+    window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: newStatus }));
+  } catch (err) {
+    alert("操作内核 TUN 失败: " + err);
+  }
 };
 
 const installDriver = async () => {

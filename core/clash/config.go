@@ -122,8 +122,9 @@ func GetOfflineData(fileName string) (map[string]interface{}, error) {
 	}
 
 	return map[string]interface{}{
-		"mode":   conf.Mode,
-		"groups": proxiesMap, // 这里的格式将完美契合前端 Proxies.vue 的逻辑
+		"mode":       conf.Mode,
+		"groups":     proxiesMap, // 这里的格式将完美契合前端 Proxies.vue 的逻辑
+		"groupOrder": ExtractGroupOrder(data),
 	}, nil
 }
 
@@ -509,5 +510,31 @@ func BuildRuntimeConfig(profileName string, mode string) error {
 	}
 
 	return os.WriteFile(configPath, out, 0644)
+}
+
+// ExtractGroupOrder 核心逻辑：从 YAML 数据中提取 proxy-groups 的原始定义顺序
+func ExtractGroupOrder(yamlData []byte) []string {
+	var order []string
+	var node yaml.Node
+	if err := yaml.Unmarshal(yamlData, &node); err == nil && len(node.Content) > 0 {
+		// 遍历根节点，寻找 proxy-groups
+		for i := 0; i < len(node.Content[0].Content); i += 2 {
+			keyNode := node.Content[0].Content[i]
+			if keyNode.Value == "proxy-groups" {
+				valueNode := node.Content[0].Content[i+1]
+				for _, groupNode := range valueNode.Content {
+					// 提取每个 group 的 name
+					for j := 0; j < len(groupNode.Content); j += 2 {
+						if groupNode.Content[j].Value == "name" {
+							order = append(order, groupNode.Content[j+1].Value)
+							break
+						}
+					}
+				}
+				break
+			}
+		}
+	}
+	return order
 }
 

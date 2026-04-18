@@ -115,11 +115,15 @@ const refreshData = async () => {
 const toggleSysProxy = async () => {
   await API.ToggleSystemProxy(!status.value.systemProxy);
   status.value = await API.GetProxyStatus() as any;
+  // 👉 [新增] 操作后广播最新状态
+  window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: status.value }));
 };
 
 const toggleTun = async () => {
   await API.ToggleTunMode(!status.value.tun);
   status.value = await API.GetProxyStatus() as any;
+  // 👉 [新增] 操作后广播最新状态
+  window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: status.value }));
 };
 
 const handleModeChange = (val: string) => {

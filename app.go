@@ -370,6 +370,21 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	data["mode"] = a.activeMode
 	a.mu.Unlock()
 	data["isOffline"] = false
+
+	// 注入节点组原始排序 (不管在线还是离线都尝试从本地 YAML 提取)
+	configName := activeConfig
+	if configName == "" {
+		configName = a.loadActiveConfig()
+	}
+	baseDir := getBaseDir()
+	configPath := filepath.Join(baseDir, "core", "bin", configName)
+	if configName == "" || configName == "config.yaml" {
+		configPath = filepath.Join(baseDir, "core", "bin", "config.yaml")
+	}
+	if yamlData, err := os.ReadFile(configPath); err == nil {
+		data["groupOrder"] = clash.ExtractGroupOrder(yamlData)
+	}
+
 	return data, nil
 }
 

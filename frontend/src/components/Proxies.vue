@@ -70,11 +70,18 @@ const activeGroupData = computed(() => {
 const loadData = async () => {
   try {
     const data: any = await API.GetInitialData();
-    // 👈 这里的 data.groups 现在在离线状态下也会有值了
     if (data && data.groups) {
       const processedGroups: any[] = [];
-      Object.keys(data.groups).forEach(name => {
+      
+      // 👉 [新增] 优先使用后端传递的 groupOrder 数组，如果没有则降级使用 Object.keys
+      const keys = (data.groupOrder && data.groupOrder.length > 0) 
+                   ? data.groupOrder 
+                   : Object.keys(data.groups);
+
+      keys.forEach((name: string) => {
         const item = data.groups[name];
+        if (!item) return; // 容错处理
+
         const isGroupType = ['Selector', 'URLTest', 'Fallback', 'LoadBalance'].includes(item.type);
         const isSystemReserved = ['GLOBAL', 'DIRECT', 'REJECT'].includes(name);
 
@@ -83,7 +90,7 @@ const loadData = async () => {
             return {
               name: memberName,
               now: item.now,
-              delay: null, // 强制重置延迟显示
+              delay: null,
               testing: false
             };
           });
@@ -93,14 +100,13 @@ const loadData = async () => {
 
       localGroups.value = processedGroups;
 
-      // 核心修复：验证当前选中的组是否依然存在。如果不存在或为空，则切换到第一个可用组
       const isCurrentValid = processedGroups.some(g => g.name === currentGroup.value);
       if (!isCurrentValid && processedGroups.length > 0) {
         currentGroup.value = processedGroups[0].name;
       }
     }
   } catch (e) {
-    console.error("加载失败", e);
+    console.error("加载代理组失败", e);
   }
 };
 
