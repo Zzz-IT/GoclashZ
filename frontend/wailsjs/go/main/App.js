@@ -130,6 +130,14 @@ export function TestAllProxies(arg1) {
   return window['go']['main']['App']['TestAllProxies'](arg1);
 }
 
+export function ToggleSystemProxy(arg1) {
+  return window['go']['main']['App']['ToggleSystemProxy'](arg1);
+}
+
+export function ToggleTunMode(arg1) {
+  return window['go']['main']['App']['ToggleTunMode'](arg1);
+}
+
 export function UpdateClashMode(arg1) {
   return window['go']['main']['App']['UpdateClashMode'](arg1);
 }

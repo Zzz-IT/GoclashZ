@@ -1,12 +1,24 @@
 <template>
   <div class="overview">
     <div class="status-grid">
-      <div class="status-card glass-panel" :class="{ 'is-active': isRunning }">
-        <div class="card-icon" v-html="isRunning ? ICONS.powerOn : ICONS.powerOff"></div>
-        <div class="card-content">
-          <span class="label">系统服务状态</span>
-          <h3 class="value">{{ isRunning ? '正在运行' : '已停止' }}</h3>
-        </div>
+      <div class="status-card glass-panel control-panel">
+        <button 
+          class="switch-btn tun-btn" 
+          :class="{ 'is-active': status.tun }"
+          @click="toggleTun"
+        >
+          <span class="icon" v-html="status.tun ? ICONS.powerOn : ICONS.powerOff"></span>
+          {{ status.tun ? '关闭网卡' : '虚拟网卡' }}
+        </button>
+
+        <button 
+          class="switch-btn sys-btn" 
+          :class="{ 'is-active': status.systemProxy }"
+          @click="toggleSysProxy"
+        >
+          <span class="icon" v-html="status.systemProxy ? ICONS.powerOn : ICONS.powerOff"></span>
+          {{ status.systemProxy ? '停止代理' : '系统代理' }}
+        </button>
       </div>
 
       <div class="status-card glass-panel">
@@ -55,78 +67,81 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 
-// 图标定义
 const ICONS = {
-  powerOn: `<svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>`,
-  powerOff: `<svg viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>`,
+  powerOn: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>`,
+  powerOff: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>`,
   config: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`,
   mode: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`
 };
 
-const isRunning = ref(false);
+const status = ref({ systemProxy: false, tun: false });
 const activeConfigName = ref('');
 const currentMode = ref('rule');
 const clashVersion = ref('');
 const traffic = ref({ up: '0 B/s', down: '0 B/s' });
 
-// 获取所有初始化数据
 const refreshAllData = async () => {
   try {
     const data: any = await API.GetInitialData();
     if (data) {
-      // 1. 同步运行状态
-      isRunning.value = await API.GetProxyStatus();
-
-      // 2. 同步配置名称
-      if (data.activeConfig) {
-        activeConfigName.value = data.activeConfig;
-      } else if (data.configPath) {
-        activeConfigName.value = data.configPath.split(/[\\/]/).pop() || 'config.yaml';
-      }
-
-      // 3. 同步模式
-      if (data.mode) {
-          currentMode.value = data.mode;
-      }
-
+      if (data.activeConfig) activeConfigName.value = data.activeConfig;
+      if (data.mode) currentMode.value = data.mode;
       clashVersion.value = data.version || '';
+    }
+    // 获取双轨状态
+    const s: any = await API.GetProxyStatus();
+    if (s) {
+        status.value = s;
     }
   } catch (e) {
     console.error("加载概览数据失败:", e);
   }
 };
 
-// 处理模式切换
+const toggleSysProxy = async () => {
+  const target = !status.value.systemProxy;
+  try {
+    await API.ToggleSystemProxy(target);
+    const s: any = await API.GetProxyStatus();
+    if (s) status.value = s;
+  } catch (e) {
+    alert("系统代理操作失败: " + e);
+  }
+};
+
+const toggleTun = async () => {
+  const target = !status.value.tun;
+  try {
+    await API.ToggleTunMode(target);
+    const s: any = await API.GetProxyStatus();
+    if (s) status.value = s;
+  } catch (e) {
+    alert("虚拟网卡操作失败: " + e);
+  }
+};
+
 const handleModeChange = async () => {
     try {
-        // 调用后端统一的更新接口 (兼顾运行时与持久化)
         await API.UpdateClashMode(currentMode.value);
     } catch (e) {
         console.error("模式切换失败:", e);
     }
 };
 
-// 事件监听回调：当配置发生改变时
 const onConfigChanged = (newName: string) => {
-  console.log("概览页同步新配置:", newName);
   activeConfigName.value = newName;
-  refreshAllData(); // 重新拉取一次完整状态
+  refreshAllData();
 };
 
 onMounted(() => {
   refreshAllData();
-
-  // 注册全局监听事件
   (window as any).runtime.EventsOn("config-changed", onConfigChanged);
-
-  // 监听流量数据
   (window as any).runtime.EventsOn("traffic-data", (data: any) => {
     traffic.value = data;
   });
 });
 
 onUnmounted(() => {
-  // 销毁监听，防止切换页面重复注册
   (window as any).runtime.EventsOff("config-changed");
   (window as any).runtime.EventsOff("traffic-data");
 });
@@ -155,9 +170,45 @@ onUnmounted(() => {
   border: 1px solid var(--glass-border);
 }
 
-.status-card.is-active {
-  border-color: rgba(16, 185, 129, 0.3);
-  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.05);
+.control-panel {
+  display: flex;
+  flex-direction: row !important;
+  gap: 12px;
+  padding: 16px !important;
+  justify-content: space-between;
+}
+
+.switch-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: var(--surface-hover);
+  color: var(--text-main);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.switch-btn.is-active {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #10b981;
+}
+
+.switch-btn .icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+}
+
+.switch-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .card-icon {

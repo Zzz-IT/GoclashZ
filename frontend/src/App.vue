@@ -200,8 +200,15 @@ const watchCurrentTab = (newTab: string) => {
 
 const toggleProxy = async () => {
   try {
-    isRunning.value ? await API.StopProxy() : await API.RunProxy();
-    isRunning.value = await API.GetProxyStatus();
+    const s: any = await API.GetProxyStatus();
+    // 逻辑：如果任一开启，则关闭全部；如果全关，则开启系统代理（作为默认启动动作）
+    if (s.systemProxy || s.tun) {
+      await API.StopProxy();
+    } else {
+      await API.RunProxy();
+    }
+    const newStatus: any = await API.GetProxyStatus();
+    isRunning.value = newStatus.systemProxy || newStatus.tun;
   } catch (e) { alert("操作失败: " + e); }
 };
 
@@ -212,7 +219,8 @@ const changeMode = async (mode: string) => {
 
 onMounted(async () => {
   WindowSetLightTheme();
-  isRunning.value = await API.GetProxyStatus();
+  const s: any = await API.GetProxyStatus();
+  isRunning.value = s.systemProxy || s.tun;
   const data: any = await API.GetInitialData();
   if (data) currentMode.value = data.mode;
 

@@ -26,7 +26,14 @@ type App struct {
 	activeConfig  string
 	activeMode    string            // 👈 新增：存储当前路由模式 (rule, global, direct)
 	offlineNodes  map[string]string // 👈 新增：存储离线状态下选中的节点
-	isProxyActive bool              // 👈 新增：记录用户逻辑上的代理开关状态
+	sysProxyActive bool             // 👈 替换：系统代理是否开启
+	tunActive      bool             // 👈 替换：TUN 模式是否开启
+}
+
+// ProxyStatus 新增给前端返回的双重状态结构
+type ProxyStatus struct {
+	SystemProxy bool `json:"systemProxy"`
+	Tun         bool `json:"tun"`
 }
 
 // 1. 在 app.go 任意位置新增这个辅助方法，用于将离线缓存合并到数据源
@@ -107,21 +114,10 @@ func (a *App) loadActiveMode() string {
 	return "rule" // 默认规则模式
 }
 
-// 在 App 结构体下新增一个内部方法
-func (a *App) startProxyService() error {
-	tunCfg, _ := clash.GetTunConfig()
-	isTunEnabled := tunCfg != nil && tunCfg.Enable
-
-	if isTunEnabled {
-		// 环境拦截
-		if !sys.IsWintunInstalled() {
-			return fmt.Errorf("缺失 Wintun 驱动，请先安装")
-		}
-		if !sys.CheckAdmin() {
-			// 直接触发提权，而不是让用户干瞪眼
-			sys.RequestAdmin()
-			return fmt.Errorf("正在请求系统管理员权限，请在弹窗中允许...")
-		}
+// --- 底层：确保内核运行 ---
+func (a *App) ensureCoreRunning() error {
+	if clash.IsRunning() {
+		return nil
 	}
 
 	a.mu.Lock()
@@ -171,14 +167,99 @@ func (a *App) startProxyService() error {
 		a.mu.Unlock()
 	}
 
-	// 2. 强制设置系统代理
-	bypass := "localhost;127.*;10.*;172.16.*;192.168.*;<local>"
-	if err := sys.EnableSystemProxy("127.0.0.1", 7890, bypass); err != nil {
+	// 3. 启动流量监控
+	go a.StartTrafficStream()
+	return nil
+}
+
+// --- 底层：停止内核 ---
+func (a *App) stopCoreService() {
+	clash.Stop()
+	a.StopTrafficStream()
+}
+
+// ==========================================
+// --- 暴露给前端的 API ---
+// ==========================================
+
+// GetProxyStatus 获取当前双轨状态
+func (a *App) GetProxyStatus() ProxyStatus {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	
+	// 读取真实配置作为校验
+	tunCfg, _ := clash.GetTunConfig()
+	realTun := tunCfg != nil && tunCfg.Enable && clash.IsRunning()
+
+	return ProxyStatus{
+		SystemProxy: a.sysProxyActive,
+		Tun:         realTun,
+	}
+}
+
+// ToggleSystemProxy 开关 1：系统代理
+func (a *App) ToggleSystemProxy(enable bool) error {
+	a.mu.Lock()
+	a.sysProxyActive = enable
+	needCore := a.sysProxyActive || a.tunActive
+	a.mu.Unlock()
+
+	if enable {
+		// 1. 确保底层内核在运行
+		if err := a.ensureCoreRunning(); err != nil {
+			a.mu.Lock()
+			a.sysProxyActive = false
+			a.mu.Unlock()
+			return err
+		}
+		// 2. 开启 Windows 系统代理
+		bypass := "localhost;127.*;10.*;172.16.*;192.168.*;<local>"
+		return sys.EnableSystemProxy("127.0.0.1", 7890, bypass)
+	} else {
+		// 1. 关闭 Windows 系统代理
+		sys.DisableSystemProxy()
+		// 2. 如果虚拟网卡也没开，那就彻底关闭内核节约资源
+		if !needCore {
+			a.stopCoreService()
+		}
+		return nil
+	}
+}
+
+// ToggleTunMode 开关 2：虚拟网卡 (TUN)
+func (a *App) ToggleTunMode(enable bool) error {
+	if enable {
+		if !sys.IsWintunInstalled() {
+			return fmt.Errorf("缺失 Wintun 驱动，请先在设置中安装")
+		}
+		if !sys.CheckAdmin() {
+			sys.RequestAdmin()
+			return fmt.Errorf("正在请求系统管理员权限，请允许...")
+		}
+	}
+
+	// 修改配置文件的 TUN 状态
+	tunCfg, _ := clash.GetTunConfig()
+	if tunCfg == nil {
+		tunCfg = &clash.TunConfig{Stack: "gvisor", AutoRoute: true, StrictRoute: true}
+	}
+	tunCfg.Enable = enable
+	if err := clash.UpdateTunConfig(tunCfg); err != nil {
 		return err
 	}
 
-	// 3. 启动流量监控
-	go a.StartTrafficStream()
+	a.mu.Lock()
+	a.tunActive = enable
+	needCore := a.sysProxyActive || a.tunActive
+	a.mu.Unlock()
+
+	// TUN 模式的改变必须重启内核才能生效
+	a.stopCoreService() 
+	
+	if needCore {
+		time.Sleep(300 * time.Millisecond) // 等待旧端口释放
+		return a.ensureCoreRunning()
+	}
 	return nil
 }
 
@@ -186,6 +267,8 @@ func NewApp() *App {
 	return &App{
 		offlineNodes: make(map[string]string),
 		activeMode:   "", // 留空，待 loadActiveMode 加载
+		sysProxyActive: false,
+		tunActive:      false,
 	}
 }
 
@@ -200,18 +283,7 @@ func (a *App) shutdown(_ context.Context) {
 
 // --- 代理核心控制 ---
 
-// 修改 RunProxy
-func (a *App) RunProxy() error {
-	err := a.startProxyService()
-	if err == nil {
-		a.mu.Lock()
-		a.isProxyActive = true // 👈 记录用户主动开启
-		a.mu.Unlock()
-	}
-	return err
-}
-
-// 1. 提供给前端：检查 TUN 模式环境（驱动 + 权限）
+// CheckTunEnv 提供给前端：检查 TUN 模式环境（驱动 + 权限）
 func (a *App) CheckTunEnv() map[string]bool {
 	return map[string]bool{
 		"isAdmin":   sys.CheckAdmin(),
@@ -219,27 +291,30 @@ func (a *App) CheckTunEnv() map[string]bool {
 	}
 }
 
-// 2. 提供给前端：自动提权并重启应用
+// ElevatePrivileges 提供给前端：自动提权并重启应用
 func (a *App) ElevatePrivileges() error {
 	return sys.RequestAdmin() // 将会呼出 UAC 窗口并重启软件
 }
 
+// --- 代理旧接口兼容 (可选，若前端已全量更新可删除) ---
+
+func (a *App) RunProxy() error {
+	return a.ToggleSystemProxy(true)
+}
+
 func (a *App) StopProxy() error {
 	a.mu.Lock()
-	a.isProxyActive = false // 👈 记录用户主动关闭
+	a.sysProxyActive = false
+	a.tunActive = false
 	a.mu.Unlock()
-
-	clash.Stop()
 	sys.DisableSystemProxy()
-	a.StopTrafficStream()
+	a.stopCoreService()
 	return nil
 }
 
-func (a *App) GetProxyStatus() bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.isProxyActive // 👈 前端 UI 开关状态绑定到这里
-}
+// 注意：此方法名与新 GetProxyStatus 冲突，我已在上方实现了返回 ProxyStatus 结构体的新方法。
+// 为了兼容 App.vue 的布尔值判断，我们保留一个简单的 IsCoreRunning 逻辑或者让前端适配。
+// 这里我们将旧的 GetProxyStatus 逻辑合并到 New API 中。
 
 // --- 配置与测速 ---
 
@@ -478,13 +553,13 @@ func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 	err := clash.UpdateTunConfig(cfg)
 
 	a.mu.Lock()
-	isActive := a.isProxyActive
+	isActive := a.sysProxyActive || a.tunActive
 	a.mu.Unlock()
 
-	if err == nil && isActive { // 👈 核心修复
-		// TUN 模式的开启和关闭必须重启内核才能生效
-		clash.Stop()
-		a.startProxyService()
+	if err == nil && isActive { 
+		a.stopCoreService()
+		time.Sleep(200 * time.Millisecond)
+		a.ensureCoreRunning()
 	}
 	return err
 }
@@ -504,13 +579,13 @@ func (a *App) SaveDNSConfig(cfg *clash.DNSConfig) error {
 	err := clash.UpdateDNSConfig(cfg)
 
 	a.mu.Lock()
-	isActive := a.isProxyActive
+	isActive := a.sysProxyActive || a.tunActive
 	a.mu.Unlock()
 
-	if err == nil && isActive { // 👈 核心修复
-		// 监听端口的改变和 fake-ip 的劫持需要重启内核
-		clash.Stop()
-		a.startProxyService()
+	if err == nil && isActive { 
+		a.stopCoreService()
+		time.Sleep(200 * time.Millisecond)
+		a.ensureCoreRunning()
 	}
 	return err
 }
@@ -526,13 +601,14 @@ func (a *App) SaveNetworkConfig(cfg *clash.NetworkConfig) error {
 	err := clash.UpdateNetworkConfig(cfg)
 
 	a.mu.Lock()
-	isActive := a.isProxyActive
+	isActive := a.sysProxyActive || a.tunActive
 	a.mu.Unlock()
 
 	// 这些设置直接影响内核底层行为，需要重启内核生效
 	if err == nil && isActive {
-		clash.Stop()
-		a.startProxyService()
+		a.stopCoreService()
+		time.Sleep(200 * time.Millisecond)
+		a.ensureCoreRunning()
 	}
 	return err
 }
@@ -656,7 +732,7 @@ func (a *App) RenameConfig(oldName, newName string) error {
 		mode := a.activeMode
 		a.mu.Unlock()
 		clash.BuildRuntimeConfig(newName, mode)
-		a.startProxyService()
+		a.ensureCoreRunning()
 	}
 
 	return err
@@ -712,14 +788,14 @@ func (a *App) SelectLocalConfig(fileName string) error {
 	a.mu.Lock()
 	a.activeConfig = fileName
 	a.saveActiveConfig(fileName)
-	wasActive := a.isProxyActive
+	wasActive := a.sysProxyActive || a.tunActive
 	
 	// ⚠️ 核心修复 3：切换配置时清空前一个配置的离线记忆，防止策略组名称冲突
 	a.offlineNodes = make(map[string]string) 
 	
 	a.mu.Unlock()
 
-	clash.Stop()
+	a.stopCoreService()
 	sys.DisableSystemProxy()
 
 	a.mu.Lock()
@@ -730,15 +806,16 @@ func (a *App) SelectLocalConfig(fileName string) error {
 	}
 
 	if wasActive {
-		if err := a.startProxyService(); err != nil {
+		if err := a.ensureCoreRunning(); err != nil {
 			return err
 		}
-		// ⚠️ 核心修复：使用轮询检测内核复活，替代卡死界面的硬编码 time.Sleep
-		for i := 0; i < 20; i++ {
-			time.Sleep(100 * time.Millisecond)
-			if clash.IsRunning() {
-				break
-			}
+		// 如果刚刚关掉前系统代理是开的，由于前面的 DisableSystemProxy，现在需要重新挂上
+		a.mu.Lock()
+		sysProxy := a.sysProxyActive
+		a.mu.Unlock()
+		if sysProxy {
+			bypass := "localhost;127.*;10.*;172.16.*;192.168.*;<local>"
+			sys.EnableSystemProxy("127.0.0.1", 7890, bypass)
 		}
 	} else {
 		// 如果只是离线切换，稍微让文件系统缓一下即可
