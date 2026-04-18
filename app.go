@@ -468,7 +468,7 @@ func (a *App) RenameConfig(oldName, newName string) error {
 	newPath := filepath.Join(a.getProfilesDir(), newName)
 
 	// ⚠️ 核心修复：处理 Windows 下仅大小写改变导致的重命名失败
-	if strings.ToLower(oldName) == strings.ToLower(newName) && oldName != newName {
+	if strings.EqualFold(oldName, newName) && oldName != newName {
 		tempPath := newPath + ".tmp"
 		if err := os.Rename(oldPath, tempPath); err != nil {
 			return err
