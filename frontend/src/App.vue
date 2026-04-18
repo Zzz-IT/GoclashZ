@@ -206,7 +206,7 @@ const toggleProxy = async () => {
 };
 
 const changeMode = async (mode: string) => {
-  await API.SetConfigMode(mode);
+  await API.UpdateClashMode(mode);
   currentMode.value = mode;
 };
 

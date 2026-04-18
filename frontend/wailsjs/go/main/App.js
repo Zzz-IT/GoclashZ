@@ -98,10 +98,6 @@ export function SelectProxy(arg1, arg2) {
   return window['go']['main']['App']['SelectProxy'](arg1, arg2);
 }
 
-export function SetConfigMode(arg1) {
-  return window['go']['main']['App']['SetConfigMode'](arg1);
-}
-
 export function StartConnectionMonitor() {
   return window['go']['main']['App']['StartConnectionMonitor']();
 }
@@ -132,6 +128,10 @@ export function StopTrafficStream() {
 
 export function TestAllProxies(arg1) {
   return window['go']['main']['App']['TestAllProxies'](arg1);
+}
+
+export function UpdateClashMode(arg1) {
+  return window['go']['main']['App']['UpdateClashMode'](arg1);
 }
 
 export function UpdateSub(arg1) {

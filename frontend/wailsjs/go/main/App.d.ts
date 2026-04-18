@@ -50,8 +50,6 @@ export function SelectLocalConfig(arg1:string):Promise<void>;
 
 export function SelectProxy(arg1:string,arg2:string):Promise<void>;
 
-export function SetConfigMode(arg1:string):Promise<void>;
-
 export function StartConnectionMonitor():Promise<void>;
 
 export function StartStreamingLogs():Promise<void>;
@@ -67,5 +65,7 @@ export function StopStreamingLogs():Promise<void>;
 export function StopTrafficStream():Promise<void>;
 
 export function TestAllProxies(arg1:Array<string>):Promise<void>;
+
+export function UpdateClashMode(arg1:string):Promise<void>;
 
 export function UpdateSub(arg1:string):Promise<void>;

@@ -10,6 +10,18 @@
       </div>
 
       <div class="status-card glass-panel">
+        <div class="card-icon" v-html="ICONS.mode"></div>
+        <div class="card-content">
+          <span class="label">路由模式控制</span>
+          <select class="mode-select" v-model="currentMode" @change="handleModeChange">
+            <option value="rule">规则 (Rule)</option>
+            <option value="global">全局 (Global)</option>
+            <option value="direct">直连 (Direct)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="status-card glass-panel">
         <div class="card-icon" v-html="ICONS.config"></div>
         <div class="card-content">
           <span class="label">当前活跃配置</span>
@@ -47,11 +59,13 @@ import * as API from '../../wailsjs/go/main/App';
 const ICONS = {
   powerOn: `<svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>`,
   powerOff: `<svg viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>`,
-  config: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`
+  config: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`,
+  mode: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`
 };
 
 const isRunning = ref(false);
 const activeConfigName = ref('');
+const currentMode = ref(localStorage.getItem('clash_proxy_mode') || 'rule');
 const clashVersion = ref('');
 const traffic = ref({ up: '0 B/s', down: '0 B/s' });
 
@@ -63,12 +77,17 @@ const refreshAllData = async () => {
       // 1. 同步运行状态
       isRunning.value = await API.GetProxyStatus();
 
-      // 2. 同步配置名称 (优先使用后端记录的 activeConfig)
+      // 2. 同步配置名称
       if (data.activeConfig) {
         activeConfigName.value = data.activeConfig;
       } else if (data.configPath) {
-        // 如果后端没记，从完整路径截取文件名
         activeConfigName.value = data.configPath.split(/[\\/]/).pop() || 'config.yaml';
+      }
+
+      // 3. 同步模式
+      if (data.mode) {
+          currentMode.value = data.mode;
+          localStorage.setItem('clash_proxy_mode', data.mode);
       }
 
       clashVersion.value = data.version || '';
@@ -76,6 +95,17 @@ const refreshAllData = async () => {
   } catch (e) {
     console.error("加载概览数据失败:", e);
   }
+};
+
+// 处理模式切换
+const handleModeChange = async () => {
+    localStorage.setItem('clash_proxy_mode', currentMode.value);
+    try {
+        // 调用后端统一的更新接口 (兼顾运行时与持久化)
+        await API.UpdateClashMode(currentMode.value);
+    } catch (e) {
+        console.error("模式切换失败:", e);
+    }
 };
 
 // 事件监听回调：当配置发生改变时
@@ -158,6 +188,24 @@ onUnmounted(() => {
   font-size: 1.1rem;
   font-weight: 600;
   margin: 0;
+}
+
+.mode-select {
+    background: transparent;
+    border: none;
+    color: var(--text-main);
+    font-size: 1.1rem;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+}
+
+.mode-select option {
+    background: var(--surface);
+    color: var(--text-main);
 }
 
 .truncate {

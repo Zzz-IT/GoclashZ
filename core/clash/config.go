@@ -434,7 +434,7 @@ func UpdateNetworkConfig(newCfg *NetworkConfig) error {
 // ==========================================
 
 // BuildRuntimeConfig 核心流水线：基础配置 + 用户设置 = 最终运行配置
-func BuildRuntimeConfig(profileName string) error {
+func BuildRuntimeConfig(profileName string, mode string) error {
 	configPath := GetConfigPath() // 目标: core/bin/config.yaml
 	baseDir := filepath.Dir(configPath)
 
@@ -456,6 +456,11 @@ func BuildRuntimeConfig(profileName string) error {
 	}
 
 	// 3. 运行时参数强制注入 (Injector)
+	// 注入模式 (rule / global / direct)
+	if mode != "" {
+		root["mode"] = mode
+	}
+
 	// 注入基础网络设置
 	if userNet != nil {
 		root["ipv6"] = userNet.IPv6

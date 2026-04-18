@@ -24,6 +24,7 @@ type App struct {
 	logRunning    bool
 	mu            sync.Mutex
 	activeConfig  string
+	activeMode    string            // 👈 新增：存储当前路由模式 (rule, global, direct)
 	offlineNodes  map[string]string // 👈 新增：存储离线状态下选中的节点
 	isProxyActive bool              // 👈 新增：记录用户逻辑上的代理开关状态
 }
@@ -88,6 +89,24 @@ func (a *App) loadActiveConfig() string {
 	return ""
 }
 
+// 记录当前选中的模式到本地
+func (a *App) saveActiveMode(mode string) {
+	baseDir := getBaseDir()
+	activeFile := filepath.Join(baseDir, "core", "bin", "active_mode.txt")
+	os.WriteFile(activeFile, []byte(mode), 0644)
+}
+
+// 启动时读取上次选中的模式
+func (a *App) loadActiveMode() string {
+	baseDir := getBaseDir()
+	activeFile := filepath.Join(baseDir, "core", "bin", "active_mode.txt")
+	data, err := os.ReadFile(activeFile)
+	if err == nil && len(data) > 0 {
+		return string(data)
+	}
+	return "rule" // 默认规则模式
+}
+
 // 在 App 结构体下新增一个内部方法
 func (a *App) startProxyService() error {
 	tunCfg, _ := clash.GetTunConfig()
@@ -107,9 +126,17 @@ func (a *App) startProxyService() error {
 
 	configPath := clash.GetConfigPath()
 	
-	// 👈 核心：内核启动前，动态注入/修复 TUN 配置
-	if err := clash.InjectTunConfig(configPath, isTunEnabled); err != nil {
-		fmt.Printf("注入 TUN 配置警告: %v\n", err)
+	a.mu.Lock()
+	mode := a.activeMode
+	if mode == "" {
+		mode = a.loadActiveMode()
+		a.activeMode = mode
+	}
+	a.mu.Unlock()
+
+	// 👈 核心：内核启动前，动态注入/修复运行时配置 (含模式)
+	if err := clash.InjectRuntimeConfig(configPath, isTunEnabled, mode); err != nil {
+		fmt.Printf("注入运行时配置警告: %v\n", err)
 	}
 
 	// 启动内核 
@@ -152,7 +179,8 @@ func (a *App) startProxyService() error {
 
 func NewApp() *App {
 	return &App{
-		offlineNodes: make(map[string]string), // 👈 初始化 map
+		offlineNodes: make(map[string]string),
+		activeMode:   "", // 留空，待 loadActiveMode 加载
 	}
 }
 
@@ -216,17 +244,22 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	if activeConfig == "" {
 		activeConfig = a.loadActiveConfig()
 	}
+	mode := a.activeMode
+	if mode == "" {
+		mode = a.loadActiveMode()
+	}
 	a.mu.Unlock()
 
 	if !clash.IsRunning() {
 		data, err := clash.GetOfflineData(activeConfig)
 		if err != nil {
-			return map[string]interface{}{"mode": "rule", "groups": make(map[string]interface{})}, nil
+			return map[string]interface{}{"mode": mode, "groups": make(map[string]interface{})}, nil
 		}
 		
 		a.mergeOfflineNodes(data) // 👈 使用辅助方法合并
 
 		data["activeConfig"] = activeConfig
+		data["mode"] = mode
 		data["isOffline"] = true
 		return data, nil
 	}
@@ -246,6 +279,7 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 
 	a.mu.Lock()
 	data["activeConfig"] = a.activeConfig
+	data["mode"] = a.activeMode
 	a.mu.Unlock()
 	data["isOffline"] = false
 	return data, nil
@@ -301,8 +335,24 @@ func (a *App) TestAllProxies(nodeNames []string) {
 	}()
 }
 
-func (a *App) SetConfigMode(mode string) error {
-	return clash.UpdateMode(mode)
+func (a *App) UpdateClashMode(mode string) error {
+	// 1. 持久化到本地和内存
+	a.mu.Lock()
+	a.activeMode = mode
+	a.saveActiveMode(mode)
+	isRunning := clash.IsRunning()
+	a.mu.Unlock()
+
+	// 2. 如果内核在运行，动态下发指令
+	if isRunning {
+		return clash.UpdateMode(mode)
+	}
+
+	// 3. 如果内核没运行，只改文件（防止下次启动时丢失）
+	configPath := clash.GetConfigPath()
+	tunCfg, _ := clash.GetTunConfig()
+	isTun := tunCfg != nil && tunCfg.Enable
+	return clash.InjectRuntimeConfig(configPath, isTun, mode)
 }
 
 func (a *App) SelectProxy(groupName, nodeName string) error {
@@ -581,7 +631,10 @@ func (a *App) RenameConfig(oldName, newName string) error {
 		a.saveActiveConfig(newName)
 		a.mu.Unlock()
 		// 重新生成配置并启动
-		clash.BuildRuntimeConfig(newName)
+		a.mu.Lock()
+		mode := a.activeMode
+		a.mu.Unlock()
+		clash.BuildRuntimeConfig(newName, mode)
 		a.startProxyService()
 	}
 
@@ -648,7 +701,10 @@ func (a *App) SelectLocalConfig(fileName string) error {
 	clash.Stop()
 	sys.DisableSystemProxy()
 
-	if err := clash.BuildRuntimeConfig(fileName); err != nil {
+	a.mu.Lock()
+	mode := a.activeMode
+	a.mu.Unlock()
+	if err := clash.BuildRuntimeConfig(fileName, mode); err != nil {
 		return fmt.Errorf("生成运行时配置失败: %v", err)
 	}
 
