@@ -13,12 +13,12 @@ import (
 )
 
 var (
-	mu        sync.Mutex
-	clashCmd  *exec.Cmd
-	isRunning bool
+	mu                sync.Mutex
+	clashCmd          *exec.Cmd
+	isRunning         bool
+	isIntentionalStop bool // 👈 新增：标记是否为手动停止
 )
 
-// 获取程序真实运行目录的辅助函数
 func getExeDir() string {
 	exePath, err := os.Executable()
 	if err != nil {
@@ -37,17 +37,21 @@ func Start(ctx context.Context) error {
 
 	dirPath := filepath.Join(getExeDir(), "core", "bin")
 	exePath := filepath.Join(dirPath, "clash.exe")
+	pidFile := filepath.Join(dirPath, "clash.pid")
 
-	// 启动前尝试清理残留的旧内核进程
-	exec.Command("taskkill", "/F", "/IM", "clash.exe").Run()
+	// ⚠️ 核心修复：精准查杀上次遗留的自身进程，防止误杀其他应用
+	if pidData, err := os.ReadFile(pidFile); err == nil {
+		pidStr := string(pidData)
+		exec.Command("taskkill", "/F", "/PID", pidStr).Run()
+		os.Remove(pidFile)
+	}
 
 	if err := PrepareEnv(dirPath, exePath); err != nil {
 		return err
 	}
 
 	cmd := exec.Command(exePath, "-d", dirPath)
-	// 👇 核心修复：强制指定内核的工作目录，确保能加载 wintun.dll
-	cmd.Dir = dirPath 
+	cmd.Dir = dirPath
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 	if err := cmd.Start(); err != nil {
@@ -56,6 +60,10 @@ func Start(ctx context.Context) error {
 
 	clashCmd = cmd
 	isRunning = true
+	isIntentionalStop = false // 重置标志位
+
+	// 记录本次运行的 PID
+	os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644)
 
 	go func(c *exec.Cmd) {
 		c.Wait()
@@ -64,8 +72,13 @@ func Start(ctx context.Context) error {
 		if clashCmd == c {
 			isRunning = false
 			clashCmd = nil
+			os.Remove(pidFile) // 进程结束后清理 PID 文件
 		}
-		runtime.EventsEmit(ctx, "clash-exited", "内核已退出")
+		
+		// ⚠️ 核心修复：只有在非手动关闭的情况下，才向前端发送异常退出警告
+		if !isIntentionalStop {
+			runtime.EventsEmit(ctx, "clash-exited", "内核已异常退出")
+		}
 	}(cmd)
 
 	return nil
@@ -74,6 +87,8 @@ func Start(ctx context.Context) error {
 func Stop() error {
 	mu.Lock()
 	defer mu.Unlock()
+
+	isIntentionalStop = true // 👈 标记为主动停止
 
 	if clashCmd != nil && clashCmd.Process != nil {
 		clashCmd.Process.Kill()

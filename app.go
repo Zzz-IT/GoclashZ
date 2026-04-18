@@ -33,6 +33,13 @@ func getBaseDir() string {
 	if err != nil {
 		return "."
 	}
+	// ⚠️ 核心修复：识别 Go / Wails 的开发模式临时目录，强制回退到当前工作目录
+	if strings.Contains(exePath, "go-build") || strings.Contains(os.TempDir(), filepath.Dir(exePath)) || strings.Contains(exePath, "wails-dev") {
+		wd, err := os.Getwd()
+		if err == nil {
+			return wd
+		}
+	}
 	return filepath.Dir(exePath)
 }
 
@@ -91,9 +98,15 @@ func (a *App) startProxyService() error {
 			nodesCopy[k] = v
 		}
 		go func(nodes map[string]string) {
-			time.Sleep(600 * time.Millisecond) 
-			for g, n := range nodes {
-				clash.SwitchProxy(g, n)
+			// ⚠️ 核心修复：轮询等待 API 就绪，最多尝试 15 次（共3秒），提高兼容性
+			for i := 0; i < 15; i++ {
+				time.Sleep(200 * time.Millisecond)
+				if clash.IsRunning() { 
+					for g, n := range nodes {
+						clash.SwitchProxy(g, n)
+					}
+					break // 发送成功后立刻退出循环
+				}
 			}
 		}(nodesCopy)
 	}
@@ -218,41 +231,45 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 }
 
 func (a *App) TestAllProxies(nodeNames []string) {
-	// 1. 静默唤醒机制：如果内核未运行，在后台启动它以提供测速 API
-	// 注意：这里只启动进程，不调用 sys.SetSystemProxy，所以不会影响用户的系统网络（真正的离线测试）
+	// 1. 静默唤醒机制
 	if !clash.IsRunning() {
 		if err := clash.Start(a.ctx); err != nil {
-			return // 启动失败直接退出
+			return 
 		}
-		// 给予内核 1 秒钟的启动和加载配置时间，确保 API 端口(9090)已就绪
 		time.Sleep(1 * time.Second)
 	}
 
-	// 2. 并发控制（滑动窗口）：严格限制并发数
-	// 并发过高会导致内核网络栈或本地连接池雪崩，产生大量无辜的超时(-1)
-	// 建议值：8 到 10 之间
-	concurrency := 8
-	semaphore := make(chan struct{}, concurrency)
+	// ⚠️ 核心修复：整体放入后台运行，并使用 WaitGroup 追踪完成状态
+	go func() {
+		concurrency := 8
+		semaphore := make(chan struct{}, concurrency)
+		var wg sync.WaitGroup
 
-	for _, name := range nodeNames {
-		semaphore <- struct{}{} // 获取令牌
+		for _, name := range nodeNames {
+			wg.Add(1)
+			semaphore <- struct{}{} // 获取令牌
 
-		go func(nName string) {
-			defer func() { <-semaphore }() // 释放令牌
+			go func(nName string) {
+				defer wg.Done()
+				defer func() { <-semaphore }() // 释放令牌
 
-			// 3. 调用内核 HTTP 测速 API（由内核自动处理复杂协议握手和自定义 DNS）
-			delay, err := clash.GetProxyDelay(nName)
-			if err != nil || delay <= 0 {
-				delay = -1 // 发生错误或超时，统一视为 -1
-			}
+				delay, err := clash.GetProxyDelay(nName)
+				if err != nil || delay <= 0 {
+					delay = -1 
+				}
 
-			// 发送给前端更新 UI
-			runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-				"name":  nName,
-				"delay": delay,
-			})
-		}(name)
-	}
+				runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
+					"name":  nName,
+					"delay": delay,
+				})
+			}(name)
+		}
+
+		// 等待所有测速完成
+		wg.Wait()
+		// 通知前端测速彻底结束（前端可监听此事件关闭 loading 动画）
+		runtime.EventsEmit(a.ctx, "proxy-test-finished", "测速完成")
+	}()
 }
 
 func (a *App) SetConfigMode(mode string) error {
@@ -287,17 +304,20 @@ func (a *App) StartTrafficStream() {
 	a.cancelTraffic = cancel
 	a.mu.Unlock()
 
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			up, down := traffic.GetTraffic()
-			runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": up, "down": down})
+	// ⚠️ 核心修复：将阻塞的轮询放入后台 Goroutine
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				up, down := traffic.GetTraffic()
+				runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": up, "down": down})
+			}
 		}
-	}
+	}()
 }
 
 func (a *App) StopTrafficStream() {
@@ -438,7 +458,6 @@ func (a *App) ImportLocalConfig() error {
 
 // RenameConfig 重命名配置文件
 func (a *App) RenameConfig(oldName, newName string) error {
-	// 👈 核心修复：净化文件名，防止类似 "../../Windows" 的路径穿越
 	oldName = filepath.Base(oldName)
 	newName = filepath.Base(newName)
 
@@ -447,6 +466,16 @@ func (a *App) RenameConfig(oldName, newName string) error {
 	}
 	oldPath := filepath.Join(a.getProfilesDir(), oldName)
 	newPath := filepath.Join(a.getProfilesDir(), newName)
+
+	// ⚠️ 核心修复：处理 Windows 下仅大小写改变导致的重命名失败
+	if strings.ToLower(oldName) == strings.ToLower(newName) && oldName != newName {
+		tempPath := newPath + ".tmp"
+		if err := os.Rename(oldPath, tempPath); err != nil {
+			return err
+		}
+		return os.Rename(tempPath, newPath)
+	}
+
 	return os.Rename(oldPath, newPath)
 }
 
