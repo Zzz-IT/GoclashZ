@@ -19,10 +19,11 @@ func main() {
 		Title:  "GoclashZ",
 		Width:  1024,
 		Height: 768,
-		// ⚠️ 核心修复 1：开启无边框模式，消灭系统自带的丑陋/发黑外框
-		Frameless: true,
-		// ⚠️ 核心修复 2：背景必须全透明，让 Mica 材质透上来
-		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0},
+		Frameless: true, // 保持无边框，自己渲染 UI
+		
+		// ⚠️ 修改：填入亮色模式的十六进制底色 (#F4F4F5 -> R:244, G:244, B:245)
+		BackgroundColour: &options.RGBA{R: 244, G: 244, B: 245, A: 255}, 
+		
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
@@ -30,13 +31,10 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
-		// 👉 Windows 专属高级材质配置
 		Windows: &windows.Options{
-			WebviewIsTransparent: true,
-			WindowIsTranslucent:  true,
-			BackdropType:         windows.Mica,          // Win11 使用 Mica，Win10 自动降级为亚克力
-			Theme:                windows.SystemDefault, // 允许前端在运行时动态修改底层主题
-			DisableWindowIcon:    false,
+			// ⚠️ 修改：彻底移除透明、半透明和 Mica 材质请求，回归纯粹实色渲染
+			Theme:             windows.SystemDefault, 
+			DisableWindowIcon: false,
 		},
 	})
 
