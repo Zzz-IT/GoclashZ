@@ -34,6 +34,8 @@ func main() {
 		Height: 768,
 		Frameless: true, // 保持无边框，自己渲染 UI
 		
+		HideWindowOnClose: true, // 👈 1. 新增：点击关闭按钮时，隐藏窗口而不是退出进程
+		
 		// 2. 👈 使用动态读取的颜色
 		BackgroundColour: &options.RGBA{R: r, G: g, B: b, A: 255}, 
 		

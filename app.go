@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed" // 👈 1. 新增：导入 embed 包用于打包图标
 	"encoding/json"
 	"fmt"
 	"goclashz/core/clash"
@@ -16,8 +17,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/getlantern/systray"         // 👈 2. 新增：引入托盘库
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+//go:embed build/windows/icon.ico
+var iconData []byte // 👈 3. 新增：将图标编译进二进制文件中给托盘使用
 
 type App struct {
 	ctx           context.Context
@@ -323,6 +328,8 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// 👈 新增：在后台协程中启动系统托盘
+	go a.setupTray()
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -1009,4 +1016,46 @@ func (a *App) SaveThemePreference(isDark bool) {
 		theme = "dark"
 	}
 	_ = os.WriteFile(getThemeConfigPath(), []byte(theme), 0644)
+}
+
+// ==========================================
+// --- 系统托盘功能 (新增) ---
+// ==========================================
+
+// setupTray 启动托盘
+func (a *App) setupTray() {
+	systray.Run(a.onReady, a.onExit)
+}
+
+// onReady 配置托盘菜单与事件监听
+func (a *App) onReady() {
+	// 设置托盘图标和悬浮提示
+	systray.SetIcon(iconData)
+	systray.SetTitle("GoclashZ")
+	systray.SetTooltip("GoclashZ 正在后台运行")
+
+	// 创建右键菜单项
+	mShow := systray.AddMenuItem("显示主面板", "打开应用主窗口")
+	systray.AddSeparator() // 添加一条分割线
+	mQuit := systray.AddMenuItem("完全退出", "关闭内核并退出程序")
+
+	// 监听用户的菜单点击操作
+	go func() {
+		for {
+			select {
+			case <-mShow.ClickedCh:
+				// 点击“显示”，呼出隐藏的 Wails 窗口
+				runtime.WindowShow(a.ctx)
+			case <-mQuit.ClickedCh:
+				// 退出托盘图标
+				systray.Quit()
+				// 调用 Wails 的 Quit，这会自动触发你写的 a.shutdown 进行网络清理，然后退出进程
+				runtime.Quit(a.ctx)
+			}
+		}
+	}()
+}
+
+func (a *App) onExit() {
+	// 托盘结束时的收尾工作（一般留空即可）
 }
