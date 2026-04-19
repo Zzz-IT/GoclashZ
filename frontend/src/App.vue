@@ -99,6 +99,7 @@ import {
   EventsOn,
   WindowSetLightTheme,
   WindowSetDarkTheme,
+  WindowSetBackgroundColour,
   WindowMinimise,
   WindowToggleMaximise,
   Quit
@@ -120,7 +121,8 @@ const ICONS = {
   close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
 };
 
-const isDark = ref(false);
+// 1. 初始化：优先从 localStorage 读取
+const isDark = ref(localStorage.getItem('goclashz-theme') === 'dark');
 const currentTab = ref('home');
 const targetSettingsView = ref('main'); // 用于控制 Settings 子页面
 
@@ -152,18 +154,22 @@ const currentModeName = computed(() => modes.find(m => m.id === currentMode.valu
 
 const toggleTheme = () => {
   isDark.value = !isDark.value;
-  isDark.value ? WindowSetDarkTheme() : WindowSetLightTheme();
-  const themeStr = isDark.value ? 'dark' : 'light';
-  localStorage.setItem('goclashz-theme', themeStr);
-  API.SaveThemePreference(themeStr); // 👈 保存到 Go 后端物理文件
+  // 2. 保存到前端缓存
+  localStorage.setItem('goclashz-theme', isDark.value ? 'dark' : 'light');
+  // 3. 调用后端方法持久化到磁盘
+  API.SaveThemePreference(isDark.value);
 };
 
-// 👉 新增：同步暗色类名到 html 根标签，确保“外部”背景变色
+// 4. 监听变化，同步处理渲染和原生窗口底色
 watch(isDark, (val) => {
   if (val) {
     document.documentElement.classList.add('dark');
+    WindowSetDarkTheme();
+    WindowSetBackgroundColour(17, 17, 17, 255); // 防止拖拽时的颜色断层 (#111111)
   } else {
     document.documentElement.classList.remove('dark');
+    WindowSetLightTheme();
+    WindowSetBackgroundColour(242, 242, 242, 255); // (#F2F2F2)
   }
 }, { immediate: true });
 

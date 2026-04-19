@@ -21,7 +21,7 @@ func main() {
 	var r, g, b uint8 = 242, 242, 242 // 默认日间底色 (#F2F2F2)
 	configDir, err := os.UserConfigDir()
 	if err == nil {
-		themeFile := filepath.Join(configDir, "GoclashZ", "theme.txt")
+		themeFile := filepath.Join(configDir, "GoclashZ", "theme_setting.txt")
 		content, err := os.ReadFile(themeFile)
 		if err == nil && string(content) == "dark" {
 			r, g, b = 17, 17, 17 // 匹配夜间模式底色 (#111111)

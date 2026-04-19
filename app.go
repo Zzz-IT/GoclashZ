@@ -895,18 +895,19 @@ func (a *App) DeleteRule(index int) error {
 	return nil
 }
 
-// 辅助方法：获取主题配置文件的存储路径
-func getThemeFilePath() string {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		configDir = os.TempDir()
-	}
+// 获取存储主题配置的路径
+func getThemeConfigPath() string {
+	configDir, _ := os.UserConfigDir()
 	appDir := filepath.Join(configDir, "GoclashZ")
 	os.MkdirAll(appDir, 0755)
-	return filepath.Join(appDir, "theme.txt")
+	return filepath.Join(appDir, "theme_setting.txt")
 }
 
-// SaveThemePreference 暴露给前端的方法：保存当前主题
-func (a *App) SaveThemePreference(theme string) {
-	os.WriteFile(getThemeFilePath(), []byte(theme), 0644)
+// SaveThemePreference 供前端调用，保存主题模式
+func (a *App) SaveThemePreference(isDark bool) {
+	theme := "light"
+	if isDark {
+		theme = "dark"
+	}
+	_ = os.WriteFile(getThemeConfigPath(), []byte(theme), 0644)
 }
