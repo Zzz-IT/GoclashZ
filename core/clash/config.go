@@ -252,14 +252,17 @@ type FallbackFilterConfig struct {
 	GeoIP     bool     `yaml:"geoip" json:"geoip"`
 	GeoIPCode string   `yaml:"geoip-code" json:"geoipCode"`
 	IPCIDR    []string `yaml:"ipcidr" json:"ipcidr"`
-	Domain    []string `yaml:"domain,omitempty" json:"domain"` // 截图虽然没有明确展示domain，但这是clash的常见配置
+	Domain    []string `yaml:"domain,omitempty" json:"domain"` // 👈 新增：域名过滤
 }
 
 // DNSConfig 映射 yaml 中的 dns 配置块
 type DNSConfig struct {
 	Enable                bool                 `yaml:"enable" json:"enable"`
+	Listen                string               `yaml:"listen,omitempty" json:"listen"`             // 👈 新增：监听端口
 	IPv6                  bool                 `yaml:"ipv6" json:"ipv6"`
+	PreferH3              bool                 `yaml:"prefer-h3,omitempty" json:"preferH3"`        // 👈 新增：偏好 HTTP/3
 	EnhancedMode          string               `yaml:"enhanced-mode" json:"enhancedMode"`
+	RespectRules          bool                 `yaml:"respect-rules,omitempty" json:"respectRules"`// 👈 新增：遵守规则
 	FakeIPRange           string               `yaml:"fake-ip-range,omitempty" json:"fakeIpRange"`
 	FakeIPFilter          []string             `yaml:"fake-ip-filter,omitempty" json:"fakeIpFilter"`
 	UseSystemHosts        bool                 `yaml:"use-system-hosts,omitempty" json:"useSystemHosts"`
@@ -267,14 +270,15 @@ type DNSConfig struct {
 	DefaultNameserver     []string             `yaml:"default-nameserver,omitempty" json:"defaultNameserver"`
 	Nameserver            []string             `yaml:"nameserver" json:"nameserver"`
 	Fallback              []string             `yaml:"fallback,omitempty" json:"fallback"`
-	FallbackFilter        FallbackFilterConfig `yaml:"fallback-filter" json:"fallbackFilter"` // 新增
-	NameserverPolicy      map[string]string    `yaml:"nameserver-policy,omitempty" json:"nameserverPolicy"`
+	DirectNameserver      []string             `yaml:"direct-nameserver,omitempty" json:"directNameserver"` // 👈 新增：直连 DNS
 	ProxyServerNameserver []string             `yaml:"proxy-server-nameserver,omitempty" json:"proxyServerNameserver"`
+	NameserverPolicy      map[string]string    `yaml:"nameserver-policy,omitempty" json:"nameserverPolicy"`
+	FallbackFilter        FallbackFilterConfig `yaml:"fallback-filter" json:"fallbackFilter"`
 }
 
 // GetDNSConfig 读取 DNS 配置
 func GetDNSConfig() (*DNSConfig, error) {
-	configPath := GetConfigPath() // 👈 使用绝对路径
+	configPath := GetConfigPath()
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -286,11 +290,14 @@ func GetDNSConfig() (*DNSConfig, error) {
 		return nil, err
 	}
 
-	// 初始化默认值
+	// 初始化完整默认值
 	conf := &DNSConfig{
 		Enable:            true,
+		Listen:            "0.0.0.0:1053",
 		IPv6:              false,
+		PreferH3:          false,
 		EnhancedMode:      "fake-ip",
+		RespectRules:      false,
 		FakeIPRange:       "198.18.0.1/16",
 		FakeIPFilter:      []string{"*.lan", "*.localdomain", "*.example", "*.invalid", "*.localhost", "*.test", "lan", "localdomain", "localhost"},
 		UseSystemHosts:    true,
@@ -298,20 +305,20 @@ func GetDNSConfig() (*DNSConfig, error) {
 		DefaultNameserver: []string{"223.5.5.5", "114.114.114.114"},
 		Nameserver:        []string{"https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"},
 		Fallback:          []string{"https://doh.dns.sb/dns-query", "https://dns.cloudflare.com/dns-query"},
+		DirectNameserver:  []string{"https://dns.alidns.com/dns-query"},
+		ProxyServerNameserver: []string{"https://doh.pub/dns-query"},
+		NameserverPolicy:      map[string]string{"geosite:cn": "https://doh.pub/dns-query"},
 		FallbackFilter: FallbackFilterConfig{
 			GeoIP:     true,
 			GeoIPCode: "CN",
 			IPCIDR:    []string{"240.0.0.0/4", "0.0.0.0/32"},
+			Domain:    []string{"+.google.com", "+.facebook.com", "+.twitter.com"},
 		},
-		NameserverPolicy:      map[string]string{"geosite:cn": "https://doh.pub/dns-query"},
-		ProxyServerNameserver: []string{"https://doh.pub/dns-query"},
 	}
 
 	if dnsMap, ok := root["dns"].(map[string]interface{}); ok {
 		raw, _ := yaml.Marshal(dnsMap)
 		yaml.Unmarshal(raw, conf)
-
-		// 兼容部分内核写法
 		if fakeRange, ok := dnsMap["fake-ip-range"].(string); ok {
 			conf.FakeIPRange = fakeRange
 		}
@@ -323,7 +330,6 @@ func GetDNSConfig() (*DNSConfig, error) {
 // UpdateDNSConfig 将新的 DNS 配置写入 config.yaml
 func UpdateDNSConfig(newDNS *DNSConfig) error {
 	configPath := GetConfigPath()
-
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return err
@@ -336,9 +342,11 @@ func UpdateDNSConfig(newDNS *DNSConfig) error {
 
 	dnsMap := map[string]interface{}{
 		"enable":                  newDNS.Enable,
-		"listen":                  "0.0.0.0:1053", // 👈 核心修复：必须有监听端口
+		"listen":                  newDNS.Listen,
 		"ipv6":                    newDNS.IPv6,
+		"prefer-h3":               newDNS.PreferH3,
 		"enhanced-mode":           newDNS.EnhancedMode,
+		"respect-rules":           newDNS.RespectRules,
 		"fake-ip-range":           newDNS.FakeIPRange,
 		"fake-ip-filter":          newDNS.FakeIPFilter,
 		"use-system-hosts":        newDNS.UseSystemHosts,
@@ -346,18 +354,17 @@ func UpdateDNSConfig(newDNS *DNSConfig) error {
 		"default-nameserver":      newDNS.DefaultNameserver,
 		"nameserver":              newDNS.Nameserver,
 		"fallback":                newDNS.Fallback,
-		"fallback-filter":         newDNS.FallbackFilter,
-		"nameserver-policy":       newDNS.NameserverPolicy,
+		"direct-nameserver":       newDNS.DirectNameserver,
 		"proxy-server-nameserver": newDNS.ProxyServerNameserver,
+		"nameserver-policy":       newDNS.NameserverPolicy,
+		"fallback-filter":         newDNS.FallbackFilter,
 	}
 
 	root["dns"] = dnsMap
-
 	out, err := yaml.Marshal(root)
 	if err != nil {
 		return err
 	}
-
 	return os.WriteFile(configPath, out, 0644)
 }
 
@@ -480,9 +487,11 @@ func BuildRuntimeConfig(profileName string, mode string) error {
 	if userDns != nil && userDns.Enable {
 		root["dns"] = map[string]interface{}{
 			"enable":                  userDns.Enable,
-			"listen":                  "0.0.0.0:1053", // 👈 核心修复：向内核暴露本地 DNS 端口
+			"listen":                  userDns.Listen,
 			"ipv6":                    userDns.IPv6,
+			"prefer-h3":               userDns.PreferH3,
 			"enhanced-mode":           userDns.EnhancedMode,
+			"respect-rules":           userDns.RespectRules,
 			"fake-ip-range":           userDns.FakeIPRange,
 			"fake-ip-filter":          userDns.FakeIPFilter,
 			"use-system-hosts":        userDns.UseSystemHosts,
@@ -490,9 +499,10 @@ func BuildRuntimeConfig(profileName string, mode string) error {
 			"default-nameserver":      userDns.DefaultNameserver,
 			"nameserver":              userDns.Nameserver,
 			"fallback":                userDns.Fallback,
-			"fallback-filter":         userDns.FallbackFilter,
-			"nameserver-policy":       userDns.NameserverPolicy,
+			"direct-nameserver":       userDns.DirectNameserver,
 			"proxy-server-nameserver": userDns.ProxyServerNameserver,
+			"nameserver-policy":       userDns.NameserverPolicy,
+			"fallback-filter":         userDns.FallbackFilter,
 		}
 	}
 

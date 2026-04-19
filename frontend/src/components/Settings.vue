@@ -145,7 +145,12 @@
             <span class="slider"></span>
           </label>
         </div>
+        <div class="divider"></div>
 
+        <div class="setting-item">
+          <div class="info"><h4>DNS 监听端口 (Listen)</h4></div>
+          <input type="text" class="modern-input" v-model="dnsConfig.listen" @blur="saveDns" :disabled="!dnsConfig.enable" placeholder="如 0.0.0.0:1053" />
+        </div>
         <div class="divider"></div>
 
         <div class="setting-item">
@@ -155,73 +160,106 @@
             <span class="slider"></span>
           </label>
         </div>
+        <div class="divider"></div>
 
+        <div class="setting-item">
+          <div class="info">
+            <h4>偏好 HTTP/3 (Prefer HTTP/3)</h4>
+            <p>支持 DoH3 的服务器优先使用 HTTP/3 连接</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="dnsConfig.preferH3" @change="saveDns" :disabled="!dnsConfig.enable">
+            <span class="slider"></span>
+          </label>
+        </div>
         <div class="divider"></div>
 
         <div class="setting-item">
           <div class="info"><h4>增强模式 (Enhanced Mode)</h4></div>
           <select class="modern-select" v-model="dnsConfig.enhancedMode" @change="saveDns" :disabled="!dnsConfig.enable">
-            <option value="fake-ip">Fake-IP (推荐)</option>
+            <option value="fake-ip">Fake-IP</option>
             <option value="redir-host">Redir-Host</option>
             <option value="normal">Normal</option>
           </select>
         </div>
+        <div class="divider"></div>
 
+        <div class="setting-item">
+          <div class="info">
+             <h4>遵守规则 (Respect Rules)</h4>
+             <p>Fake-IP 模式下，匹配路由规则以决定是否返回真实 IP</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="dnsConfig.respectRules" @change="saveDns" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip'">
+            <span class="slider"></span>
+          </label>
+        </div>
         <div class="divider"></div>
 
         <div class="setting-item">
           <div class="info"><h4>Fake-IP 范围 (Fake-IP Range)</h4></div>
           <input type="text" class="modern-input" v-model="dnsConfig.fakeIpRange" @blur="saveDns" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip'" />
         </div>
-
         <div class="divider"></div>
 
         <div class="setting-item col-item">
           <div class="info"><h4>Fake-IP 缓存过滤器 (Fake-IP Filter)</h4></div>
-          <textarea class="modern-textarea" :value="(dnsConfig.fakeIpFilter || []).join('\n')" @blur="updateDnsArray($event, 'fakeIpFilter')" rows="3" placeholder="如 *.lan&#10;*.localdomain" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip'"></textarea>
+          <textarea class="modern-textarea" :value="(dnsConfig.fakeIpFilter || []).join('\n')" @blur="updateDnsArray($event, 'fakeIpFilter')" rows="3" placeholder="如 *.lan" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip'"></textarea>
         </div>
-
         <div class="divider"></div>
 
         <div class="setting-item">
-          <div class="info"><h4>使用系统 DNS (Use System Hosts)</h4></div>
+          <div class="info"><h4>使用系统 Hosts (Use System Hosts)</h4></div>
           <label class="modern-switch">
             <input type="checkbox" v-model="dnsConfig.useSystemHosts" @change="saveDns" :disabled="!dnsConfig.enable">
             <span class="slider"></span>
           </label>
         </div>
-
         <div class="divider"></div>
 
         <div class="setting-item">
-          <div class="info"><h4>使用系统 Hosts (Use Hosts)</h4></div>
+          <div class="info"><h4>使用 Hosts (Use Hosts)</h4></div>
           <label class="modern-switch">
             <input type="checkbox" v-model="dnsConfig.useHosts" @change="saveDns" :disabled="!dnsConfig.enable">
             <span class="slider"></span>
           </label>
         </div>
-
         <div class="divider"></div>
 
         <div class="setting-item col-item">
           <div class="info"><h4>默认名称服务器 (Default Nameservers)</h4></div>
           <textarea class="modern-textarea" :value="(dnsConfig.defaultNameserver || []).join('\n')" @blur="updateDnsArray($event, 'defaultNameserver')" rows="2" placeholder="纯IP服务器，如 114.114.114.114" :disabled="!dnsConfig.enable"></textarea>
         </div>
-
         <div class="divider"></div>
 
         <div class="setting-item col-item">
           <div class="info"><h4>主名称服务器 (Nameservers)</h4></div>
           <textarea class="modern-textarea" :value="(dnsConfig.nameserver || []).join('\n')" @blur="updateDnsArray($event, 'nameserver')" rows="3" placeholder="推荐使用 DoH / DoT" :disabled="!dnsConfig.enable"></textarea>
         </div>
-
         <div class="divider"></div>
 
         <div class="setting-item col-item">
           <div class="info"><h4>备用名称服务器 (Fallback)</h4></div>
-          <textarea class="modern-textarea" :value="(dnsConfig.fallback || []).join('\n')" @blur="updateDnsArray($event, 'fallback')" rows="3" placeholder="用于解析境外域名，推荐使用 DoH / DoT" :disabled="!dnsConfig.enable"></textarea>
+          <textarea class="modern-textarea" :value="(dnsConfig.fallback || []).join('\n')" @blur="updateDnsArray($event, 'fallback')" rows="3" placeholder="用于解析境外域名" :disabled="!dnsConfig.enable"></textarea>
         </div>
+        <div class="divider"></div>
 
+        <div class="setting-item col-item">
+          <div class="info"><h4>直连名称服务器 (Direct Nameservers)</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.directNameserver || []).join('\n')" @blur="updateDnsArray($event, 'directNameserver')" rows="2" placeholder="专用于直连规则的 DNS" :disabled="!dnsConfig.enable"></textarea>
+        </div>
+        <div class="divider"></div>
+
+        <div class="setting-item col-item">
+          <div class="info"><h4>代理节点解析服务器 (Proxy Server Nameserver)</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.proxyServerNameserver || []).join('\n')" @blur="updateDnsArray($event, 'proxyServerNameserver')" rows="2" placeholder="用于解析代理节点的域名" :disabled="!dnsConfig.enable"></textarea>
+        </div>
+        <div class="divider"></div>
+
+        <div class="setting-item col-item">
+          <div class="info"><h4>指定域名解析服务器 (Nameserver Policy)</h4></div>
+          <textarea class="modern-textarea" :value="formatNameserverPolicy(dnsConfig.nameserverPolicy)" @blur="updateNameserverPolicy" rows="4" placeholder="geosite:cn: https://doh.pub/dns-query" :disabled="!dnsConfig.enable"></textarea>
+        </div>
         <div class="divider"></div>
 
         <div class="setting-item">
@@ -231,33 +269,23 @@
             <span class="slider"></span>
           </label>
         </div>
-
         <div class="divider"></div>
 
         <div class="setting-item">
           <div class="info"><h4>GeoIP 代码 (GeoIP Code)</h4></div>
           <input type="text" class="modern-input" v-model="dnsConfig.fallbackFilter.geoipCode" @blur="saveDns" :disabled="!dnsConfig.enable || !dnsConfig.fallbackFilter.geoip" placeholder="默认 CN" />
         </div>
-
         <div class="divider"></div>
 
         <div class="setting-item col-item">
           <div class="info"><h4>IPCIDR 过滤 (Fallback Filter IPCIDR)</h4></div>
           <textarea class="modern-textarea" :value="(dnsConfig.fallbackFilter.ipcidr || []).join('\n')" @blur="updateFallbackFilterIpcidr" rows="3" placeholder="如 240.0.0.0/4" :disabled="!dnsConfig.enable"></textarea>
         </div>
-
         <div class="divider"></div>
 
         <div class="setting-item col-item">
-          <div class="info"><h4>指定域名解析服务器 (Nameserver Policy)</h4></div>
-          <textarea class="modern-textarea" :value="formatNameserverPolicy(dnsConfig.nameserverPolicy)" @blur="updateNameserverPolicy" rows="4" placeholder="geosite:cn: https://doh.pub/dns-query" :disabled="!dnsConfig.enable"></textarea>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="setting-item col-item">
-          <div class="info"><h4>代理节点解析服务器 (Proxy Server Nameserver)</h4></div>
-          <textarea class="modern-textarea" :value="(dnsConfig.proxyServerNameserver || []).join('\n')" @blur="updateDnsArray($event, 'proxyServerNameserver')" rows="3" placeholder="用于解析代理节点的域名" :disabled="!dnsConfig.enable"></textarea>
+          <div class="info"><h4>域名过滤 (Fallback Filter Domain)</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.fallbackFilter.domain || []).join('\n')" @blur="updateFallbackFilterDomain" rows="3" placeholder="匹配的域名将强制走 Fallback" :disabled="!dnsConfig.enable"></textarea>
         </div>
 
       </div>
@@ -365,20 +393,28 @@ const tunConfig = ref({
 
 // DNS 配置响应式对象
 const dnsConfig = ref<any>({
-  enable: true, ipv6: false, enhancedMode: 'fake-ip', fakeIpRange: '198.18.0.1/16',
+  enable: true, 
+  listen: '0.0.0.0:1053',
+  ipv6: false, 
+  preferH3: false,
+  enhancedMode: 'fake-ip', 
+  respectRules: false,
+  fakeIpRange: '198.18.0.1/16',
   fakeIpFilter: ['*.lan', '*.localdomain'],
   useSystemHosts: true,
   useHosts: true,
   defaultNameserver: ['223.5.5.5', '114.114.114.114'],
   nameserver: ['https://doh.pub/dns-query'],
   fallback: ['https://doh.dns.sb/dns-query'],
+  directNameserver: ['https://dns.alidns.com/dns-query'],
+  proxyServerNameserver: ['https://doh.pub/dns-query'],
+  nameserverPolicy: { 'geosite:cn': 'https://doh.pub/dns-query' },
   fallbackFilter: {
       geoip: true,
       geoipCode: 'CN',
-      ipcidr: ['240.0.0.0/4', '0.0.0.0/32']
-  },
-  nameserverPolicy: { 'geosite:cn': 'https://doh.pub/dns-query' },
-  proxyServerNameserver: ['https://doh.pub/dns-query']
+      ipcidr: ['240.0.0.0/4', '0.0.0.0/32'],
+      domain: ['+.google.com', '+.facebook.com', '+.twitter.com']
+  }
 });
 
 const netConfig = ref({
@@ -495,6 +531,13 @@ const updateDnsArray = (e: Event, key: string) => {
 const updateFallbackFilterIpcidr = (e: Event) => {
     const val = (e.target as HTMLTextAreaElement).value;
     dnsConfig.value.fallbackFilter.ipcidr = val.split('\n').map(s => s.trim()).filter(s => s);
+    saveDns();
+};
+
+// 专门处理 fallbackFilter 的 Domain 数组
+const updateFallbackFilterDomain = (e: Event) => {
+    const val = (e.target as HTMLTextAreaElement).value;
+    dnsConfig.value.fallbackFilter.domain = val.split('\n').map(s => s.trim()).filter(s => s);
     saveDns();
 };
 

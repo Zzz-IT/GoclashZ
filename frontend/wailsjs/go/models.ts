@@ -20,8 +20,11 @@ export namespace clash {
 	}
 	export class DNSConfig {
 	    enable: boolean;
+	    listen: string;
 	    ipv6: boolean;
+	    preferH3: boolean;
 	    enhancedMode: string;
+	    respectRules: boolean;
 	    fakeIpRange: string;
 	    fakeIpFilter: string[];
 	    useSystemHosts: boolean;
@@ -29,9 +32,10 @@ export namespace clash {
 	    defaultNameserver: string[];
 	    nameserver: string[];
 	    fallback: string[];
-	    fallbackFilter: FallbackFilterConfig;
-	    nameserverPolicy: Record<string, string>;
+	    directNameserver: string[];
 	    proxyServerNameserver: string[];
+	    nameserverPolicy: Record<string, string>;
+	    fallbackFilter: FallbackFilterConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new DNSConfig(source);
@@ -40,8 +44,11 @@ export namespace clash {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enable = source["enable"];
+	        this.listen = source["listen"];
 	        this.ipv6 = source["ipv6"];
+	        this.preferH3 = source["preferH3"];
 	        this.enhancedMode = source["enhancedMode"];
+	        this.respectRules = source["respectRules"];
 	        this.fakeIpRange = source["fakeIpRange"];
 	        this.fakeIpFilter = source["fakeIpFilter"];
 	        this.useSystemHosts = source["useSystemHosts"];
@@ -49,9 +56,10 @@ export namespace clash {
 	        this.defaultNameserver = source["defaultNameserver"];
 	        this.nameserver = source["nameserver"];
 	        this.fallback = source["fallback"];
-	        this.fallbackFilter = this.convertValues(source["fallbackFilter"], FallbackFilterConfig);
-	        this.nameserverPolicy = source["nameserverPolicy"];
+	        this.directNameserver = source["directNameserver"];
 	        this.proxyServerNameserver = source["proxyServerNameserver"];
+	        this.nameserverPolicy = source["nameserverPolicy"];
+	        this.fallbackFilter = this.convertValues(source["fallbackFilter"], FallbackFilterConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

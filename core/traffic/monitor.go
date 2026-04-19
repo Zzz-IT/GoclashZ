@@ -1,38 +1,44 @@
 package traffic
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 )
 
-// 关键修复：创建一个忽略系统代理的专属 HTTP 客户端
-var localAPIClient = &http.Client{
-	Transport: &http.Transport{
-		Proxy: nil, // 强制不走代理
-	},
-	Timeout: 5 * time.Second,
-}
-
-// GetTraffic 从内核 API 获取实时的上传下载字节流并格式化
-func GetTraffic() (string, string) {
-	// 使用 localAPIClient 替换 http.Get
-	resp, err := localAPIClient.Get("http://127.0.0.1:9090/traffic")
+// StreamTraffic 建立一个长连接并持续监听内核推送的流量数据
+func StreamTraffic(ctx context.Context, callback func(up, down string)) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:9090/traffic", nil)
 	if err != nil {
-		return "0 B/s", "0 B/s"
+		return
+	}
+
+	// 流式接口不能有 Timeout，且需禁用代理
+	client := &http.Client{
+		Transport: &http.Transport{Proxy: nil},
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return
 	}
 	defer resp.Body.Close()
 
-	var data struct {
-		Up   int64 `json:"up"`
-		Down int64 `json:"down"`
+	decoder := json.NewDecoder(resp.Body)
+	for {
+		var data struct {
+			Up   int64 `json:"up"`
+			Down int64 `json:"down"`
+		}
+		
+		// Decode 会阻塞直到接收到下一个 JSON 推送块，如果内核关闭流则返回 err
+		if err := decoder.Decode(&data); err != nil {
+			break 
+		}
+		
+		callback(formatBytes(data.Up), formatBytes(data.Down))
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return "0 B/s", "0 B/s"
-	}
-
-	return formatBytes(data.Up), formatBytes(data.Down)
 }
 
 // formatBytes 将字节数转换为人类可读的字符串

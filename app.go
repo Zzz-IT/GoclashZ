@@ -483,19 +483,19 @@ func (a *App) StartTrafficStream() {
 	a.cancelTraffic = cancel
 	a.mu.Unlock()
 
-	// ⚠️ 核心修复：将阻塞的轮询放入后台 Goroutine
+	// ⚠️ 修复：移除 Ticker，改用长连接流式读取，彻底解决连接断开/失效问题
 	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				up, down := traffic.GetTraffic()
-				runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": up, "down": down})
-			}
+		traffic.StreamTraffic(ctx, func(up, down string) {
+			runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": up, "down": down})
+		})
+		
+		// 如果流异常断开，自动清理上下文以便后续可重新启动
+		a.mu.Lock()
+		if a.cancelTraffic != nil {
+			a.cancelTraffic()
+			a.cancelTraffic = nil
 		}
+		a.mu.Unlock()
 	}()
 }
 

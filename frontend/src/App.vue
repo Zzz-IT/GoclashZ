@@ -4,14 +4,6 @@
       <div class="brand">GoclashZ</div>
 
       <div class="top-actions" style="--wails-draggable:none">
-        <span class="traffic-mon">
-          <span class="t-up">↑ {{ traffic.up }}</span>
-          <span class="t-sep">/</span>
-          <span class="t-down">↓ {{ traffic.down }}</span>
-        </span>
-
-        <button @click="toggleTheme" class="icon-btn theme-toggle" title="切换主题" v-html="isDark ? ICONS.moon : ICONS.sun"></button>
-
         <div class="window-controls">
           <button @click="WindowMinimise" class="icon-btn ctrl-btn" title="最小化" v-html="ICONS.min"></button>
           <button @click="WindowToggleMaximise" class="icon-btn ctrl-btn" title="最大化" v-html="ICONS.max"></button>
@@ -32,8 +24,28 @@
         </nav>
 
         <div class="sidebar-footer">
+          <div class="side-traffic">
+            <div class="t-item">
+              <span class="icon-box">↑</span>
+              <span class="t-label">上传</span>
+              <span class="t-val">{{ traffic.up }}</span>
+            </div>
+            <div class="t-item">
+              <span class="icon-box">↓</span>
+              <span class="t-label">下载</span>
+              <span class="t-val">{{ traffic.down }}</span>
+            </div>
+          </div>
+
+          <div class="theme-switch-row" @click="toggleTheme">
+            <span class="icon-box" v-html="isDark ? ICONS.moon : ICONS.sun"></span>
+            <span class="label">{{ isDark ? '夜间模式' : '日间模式' }}</span>
+          </div>
+
           <div class="status-indicator">
-            <div :class="['dot', { online: isRunning }]"></div>
+            <div class="icon-box">
+              <div :class="['dot', { online: isRunning }]"></div>
+            </div>
             <span class="status-text">{{ isRunning ? '内核已启动' : '服务未运行' }}</span>
           </div>
         </div>
@@ -98,13 +110,10 @@ const ICONS = {
   sun: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`,
   moon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
   power: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"></path></svg>`,
-  network: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>`,
-  checkCircle: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>`,
-  alertCircle: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`,
+  connections: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`,
   min: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
   max: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>`,
   close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
-  connections: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`,
 };
 
 const isDark = ref(false);
@@ -112,7 +121,7 @@ const currentTab = ref('home');
 const targetSettingsView = ref('main'); // 用于控制 Settings 子页面
 
 const isRunning = ref(false);
-const traffic = ref({ up: '0.0', down: '0.0' });
+const traffic = ref({ up: '0 B/s', down: '0 B/s' });
 const currentMode = ref('rule');
 const tunStatus = ref<Record<string, boolean>>({ hasWintun: false, isAdmin: false });
 const logLines = ref<any[]>([]);
@@ -141,40 +150,6 @@ const toggleTheme = () => {
   isDark.value ? WindowSetDarkTheme() : WindowSetLightTheme();
 };
 
-// 导航到 TUN 设置页
-const goToTunSettings = () => {
-  targetSettingsView.value = 'tun'; // 告诉 Settings 组件默认打开 tun 视图
-  currentTab.value = 'settings';
-};
-
-// 如果用户点击了侧边栏的 Settings，确保它打开主页
-const watchCurrentTab = (newTab: string) => {
-  if (newTab === 'settings' && targetSettingsView.value !== 'tun') {
-      targetSettingsView.value = 'main';
-  } else if (newTab !== 'settings') {
-      targetSettingsView.value = 'main'; // 离开设置页时重置状态
-  }
-};
-
-const toggleProxy = async () => {
-  try {
-    const s: any = await API.GetProxyStatus();
-    // 逻辑：如果任一开启，则关闭全部；如果全关，则开启系统代理（作为默认启动动作）
-    if (s.systemProxy || s.tun) {
-      await API.StopProxy();
-    } else {
-      await API.RunProxy();
-    }
-    const newStatus: any = await API.GetProxyStatus();
-    isRunning.value = newStatus.systemProxy || newStatus.tun;
-  } catch (e) { alert("操作失败: " + e); }
-};
-
-const changeMode = async (mode: string) => {
-  await API.UpdateClashMode(mode);
-  currentMode.value = mode;
-};
-
 onMounted(async () => {
   WindowSetLightTheme();
   const s: any = await API.GetProxyStatus();
@@ -182,7 +157,6 @@ onMounted(async () => {
   const data: any = await API.GetInitialData();
   if (data) currentMode.value = data.mode;
 
-  // 👉 [新增] 监听全局状态同步事件，实时更新呼吸灯
   window.addEventListener('proxy-status-sync', ((e: CustomEvent) => {
     isRunning.value = e.detail.systemProxy || e.detail.tun;
   }) as EventListener);
@@ -196,14 +170,12 @@ onMounted(async () => {
 
   API.StartStreamingLogs();
   
-  // ⚠️ 核心修复：增加滚动防抖计时器
   let scrollTimer: ReturnType<typeof setTimeout> | null = null;
   
   EventsOn("log-message", (log: any) => {
     logLines.value.push({ ...log, time: new Date().toLocaleTimeString('zh-CN', { hour12: false }) });
     if (logLines.value.length > 200) logLines.value.shift();
     
-    // 聚合 DOM 渲染指令，每 100ms 最多执行一次到底部对齐
     if (!scrollTimer) {
       scrollTimer = setTimeout(() => {
         if (logBox.value) {
@@ -216,7 +188,6 @@ onMounted(async () => {
 
   EventsOn("clash-exited", () => { 
     isRunning.value = false; 
-    // 进程退出时，也广播一下关闭状态
     window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: { systemProxy: false, tun: false } }));
   });
 });
@@ -229,7 +200,6 @@ onMounted(async () => {
 .ctrl-btn :deep(svg) { width: 12px; height: 12px; }
 .ctrl-btn:hover { background: var(--surface-hover); }
 .close-btn:hover { background: #e81123 !important; color: white !important; }
-.theme-toggle { margin-right: 4px; border: none; background: none; cursor: pointer; color: var(--text-sub); }
 
 /* 基础架构 */
 .app-shell { display: flex; flex-direction: column; height: 100vh; color: var(--text-main); }
@@ -237,7 +207,6 @@ onMounted(async () => {
 .brand { font-weight: 600; font-size: 0.85rem; letter-spacing: 0.5px; }
 
 .top-actions { display: flex; align-items: center; }
-.traffic-mon { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-sub); display: flex; gap: 8px; margin-right: 12px;}
 
 .icon-btn { background: none; border: none; cursor: pointer; color: var(--text-sub); width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; transition: color 0.2s; }
 .icon-btn:hover { color: var(--text-main); }
@@ -254,58 +223,119 @@ onMounted(async () => {
 .icon { width: 16px; height: 16px; display: flex; align-items: center; }
 .nav-label { font-size: 0.85rem; letter-spacing: 0.02em; }
 
-/* 底部状态指示 */
-.sidebar-footer { padding: 14px; border-top: 1px solid var(--glass-border); margin-top: auto; }
-.status-indicator { display: flex; align-items: center; gap: 8px; }
-.dot { width: 6px; height: 6px; border-radius: 50%; background: #94a3b8; transition: 0.3s; }
-.dot.online { background: #10b981; box-shadow: 0 0 8px #10b981; }
-.status-text { font-size: 0.75rem; color: var(--text-sub); }
+/* 侧边栏底部容器 */
+.sidebar-footer {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid var(--glass-border);
+  margin-top: auto;
+}
+
+/* 统一的图标容器，用于水平对齐 */
+.icon-box {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: bold;
+  color: var(--text-muted);
+}
+
+.icon-box :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
+
+/* 流量行样式 */
+.side-traffic {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.t-item, .theme-switch-row, .status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px; /* 图标与文字的间距 */
+  height: 20px;
+}
+
+.t-label, .theme-switch-row .label, .status-text {
+  font-size: 0.8rem;
+  color: var(--text-sub);
+  white-space: nowrap;
+}
+
+.t-val {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-main);
+  opacity: 0.9;
+}
+
+/* 主题切换行 */
+.theme-switch-row {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.theme-switch-row:hover {
+  opacity: 0.7;
+}
+
+/* 状态指示样式 */
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 状态圆点对齐补丁 */
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #94a3b8;
+  transition: 0.3s;
+}
+.dot.online {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
 
 /* 内容区 */
 .content { flex: 1; display: flex; flex-direction: column; padding: 32px 40px; overflow: hidden; }
 .content-header h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 32px; }
 .view-scroller { flex: 1; overflow-y: auto; padding-right: 12px; }
 
-/* Dashboard 卡片 */
-.core-status-card { display: flex; justify-content: space-between; align-items: center; padding: 24px; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--surface); margin-bottom: 24px; }
-.cs-title { font-size: 1.25rem; font-weight: 600; margin: 4px 0 8px; }
-.cs-meta { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-sub); }
-
-/* 控制台动作区域 */
-.cs-actions { display: flex; gap: 12px; align-items: center; }
-
-.primary-btn, .secondary-btn {
-  display: flex; align-items: center; gap: 8px; padding: 10px 20px;
-  border-radius: 8px; border: none; font-size: 0.85rem; font-weight: 500;
-  cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+/* 日志终端 */
+.terminal-box { 
+  background: var(--surface); /* 改为与整体面板相同的表面背景 */
+  color: var(--text-main);    /* 改为正常的正文颜色 */
+  border: 1px solid var(--glass-border); /* 加上边框完美融入 UI */
+  padding: 20px; 
+  border-radius: 8px; 
+  height: 500px; 
+  overflow-y: auto; 
+  font-family: var(--font-mono); 
+  font-size: 0.75rem; 
+  line-height: 1.6; 
 }
 
-.primary-btn { background: var(--accent); color: var(--accent-fg); }
-.primary-btn.stop { background: #ef4444; }
-.primary-btn:hover { opacity: 0.85; transform: translateY(-1px); }
-
-.secondary-btn { background: var(--surface-hover); color: var(--text-main); border: 1px solid var(--glass-border); }
-.secondary-btn:hover { background: var(--glass-panel); border-color: var(--text-sub); }
-
-.btn-icon { width: 14px; height: 14px; }
-
-.card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-.info-card { padding: 20px; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--surface); }
-.segmented-control { display: flex; background: var(--surface-hover); padding: 4px; border-radius: 8px; margin-top: 12px; }
-.seg-btn { flex: 1; padding: 6px 0; border: none; background: transparent; border-radius: 6px; font-size: 0.8rem; color: var(--text-sub); cursor: pointer; transition: 0.2s; }
-.seg-btn.active { background: var(--glass-panel); color: var(--text-main); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-
-.tun-status { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
-.tun-icon { display: inline-flex; align-items: center; justify-content: center; }
-.tun-icon :deep(svg) { width: 18px; height: 18px; }
-.green-icon { color: #10b981; }
-.red-icon { color: #ef4444; }
-.tun-text { font-size: 0.85rem; font-weight: 500; }
-
-/* 日志终端 */
-.terminal-box { background: var(--accent); color: var(--accent-fg); padding: 20px; border-radius: 8px; height: 500px; overflow-y: auto; font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.6; }
-.l-time { color: var(--text-muted); margin-right: 12px; opacity: 0.6; }
+.l-time { color: var(--text-muted); margin-right: 12px; opacity: 0.8; }
 .l-type { margin-right: 12px; font-weight: 600; }
+
+/* 针对不同日志级别赋予标签颜色，替代原本粗暴的大背景反色 */
+.log-line.info .l-type { color: var(--accent); }
+.log-line.warning .l-type { color: #f59e0b; }
+.log-line.error .l-type { color: #ef4444; }
+.log-line.debug .l-type { color: #8b5cf6; }
 
 /* 设置组件容器占满 */
 .view-settings { height: 100%; display: flex; flex-direction: column; }
