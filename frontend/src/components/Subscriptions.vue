@@ -114,7 +114,7 @@
             <p v-else>确定要彻底删除 <strong>{{ targetFile }}</strong> 吗？此操作不可撤销。</p>
             <div class="modal-footer">
               <button class="action-btn flex-1" @click="closeAllModals">取消</button>
-              <button class="primary-btn danger-btn flex-1" @click="confirmDelete" :disabled="loading">
+              <button class="primary-btn accent-btn red-text-btn flex-1" @click="confirmDelete" :disabled="loading">
                 {{ loading ? '删除中...' : '确定删除' }}
               </button>
             </div>
@@ -340,6 +340,11 @@ onUnmounted(() => {
 }
 .danger-btn { background: #ff4d4f !important; color: #fff !important; justify-content: center; }
 
+/* 新增：红色字体确定按钮 */
+.red-text-btn {
+  color: #ff4d4f !important;
+}
+
 /* 列表部分 */
 .subs-list { flex: 1; overflow-y: auto; padding-right: 8px; }
 .sub-card { position: relative; padding: 20px; border-radius: 12px; background: var(--surface); margin-bottom: 16px; transition: 0.2s; }
@@ -413,8 +418,28 @@ onUnmounted(() => {
 .danger-text { color: #ff4d4f; }
 .warning-box { background: rgba(255, 77, 79, 0.1); padding: 12px; border-radius: 8px; color: #ff4d4f; font-size: 0.85rem; line-height: 1.4; border: 1px solid rgba(255, 77, 79, 0.2); }
 
-.pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-.pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.95); }
+/* ==== 修复动画逻辑 ==== */
+/* 1. 遮罩层自身：取消缩放，只保留透明度渐变 */
+.pop-enter-active { 
+  transition: none; 
+}
+.pop-leave-active { 
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+}
+.pop-enter-from, .pop-leave-to { 
+  opacity: 0; 
+}
+
+/* 2. 内部卡片：单独应用缩放和浮现动画，避免整个屏幕的阴影跟着放大 */
+.pop-enter-active .custom-modal-card, 
+.pop-leave-active .custom-modal-card { 
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+}
+.pop-enter-from .custom-modal-card, 
+.pop-leave-to .custom-modal-card { 
+  opacity: 0; 
+  transform: scale(0.95); 
+}
 
 /* 下拉菜单边框与颜色修复 */
 .dropdown-menu { 
