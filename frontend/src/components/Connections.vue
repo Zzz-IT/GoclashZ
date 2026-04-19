@@ -26,6 +26,7 @@
               </span>
               <span class="network">{{ conn.metadata.network }}</span>
             </div>
+            
             <div class="conn-body">
               <div class="tags">
                 <span :class="['tag', isDirect(conn) ? 'tag-direct' : 'tag-proxy']">
@@ -34,9 +35,22 @@
                 <span class="tag tag-rule">{{ conn.rule }}</span>
               </div>
             </div>
+            
             <div class="conn-footer font-mono">
-              <span class="transfer">↑ {{ formatBytes(conn.upload) }}</span>
-              <span class="transfer">↓ {{ formatBytes(conn.download) }}</span>
+              <div class="time-info">
+                <span class="icon-svg" v-html="ICONS.clock"></span>
+                <span>{{ formatDuration(conn.start) }}</span>
+              </div>
+              <div class="traffic-info">
+                <span class="transfer up">
+                  <span class="icon-svg" v-html="ICONS.upload"></span>
+                  <span>{{ formatBytes(conn.upload) }}</span>
+                </span>
+                <span class="transfer down">
+                  <span class="icon-svg" v-html="ICONS.download"></span>
+                  <span>{{ formatBytes(conn.download) }}</span>
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -49,11 +63,10 @@
     <template v-else>
       <div class="detail-page glass-panel">
         <div class="detail-header">
-          <button class="action-btn back-btn" @click="closeDetail">
-            <span class="btn-icon" v-html="ICONS.back"></span> 返回列表
-          </button>
           <h3>连接详情</h3>
-          <div class="header-placeholder"></div>
+          <button class="action-btn back-btn" @click="closeDetail">
+            返回
+          </button>
         </div>
 
         <div class="detail-body scroll-content">
@@ -81,12 +94,15 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 
+// 所有 SVG 图标强制硬编码 width="14" height="14"，彻底防止被拉伸成诡异的线条
 const ICONS = {
-  pause: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`,
-  play: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`,
-  xCircle: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>`,
-  x: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`,
-  back: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>`
+  pause: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`,
+  play: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`,
+  xCircle: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>`,
+  x: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`,
+  clock: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`,
+  upload: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>`,
+  download: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>`
 };
 
 const connections = ref<any[]>([]);
@@ -102,7 +118,7 @@ onMounted(async () => {
       if (selectedConn.value) {
         const updated = data.connections.find((c: any) => c.id === selectedConn.value.id);
         if (updated) selectedConn.value = updated;
-        else selectedConn.value = null; // 连接消失时自动退回列表
+        else selectedConn.value = null;
       }
     } else {
       connections.value = [];
@@ -140,6 +156,19 @@ const formatBytes = (bytes: number) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
+// 计算连接已建立的时间 (跟随每次 WebSocket 刷新自动更新)
+const formatDuration = (startTime: string) => {
+  if (!startTime) return '00:00';
+  const start = new Date(startTime).getTime();
+  const now = new Date().getTime();
+  const diff = Math.floor((now - start) / 1000);
+  if (diff <= 0) return '00:00';
+  
+  const m = Math.floor(diff / 60).toString().padStart(2, '0');
+  const s = (diff % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+};
+
 const openDetail = (conn: any) => {
   selectedConn.value = conn;
 };
@@ -172,7 +201,7 @@ const closeSingleConnection = async (id: string) => {
 .stats .count { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
 
 .global-actions { display: flex; gap: 12px; }
-.btn-icon { width: 14px; height: 14px; display: inline-flex; }
+.btn-icon { width: 14px; height: 14px; display: inline-flex; align-items: center;}
 
 .scroll-content { flex: 1; overflow-y: auto; padding-right: 8px; }
 
@@ -185,7 +214,7 @@ const closeSingleConnection = async (id: string) => {
 .host { font-weight: 600; font-size: 0.95rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
 .network { font-size: 0.7rem; font-family: var(--font-mono); background: var(--surface-hover); padding: 2px 6px; border-radius: 4px; color: var(--text-sub); text-transform: uppercase; }
 
-.conn-body { display: flex; flex-direction: column; gap: 8px; }
+.conn-body { display: flex; flex-direction: column; gap: 8px; flex: 1;}
 .tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag { font-size: 0.75rem; padding: 4px 8px; border-radius: 6px; font-weight: 500; border: none; }
 .tag-direct { background: var(--surface-hover); color: var(--text-main); }
@@ -193,17 +222,69 @@ const closeSingleConnection = async (id: string) => {
 .dark .tag-proxy { color: var(--text-sub); }
 .tag-rule { background: var(--surface-hover); color: var(--text-muted); }
 
-.conn-footer { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); }
-.transfer { background: var(--surface-hover); padding: 4px 8px; border-radius: 6px; }
+/* --- 全新底部排版 --- */
+.conn-footer { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: flex-end; 
+  font-size: 0.8rem; 
+  color: var(--text-muted); 
+  margin-top: 4px; 
+}
+
+.time-info { 
+  display: flex; 
+  align-items: center; 
+  gap: 4px;
+}
+
+.traffic-info { 
+  display: flex; 
+  gap: 6px; 
+}
+
+.transfer { 
+  display: flex; 
+  align-items: center; 
+  gap: 4px;
+  background: var(--surface-hover); 
+  padding: 4px 8px; 
+  border-radius: 6px; 
+}
+
+/* 上下行颜色区分 */
+.up { color: var(--accent-orange, #e67e22); }
+.down { color: var(--accent-green, #27ae60); }
+
+.icon-svg { 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+}
 
 .empty-state { height: 200px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-style: italic; }
 
-/* 详情子页样式 */
+/* --- 详情子页样式 --- */
 .detail-page { display: flex; flex-direction: column; height: 100%; border-radius: 12px; background: var(--surface); border: none; padding: 24px; box-sizing: border-box; }
-.detail-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 16px; margin-bottom: 24px; }
+
+/* 详情头部排版：左标题右按钮 */
+.detail-header { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  padding-bottom: 16px; 
+  margin-bottom: 24px; 
+  border-bottom: 1px solid var(--surface-hover);
+}
+
 .detail-header h3 { margin: 0; font-size: 1.2rem; color: var(--text-main); font-weight: 600; }
-.back-btn { width: 100px; justify-content: center; }
-.header-placeholder { width: 100px; } /* 占位保证标题绝对居中 */
+
+.back-btn { 
+  width: auto; 
+  min-width: 60px;
+  justify-content: center; 
+  padding: 6px 16px;
+}
 
 .detail-body { display: flex; flex-direction: column; gap: 16px; flex: 1; padding-right: 12px; }
 .detail-row { display: flex; align-items: flex-start; font-size: 0.9rem; padding-bottom: 12px; }
