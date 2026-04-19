@@ -7,10 +7,10 @@
       </div>
       
       <div class="header-actions">
-        <button class="action-btn" @click.stop="showImportModal = true">
+        <button class="action-btn accent-btn" @click.stop="showImportModal = true">
           <span class="btn-icon" v-html="ICONS.plus"></span> 导入配置
         </button>
-        <button class="primary-btn" @click="handleUpdateAll" :disabled="loading">
+        <button class="primary-btn accent-btn" @click="handleUpdateAll" :disabled="loading">
           <span class="btn-icon" v-html="ICONS.refresh" :class="{ 'spin': loading }"></span>
           {{ loading ? '更新中...' : '更新全部订阅' }}
         </button>
@@ -38,7 +38,10 @@
             <span class="sub-path font-mono">core/bin/{{ config }}</span>
           </div>
           <div class="sub-status">
-            <span v-if="isCurrentConfig(config)" class="status-badge online">● 正在使用</span>
+            <div v-if="isCurrentConfig(config)" class="status-badge-new">
+              <div class="breathe-dot"></div>
+              <span>正在使用</span>
+            </div>
             <span v-else-if="selecting === config" class="status-badge loading-tag">应用中...</span>
           </div>
         </div>
@@ -49,8 +52,8 @@
           <div class="sub-actions">
             <button class="icon-btn" @click.stop="toggleMenu(config)" v-html="ICONS.more"></button>
             <div v-if="activeMenu === config" class="dropdown-menu">
-              <button class="menu-item" @click.stop="handleUpdateSingle(config)">更新订阅</button>
-              <div class="menu-divider"></div>
+              <button v-if="hasSubscriptionUrl(config)" class="menu-item" @click.stop="handleUpdateSingle(config)">更新订阅</button>
+              <div v-if="hasSubscriptionUrl(config)" class="menu-divider"></div>
               <button class="menu-item" @click.stop="handleRename(config)">重命名</button>
               <button class="menu-item" @click.stop="handleEditFile(config)">记事本编辑</button>
               <button class="menu-item danger" @click.stop="handleDelete(config)">彻底删除</button>
@@ -61,7 +64,7 @@
     </div>
 
     <!-- 导入弹窗 -->
-    <Transition name="fade">
+    <Transition name="pop">
       <div v-if="showImportModal" class="modal-overlay" @click="showImportModal = false">
         <div class="import-card glass-panel" @click.stop>
           <div class="modal-header">
@@ -111,6 +114,7 @@ const selecting = ref<string | null>(null);
 const currentPath = ref('');
 const localConfigs = ref<string[]>([]);
 const activeMenu = ref<string | null>(null);
+const subRecords = ref<Record<string, any>>({}); // 后端获取的订阅链接记录
 
 const isCurrentConfig = (name: string) => {
   if (!currentPath.value) return false;
@@ -126,6 +130,8 @@ const fetchConfigs = async () => {
     if (data && data.activeConfig) {
       currentPath.value = data.activeConfig;
     }
+    // 获取订阅记录映射
+    subRecords.value = await API.GetSubRecords() || {};
   } catch (e) {
     console.error("同步状态失败:", e);
   }
@@ -169,6 +175,11 @@ const handleUpdateSingle = async (filename: string) => {
   } finally {
     loading.value = false;
   }
+};
+
+// 逻辑：判断该配置是否由链接导入
+const hasSubscriptionUrl = (name: string) => {
+  return !!subRecords.value[name];
 };
 
 const handleDownload = async () => {
@@ -285,7 +296,19 @@ onUnmounted(() => {
 .subs-list { flex: 1; overflow-y: auto; padding-right: 8px; }
 .sub-card { position: relative; padding: 20px; border-radius: 12px; background: var(--surface); margin-bottom: 16px; transition: 0.2s; }
 .sub-card:hover { background: var(--surface-hover); }
-.active-card { background: var(--surface-hover) !important; }
+
+/* 选中卡片：采用反色表示 */
+.active-card { 
+  background: var(--accent) !important; 
+  color: var(--accent-fg) !important;
+  border: none !important;
+}
+.active-card .sub-path, 
+.active-card .sub-hint, 
+.active-card .icon-btn {
+  color: var(--accent-fg) !important;
+  opacity: 0.8;
+}
 
 .sub-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
 .sub-name { font-size: 0.95rem; font-weight: 600; }
@@ -306,10 +329,39 @@ onUnmounted(() => {
 .icon-btn :deep(svg) { width: 14px !important; height: 14px !important; }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
-/* 弹窗遮罩 */
+/* 呼吸灯样式 */
+.status-badge-new {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.breathe-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+  animation: breathe 2s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%, 100% { opacity: 0.5; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+/* 按钮样式：文字居中、反色底色 */
+.accent-btn {
+  justify-content: center;
+  background: var(--accent) !important;
+  color: var(--accent-fg) !important;
+  min-width: 120px;
+}
+
+/* 弹窗遮罩：去除模糊效果 */
 .modal-overlay { 
   position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-  background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); 
+  background: rgba(0,0,0,0.4); 
   display: flex; align-items: center; justify-content: center; z-index: 2000; 
 }
 .import-card { width: 440px; background: var(--glass-panel); padding: 24px; border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); }
@@ -327,8 +379,9 @@ onUnmounted(() => {
 
 .w-full-btn { width: 100%; padding: 12px; font-weight: 600; border-radius: 10px; border: none; background: var(--surface-hover); color: var(--text-main); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
 
-.fade-enter-active, .fade-leave-active { transition: opacity 0.2s, transform 0.2s; }
-.fade-enter-from, .fade-leave-to { opacity: 0; transform: scale(0.95); }
+/* 弹出动画保持一致 (pop效果) */
+.pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.3, 0, 0.2, 1); }
+.pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.92); }
 
 .dropdown-menu { position: absolute; right: 0; top: 30px; width: 150px; border-radius: 8px; z-index: 10; overflow: hidden; }
 .menu-item { width: 100%; padding: 10px 16px; border: none; background: transparent; text-align: left; cursor: pointer; font-size: 0.85rem; color: var(--text-main); }

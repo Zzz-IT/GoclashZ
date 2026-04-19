@@ -66,6 +66,10 @@ export function GetRules() {
   return window['go']['main']['App']['GetRules']();
 }
 
+export function GetSubRecords() {
+  return window['go']['main']['App']['GetSubRecords']();
+}
+
 export function GetTunConfig() {
   return window['go']['main']['App']['GetTunConfig']();
 }

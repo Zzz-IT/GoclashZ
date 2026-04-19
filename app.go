@@ -63,6 +63,11 @@ func (a *App) saveSubRecord(filename string, url string) {
 	os.WriteFile(a.getSubsRecordPath(), data, 0644)
 }
 
+// GetSubRecords 供前端获取订阅记录映射
+func (a *App) GetSubRecords() map[string]SubRecord {
+	return a.readSubRecords()
+}
+
 // ProxyStatus 新增给前端返回的双重状态结构
 type ProxyStatus struct {
 	SystemProxy bool `json:"systemProxy"`

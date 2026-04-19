@@ -35,6 +35,8 @@ export function GetProxyStatus():Promise<main.ProxyStatus>;
 
 export function GetRules():Promise<clash.RuleInfo>;
 
+export function GetSubRecords():Promise<Record<string, main.SubRecord>>;
+
 export function GetTunConfig():Promise<clash.TunConfig>;
 
 export function ImportLocalConfig():Promise<void>;

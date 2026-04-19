@@ -23,17 +23,19 @@
       </div>
     </div>
 
-    <div v-if="showAddModal" class="modal-mask" @click.self="showAddModal = false">
-      <div class="modal-box glass-panel">
-        <h3>新增分流规则</h3>
-        <p class="hint">格式: 类型,目标,策略 (例如: DOMAIN-SUFFIX,google.com,Proxy)</p>
-        <input v-model="newRuleStr" class="modal-input" placeholder="DOMAIN,example.com,DIRECT" @keyup.enter="handleAdd" />
-        <div class="modal-actions">
-          <button class="cancel-btn" @click="showAddModal = false">取消</button>
-          <button class="confirm-btn" @click="handleAdd" :disabled="!newRuleStr">确定添加</button>
+    <Transition name="pop">
+      <div v-if="showAddModal" class="modal-overlay" @click.self="showAddModal = false">
+        <div class="modal-box glass-panel">
+          <h3>新增分流规则</h3>
+          <p class="hint">格式: 类型,目标,策略 (例如: DOMAIN-SUFFIX,google.com,Proxy)</p>
+          <input v-model="newRuleStr" class="modal-input" placeholder="DOMAIN,example.com,DIRECT" @keyup.enter="handleAdd" />
+          <div class="modal-actions">
+            <button class="cancel-btn" @click="showAddModal = false">取消</button>
+            <button class="confirm-btn" @click="handleAdd" :disabled="!newRuleStr">确定添加</button>
+          </div>
         </div>
       </div>
-    </div>
+    </Transition>
   </div>
 </template>
 
@@ -161,20 +163,24 @@ onMounted(() => {
 .delete-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 6px; transition: 0.2s; }
 .delete-btn:hover { color: var(--text-main); background: var(--surface-hover); }
 
-/* Modal：无边框实色 */
-.modal-mask { 
+/* 同步弹窗样式 */
+.modal-overlay { 
   position: fixed; inset: 0; 
-  background: rgba(0,0,0,0.5);
+  background: rgba(0,0,0,0.4); /* 移除模糊 */
   display: flex; align-items: center; justify-content: center; 
-  z-index: 100; 
+  z-index: 2000; 
 }
 
 .modal-box { 
-  width: 420px; padding: 24px; border-radius: 12px; 
+  width: 440px; padding: 24px; border-radius: 16px; 
   background: var(--glass-panel);
   border: none;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  box-shadow: 0 20px 50px rgba(0,0,0,0.3);
 }
+
+/* 弹出动画保持一致 (pop效果) */
+.pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.3, 0, 0.2, 1); }
+.pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.92); }
 
 .modal-box h3 { margin-top: 0; color: var(--text-main); }
 .hint { font-size: 0.75rem; color: var(--text-sub); margin-bottom: 16px; }
