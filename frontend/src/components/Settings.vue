@@ -602,7 +602,7 @@ p {
 .arrow { color: var(--text-sub); font-size: 1.2rem; }
 .divider { height: 1px; background: var(--glass-border); opacity: 0.5; margin: 0; }
 
-.action-btn { padding: 8px 16px; border-radius: 8px; border: none; background: rgba(79, 70, 229, 0.1); color: var(--accent); font-weight: bold; cursor: pointer; transition: 0.2s; white-space: nowrap;}
+.action-btn { padding: 8px 16px; border-radius: 8px; border: none; background: var(--surface-hover); color: var(--accent); font-weight: bold; cursor: pointer; transition: 0.2s; white-space: nowrap;}
 .action-btn:hover:not(:disabled) { background: var(--accent); color: white; }
 .action-btn:disabled { opacity: 0.5; cursor: not-allowed; background: var(--surface-hover); color: var(--text-muted); }
 
@@ -616,7 +616,7 @@ p {
 .modern-switch input { opacity: 0; width: 0; height: 0; }
 
 /* 1. 修复无效的 .dark 匹配，直接使用全局动态变量 var(--surface-hover) 或更明显的背景色 */
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(120, 120, 120, 0.3); transition: .3s; border-radius: 24px; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--surface-hover); transition: .3s; border-radius: 24px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
 
 /* 未选中时：保持白色圆形，因为无论白天黑夜，灰色底 + 白圆点都很清晰 */
 .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3);}

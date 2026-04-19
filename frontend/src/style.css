@@ -5,41 +5,40 @@
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
     --font-mono: 'JetBrains Mono', Consolas, monospace;
 
-    /* ☀️ 浅色模式：冷岩灰/线性风格 */
-    --glass-bg: rgba(250, 250, 252, 0.7);
-    --glass-panel: rgba(255, 255, 255, 0.6);
-    --glass-border: rgba(0, 0, 0, 0.06);
-    --glass-blur: blur(40px) saturate(180%);
+    /* ☀️ 浅色模式：Linear 风格极简灰白 (实色) */
+    --glass-bg: #F7F7F8;       /* App 整体极浅灰实色背景，避免纯白刺眼 */
+    --glass-panel: #FFFFFF;    /* 主面板、卡片的纯白实色，产生断层对比 */
+    --glass-border: #E2E2E5;   /* 清晰但极细的实色边框 */
 
-    --text-main: #18181b;  /* Zinc 900 */
-    --text-sub: #71717a;   /* Zinc 500 */
-    --text-muted: #a1a1aa; /* Zinc 400 */
+    --text-main: #111113;      /* 正文：极深灰，比死黑更有质感 */
+    --text-sub: #68686F;       /* 副文本：中性灰 */
+    --text-muted: #A0A0AB;     /* 禁用/提示文本 */
 
-    --accent: #18181b;     /* 高级感：主色调直接用极黑 */
-    --accent-fg: #ffffff;  /* 按钮文字：纯白 */
+    --accent: #000000;         /* 品牌强调色：小众感十足的纯黑 */
+    --accent-fg: #FFFFFF;      /* 强调色按钮上的文字：纯白 */
 
-    --surface: rgba(0, 0, 0, 0.03);
-    --surface-hover: rgba(0, 0, 0, 0.06);
+    --surface: #F1F1F3;        /* 输入框、按钮底色：浅灰实色 */
+    --surface-hover: #E7E7EA;  /* 悬浮状态的实色加深 */
 
-    --status-online: #10b981;
-    --status-offline: #a1a1aa;
+    --status-online: #10B981;
+    --status-offline: #A0A0AB;
 }
 
-/* 🌙 深色模式：黑曜石质感 */
+/* 🌙 深色模式：黑曜石暗场 (实色) */
 .dark {
-    --glass-bg: rgba(15, 15, 17, 0.65);
-    --glass-panel: rgba(24, 24, 27, 0.4);
-    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-bg: #09090B;       /* App 整体：极致暗夜黑 */
+    --glass-panel: #121214;    /* 卡片面板：略微抬升的深灰实色 */
+    --glass-border: #27272A;   /* 幽暗的实色分割线 */
 
-    --text-main: #f4f4f5;
-    --text-sub: #a1a1aa;
-    --text-muted: #52525b;
+    --text-main: #EDEDF0;      /* 暗色模式正文：偏冷白 */
+    --text-sub: #8F8F98;
+    --text-muted: #52525B;
 
-    --accent: #f4f4f5;     /* 主色调：极白 */
-    --accent-fg: #000000;  /* 按钮文字：纯黑 */
+    --accent: #FFFFFF;         /* 暗色模式强调色：纯白反差 */
+    --accent-fg: #000000;      /* 按钮文字：纯黑 */
 
-    --surface: rgba(255, 255, 255, 0.04);
-    --surface-hover: rgba(255, 255, 255, 0.08);
+    --surface: #1E1E20;        /* 输入框底色：深灰实色 */
+    --surface-hover: #27272A;
 }
 
 * {
@@ -49,25 +48,40 @@
 }
 
 html, body, #app {
-    background: transparent !important;
+    background: var(--glass-bg) !important; /* 强制底色为实色 */
     height: 100vh;
     width: 100vw;
     overflow: hidden;
     user-select: none;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11"; /* 开启 Inter 字体的极简特性 */
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11"; 
 }
 
 /* 滚动条极简化 */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-thumb { background: var(--surface-hover); border-radius: 4px; }
 
-/* 统一的极简玻璃面板 */
-.glass-panel {
-    background: var(--glass-panel);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--glass-border);
+/* * ⚠️ 核心降维打击 ⚠️
+ * 劫持所有曾经带有毛玻璃属性的类名，强制转为极简实色卡片 
+ */
+.glass-panel, .glass-card, .modal-box {
+    background: var(--glass-panel) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border: 1px solid var(--glass-border) !important;
     border-radius: 12px;
+    /* 弃用透明度，改用微小、极其克制的阴影来区分层级 */
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.02) !important;
+}
+
+.dark .glass-panel, .dark .glass-card, .dark .modal-box {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important; /* 深色模式下阴影稍微加深 */
+}
+
+/* 遮罩层劫持：强制移除全局各种遮罩的模糊滤镜 */
+.modal-mask {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: rgba(0, 0, 0, 0.6) !important; /* 纯暗色幕布 */
 }
 
 /* 微型标题排版 */

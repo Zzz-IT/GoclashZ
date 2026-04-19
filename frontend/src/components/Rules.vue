@@ -160,16 +160,48 @@ onMounted(() => {
 .delete-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 6px; transition: 0.2s; }
 .delete-btn:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
 
-/* Modal 样式 */
-.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(2px); }
-.modal-box { width: 420px; padding: 24px; border-radius: 16px; background: var(--surface); border: 1px solid var(--glass-border); box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+/* Modal 样式重构：纯色遮罩 + 实色卡片 */
+.modal-mask { 
+  position: fixed; 
+  inset: 0; 
+  background: rgba(0,0,0,0.4); /* 纯粹的半透明黑色背景，不加 blur */
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  z-index: 100; 
+}
+
+.modal-box { 
+  width: 420px; 
+  padding: 24px; 
+  border-radius: 12px; 
+  background: var(--surface); /* 使用主题的表面实色 */
+  border: 1px solid var(--border-color, #e5e7eb); /* 使用普通边框代替玻璃边框 */
+  box-shadow: 0 10px 30px rgba(0,0,0,0.15); /* 加深阴影，使实色卡片浮出层级更加分明 */
+}
+
 .modal-box h3 { margin-top: 0; color: var(--text-main); }
 .hint { font-size: 0.75rem; color: var(--text-sub); margin-bottom: 16px; }
-.modal-input { width: 100%; padding: 12px; margin-bottom: 20px; border-radius: 8px; border: 1px solid var(--glass-border); background: var(--surface-hover); color: var(--text-main); outline: none; }
+
+.modal-input { 
+  width: 100%; 
+  padding: 12px; 
+  margin-bottom: 20px; 
+  border-radius: 8px; 
+  border: 1px solid var(--border-color, #e5e7eb); 
+  background: var(--surface-hover); 
+  color: var(--text-main); 
+  outline: none; 
+}
+.modal-input:focus {
+  border-color: var(--accent); /* 输入框聚焦时的主题色高亮 */
+}
+
 .modal-actions { display: flex; justify-content: flex-end; gap: 12px; }
-.cancel-btn, .confirm-btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 500; }
+.cancel-btn, .confirm-btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 500; transition: 0.2s;}
 .cancel-btn { background: transparent; color: var(--text-sub); }
 .cancel-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 .confirm-btn { background: var(--accent); color: var(--accent-fg); }
+.confirm-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
 .confirm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

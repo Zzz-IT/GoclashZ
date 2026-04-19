@@ -305,15 +305,15 @@ onUnmounted(() => {
   margin-left: 12px;
   padding: 6px 10px;
   border-radius: 6px;
-  background: rgba(0,0,0,0.03);
+  background: var(--surface);
   cursor: pointer;
   transition: background 0.2s;
   min-width: 54px;
   text-align: right;
 }
-.dark .n-latency-box { background: rgba(255,255,255,0.05); }
-.n-latency-box:hover { background: rgba(0,0,0,0.08); }
-.dark .n-latency-box:hover { background: rgba(255,255,255,0.1); }
+.dark .n-latency-box { background: var(--surface); }
+.n-latency-box:hover { background: var(--surface-hover); }
+.dark .n-latency-box:hover { background: var(--surface-hover); }
 
 .testing-text { font-size: 0.8rem; color: var(--text-muted); }
 .n-delay { font-size: 0.85rem; font-weight: 600; }
