@@ -1,44 +1,42 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-    /* ✨ 极简高冷字体栈 */
-    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-    --font-mono: 'JetBrains Mono', Consolas, monospace;
+    --font-sans: 'Inter', -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
 
-    /* ☀️ 浅色模式：Linear 风格极简灰白 (实色) */
-    --glass-bg: #F7F7F8;       /* App 整体极浅灰实色背景，避免纯白刺眼 */
-    --glass-panel: #FFFFFF;    /* 主面板、卡片的纯白实色，产生断层对比 */
-    --glass-border: #E2E2E5;   /* 清晰但极细的实色边框 */
+    /* ☀️ 亮色模式：纯白与冷灰的理性搭配 */
+    --glass-bg: #F5F5F7;       /* 整个窗口的底色 */
+    --glass-panel: #FFFFFF;    /* 主要面板色 */
+    --glass-border: #E5E5E7;   /* 细腻的实线边框 */
 
-    --text-main: #111113;      /* 正文：极深灰，比死黑更有质感 */
-    --text-sub: #68686F;       /* 副文本：中性灰 */
-    --text-muted: #A0A0AB;     /* 禁用/提示文本 */
+    --text-main: #1D1D1F;      /* 接近纯黑的深灰 */
+    --text-sub: #6E6E73;       /* 辅助文本 */
+    --text-muted: #86868B;
 
-    --accent: #000000;         /* 品牌强调色：小众感十足的纯黑 */
-    --accent-fg: #FFFFFF;      /* 强调色按钮上的文字：纯白 */
+    --accent: #000000;         /* 强调色：纯黑 */
+    --accent-fg: #FFFFFF;      /* 强调色上的文字 */
 
-    --surface: #F1F1F3;        /* 输入框、按钮底色：浅灰实色 */
-    --surface-hover: #E7E7EA;  /* 悬浮状态的实色加深 */
-
-    --status-online: #10B981;
-    --status-offline: #A0A0AB;
+    --surface: #F5F5F7;        /* 按钮/输入框底色 */
+    --surface-hover: #E8E8ED;  /* 悬浮底色 */
+    
+    --status-online: #28CD41;
 }
 
-/* 🌙 深色模式：黑曜石暗场 (实色) */
+/* 🌙 暗色模式：高级深灰质感，彻底抛弃割裂的纯黑 */
 .dark {
-    --glass-bg: #09090B;       /* App 整体：极致暗夜黑 */
-    --glass-panel: #121214;    /* 卡片面板：略微抬升的深灰实色 */
-    --glass-border: #27272A;   /* 幽暗的实色分割线 */
+    --glass-bg: #121214;       /* 👉 核心修复：提升底色亮度为深邃灰，与面板融合 */
+    --glass-panel: #1C1C1F;    /* 面板颜色，和底色形成极其微妙的层次感 */
+    --glass-border: #2B2B2F;   /* 柔和的暗色边界线 */
 
-    --text-main: #EDEDF0;      /* 暗色模式正文：偏冷白 */
-    --text-sub: #8F8F98;
-    --text-muted: #52525B;
+    --text-main: #EDEDF0;      /* 冷感白文字 */
+    --text-sub: #A0A0AB;
+    --text-muted: #71717A;
 
-    --accent: #FFFFFF;         /* 暗色模式强调色：纯白反差 */
-    --accent-fg: #000000;      /* 按钮文字：纯黑 */
+    --accent: #FFFFFF;         /* 强调色纯白 */
+    --accent-fg: #000000;
 
-    --surface: #1E1E20;        /* 输入框底色：深灰实色 */
-    --surface-hover: #27272A;
+    --surface: #27272A;        /* 按钮与输入框 */
+    --surface-hover: #3F3F46;  
 }
 
 * {
@@ -47,48 +45,27 @@
     font-family: var(--font-sans) !important;
 }
 
+/* 核心修复：移除 transparent，使用变量填充整个窗口 */
 html, body, #app {
-    background: var(--glass-bg) !important; /* 强制底色为实色 */
+    background: var(--glass-bg) !important;
     height: 100vh;
     width: 100vw;
     overflow: hidden;
-    user-select: none;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11"; 
+    color: var(--text-main);
+    transition: background 0.2s ease; /* 变色平滑过渡 */
 }
 
-/* 滚动条极简化 */
+/* 统一实色卡片，移除所有模糊效果 */
+.glass-panel {
+    background: var(--glass-panel);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); /* 仅使用微弱阴影增加层级 */
+}
+
+.dark .glass-panel {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-thumb { background: var(--surface-hover); border-radius: 4px; }
-
-/* * ⚠️ 核心降维打击 ⚠️
- * 劫持所有曾经带有毛玻璃属性的类名，强制转为极简实色卡片 
- */
-.glass-panel, .glass-card, .modal-box {
-    background: var(--glass-panel) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    border: 1px solid var(--glass-border) !important;
-    border-radius: 12px;
-    /* 弃用透明度，改用微小、极其克制的阴影来区分层级 */
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.02) !important;
-}
-
-.dark .glass-panel, .dark .glass-card, .dark .modal-box {
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important; /* 深色模式下阴影稍微加深 */
-}
-
-/* 遮罩层劫持：强制移除全局各种遮罩的模糊滤镜 */
-.modal-mask {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    background: rgba(0, 0, 0, 0.6) !important; /* 纯暗色幕布 */
-}
-
-/* 微型标题排版 */
-.micro-title {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-weight: 600;
-    color: var(--text-muted);
-}

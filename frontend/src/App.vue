@@ -87,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, nextTick } from 'vue';
+import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import * as API from '../wailsjs/go/main/App';
 import Overview from './components/Overview.vue';
 import Proxies from './components/Proxies.vue';
@@ -155,8 +155,23 @@ const toggleTheme = () => {
   isDark.value ? WindowSetDarkTheme() : WindowSetLightTheme();
 };
 
+// 👉 新增：同步暗色类名到 html 根标签，确保“外部”背景变色
+watch(isDark, (val) => {
+  if (val) {
+    document.documentElement.classList.add('dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+  }
+}, { immediate: true });
+
 onMounted(async () => {
-  WindowSetLightTheme();
+  // 确保启动时根据初始状态设置 class
+  if (isDark.value) {
+    document.documentElement.classList.add('dark');
+    WindowSetDarkTheme();
+  } else {
+    WindowSetLightTheme();
+  }
   const s: any = await API.GetProxyStatus();
   isRunning.value = s.systemProxy || s.tun;
   const data: any = await API.GetInitialData();
