@@ -87,6 +87,7 @@ export namespace clash {
 	    tcpConcurrent: boolean;
 	    tcpKeepAlive: boolean;
 	    tcpKeepAliveInterval: number;
+	    testUrl: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new NetworkConfig(source);
@@ -99,6 +100,7 @@ export namespace clash {
 	        this.tcpConcurrent = source["tcpConcurrent"];
 	        this.tcpKeepAlive = source["tcpKeepAlive"];
 	        this.tcpKeepAliveInterval = source["tcpKeepAliveInterval"];
+	        this.testUrl = source["testUrl"];
 	    }
 	}
 	export class RuleInfo {
@@ -149,6 +151,8 @@ export namespace main {
 	export class AppBehavior {
 	    silentStart: boolean;
 	    closeToTray: boolean;
+	    logLevel: string;
+	    hideLogs: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppBehavior(source);
@@ -158,6 +162,8 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.silentStart = source["silentStart"];
 	        this.closeToTray = source["closeToTray"];
+	        this.logLevel = source["logLevel"];
+	        this.hideLogs = source["hideLogs"];
 	    }
 	}
 	export class ProxyStatus {

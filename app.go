@@ -39,8 +39,10 @@ type App struct {
 
 // AppBehavior 定义应用行为设置
 type AppBehavior struct {
-	SilentStart   bool `json:"silentStart"`   // 静默启动 (不弹窗，直接进托盘)
-	CloseToTray   bool `json:"closeToTray"`   // 点击关闭时隐藏到托盘
+	SilentStart   bool   `json:"silentStart"`   // 静默启动 (不弹窗，直接进托盘)
+	CloseToTray   bool   `json:"closeToTray"`   // 点击关闭时隐藏到托盘
+	LogLevel      string `json:"logLevel"`      // 👈 新增：日志等级
+	HideLogs      bool   `json:"hideLogs"`      // 👈 新增
 }
 
 // 获取配置文件的存放路径
@@ -59,7 +61,11 @@ func (a *App) GetAppBehavior() AppBehavior {
 		json.Unmarshal(data, &config)
 	} else {
 		// 默认行为：不静默启动，关闭时允许隐藏到托盘
-		config = AppBehavior{SilentStart: false, CloseToTray: true}
+		config = AppBehavior{SilentStart: false, CloseToTray: true, LogLevel: "info", HideLogs: false}
+	}
+	
+	if config.LogLevel == "" {
+		config.LogLevel = "info"
 	}
 	return config
 }
@@ -67,7 +73,21 @@ func (a *App) GetAppBehavior() AppBehavior {
 // SaveAppBehavior 供前端保存设置 (Wails 绑定方法)
 func (a *App) SaveAppBehavior(config AppBehavior) error {
 	data, _ := json.MarshalIndent(config, "", "  ")
-	return os.WriteFile(a.getAppBehaviorPath(), data, 0644)
+	err := os.WriteFile(a.getAppBehaviorPath(), data, 0644)
+	
+	// 👉 发送广播事件，通知所有组件配置已更改
+	runtime.EventsEmit(a.ctx, "behavior-changed", config)
+
+	// 👇 新增：保存后动态重载内核配置，使日志等级立即生效
+	active := a.getActiveConfig()
+	if active != "" {
+		mode := a.getActiveMode()
+		clash.BuildRuntimeConfig(active, mode)
+		if clash.IsRunning() {
+			clash.ReloadConfig()
+		}
+	}
+	return err
 }
 
 // SubRecord 用于记录文件名与订阅链接的映射
@@ -365,9 +385,12 @@ func (a *App) startup(ctx context.Context) {
 	// 读取行为配置
 	config := a.GetAppBehavior()
 
-	// 判断是否静默启动。如果不是静默启动，手动呼出界面
+	// 判断是否静默启动
 	if !config.SilentStart {
 		runtime.WindowShow(ctx)
+	} else {
+		// 👈 核心修复：如果是静默启动，明确强制调用隐藏，防止组件初始化闪烁或暴露
+		runtime.WindowHide(ctx)
 	}
 
 	// 👈 新增：在后台协程中启动系统托盘

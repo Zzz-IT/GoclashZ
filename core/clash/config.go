@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"encoding/json"
 	"gopkg.in/yaml.v3"
 )
 
@@ -28,11 +29,12 @@ type ClashConfig struct {
 
 // NetworkConfig 基础网络配置
 type NetworkConfig struct {
-	IPv6                 bool `yaml:"ipv6" json:"ipv6"`
-	UnifiedDelay         bool `yaml:"unified-delay" json:"unifiedDelay"`
-	TCPConcurrent        bool `yaml:"tcp-concurrent" json:"tcpConcurrent"`
-	TCPKeepAlive         bool `yaml:"tcp-keep-alive" json:"tcpKeepAlive"`
-	TCPKeepAliveInterval int  `yaml:"tcp-keep-alive-interval" json:"tcpKeepAliveInterval"`
+	IPv6                 bool   `yaml:"ipv6" json:"ipv6"`
+	UnifiedDelay         bool   `yaml:"unified-delay" json:"unifiedDelay"`
+	TCPConcurrent        bool   `yaml:"tcp-concurrent" json:"tcpConcurrent"`
+	TCPKeepAlive         bool   `yaml:"tcp-keep-alive" json:"tcpKeepAlive"`
+	TCPKeepAliveInterval int    `yaml:"tcp-keep-alive-interval" json:"tcpKeepAliveInterval"`
+	TestURL              string `yaml:"test-url" json:"testUrl"` // 👈 新增
 }
 
 // OfflineGroup 专供前端在“未启动”状态下展示的节点组结构
@@ -388,6 +390,7 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 		TCPConcurrent:        true,
 		TCPKeepAlive:         true,
 		TCPKeepAliveInterval: 15,
+		TestURL:              "http://www.gstatic.com/generate_204", // 👈 默认值
 	}
 
 	// 从 yaml 根路径读取
@@ -405,6 +408,9 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 	}
 	if v, ok := root["tcp-keep-alive-interval"].(int); ok {
 		conf.TCPKeepAliveInterval = v
+	}
+	if v, ok := root["test-url"].(string); ok {
+		conf.TestURL = v
 	}
 
 	return conf, nil
@@ -429,6 +435,7 @@ func UpdateNetworkConfig(newCfg *NetworkConfig) error {
 	root["tcp-concurrent"] = newCfg.TCPConcurrent
 	root["tcp-keep-alive"] = newCfg.TCPKeepAlive
 	root["tcp-keep-alive-interval"] = newCfg.TCPKeepAliveInterval
+	root["test-url"] = newCfg.TestURL // 👈 保存到 root 以便下次读取
 
 	out, err := yaml.Marshal(root)
 	if err != nil {
@@ -506,12 +513,30 @@ func BuildRuntimeConfig(profileName string, mode string) error {
 		}
 	}
 
+	// 👇 核心注入：遍历所有策略组，将用户设置的测速网址应用到 url-test/fallback 组
+	if userNet != nil && userNet.TestURL != "" {
+		if groups, ok := root["proxy-groups"].([]interface{}); ok {
+			for _, g := range groups {
+				if group, ok := g.(map[string]interface{}); ok {
+					gType, _ := group["type"].(string)
+					// 仅对具有自动测速性质的组生效
+					if gType == "url-test" || gType == "fallback" || gType == "load-balance" {
+						group["url"] = userNet.TestURL
+					}
+				}
+			}
+		}
+	}
+
 	// 👇 新增：强制注入混合代理端口和外部控制 API
 	// 确保在不启用 TUN 时，系统代理 (7890) 依然能够将流量送入内核
 	root["mixed-port"] = 7890
 	root["allow-lan"] = true
 	root["external-controller"] = "127.0.0.1:9090"
 	root["secret"] = "" // 确保没有意外的密码阻挡前端 WebSocket
+	
+	// 👇 核心新增：动态读取并注入我们设置的日志等级
+	root["log-level"] = getAppBehaviorLogLevel()
 
 	// 4. 序列化并生成最终的 config.yaml
 	out, err := yaml.Marshal(root)
@@ -622,5 +647,20 @@ func SaveRules(profileName string, newRules []string) error {
 
 	// 覆写原文件
 	return os.WriteFile(sourcePath, out, 0644)
+}
+
+// getAppBehaviorLogLevel 在文件底部新增此辅助方法
+func getAppBehaviorLogLevel() string {
+	configDir, err := os.UserConfigDir()
+	if err != nil { return "info" }
+	path := filepath.Join(configDir, "GoclashZ", "app_behavior.json")
+	data, err := os.ReadFile(path)
+	if err != nil { return "info" }
+	var config struct {
+		LogLevel string `json:"logLevel"`
+	}
+	json.Unmarshal(data, &config)
+	if config.LogLevel == "" { return "info" }
+	return config.LogLevel
 }
 

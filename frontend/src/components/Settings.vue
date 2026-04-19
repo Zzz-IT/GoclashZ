@@ -371,6 +371,23 @@
             <span class="unit">s</span>
           </div>
         </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item col-item">
+          <div class="info">
+            <h4>延迟测试网址 (Delay Test URL)</h4>
+            <p>内核进行连接可用性测试时使用的 URL。建议使用 Google 或 Cloudflare 的测速地址。</p>
+          </div>
+          <input 
+            type="text" 
+            class="modern-input" 
+            style="text-align: left; width: 100%; margin-top: 10px;" 
+            v-model="netConfig.testUrl" 
+            @blur="saveNet" 
+            placeholder="http://www.gstatic.com/generate_204" 
+          />
+        </div>
       </div>
     </div>
 
@@ -402,6 +419,33 @@
           </div>
           <label class="modern-switch">
             <input type="checkbox" v-model="behavior.closeToTray" @change="saveBehavior">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info">
+            <h4>内核日志等级 (Log Level)</h4>
+            <p>调整核心输出的日志详细程度。如遇到问题无法排查，可改为 debug。</p>
+          </div>
+          <select class="modern-select" v-model="behavior.logLevel" @change="saveBehavior">
+            <option value="info">Info (默认)</option>
+            <option value="warning">Warning</option>
+            <option value="error">Error</option>
+            <option value="debug">Debug</option>
+            <option value="silent">Silent</option>
+          </select>
+        </div>
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info">
+            <h4>隐藏日志显示</h4>
+            <p>开启后，左侧导航栏的“实时日志”入口将被隐藏。</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="behavior.hideLogs" @change="saveBehavior">
             <span class="slider"></span>
           </label>
         </div>
@@ -464,12 +508,15 @@ const netConfig = ref({
   unifiedDelay: true,
   tcpConcurrent: true,
   tcpKeepAlive: true,
-  tcpKeepAliveInterval: 15
+  tcpKeepAliveInterval: 15,
+  testUrl: 'http://www.gstatic.com/generate_204' // 👈 1. 响应式绑定
 });
 
 const behavior = ref({
   silentStart: false,
-  closeToTray: true
+  closeToTray: true,
+  logLevel: 'info',
+  hideLogs: false
 });
 
 const loadData = async () => {

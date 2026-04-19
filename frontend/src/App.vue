@@ -7,7 +7,7 @@
         <div class="window-controls">
           <button @click="WindowMinimise" class="icon-btn ctrl-btn" title="最小化" v-html="ICONS.min"></button>
           <button @click="WindowToggleMaximise" class="icon-btn ctrl-btn" title="最大化" v-html="ICONS.max"></button>
-          <button @click="Quit" class="icon-btn ctrl-btn close-btn" title="关闭" v-html="ICONS.close"></button>
+          <button @click="handleClose" class="icon-btn ctrl-btn close-btn" title="关闭" v-html="ICONS.close"></button>
         </div>
       </div>
     </div>
@@ -16,6 +16,7 @@
       <aside class="sidebar">
         <nav class="nav-list">
           <div v-for="item in menu" :key="item.id"
+               v-show="item.id !== 'logs' || !hideLogs"
                :class="['nav-item', { active: currentTab === item.id }]"
                @click="currentTab = item.id">
             <span class="icon" v-html="item.icon"></span>
@@ -102,6 +103,7 @@ import {
   WindowSetBackgroundColour,
   WindowMinimise,
   WindowToggleMaximise,
+  WindowHide,
   Quit
 } from '../wailsjs/runtime/runtime';
 
@@ -132,6 +134,7 @@ const currentMode = ref('rule');
 const tunStatus = ref<Record<string, boolean>>({ hasWintun: false, isAdmin: false });
 const logLines = ref<any[]>([]);
 const logBox = ref<HTMLElement | null>(null);
+const hideLogs = ref(false); // 👈 新增：控制日志项显示
 
 const menu = [
   { id: 'home', label: '控制台', icon: ICONS.home },
@@ -160,6 +163,15 @@ const toggleTheme = () => {
   API.SaveThemePreference(isDark.value);
 };
 
+const handleClose = async () => {
+  const config = await (API.GetAppBehavior as any)();
+  if (config.closeToTray) {
+    WindowHide();
+  } else {
+    Quit();
+  }
+};
+
 // 4. 监听变化，同步处理渲染和原生窗口底色
 watch(isDark, (val) => {
   if (val) {
@@ -185,6 +197,15 @@ onMounted(async () => {
   isRunning.value = s.systemProxy || s.tun;
   const data: any = await API.GetInitialData();
   if (data) currentMode.value = data.mode;
+
+  // 👉 新增：初始加载配置，判断是否隐藏日志
+  const behaviorConf = await (API.GetAppBehavior as any)();
+  if (behaviorConf) hideLogs.value = behaviorConf.hideLogs;
+
+  // 👉 新增：监听后端发来的更新事件
+  EventsOn("behavior-changed", (config: any) => {
+    hideLogs.value = config.hideLogs;
+  });
 
   window.addEventListener('proxy-status-sync', ((e: CustomEvent) => {
     isRunning.value = e.detail.systemProxy || e.detail.tun;
