@@ -245,39 +245,39 @@ onUnmounted(() => {
 @keyframes spin { 100% { transform: rotate(360deg); } }
 
 /* 卡片布局 */
-.action-card { padding: 20px; border-radius: 12px; border: 1px solid var(--glass-border); background: var(--surface); margin-bottom: 20px; }
+.action-card { padding: 20px; border-radius: 12px; border: none; background: var(--surface); margin-bottom: 20px; }
 .card-title { font-size: 1rem; margin-bottom: 4px; }
 .card-desc { font-size: 0.8rem; color: var(--text-sub); margin-bottom: 16px; }
 
 .input-group { display: flex; gap: 10px; }
-.input-wrapper { flex: 1; display: flex; align-items: center; background: var(--surface-hover); border: 1px solid var(--glass-border); border-radius: 8px; padding: 0 12px; }
+.input-wrapper { flex: 1; display: flex; align-items: center; background: var(--surface-hover); border: none; border-radius: 8px; padding: 0 12px; }
 .modern-input { flex: 1; background: transparent; border: none; color: inherit; padding: 10px 0; outline: none; font-size: 0.85rem; }
-.action-btn { padding: 0 16px; border-radius: 8px; border: 1px solid var(--glass-border); background: transparent; color: var(--text-main); cursor: pointer; transition: 0.2s; }
+.action-btn { padding: 0 16px; border-radius: 8px; border: none; background: var(--surface-hover); color: var(--text-main); cursor: pointer; transition: 0.2s; }
 .action-btn:hover { background: var(--surface-hover); }
 .w-full-btn { width: 100%; padding: 12px; font-weight: 600; }
 
 /* 列表部分 */
 .list-title { font-size: 0.85rem; color: var(--text-sub); margin-bottom: 12px; }
 .sub-card {
-  position: relative; padding: 16px; border-radius: 10px; border: 1px solid var(--glass-border);
+  position: relative; padding: 16px; border-radius: 10px; border: none;
   background: var(--surface); margin-bottom: 12px; transition: all 0.2s ease;
 }
 .clickable { cursor: pointer; }
-.clickable:hover { border-color: var(--text-muted); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+.clickable:hover { background: var(--surface-hover); }
 
 /* 状态样式 */
-.active-card { border-color: #10b981 !important; background: rgba(16, 185, 129, 0.02); }
-.selecting-card { opacity: 0.7; pointer-events: none; border-style: dashed; }
+.active-card { background: var(--surface-hover) !important; }
+.selecting-card { opacity: 0.7; pointer-events: none; }
 
 .sub-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
 .sub-name { font-size: 0.95rem; font-weight: 600; }
 .sub-path { font-size: 0.7rem; color: var(--text-muted); }
 
 .status-badge { font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 4px; }
-.status-badge.online { color: #10b981; background: rgba(16, 185, 129, 0.1); }
+.status-badge.online { color: var(--text-main); background: var(--surface-hover); }
 .loading-tag { color: var(--text-muted); background: var(--surface-hover); }
 
-.sub-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--glass-border); margin-top: 10px; padding-top: 10px; }
+.sub-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 10px; }
 .sub-hint { font-size: 0.75rem; color: var(--text-sub); font-style: italic; }
 
 /* 菜单项 */
@@ -329,7 +329,7 @@ onUnmounted(() => {
 }
 
 .menu-item.danger { 
-  color: #ef4444 !important; /* 删除按钮保持红色 */
+  color: var(--text-main) !important; font-weight: 600;
 }
 
 .menu-divider {
@@ -337,7 +337,7 @@ onUnmounted(() => {
   margin: 4px 0;
 }
 
-.empty-state { padding: 30px; text-align: center; color: var(--text-muted); border: 1px dashed var(--glass-border); border-radius: 10px; }
+.empty-state { padding: 30px; text-align: center; color: var(--text-muted); border: none; border-radius: 10px; background: var(--surface); }
 </style>
 
 <style>

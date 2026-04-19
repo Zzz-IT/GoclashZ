@@ -120,7 +120,7 @@ onMounted(() => {
 .rules-header { display: flex; gap: 16px; align-items: center; margin-bottom: 20px; }
 .search-bar { 
   flex: 1; display: flex; align-items: center; gap: 10px;
-  background: var(--surface); border: 1px solid var(--glass-border);
+  background: var(--surface); border: none;
   padding: 10px 16px; border-radius: 12px; color: var(--text-sub);
 }
 .search-bar input { flex: 1; background: transparent; border: none; color: var(--text-main); outline: none; }
@@ -129,7 +129,7 @@ onMounted(() => {
   padding: 10px 20px; background: var(--accent); color: var(--accent-fg);
   border: none; border-radius: 12px; font-weight: 600; cursor: pointer; transition: 0.2s;
 }
-.add-rule-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3); }
+.add-rule-btn:hover { opacity: 0.8; }
 
 .rules-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -137,7 +137,7 @@ onMounted(() => {
 }
 
 .rule-card {
-  background: var(--surface); border: 1px solid var(--glass-border);
+  background: var(--surface); border: none;
   border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;
   transition: transform 0.2s, background 0.2s;
 }
@@ -147,61 +147,53 @@ onMounted(() => {
 .rule-type { font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; width: fit-content; }
 .rule-payload { font-size: 0.85rem; color: var(--text-main); font-weight: 500; font-family: var(--font-mono); }
 
-.tag-blue { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
-.tag-green { background: rgba(16, 185, 129, 0.1); color: #10b981; }
-.tag-orange { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
-.tag-gray { background: var(--surface-hover); color: var(--text-sub); }
+/* 标签：纯灰度，靠明度区分类型 */
+.tag-blue { background: var(--surface-hover); color: var(--text-main); }
+.tag-green { background: var(--surface-hover); color: var(--text-sub); }
+.tag-orange { background: var(--surface-hover); color: var(--text-sub); }
+.tag-gray { background: var(--surface-hover); color: var(--text-muted); }
 
 .rule-footer {
   display: flex; justify-content: space-between; align-items: center;
-  border-top: 1px solid var(--glass-border); padding-top: 10px;
+  padding-top: 10px;
 }
-.rule-policy { font-size: 0.8rem; color: var(--accent); font-weight: 600; }
+.rule-policy { font-size: 0.8rem; color: var(--text-main); font-weight: 600; }
 .delete-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 6px; transition: 0.2s; }
-.delete-btn:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+.delete-btn:hover { color: var(--text-main); background: var(--surface-hover); }
 
-/* Modal 样式重构：纯色遮罩 + 实色卡片 */
+/* Modal：无边框实色 */
 .modal-mask { 
-  position: fixed; 
-  inset: 0; 
-  background: rgba(0,0,0,0.4); /* 纯粹的半透明黑色背景，不加 blur */
-  display: flex; 
-  align-items: center; 
-  justify-content: center; 
+  position: fixed; inset: 0; 
+  background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center; 
   z-index: 100; 
 }
 
 .modal-box { 
-  width: 420px; 
-  padding: 24px; 
-  border-radius: 12px; 
-  background: var(--surface); /* 使用主题的表面实色 */
-  border: 1px solid var(--border-color, #e5e7eb); /* 使用普通边框代替玻璃边框 */
-  box-shadow: 0 10px 30px rgba(0,0,0,0.15); /* 加深阴影，使实色卡片浮出层级更加分明 */
+  width: 420px; padding: 24px; border-radius: 12px; 
+  background: var(--glass-panel);
+  border: none;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
 }
 
 .modal-box h3 { margin-top: 0; color: var(--text-main); }
 .hint { font-size: 0.75rem; color: var(--text-sub); margin-bottom: 16px; }
 
 .modal-input { 
-  width: 100%; 
-  padding: 12px; 
-  margin-bottom: 20px; 
-  border-radius: 8px; 
-  border: 1px solid var(--border-color, #e5e7eb); 
-  background: var(--surface-hover); 
-  color: var(--text-main); 
-  outline: none; 
+  width: 100%; padding: 12px; margin-bottom: 20px; border-radius: 8px; 
+  border: none;
+  background: var(--surface); 
+  color: var(--text-main); outline: none; 
 }
 .modal-input:focus {
-  border-color: var(--accent); /* 输入框聚焦时的主题色高亮 */
+  background: var(--surface-hover);
 }
 
 .modal-actions { display: flex; justify-content: flex-end; gap: 12px; }
 .cancel-btn, .confirm-btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 500; transition: 0.2s;}
 .cancel-btn { background: transparent; color: var(--text-sub); }
-.cancel-btn:hover { background: var(--surface-hover); color: var(--text-main); }
+.cancel-btn:hover { background: var(--surface); color: var(--text-main); }
 .confirm-btn { background: var(--accent); color: var(--accent-fg); }
-.confirm-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+.confirm-btn:hover:not(:disabled) { opacity: 0.85; }
 .confirm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

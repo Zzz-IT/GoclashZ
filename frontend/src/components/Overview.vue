@@ -156,15 +156,14 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border: 1px solid var(--glass-border);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03); /* 关键：浅色模式下的分界线 */
+  border: none;
 }
 
 .status-core { display: flex; align-items: center; gap: 24px; }
 .orb-visual { position: relative; width: 12px; height: 12px; }
 .orb { width: 100%; height: 100%; border-radius: 50%; background: var(--text-muted); transition: 0.4s; }
-.orb.active { background: #10b981; box-shadow: 0 0 12px #10b981; }
-.orb-glow { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 50%; background: #10b981; animation: pulse 2s infinite; }
+.orb.active { background: var(--text-main); box-shadow: 0 0 12px var(--text-main); }
+.orb-glow { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 50%; background: var(--text-main); animation: pulse 2s infinite; }
 
 .status-heading { font-size: 1.6rem; font-weight: 600; margin: 4px 0; color: var(--text-main); }
 .version-tag { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-sub); opacity: 0.8; }
@@ -173,27 +172,26 @@ onMounted(() => {
 .traffic-box { text-align: right; }
 .t-header { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-bottom: 4px; }
 .t-arrow { width: 12px; height: 12px; }
-.t-arrow.up { color: #3b82f6; }
-.t-arrow.down { color: #10b981; }
+.t-arrow.up { color: var(--text-sub); }
+.t-arrow.down { color: var(--text-main); }
 .t-val { font-family: var(--font-mono); font-size: 1.15rem; font-weight: 500; color: var(--text-main); }
-.v-line { width: 1px; height: 32px; background: var(--glass-border); align-self: center; }
+.v-line { width: 1px; height: 32px; background: var(--surface-hover); align-self: center; }
 
 /* 开关卡片 */
 .switch-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .action-card {
   padding: 20px 24px;
   background: var(--surface);
-  border: 1px solid var(--glass-border);
+  border: none;
   border-radius: 16px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
 }
-.action-card:hover { transform: translateY(-2px); background: var(--surface-hover); }
-.action-card.on { background: var(--accent); border-color: transparent; }
+.action-card:hover { background: var(--surface-hover); }
+.action-card.on { background: var(--accent); }
 
 .icon-ring { 
   width: 40px; height: 40px; border-radius: 12px; background: var(--surface-hover);
@@ -209,13 +207,13 @@ onMounted(() => {
 .on .card-hint { color: var(--accent-fg); opacity: 0.7; }
 
 .status-node { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
-.on .status-node { background: #10b981; box-shadow: 0 0 8px #10b981; }
+.on .status-node { background: var(--accent-fg); box-shadow: 0 0 8px var(--accent-fg); }
 
 /* 分段选择器 */
 .segmented-control {
   background: var(--surface);
   padding: 4px; border-radius: 14px; display: flex; position: relative;
-  border: 1px solid var(--glass-border); overflow: hidden;
+  border: none; overflow: hidden;
 }
 .seg-item {
   flex: 1; text-align: center; padding: 12px 0; font-size: 0.9rem; font-weight: 500;

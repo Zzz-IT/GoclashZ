@@ -219,7 +219,7 @@ onMounted(async () => {
 .ctrl-btn { width: 28px !important; height: 28px !important; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
 .ctrl-btn :deep(svg) { width: 12px; height: 12px; }
 .ctrl-btn:hover { background: var(--surface-hover); }
-.close-btn:hover { background: #e81123 !important; color: white !important; }
+.close-btn:hover { background: var(--text-main) !important; color: var(--accent-fg) !important; }
 
 /* 基础架构 */
 .app-shell { display: flex; flex-direction: column; height: 100vh; color: var(--text-main); }
@@ -237,9 +237,9 @@ onMounted(async () => {
 /* 极简侧边栏 */
 .sidebar { width: 220px; display: flex; flex-direction: column; padding: 12px; }
 .nav-list { flex: 1; }
-.nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 4px; border-radius: 8px; cursor: pointer; color: var(--text-sub); transition: all 0.2s ease; border: 1px solid transparent; }
+.nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 4px; border-radius: 8px; cursor: pointer; color: var(--text-sub); transition: all 0.2s ease; }
 .nav-item:hover { background: var(--surface); color: var(--text-main); }
-.nav-item.active { background: var(--surface-hover); color: var(--text-main); font-weight: 500; border-color: var(--glass-border); box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
+.nav-item.active { background: var(--surface-hover); color: var(--text-main); font-weight: 600; }
 .icon { width: 16px; height: 16px; display: flex; align-items: center; }
 .nav-label { font-size: 0.85rem; letter-spacing: 0.02em; }
 
@@ -249,7 +249,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  border-top: 1px solid var(--glass-border);
+  border-top: none;
   margin-top: auto;
 }
 
@@ -321,12 +321,18 @@ onMounted(async () => {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #94a3b8;
+  background: var(--text-muted);
   transition: 0.3s;
 }
 .dot.online {
-  background: #10b981;
-  box-shadow: 0 0 8px #10b981;
+  background: var(--text-main);
+  box-shadow: 0 0 8px var(--text-main);
+  animation: breathe 2s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.6; box-shadow: 0 0 4px var(--text-main); }
+  50% { opacity: 1; box-shadow: 0 0 12px var(--text-main); }
 }
 
 /* 内容区 */
@@ -336,9 +342,9 @@ onMounted(async () => {
 
 /* 日志终端 */
 .terminal-box { 
-  background: var(--surface); /* 改为与整体面板相同的表面背景 */
-  color: var(--text-main);    /* 改为正常的正文颜色 */
-  border: 1px solid var(--glass-border); /* 加上边框完美融入 UI */
+  background: var(--surface);
+  color: var(--text-main);
+  border: none;
   padding: 20px; 
   border-radius: 8px; 
   height: 500px; 
@@ -351,11 +357,11 @@ onMounted(async () => {
 .l-time { color: var(--text-muted); margin-right: 12px; opacity: 0.8; }
 .l-type { margin-right: 12px; font-weight: 600; }
 
-/* 针对不同日志级别赋予标签颜色，替代原本粗暴的大背景反色 */
-.log-line.info .l-type { color: var(--accent); }
-.log-line.warning .l-type { color: #f59e0b; }
-.log-line.error .l-type { color: #ef4444; }
-.log-line.debug .l-type { color: #8b5cf6; }
+/* 日志级别：纯灰度，不同粗细/明度区分 */
+.log-line.info .l-type { color: var(--text-main); }
+.log-line.warning .l-type { color: var(--text-sub); font-style: italic; }
+.log-line.error .l-type { color: var(--text-main); font-weight: 700; }
+.log-line.debug .l-type { color: var(--text-muted); }
 
 /* 设置组件容器占满 */
 .view-settings { height: 100%; display: flex; flex-direction: column; }

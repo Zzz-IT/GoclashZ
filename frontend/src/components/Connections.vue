@@ -173,9 +173,9 @@ const closeSingleConnection = async (id: string) => {
 
 .global-actions { display: flex; gap: 12px; }
 .secondary-btn, .primary-action-btn { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; border: none; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: 0.2s; }
-.secondary-btn { background: var(--surface-hover); color: var(--text-main); border: 1px solid var(--glass-border); }
-.secondary-btn:hover { background: var(--glass-panel); }
-.stop-btn { background: #ef4444; color: white; }
+.secondary-btn { background: var(--surface-hover); color: var(--text-main); }
+.secondary-btn:hover { background: var(--surface); }
+.stop-btn { background: var(--text-main); color: var(--accent-fg); }
 .stop-btn:hover { opacity: 0.85; }
 .btn-icon { width: 14px; height: 14px; display: inline-flex; }
 
@@ -183,8 +183,8 @@ const closeSingleConnection = async (id: string) => {
 
 .conn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 
-.conn-card { background: var(--surface); border: 1px solid var(--glass-border); border-radius: 12px; padding: 16px; cursor: pointer; transition: all 0.2s ease; display: flex; flex-direction: column; gap: 12px; }
-.conn-card:hover { background: var(--surface-hover); border-color: var(--text-sub); transform: translateY(-2px); }
+.conn-card { background: var(--surface); border: none; border-radius: 12px; padding: 16px; cursor: pointer; transition: all 0.2s ease; display: flex; flex-direction: column; gap: 12px; }
+.conn-card:hover { background: var(--surface-hover); }
 
 .conn-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .host { font-weight: 600; font-size: 0.95rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
@@ -192,11 +192,11 @@ const closeSingleConnection = async (id: string) => {
 
 .conn-body { display: flex; flex-direction: column; gap: 8px; }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.tag { font-size: 0.75rem; padding: 4px 8px; border-radius: 6px; font-weight: 500; }
-.tag-direct { background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
-.tag-proxy { background: rgba(79, 70, 229, 0.1); color: #6366f1; border: 1px solid rgba(79, 70, 229, 0.2); }
-.dark .tag-proxy { color: #818cf8; }
-.tag-rule { background: var(--surface-hover); color: var(--text-sub); border: 1px solid var(--glass-border); }
+.tag { font-size: 0.75rem; padding: 4px 8px; border-radius: 6px; font-weight: 500; border: none; }
+.tag-direct { background: var(--surface-hover); color: var(--text-main); }
+.tag-proxy { background: var(--surface-hover); color: var(--text-sub); }
+.dark .tag-proxy { color: var(--text-sub); }
+.tag-rule { background: var(--surface-hover); color: var(--text-muted); }
 
 .conn-footer { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); }
 .transfer { background: var(--surface-hover); padding: 4px 8px; border-radius: 6px; }
@@ -204,20 +204,20 @@ const closeSingleConnection = async (id: string) => {
 .empty-state { height: 200px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-style: italic; }
 
 /* 详情子页样式 */
-.detail-page { display: flex; flex-direction: column; height: 100%; border-radius: 12px; background: var(--surface); border: 1px solid var(--glass-border); padding: 24px; box-sizing: border-box; }
-.detail-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--glass-border); padding-bottom: 16px; margin-bottom: 24px; }
+.detail-page { display: flex; flex-direction: column; height: 100%; border-radius: 12px; background: var(--surface); border: none; padding: 24px; box-sizing: border-box; }
+.detail-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 16px; margin-bottom: 24px; }
 .detail-header h3 { margin: 0; font-size: 1.2rem; color: var(--text-main); font-weight: 600; }
 .back-btn { width: 100px; justify-content: center; }
 .header-placeholder { width: 100px; } /* 占位保证标题绝对居中 */
 
 .detail-body { display: flex; flex-direction: column; gap: 16px; flex: 1; padding-right: 12px; }
-.detail-row { display: flex; align-items: flex-start; font-size: 0.9rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 12px; }
+.detail-row { display: flex; align-items: flex-start; font-size: 0.9rem; padding-bottom: 12px; }
 .detail-row span:first-child { color: var(--text-muted); width: 100px; flex-shrink: 0; font-weight: 500; }
 .detail-row span:last-child { color: var(--text-main); word-break: break-all; flex: 1; }
-.path-chain { color: #6366f1 !important; font-weight: 500; }
+.path-chain { color: var(--text-main) !important; font-weight: 500; }
 
-.detail-footer { display: flex; justify-content: flex-end; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--glass-border); }
+.detail-footer { display: flex; justify-content: flex-end; margin-top: 24px; padding-top: 16px; }
 
-.danger-btn { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: 500; font-size: 0.85rem; transition: 0.2s; }
-.danger-btn:hover { background: #ef4444; color: white; }
+.danger-btn { background: var(--surface-hover); color: var(--text-main); border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: 500; font-size: 0.85rem; transition: 0.2s; }
+.danger-btn:hover { background: var(--text-main); color: var(--accent-fg); }
 </style>

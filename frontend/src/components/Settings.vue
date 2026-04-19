@@ -577,7 +577,7 @@ const updateNameserverPolicy = (e: Event) => {
 .setting-group { padding: 20px 24px; margin-bottom: 20px; }
 .scrollable { overflow-y: auto; padding-right: 12px; padding-bottom: 20px; }
 
-h3 { margin: 0 0 20px 0; color: var(--text-main); font-size: 1.1rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 12px; }
+h3 { margin: 0 0 20px 0; color: var(--text-main); font-size: 1.1rem; padding-bottom: 12px; }
 h4 { margin: 0 0 6px 0; color: var(--text-main); font-size: 1rem;}
 p { 
   margin: 0; 
@@ -606,7 +606,7 @@ p {
 .action-btn:hover:not(:disabled) { background: var(--accent); color: white; }
 .action-btn:disabled { opacity: 0.5; cursor: not-allowed; background: var(--surface-hover); color: var(--text-muted); }
 
-.modern-input, .modern-select, .modern-textarea { background: var(--surface-hover); border: 1px solid var(--glass-border); color: var(--text-main); padding: 8px 12px; border-radius: 8px; outline: none; }
+.modern-input, .modern-select, .modern-textarea { background: var(--surface-hover); border: none; color: var(--text-main); padding: 8px 12px; border-radius: 8px; outline: none; }
 .modern-input { text-align: right; }
 .modern-textarea { resize: vertical; font-family: monospace; font-size: 0.85rem; line-height: 1.5; text-align: left; }
 .modern-input:disabled, .modern-select:disabled, .modern-textarea:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -637,13 +637,13 @@ input:checked + .slider:before {
 
 .sub-header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
 .sub-header h3 { margin: 0; border: none; padding: 0; }
-.back-btn { background: var(--surface); border: 1px solid var(--glass-border); color: var(--text-main); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; }
+.back-btn { background: var(--surface); border: none; color: var(--text-main); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; }
 .back-btn:hover { background: var(--surface-hover); }
 
 /* 子选项缩进，使其看起来隶属于上一个开关 */
 .sub-item {
   padding-left: 20px !important;
-  border-left: 2px solid var(--glass-border);
+  border-left: 2px solid var(--surface-hover);
   margin-left: 8px;
   margin-top: -10px; /* 拉近与主开关的距离 */
   margin-bottom: 10px;
@@ -679,6 +679,6 @@ input:checked + .slider:before {
 }
 
 .status-msg { margin-top: 4px; font-weight: 500; }
-.green-text { color: #10b981; }
-.red-text { color: #ef4444; }
+.green-text { color: var(--text-main); font-weight: 600; }
+.red-text { color: var(--text-muted); }
 </style>

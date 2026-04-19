@@ -38,13 +38,13 @@ onUnmounted(() => StopStreamingLogs());
 
 <style scoped>
 .logs-wrapper { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
-.log-header { padding: 12px 20px; border-bottom: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center; }
+.log-header { padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
 .log-content { flex: 1; overflow-y: auto; padding: 15px; font-family: 'Consolas', monospace; font-size: 0.85rem; }
 .log-line { margin-bottom: 4px; line-height: 1.4; display: flex; gap: 8px; }
 .time { color: var(--text-sub); min-width: 80px; }
 .level { font-weight: bold; min-width: 50px; }
-.level.info { color: var(--accent); }
-.level.warning { color: #f59e0b; }
-.level.error { color: #ef4444; }
+.level.info { color: var(--text-main); }
+.level.warning { color: var(--text-sub); }
+.level.error { color: var(--text-main); font-weight: 800; }
 .msg { color: var(--text-main); word-break: break-all; }
 </style>

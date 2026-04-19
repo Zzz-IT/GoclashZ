@@ -33,8 +33,21 @@
             </div>
 
             <div class="n-latency-box" @click.stop="testSingleDelay(node)">
-              <span v-if="node.testing" class="testing-text">测试中...</span>
+              <div v-if="node.testing" class="scanner-container">
+                <svg class="scanner-svg" viewBox="0 0 24 24">
+                  <circle class="scanner-track" cx="12" cy="12" r="10"></circle>
+                  <circle class="scanner-bar" cx="12" cy="12" r="10"></circle>
+                </svg>
+              </div>
+              
+              <div v-else-if="node.delay === null" class="ping-idle">
+                <svg class="idle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              
               <span v-else :class="['n-delay font-mono', getDelayColorClass(node.delay)]">
+                <span class="status-dot"></span>
                 {{ formatDelay(node.delay) }}
               </span>
             </div>
@@ -251,8 +264,7 @@ onUnmounted(() => {
 .group-tab-btn.active {
   background: var(--glass-panel);
   color: var(--text-main);
-  border-color: var(--glass-border);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  font-weight: 600;
 }
 .group-tab-btn .count {
   font-size: 0.8rem;
@@ -266,7 +278,7 @@ onUnmounted(() => {
   gap: 6px;
   padding: 8px 16px;
   border: none;
-  background: var(--text-main);
+  background: var(--accent);
   color: var(--accent-fg);
   border-radius: 8px;
   cursor: pointer;
@@ -289,14 +301,14 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  border: 1px solid var(--glass-border);
+  border: none;
   border-radius: 12px;
   cursor: pointer;
   background: var(--surface);
   transition: all 0.2s ease;
 }
 .node-item:hover { background: var(--surface-hover); }
-.node-item.active { border-color: var(--accent); border-width: 2px; background: var(--glass-panel); padding: 15px 19px; }
+.node-item.active { background: var(--glass-panel); font-weight: 600; }
 
 .node-info { flex: 1; min-width: 0; }
 .n-name { font-size: 0.95rem; font-weight: 500; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main); }
@@ -309,20 +321,78 @@ onUnmounted(() => {
   cursor: pointer;
   transition: background 0.2s;
   min-width: 54px;
-  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .dark .n-latency-box { background: var(--surface); }
 .n-latency-box:hover { background: var(--surface-hover); }
 .dark .n-latency-box:hover { background: var(--surface-hover); }
 
-.testing-text { font-size: 0.8rem; color: var(--text-muted); }
-.n-delay { font-size: 0.85rem; font-weight: 600; }
+/* 环形扫描器样式 */
+.scanner-container {
+  width: 18px;
+  height: 18px;
+}
+.scanner-svg {
+  animation: rotate 1.5s linear infinite;
+}
+.scanner-track {
+  fill: none;
+  stroke: var(--surface-hover);
+  stroke-width: 3;
+}
+.scanner-bar {
+  fill: none;
+  stroke: var(--text-main);
+  stroke-width: 3;
+  stroke-dasharray: 30, 100;
+  stroke-linecap: round;
+}
+
+/* 未测试图标 */
+.ping-idle {
+  color: var(--text-muted);
+  opacity: 0.4;
+  transition: all 0.2s;
+  display: flex;
+}
+.n-latency-box:hover .ping-idle {
+  opacity: 1;
+  color: var(--text-main);
+  transform: scale(1.1);
+}
+.idle-icon { width: 14px; height: 14px; }
+
+/* 状态圆点：摒弃发光效果，使用 JB 风格的实色块 */
+.n-delay {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 2px; /* 方形圆角点，更符合 IDE 气质 */
+}
+
+/* 延迟颜色：纯灰度明度递进 */
+.t-fast { color: var(--text-main); }
+.t-fast .status-dot { background: var(--text-main); }
+
+.t-mid { color: var(--text-sub); }
+.t-mid .status-dot { background: var(--text-sub); }
+
+.t-slow, .t-fail { color: var(--text-muted); }
+.t-slow .status-dot, .t-fail .status-dot { background: var(--text-muted); }
+
+@keyframes rotate {
+  100% { transform: rotate(360deg); }
+}
 
 .t-unknown { color: var(--text-muted); }
-.t-fast { color: #10b981; }
-.t-mid { color: #f59e0b; }
-.t-slow { color: #ef4444; }
-.t-fail { color: #dc2626; }
 
 .empty-state {
   display: flex;

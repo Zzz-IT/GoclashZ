@@ -21,8 +21,8 @@ func main() {
 		Height: 768,
 		Frameless: true, // 保持无边框，自己渲染 UI
 		
-		// ⚠️ 修改：填入亮色模式的十六进制底色 (#F4F4F5 -> R:244, G:244, B:245)
-		BackgroundColour: &options.RGBA{R: 244, G: 244, B: 245, A: 255}, 
+		// 实色底色，与 CSS --glass-bg (#F2F2F2) 保持一致
+		BackgroundColour: &options.RGBA{R: 242, G: 242, B: 242, A: 255}, 
 		
 		AssetServer: &assetserver.Options{
 			Assets: assets,
