@@ -178,9 +178,9 @@ onMounted(() => {
   box-shadow: 0 20px 50px rgba(0,0,0,0.3);
 }
 
-/* 弹出动画保持一致 (pop效果) */
-.pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.3, 0, 0.2, 1); }
-.pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.92); }
+/* 统一动画类名 */
+.pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.95); }
 
 .modal-box h3 { margin-top: 0; color: var(--text-main); }
 .hint { font-size: 0.75rem; color: var(--text-sub); margin-bottom: 16px; }

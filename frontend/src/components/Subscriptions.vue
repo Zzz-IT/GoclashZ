@@ -1,5 +1,5 @@
 <template>
-  <div class="subs-view" @click="closeMenus">
+  <div class="subs-view" @click="activeMenu = null">
     <div class="page-header">
       <div class="header-text">
         <h2 class="main-title">本地配置库</h2>
@@ -7,7 +7,7 @@
       </div>
       
       <div class="header-actions">
-        <button class="action-btn accent-btn" @click.stop="showImportModal = true">
+        <button class="action-btn accent-btn" @click.stop="activeModal = 'import'">
           <span class="btn-icon" v-html="ICONS.plus"></span> 导入配置
         </button>
         <button class="primary-btn accent-btn" @click="handleUpdateAll" :disabled="loading">
@@ -26,10 +26,7 @@
         v-for="config in localConfigs"
         :key="config"
         class="sub-card clickable"
-        :class="{ 
-          'active-card': isCurrentConfig(config), 
-          'selecting-card': selecting === config 
-        }"
+        :class="{ 'active-card': isCurrentConfig(config) }"
         @click="handleSelectConfig(config)"
       >
         <div class="sub-header">
@@ -38,40 +35,38 @@
             <span class="sub-path font-mono">core/bin/{{ config }}</span>
           </div>
           <div class="sub-status">
-            <div v-if="isCurrentConfig(config)" class="status-badge-new">
+            <div v-if="isCurrentConfig(config)" class="status-badge-active">
               <div class="breathe-dot"></div>
               <span>正在使用</span>
             </div>
-            <span v-else-if="selecting === config" class="status-badge loading-tag">应用中...</span>
           </div>
         </div>
 
         <div class="sub-footer">
-          <span class="sub-hint">{{ isCurrentConfig(config) ? '内核已加载此配置' : '点击切换' }}</span>
-
+          <span class="sub-hint">点击应用此配置</span>
           <div class="sub-actions">
             <button class="icon-btn" @click.stop="toggleMenu(config)" v-html="ICONS.more"></button>
-            <div v-if="activeMenu === config" class="dropdown-menu">
-              <button v-if="hasSubscriptionUrl(config)" class="menu-item" @click.stop="handleUpdateSingle(config)">更新订阅</button>
-              <div v-if="hasSubscriptionUrl(config)" class="menu-divider"></div>
-              <button class="menu-item" @click.stop="handleRename(config)">重命名</button>
+            <div v-if="activeMenu === config" class="dropdown-menu glass-panel">
+              <button v-if="hasUrlRecord(config)" class="menu-item" @click.stop="handleUpdateSingle(config)">更新订阅</button>
+              <div v-if="hasUrlRecord(config)" class="menu-divider"></div>
+              <button class="menu-item" @click.stop="openRenameModal(config)">重命名</button>
               <button class="menu-item" @click.stop="handleEditFile(config)">记事本编辑</button>
-              <button class="menu-item danger" @click.stop="handleDelete(config)">彻底删除</button>
+              <button class="menu-item danger" @click.stop="openDeleteModal(config)">彻底删除</button>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 导入弹窗 -->
+    <!-- 统一模态框系统 -->
     <Transition name="pop">
-      <div v-if="showImportModal" class="modal-overlay" @click="showImportModal = false">
-        <div class="import-card glass-panel" @click.stop>
+      <div v-if="activeModal" class="modal-overlay" @click="closeAllModals">
+        <!-- 导入弹窗 -->
+        <div v-if="activeModal === 'import'" class="custom-modal-card glass-panel" @click.stop>
           <div class="modal-header">
             <h3>导入配置文件</h3>
-            <button class="close-x" @click="showImportModal = false">&times;</button>
+            <button class="close-x" @click="closeAllModals">&times;</button>
           </div>
-
           <div class="modal-body">
             <div class="section">
               <label>订阅链接</label>
@@ -80,13 +75,47 @@
                 <button class="primary-btn mini" @click="handleDownload" :disabled="!url || loading">下载</button>
               </div>
             </div>
-
             <div class="divider-text">或者</div>
-
             <div class="section">
               <label>本地导入</label>
               <button class="action-btn w-full-btn" @click="handleImportLocal">
                 <span class="btn-icon" v-html="ICONS.folder"></span> 浏览本地 YAML 文件
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 重命名弹窗 -->
+        <div v-if="activeModal === 'rename'" class="custom-modal-card glass-panel" @click.stop>
+          <div class="modal-header">
+            <h3>重命名配置文件</h3>
+          </div>
+          <div class="modal-body">
+            <div class="section">
+              <label>新名称</label>
+              <input v-model="renameValue" class="modern-input full-width-input" placeholder="输入新文件名" @keyup.enter="confirmRename" />
+            </div>
+            <div class="modal-footer">
+              <button class="action-btn" @click="closeAllModals">取消</button>
+              <button class="primary-btn accent-btn" @click="confirmRename" :disabled="!renameValue || loading">确定</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 删除确认弹窗 -->
+        <div v-if="activeModal === 'delete'" class="custom-modal-card glass-panel" @click.stop>
+          <div class="modal-header">
+            <h3 class="danger-text">彻底删除</h3>
+          </div>
+          <div class="modal-body">
+            <p v-if="isCurrentConfig(targetFile)" class="warning-box">
+              <strong>警告：</strong> "{{ targetFile }}" 正在运行中。删除将强制停止所有代理服务。
+            </p>
+            <p v-else>确定要彻底删除 <strong>{{ targetFile }}</strong> 吗？此操作不可撤销。</p>
+            <div class="modal-footer">
+              <button class="action-btn" @click="closeAllModals">取消</button>
+              <button class="primary-btn danger-btn" @click="confirmDelete" :disabled="loading">
+                {{ loading ? '删除中...' : '确定删除' }}
               </button>
             </div>
           </div>
@@ -107,20 +136,24 @@ const ICONS = {
   folder: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`
 };
 
-const showImportModal = ref(false);
+const activeModal = ref<'import' | 'rename' | 'delete' | null>(null);
+const targetFile = ref('');
+const renameValue = ref('');
 const url = ref('');
 const loading = ref(false);
 const selecting = ref<string | null>(null);
 const currentPath = ref('');
 const localConfigs = ref<string[]>([]);
 const activeMenu = ref<string | null>(null);
-const subRecords = ref<Record<string, any>>({}); // 后端获取的订阅链接记录
+const subRecords = ref<Record<string, any>>({});
 
 const isCurrentConfig = (name: string) => {
   if (!currentPath.value) return false;
   const currentFile = currentPath.value.split(/[\\/]/).pop();
   return currentFile === name;
 };
+
+const hasUrlRecord = (name: string) => !!subRecords.value[name];
 
 const fetchConfigs = async () => {
   try {
@@ -130,8 +163,7 @@ const fetchConfigs = async () => {
     if (data && data.activeConfig) {
       currentPath.value = data.activeConfig;
     }
-    // 获取订阅记录映射
-    subRecords.value = await API.GetSubRecords() || {};
+    subRecords.value = await (API as any).GetSubRecords() || {};
   } catch (e) {
     console.error("同步状态失败:", e);
   }
@@ -144,7 +176,7 @@ const handleSelectConfig = async (name: string) => {
     await API.SelectLocalConfig(name);
     currentPath.value = name;
   } catch (error) {
-    alert("切换失败: " + error);
+    console.error("切换失败:", error);
   } finally {
     selecting.value = null;
   }
@@ -154,10 +186,9 @@ const handleUpdateAll = async () => {
   loading.value = true;
   try {
     await (API as any).UpdateAllSubs();
-    alert("所有订阅更新尝试完成");
     await fetchConfigs();
   } catch (e) {
-    alert("更新失败: " + e);
+    console.error("批量更新失败:", e);
   } finally {
     loading.value = false;
   }
@@ -168,18 +199,12 @@ const handleUpdateSingle = async (filename: string) => {
   loading.value = true;
   try {
     await (API as any).UpdateSingleSub(filename);
-    alert(`"${filename}" 更新成功`);
     await fetchConfigs();
   } catch (e) {
-    alert("更新失败: " + e);
+    console.error("更新订阅失败:", e);
   } finally {
     loading.value = false;
   }
-};
-
-// 逻辑：判断该配置是否由链接导入
-const hasSubscriptionUrl = (name: string) => {
-  return !!subRecords.value[name];
 };
 
 const handleDownload = async () => {
@@ -187,18 +212,17 @@ const handleDownload = async () => {
   try {
     await API.UpdateSub(url.value);
     await fetchConfigs();
-    showImportModal.value = false;
+    closeAllModals();
     url.value = '';
-    alert("下载成功！");
   } catch (e) {
-    alert("下载失败: " + e);
+    console.error("下载失败:", e);
   } finally {
     loading.value = false;
   }
 };
 
 const handleImportLocal = async () => {
-  showImportModal.value = false;
+  closeAllModals();
   try {
     await API.ImportLocalConfig();
     await fetchConfigs();
@@ -207,16 +231,27 @@ const handleImportLocal = async () => {
   }
 };
 
-const handleRename = async (filename: string) => {
+const openRenameModal = (filename: string) => {
   activeMenu.value = null;
-  const newName = prompt("请输入新名称:", filename);
-  if (newName && newName !== filename) {
-    try {
-      await API.RenameConfig(filename, newName);
-      await fetchConfigs();
-    } catch (e) {
-      alert(e);
-    }
+  targetFile.value = filename;
+  renameValue.value = filename;
+  activeModal.value = 'rename';
+};
+
+const confirmRename = async () => {
+  if (!renameValue.value || renameValue.value === targetFile.value) {
+    closeAllModals();
+    return;
+  }
+  loading.value = true;
+  try {
+    await API.RenameConfig(targetFile.value, renameValue.value);
+    await fetchConfigs();
+    closeAllModals();
+  } catch (e) {
+    console.error("重命名失败:", e);
+  } finally {
+    loading.value = false;
   }
 };
 
@@ -225,25 +260,29 @@ const handleEditFile = async (filename: string) => {
   await API.OpenConfigFile(filename);
 };
 
-const handleDelete = async (filename: string) => {
+const openDeleteModal = (filename: string) => {
   activeMenu.value = null;
-  if (isCurrentConfig(filename)) {
-    const confirmClose = confirm(`【警告】"${filename}" 正在使用中！\n删除前需要强制关闭代理和虚拟网卡服务，是否继续？`);
-    if (!confirmClose) return;
-    await API.StopProxy();
-    currentPath.value = '';
-  } else {
-    if (!confirm(`确定彻底删除 ${filename} 吗？`)) return;
-  }
+  targetFile.value = filename;
+  activeModal.value = 'delete';
+};
 
+const confirmDelete = async () => {
+  loading.value = true;
   try {
-    await API.DeleteConfig(filename);
+    if (isCurrentConfig(targetFile.value)) {
+      await API.StopProxy();
+      currentPath.value = '';
+    }
+    await API.DeleteConfig(targetFile.value);
     await fetchConfigs();
     if (localConfigs.value.length === 0) {
       await (API as any).ClearBaseConfig();
     }
+    closeAllModals();
   } catch (e) {
-    alert("删除失败: " + e);
+    console.error("删除失败:", e);
+  } finally {
+    loading.value = false;
   }
 };
 
@@ -251,8 +290,8 @@ const toggleMenu = (name: string) => {
   activeMenu.value = activeMenu.value === name ? null : name;
 };
 
-const closeMenus = () => {
-  activeMenu.value = null;
+const closeAllModals = () => {
+  activeModal.value = null;
 };
 
 onMounted(() => {
@@ -272,7 +311,7 @@ onUnmounted(() => {
 <style scoped>
 .subs-view { display: flex; flex-direction: column; height: 100%; color: var(--text-main); }
 
-/* 头部样式调整 */
+/* 头部样式 */
 .page-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 32px; }
 .main-title { font-size: 1.6rem; font-weight: 600; margin-bottom: 4px; }
 .sub-text { font-size: 0.85rem; color: var(--text-sub); }
@@ -292,31 +331,44 @@ onUnmounted(() => {
 }
 .action-btn:hover { background: var(--surface-hover); }
 
+/* 反色按钮 */
+.accent-btn {
+  background: var(--accent) !important;
+  color: var(--accent-fg) !important;
+  justify-content: center;
+  min-width: 120px;
+}
+.danger-btn { background: #ff4d4f !important; color: #fff !important; justify-content: center; }
+
 /* 列表部分 */
 .subs-list { flex: 1; overflow-y: auto; padding-right: 8px; }
 .sub-card { position: relative; padding: 20px; border-radius: 12px; background: var(--surface); margin-bottom: 16px; transition: 0.2s; }
 .sub-card:hover { background: var(--surface-hover); }
 
-/* 选中卡片：采用反色表示 */
-.active-card { 
-  background: var(--accent) !important; 
+/* 选中卡片反色 */
+.active-card {
+  background: var(--accent) !important;
   color: var(--accent-fg) !important;
   border: none !important;
 }
-.active-card .sub-path, 
-.active-card .sub-hint, 
-.active-card .icon-btn {
-  color: var(--accent-fg) !important;
-  opacity: 0.8;
-}
+.active-card .sub-path, .active-card .sub-hint, .active-card .icon-btn { color: var(--accent-fg) !important; opacity: 0.8; }
 
 .sub-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
 .sub-name { font-size: 0.95rem; font-weight: 600; }
 .sub-path { font-size: 0.7rem; color: var(--text-muted); }
 
-.status-badge { font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 4px; }
-.status-badge.online { color: var(--text-main); background: var(--surface-hover); }
-.loading-tag { color: var(--text-muted); background: var(--surface-hover); }
+/* 呼吸灯 */
+.status-badge-active { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; font-weight: 700; }
+.breathe-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+  animation: breathe 2s infinite ease-in-out;
+}
+@keyframes breathe {
+  0%, 100% { opacity: 0.4; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
 
 .sub-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 10px; }
 .sub-hint { font-size: 0.75rem; color: var(--text-sub); font-style: italic; }
@@ -329,79 +381,46 @@ onUnmounted(() => {
 .icon-btn :deep(svg) { width: 14px !important; height: 14px !important; }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
-/* 呼吸灯样式 */
-.status-badge-new {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
+/* 模态框遮罩 */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex; align-items: center; justify-content: center; z-index: 2000;
 }
-.breathe-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 8px currentColor;
-  animation: breathe 2s ease-in-out infinite;
-}
-@keyframes breathe {
-  0%, 100% { opacity: 0.5; transform: scale(0.9); }
-  50% { opacity: 1; transform: scale(1.1); }
-}
+.custom-modal-card { width: 440px; padding: 24px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
 
-/* 按钮样式：文字居中、反色底色 */
-.accent-btn {
-  justify-content: center;
-  background: var(--accent) !important;
-  color: var(--accent-fg) !important;
-  min-width: 120px;
-}
-
-/* 弹窗遮罩：去除模糊效果 */
-.modal-overlay { 
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-  background: rgba(0,0,0,0.4); 
-  display: flex; align-items: center; justify-content: center; z-index: 2000; 
-}
-.import-card { width: 440px; background: var(--glass-panel); padding: 24px; border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); }
 .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.modal-header h3 { margin: 0; font-size: 1.25rem; font-weight: 600; }
 .close-x { background: none; border: none; font-size: 28px; cursor: pointer; color: var(--text-sub); }
 
+.modal-body { display: flex; flex-direction: column; gap: 20px; }
 .section label { display: block; font-size: 0.85rem; color: var(--text-sub); margin-bottom: 8px; font-weight: 600; }
 .input-row { display: flex; gap: 8px; background: var(--surface-hover); padding: 4px 4px 4px 12px; border-radius: 10px; align-items: center; }
-.modern-input { flex: 1; background: transparent; border: none; color: inherit; outline: none; padding: 8px 0; }
+.modern-input { flex: 1; background: transparent; border: none; color: inherit; outline: none; padding: 8px 0; font-size: 0.9rem; }
+.full-width-input { width: 100%; padding: 12px !important; background: var(--surface-hover) !important; border-radius: 10px; }
+
 .mini { padding: 8px 16px; font-size: 0.85rem; }
-
-.divider-text { text-align: center; margin: 20px 0; color: var(--text-muted); font-size: 0.75rem; position: relative; }
-.divider-text::before, .divider-text::after { content: ""; position: absolute; top: 50%; width: 42%; height: 1px; background: var(--surface-hover); }
+.divider-text { text-align: center; margin: 10px 0; color: var(--text-muted); font-size: 0.75rem; position: relative; }
+.divider-text::before, .divider-text::after { content: ""; position: absolute; top: 50%; width: 40%; height: 1px; background: var(--surface-hover); }
 .divider-text::before { left: 0; } .divider-text::after { right: 0; }
+.w-full-btn { width: 100%; justify-content: center; padding: 14px; font-weight: 600; border-radius: 10px; border: none; background: var(--surface-hover); color: var(--text-main); cursor: pointer; }
 
-.w-full-btn { width: 100%; padding: 12px; font-weight: 600; border-radius: 10px; border: none; background: var(--surface-hover); color: var(--text-main); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.modal-footer { display: flex; justify-content: flex-end; gap: 12px; margin-top: 10px; }
+.danger-text { color: #ff4d4f; }
+.warning-box { background: rgba(255, 77, 79, 0.1); padding: 12px; border-radius: 8px; color: #ff4d4f; font-size: 0.85rem; line-height: 1.4; border: 1px solid rgba(255, 77, 79, 0.2); }
 
-/* 弹出动画保持一致 (pop效果) */
-.pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.3, 0, 0.2, 1); }
-.pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.92); }
+.pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.95); }
 
-.dropdown-menu { position: absolute; right: 0; top: 30px; width: 150px; border-radius: 8px; z-index: 10; overflow: hidden; }
+/* 下拉菜单 */
+.dropdown-menu { 
+  position: absolute; right: 0; top: 30px; width: 150px; border-radius: 8px; z-index: 10; overflow: hidden;
+  background: var(--glass-panel); border: 1px solid var(--surface-hover); box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
 .menu-item { width: 100%; padding: 10px 16px; border: none; background: transparent; text-align: left; cursor: pointer; font-size: 0.85rem; color: var(--text-main); }
 .menu-item:hover { background: var(--surface-hover); }
-.menu-item.danger { color: var(--text-main) !important; font-weight: 600; }
-.menu-divider { height: 1px; margin: 4px 0; }
+.menu-item.danger { color: #ff4d4f !important; font-weight: 600; }
+.menu-divider { height: 1px; margin: 4px 0; background: var(--surface-hover); }
 
 .empty-state { padding: 30px; text-align: center; color: var(--text-muted); border: none; border-radius: 10px; background: var(--surface); }
-</style>
-
-<style>
-/* ☀️ 日间模式 (白底黑字，纯实色) */
-.app-shell:not(.dark) .dropdown-menu { background: #ffffff !important; border: 1px solid #e4e4e7; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); }
-.app-shell:not(.dark) .menu-item { background: transparent; color: #18181b; }
-.app-shell:not(.dark) .menu-item:hover { background: #f4f4f5; }
-.app-shell:not(.dark) .menu-divider { background: #e4e4e7; }
-
-/* 🌙 夜间模式 (黑底白字，纯实色) */
-.app-shell.dark .dropdown-menu { background: #242427 !important; border: 1px solid #3f3f46; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
-.app-shell.dark .menu-item { background: transparent; color: #f4f4f5; }
-.app-shell.dark .menu-item:hover { background: #3f3f46; }
-.app-shell.dark .menu-divider { background: #3f3f46; }
 </style>
