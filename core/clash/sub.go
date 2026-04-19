@@ -6,54 +6,61 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
-// UpdateSubscription 下载 YAML 订阅并覆盖本地 config.yaml
-func UpdateSubscription(subURL string) error {
+// UpdateSubscription 下载 YAML 订阅
+// 如果 targetName 为空，则自动根据 URL 生成文件名
+func UpdateSubscription(subURL string, targetName string) (string, error) {
 	pwd, err := os.Getwd()
 	if err != nil {
-		return err
+		return "", err
 	}
-	configPath := filepath.Join(pwd, "core", "bin", "config.yaml")
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	// 1. 决定文件名
+	fileName := targetName
+	if fileName == "" {
+		// 简单从 URL 提取或使用时间戳
+		fileName = fmt.Sprintf("sub_%d.yaml", time.Now().Unix())
+	}
+	if !strings.HasSuffix(fileName, ".yaml") && !strings.HasSuffix(fileName, ".yml") {
+		fileName += ".yaml"
+	}
+
+	configPath := filepath.Join(pwd, "core", "bin", fileName)
+
+	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", subURL, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
-	// 伪装 User-Agent，防止部分机场拦截
 	req.Header.Set("User-Agent", "ClashforWindows/0.20.39")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("订阅下载失败: %v", err)
+		return "", fmt.Errorf("订阅下载失败: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("订阅服务器异常: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("订阅服务器异常: HTTP %d", resp.StatusCode)
 	}
 
 	out, err := os.Create(configPath)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	_, err = io.Copy(out, resp.Body)
 	out.Close()
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	// 👈 新增这一段：判断当前内核有没有在运行
-	// 如果内核根本没有启动，就不要向 9090 发送热重载请求，直接返回成功
-	if !IsRunning() {
-		return nil
-	}
-
-	// 订阅下载完成后，调用内核的 API 无缝热重载配置
-	return ReloadConfig()
+	// 如果当前正在运行且更新的是活动配置，则热重载
+	// 注意：这里为了简单，暂时不在此处判断是否是活动配置，由 App 层决定是否 Reload
+	return fileName, nil
 }
 
 // ReloadConfig 调用内核 API 热重载

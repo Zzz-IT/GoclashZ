@@ -154,8 +154,16 @@ export function ToggleTunMode(arg1) {
   return window['go']['main']['App']['ToggleTunMode'](arg1);
 }
 
+export function UpdateAllSubs() {
+  return window['go']['main']['App']['UpdateAllSubs']();
+}
+
 export function UpdateClashMode(arg1) {
   return window['go']['main']['App']['UpdateClashMode'](arg1);
+}
+
+export function UpdateSingleSub(arg1) {
+  return window['go']['main']['App']['UpdateSingleSub'](arg1);
 }
 
 export function UpdateSub(arg1) {

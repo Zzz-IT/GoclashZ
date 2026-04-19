@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"goclashz/core/clash"
 	"goclashz/core/sys"
@@ -29,6 +30,35 @@ type App struct {
 	offlineNodes  map[string]string // 👈 新增：存储离线状态下选中的节点
 	sysProxyActive bool             // 👈 替换：系统代理是否开启
 	tunActive      bool             // 👈 替换：TUN 模式是否开启
+}
+
+// 订阅信息结构
+type SubInfo struct {
+	URL string `json:"url"`
+}
+
+// 获取订阅信息存储路径
+func getSubsJsonPath() string {
+	configDir, _ := os.UserConfigDir()
+	appDir := filepath.Join(configDir, "GoclashZ")
+	os.MkdirAll(appDir, 0755)
+	return filepath.Join(appDir, "subs.json")
+}
+
+// 辅助方法：读取订阅记录
+func (a *App) readSubsMap() map[string]SubInfo {
+	m := make(map[string]SubInfo)
+	data, err := os.ReadFile(getSubsJsonPath())
+	if err == nil {
+		json.Unmarshal(data, &m)
+	}
+	return m
+}
+
+// 辅助方法：保存订阅记录
+func (a *App) saveSubsMap(m map[string]SubInfo) {
+	data, _ := json.Marshal(m)
+	os.WriteFile(getSubsJsonPath(), data, 0644)
 }
 
 // ProxyStatus 新增给前端返回的双重状态结构
@@ -473,7 +503,71 @@ func (a *App) SelectProxy(groupName, nodeName string) error {
 }
 
 func (a *App) UpdateSub(url string) error {
-	return clash.UpdateSubscription(url)
+	// 1. 下载订阅
+	filename, err := clash.UpdateSubscription(url, "")
+	if err != nil {
+		return err
+	}
+
+	// 2. 记录 URL 映射
+	m := a.readSubsMap()
+	m[filename] = SubInfo{URL: url}
+	a.saveSubsMap(m)
+
+	// 3. 如果更新的是当前正在使用的配置，触发重载
+	if a.getActiveConfig() == filename && clash.IsRunning() {
+		mode := a.getActiveMode()
+		clash.BuildRuntimeConfig(filename, mode)
+		clash.ReloadConfig()
+	}
+
+	return nil
+}
+
+// UpdateSingleSub 实装：更新单个文件
+func (a *App) UpdateSingleSub(filename string) error {
+	m := a.readSubsMap()
+	info, ok := m[filename]
+	if !ok || info.URL == "" {
+		return fmt.Errorf("未找到该文件的订阅链接，请重新导入")
+	}
+
+	_, err := clash.UpdateSubscription(info.URL, filename)
+	if err != nil {
+		return err
+	}
+
+	// 如果更新的是当前正在使用的配置，触发重载
+	if a.getActiveConfig() == filename && clash.IsRunning() {
+		mode := a.getActiveMode()
+		clash.BuildRuntimeConfig(filename, mode)
+		clash.ReloadConfig()
+	}
+
+	return nil
+}
+
+// UpdateAllSubs 实装：遍历并更新所有已记录链接的文件
+func (a *App) UpdateAllSubs() error {
+	m := a.readSubsMap()
+	for filename, info := range m {
+		if info.URL != "" {
+			// 忽略错误继续更新下一个
+			_, _ = clash.UpdateSubscription(info.URL, filename)
+		}
+	}
+
+	// 更新完成后，如果当前活动配置在其中，触发一次重载
+	active := a.getActiveConfig()
+	if active != "" && clash.IsRunning() {
+		if _, exists := m[active]; exists {
+			mode := a.getActiveMode()
+			clash.BuildRuntimeConfig(active, mode)
+			clash.ReloadConfig()
+		}
+	}
+
+	return nil
 }
 
 func (a *App) StartTrafficStream() {

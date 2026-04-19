@@ -79,6 +79,10 @@ export function ToggleSystemProxy(arg1:boolean):Promise<void>;
 
 export function ToggleTunMode(arg1:boolean):Promise<void>;
 
+export function UpdateAllSubs():Promise<void>;
+
 export function UpdateClashMode(arg1:string):Promise<void>;
+
+export function UpdateSingleSub(arg1:string):Promise<void>;
 
 export function UpdateSub(arg1:string):Promise<void>;
