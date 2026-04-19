@@ -3,6 +3,8 @@
 import {clash} from '../models';
 import {main} from '../models';
 
+export function AddRule(arg1:string):Promise<void>;
+
 export function CheckTunEnv():Promise<Record<string, boolean>>;
 
 export function ClearBaseConfig():Promise<void>;
@@ -12,6 +14,8 @@ export function CloseAllConnections():Promise<void>;
 export function CloseConnection(arg1:string):Promise<void>;
 
 export function DeleteConfig(arg1:string):Promise<void>;
+
+export function DeleteRule(arg1:number):Promise<void>;
 
 export function ElevatePrivileges():Promise<void>;
 
@@ -28,6 +32,8 @@ export function GetLocalConfigs():Promise<Array<string>>;
 export function GetNetworkConfig():Promise<clash.NetworkConfig>;
 
 export function GetProxyStatus():Promise<main.ProxyStatus>;
+
+export function GetRules():Promise<clash.RuleInfo>;
 
 export function GetTunConfig():Promise<clash.TunConfig>;
 

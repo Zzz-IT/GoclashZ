@@ -57,11 +57,13 @@
         </header>
 
         <div class="view-scroller">
-          <Overview v-if="currentTab === 'home'" />
+          <Overview v-if="currentTab === 'home'" :traffic="traffic" />
 
           <Subscriptions v-else-if="currentTab === 'subs'" />
 
           <Proxies v-else-if="currentTab === 'proxies'" />
+
+          <Rules v-else-if="currentTab === 'rules'" />
 
           <Connections v-else-if="currentTab === 'connections'" />
 
@@ -91,6 +93,7 @@ import Overview from './components/Overview.vue';
 import Proxies from './components/Proxies.vue';
 import Subscriptions from './components/Subscriptions.vue';
 import Connections from './components/Connections.vue';
+import Rules from './components/Rules.vue';
 import Settings from './components/Settings.vue';
 import {
   EventsOn,
@@ -111,6 +114,7 @@ const ICONS = {
   moon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
   power: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"></path></svg>`,
   connections: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`,
+  rules: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>`,
   min: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
   max: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>`,
   close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
@@ -131,6 +135,7 @@ const menu = [
   { id: 'home', label: '控制台', icon: ICONS.home },
   { id: 'subs', label: '订阅管理', icon: ICONS.subs },
   { id: 'proxies', label: '代理节点', icon: ICONS.proxies },
+  { id: 'rules', label: '配置规则', icon: ICONS.rules },
   { id: 'connections', label: '当前连接', icon: ICONS.connections },
   { id: 'logs', label: '实时日志', icon: ICONS.logs },
   { id: 'settings', label: '系统设置', icon: ICONS.settings }

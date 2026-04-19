@@ -101,6 +101,20 @@ export namespace clash {
 	        this.tcpKeepAliveInterval = source["tcpKeepAliveInterval"];
 	    }
 	}
+	export class RuleInfo {
+	    rules: string[];
+	    isEditable: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RuleInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rules = source["rules"];
+	        this.isEditable = source["isEditable"];
+	    }
+	}
 	export class TunConfig {
 	    enable: boolean;
 	    stack: string;

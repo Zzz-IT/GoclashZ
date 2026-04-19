@@ -548,3 +548,79 @@ func ExtractGroupOrder(yamlData []byte) []string {
 	return order
 }
 
+// -------------------- 规则配置相关 --------------------
+
+// RuleInfo 封装规则数据及其元数据
+type RuleInfo struct {
+	Rules      []string `json:"rules"`
+	IsEditable bool     `json:"isEditable"` // 是否允许增删
+}
+
+// GetRules 获取当前活跃配置的规则
+func GetRules(profileName string) (RuleInfo, error) {
+	// 判断是否允许编辑：
+	// 如果 profileName 为空或者是运行时的 config.yaml，通常属于订阅源或合并后的产物，设为只读
+	isEditable := profileName != "" && profileName != "config.yaml"
+
+	path := GetConfigPath() // 默认指向 core/bin/config.yaml
+	if isEditable {
+		// 指向用户选择的具体本地/订阅配置文件
+		path = filepath.Join(filepath.Dir(path), profileName)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return RuleInfo{}, err
+	}
+
+	var root map[string]interface{}
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return RuleInfo{}, err
+	}
+
+	rules := []string{}
+	if r, ok := root["rules"].([]interface{}); ok {
+		for _, val := range r {
+			if s, ok := val.(string); ok {
+				rules = append(rules, s)
+			}
+		}
+	}
+
+	return RuleInfo{
+		Rules:      rules,
+		IsEditable: isEditable,
+	}, nil
+}
+
+// SaveRules 将新规则保存回原始导入的配置文件
+func SaveRules(profileName string, newRules []string) error {
+	if profileName == "" || profileName == "config.yaml" {
+		return fmt.Errorf("当前配置不可直接修改，请在本地配置文件中操作")
+	}
+
+	baseDir := filepath.Dir(GetConfigPath())
+	sourcePath := filepath.Join(baseDir, profileName)
+
+	// 1. 读取并修改原始导入文件 (保留其他配置不变)
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return err
+	}
+
+	// 找到 rules 节点并更新 (这里简化为转 map 处理以防丢失结构，生产环境建议直接操作 yaml.Node)
+	var rootMap map[string]interface{}
+	if err := yaml.Unmarshal(data, &rootMap); err != nil {
+		return err
+	}
+	rootMap["rules"] = newRules
+
+	out, err := yaml.Marshal(rootMap)
+	if err != nil {
+		return err
+	}
+
+	// 覆写原文件
+	return os.WriteFile(sourcePath, out, 0644)
+}
+

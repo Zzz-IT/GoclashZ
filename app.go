@@ -828,3 +828,67 @@ func (a *App) SelectLocalConfig(fileName string) error {
 	return nil
 }
 
+// --- 规则管理 (新增) ---
+
+// GetRules 供前端获取规则列表及权限
+func (a *App) GetRules() (clash.RuleInfo, error) {
+	return clash.GetRules(a.getActiveConfig())
+}
+
+// AddRule 增加一条规则到最前面
+func (a *App) AddRule(ruleStr string) error {
+	info, err := clash.GetRules(a.getActiveConfig())
+	if err != nil {
+		return err
+	}
+	if !info.IsEditable {
+		return fmt.Errorf("当前配置只读，无法修改规则")
+	}
+
+	// 新规则置于顶部
+	newRules := append([]string{ruleStr}, info.Rules...)
+	if err := clash.SaveRules(a.getActiveConfig(), newRules); err != nil {
+		return err
+	}
+
+	// 同步到内核：重构 config.yaml
+	mode := a.getActiveMode()
+	clash.BuildRuntimeConfig(a.getActiveConfig(), mode)
+
+	// 如果内核运行中，触发热重载
+	if clash.IsRunning() {
+		return clash.UpdateMode(mode)
+	}
+	return nil
+}
+
+// DeleteRule 根据索引删除规则
+func (a *App) DeleteRule(index int) error {
+	info, err := clash.GetRules(a.getActiveConfig())
+	if err != nil {
+		return err
+	}
+	if !info.IsEditable {
+		return fmt.Errorf("当前配置只读，无法修改规则")
+	}
+
+	if index < 0 || index >= len(info.Rules) {
+		return fmt.Errorf("规则索引越界")
+	}
+
+	// 移除指定索引的规则
+	newRules := append(info.Rules[:index], info.Rules[index+1:]...)
+
+	if err := clash.SaveRules(a.getActiveConfig(), newRules); err != nil {
+		return err
+	}
+
+	// 同步到内核
+	mode := a.getActiveMode()
+	clash.BuildRuntimeConfig(a.getActiveConfig(), mode)
+	if clash.IsRunning() {
+		return clash.UpdateMode(mode)
+	}
+	return nil
+}
+

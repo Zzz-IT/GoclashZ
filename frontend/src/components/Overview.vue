@@ -77,13 +77,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 
+// 👉 新增：接收从 App.vue 传过来的全局流量数据
+defineProps<{
+  traffic: { up: string; down: string; }
+}>();
+
 const ICONS = {
-  // 系统代理：表示系统内核指令的环形网格
   sysProxy: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3z"/></svg>`,
-  // TUN：表示物理链路插槽的线性图标
   tun: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/><path d="M10 11v4"/><path d="M14 11v4"/></svg>`,
   arrowUp: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5m-7 7 7-7 7 7"/></svg>`,
   arrowDown: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14m-7-7 7 7 7-7"/></svg>`
@@ -92,7 +95,8 @@ const ICONS = {
 const status = ref({ systemProxy: false, tun: false });
 const currentMode = ref('rule');
 const clashVersion = ref('');
-const traffic = ref({ up: '0 B/s', down: '0 B/s' });
+
+// ⚠️ 已删除：const traffic = ref({ up: '0 B/s', down: '0 B/s' }); (改为用 Prop)
 
 const modes = [
   { label: '规则分流', val: 'rule' },
@@ -115,14 +119,12 @@ const refreshData = async () => {
 const toggleSysProxy = async () => {
   await API.ToggleSystemProxy(!status.value.systemProxy);
   status.value = await API.GetProxyStatus() as any;
-  // 👉 [新增] 操作后广播最新状态
   window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: status.value }));
 };
 
 const toggleTun = async () => {
   await API.ToggleTunMode(!status.value.tun);
   status.value = await API.GetProxyStatus() as any;
-  // 👉 [新增] 操作后广播最新状态
   window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: status.value }));
 };
 
@@ -133,10 +135,10 @@ const handleModeChange = (val: string) => {
 
 onMounted(() => {
   refreshData();
-  (window as any).runtime.EventsOn("traffic-data", (data: any) => traffic.value = data);
+  // ⚠️ 已删除：独立的 EventsOn 监听
 });
 
-onUnmounted(() => (window as any).runtime.EventsOff("traffic-data"));
+// ⚠️ 已删除：onUnmounted 生命周期里的 EventsOff，这是导致侧边栏断流的罪魁祸首！
 </script>
 
 <style scoped>
