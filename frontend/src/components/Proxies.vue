@@ -308,7 +308,46 @@ onUnmounted(() => {
   transition: all 0.2s ease;
 }
 .node-item:hover { background: var(--surface-hover); }
-.node-item.active { background: var(--glass-panel); font-weight: 600; }
+/* 将原本的 .node-item.active 修改为反色背景 */
+.node-item.active { 
+  background: var(--accent); 
+  color: var(--accent-fg);
+  font-weight: 600; 
+}
+
+/* 覆盖卡片内节点名称的颜色为反色 */
+.node-item.active .n-name { 
+  color: var(--accent-fg); 
+}
+
+/* 将测速框的背景调整为半透明，以融入反色卡片 */
+.node-item.active .n-latency-box {
+  background: rgba(128, 128, 128, 0.2); 
+}
+
+/* 覆盖测速状态下的所有文字和圆点颜色为反色，去除灰度递进 */
+.node-item.active .t-fast,
+.node-item.active .t-mid,
+.node-item.active .t-slow,
+.node-item.active .t-fail,
+.node-item.active .t-unknown { 
+  color: var(--accent-fg); 
+}
+
+.node-item.active .status-dot { 
+  background: var(--accent-fg); 
+}
+
+/* 覆盖未测速图标的颜色 */
+.node-item.active .ping-idle {
+  color: var(--accent-fg);
+  opacity: 0.8;
+}
+
+/* 覆盖测速加载动画的颜色 */
+.node-item.active .scanner-bar {
+  stroke: var(--accent-fg);
+}
 
 .node-info { flex: 1; min-width: 0; }
 .n-name { font-size: 0.95rem; font-weight: 500; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main); }
