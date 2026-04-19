@@ -51,6 +51,8 @@ export function SaveDNSConfig(arg1:clash.DNSConfig):Promise<void>;
 
 export function SaveNetworkConfig(arg1:clash.NetworkConfig):Promise<void>;
 
+export function SaveThemePreference(arg1:string):Promise<void>;
+
 export function SaveTunConfig(arg1:clash.TunConfig):Promise<void>;
 
 export function SelectLocalConfig(arg1:string):Promise<void>;

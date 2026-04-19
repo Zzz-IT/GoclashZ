@@ -2,6 +2,8 @@ package main
 
 import (
 	"embed"
+	"os"
+	"path/filepath"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -15,25 +17,35 @@ var assets embed.FS
 func main() {
 	app := NewApp()
 
-	err := wails.Run(&options.App{
+	// 1. 👈 动态读取上一次保存的主题
+	var r, g, b uint8 = 242, 242, 242 // 默认日间底色 (#F2F2F2)
+	configDir, err := os.UserConfigDir()
+	if err == nil {
+		themeFile := filepath.Join(configDir, "GoclashZ", "theme.txt")
+		content, err := os.ReadFile(themeFile)
+		if err == nil && string(content) == "dark" {
+			r, g, b = 17, 17, 17 // 匹配夜间模式底色 (#111111)
+		}
+	}
+
+	err = wails.Run(&options.App{
 		Title:  "GoclashZ",
 		Width:  1024,
 		Height: 768,
 		Frameless: true, // 保持无边框，自己渲染 UI
 		
-		// 实色底色，与 CSS --glass-bg (#F2F2F2) 保持一致
-		BackgroundColour: &options.RGBA{R: 242, G: 242, B: 242, A: 255}, 
+		// 2. 👈 使用动态读取的颜色
+		BackgroundColour: &options.RGBA{R: r, G: g, B: b, A: 255}, 
 		
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
 		OnStartup:  app.startup,
-		OnShutdown: app.shutdown, // 👈 关键修改：注册退出时的回调函数
+		OnShutdown: app.shutdown,
 		Bind: []interface{}{
 			app,
 		},
 		Windows: &windows.Options{
-			// ⚠️ 修改：彻底移除透明、半透明和 Mica 材质请求，回归纯粹实色渲染
 			Theme:             windows.SystemDefault, 
 			DisableWindowIcon: false,
 		},

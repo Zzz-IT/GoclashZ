@@ -98,6 +98,10 @@ export function SaveNetworkConfig(arg1) {
   return window['go']['main']['App']['SaveNetworkConfig'](arg1);
 }
 
+export function SaveThemePreference(arg1) {
+  return window['go']['main']['App']['SaveThemePreference'](arg1);
+}
+
 export function SaveTunConfig(arg1) {
   return window['go']['main']['App']['SaveTunConfig'](arg1);
 }

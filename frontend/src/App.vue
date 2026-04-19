@@ -153,6 +153,9 @@ const currentModeName = computed(() => modes.find(m => m.id === currentMode.valu
 const toggleTheme = () => {
   isDark.value = !isDark.value;
   isDark.value ? WindowSetDarkTheme() : WindowSetLightTheme();
+  const themeStr = isDark.value ? 'dark' : 'light';
+  localStorage.setItem('goclashz-theme', themeStr);
+  API.SaveThemePreference(themeStr); // 👈 保存到 Go 后端物理文件
 };
 
 // 👉 新增：同步暗色类名到 html 根标签，确保“外部”背景变色
