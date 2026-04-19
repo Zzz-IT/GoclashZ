@@ -38,6 +38,10 @@ export function FixUWPNetwork() {
   return window['go']['main']['App']['FixUWPNetwork']();
 }
 
+export function GetAppBehavior() {
+  return window['go']['main']['App']['GetAppBehavior']();
+}
+
 export function GetConnections() {
   return window['go']['main']['App']['GetConnections']();
 }
@@ -92,6 +96,10 @@ export function RenameConfig(arg1, arg2) {
 
 export function RunProxy() {
   return window['go']['main']['App']['RunProxy']();
+}
+
+export function SaveAppBehavior(arg1) {
+  return window['go']['main']['App']['SaveAppBehavior'](arg1);
 }
 
 export function SaveDNSConfig(arg1) {

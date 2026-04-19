@@ -35,6 +35,7 @@ func main() {
 		Frameless: true, // 保持无边框，自己渲染 UI
 		
 		HideWindowOnClose: true, // 👈 1. 新增：点击关闭按钮时，隐藏窗口而不是退出进程
+		StartHidden:       true, // 👈 核心：启动时默认不弹窗，为“静默启动”铺垫
 		
 		// 2. 👈 使用动态读取的颜色
 		BackgroundColour: &options.RGBA{R: r, G: g, B: b, A: 255}, 

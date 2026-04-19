@@ -146,6 +146,20 @@ export namespace clash {
 
 export namespace main {
 	
+	export class AppBehavior {
+	    silentStart: boolean;
+	    closeToTray: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AppBehavior(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.silentStart = source["silentStart"];
+	        this.closeToTray = source["closeToTray"];
+	    }
+	}
 	export class ProxyStatus {
 	    systemProxy: boolean;
 	    tun: boolean;

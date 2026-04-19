@@ -37,6 +37,39 @@ type App struct {
 	tunActive      bool             // 👈 替换：TUN 模式是否开启
 }
 
+// AppBehavior 定义应用行为设置
+type AppBehavior struct {
+	SilentStart   bool `json:"silentStart"`   // 静默启动 (不弹窗，直接进托盘)
+	CloseToTray   bool `json:"closeToTray"`   // 点击关闭时隐藏到托盘
+}
+
+// 获取配置文件的存放路径
+func (a *App) getAppBehaviorPath() string {
+	configDir, _ := os.UserConfigDir()
+	path := filepath.Join(configDir, "GoclashZ", "app_behavior.json")
+	os.MkdirAll(filepath.Dir(path), 0755)
+	return path
+}
+
+// GetAppBehavior 供前端获取当前设置 (Wails 绑定方法)
+func (a *App) GetAppBehavior() AppBehavior {
+	data, err := os.ReadFile(a.getAppBehaviorPath())
+	var config AppBehavior
+	if err == nil {
+		json.Unmarshal(data, &config)
+	} else {
+		// 默认行为：不静默启动，关闭时允许隐藏到托盘
+		config = AppBehavior{SilentStart: false, CloseToTray: true}
+	}
+	return config
+}
+
+// SaveAppBehavior 供前端保存设置 (Wails 绑定方法)
+func (a *App) SaveAppBehavior(config AppBehavior) error {
+	data, _ := json.MarshalIndent(config, "", "  ")
+	return os.WriteFile(a.getAppBehaviorPath(), data, 0644)
+}
+
 // SubRecord 用于记录文件名与订阅链接的映射
 type SubRecord struct {
 	URL string `json:"url"`
@@ -328,6 +361,15 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	
+	// 读取行为配置
+	config := a.GetAppBehavior()
+
+	// 判断是否静默启动。如果不是静默启动，手动呼出界面
+	if !config.SilentStart {
+		runtime.WindowShow(ctx)
+	}
+
 	// 👈 新增：在后台协程中启动系统托盘
 	go a.setupTray()
 }

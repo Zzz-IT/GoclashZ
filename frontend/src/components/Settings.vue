@@ -36,6 +36,14 @@
           </div>
           <span class="arrow">➔</span>
         </div>
+
+        <div class="setting-item clickable" @click="view = 'behavior'">
+          <div class="info">
+            <h4>应用行为设置 (App Behavior)</h4>
+            <p>配置软件启动行为、关闭逻辑以及系统托盘相关设置。</p>
+          </div>
+          <span class="arrow">➔</span>
+        </div>
       </div>
     </div>
 
@@ -366,6 +374,40 @@
       </div>
     </div>
 
+    <div v-else-if="view === 'behavior'" class="settings-page slide-in">
+      <div class="sub-header">
+        <button class="back-btn" @click="view = 'main'">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        </button>
+        <h3>应用行为设置</h3>
+      </div>
+
+      <div class="glass-card setting-group scrollable">
+        <div class="setting-item">
+          <div class="info">
+            <h4>静默启动</h4>
+            <p>启动时直接进入系统托盘，不自动显示主界面。</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="behavior.silentStart" @change="saveBehavior">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info">
+            <h4>关闭面板时隐藏到托盘</h4>
+            <p>点击右上角关闭按钮时，程序将继续在后台运行。</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="behavior.closeToTray" @change="saveBehavior">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -425,6 +467,11 @@ const netConfig = ref({
   tcpKeepAliveInterval: 15
 });
 
+const behavior = ref({
+  silentStart: false,
+  closeToTray: true
+});
+
 const loadData = async () => {
   try {
     const status = await API.CheckTunEnv();
@@ -443,6 +490,9 @@ const loadData = async () => {
 
     const netConf = await (API.GetNetworkConfig as any)();
     if (netConf) netConfig.value = netConf;
+
+    const behaviorConf = await (API.GetAppBehavior as any)();
+    if (behaviorConf) behavior.value = behaviorConf;
   } catch (e) {
     console.error('加载配置失败', e);
   }
@@ -517,6 +567,14 @@ const saveNet = async () => {
     await (API.SaveNetworkConfig as any)(netConfig.value);
   } catch (e) {
     console.error('网络配置保存失败', e);
+  }
+};
+
+const saveBehavior = async () => {
+  try {
+    await API.SaveAppBehavior(behavior.value);
+  } catch (e) {
+    console.error('应用行为保存失败', e);
   }
 };
 
