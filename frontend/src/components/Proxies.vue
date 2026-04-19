@@ -14,7 +14,7 @@
       </div>
 
       <div class="global-actions">
-        <button class="primary-action-btn" @click="testAllDelays" :disabled="isTesting || !activeGroupData">
+        <button class="action-btn" @click="testAllDelays" :disabled="isTesting || !activeGroupData">
           <span class="btn-icon" v-html="ICONS.zap"></span>
           {{ isTesting ? '测速中...' : '测速当前组' }}
         </button>
@@ -280,23 +280,6 @@ onUnmounted(() => {
   margin-left: 6px;
 }
 
-.primary-action-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border: none;
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: 500;
-  font-size: 0.9rem;
-  transition: opacity 0.2s;
-  white-space: nowrap;
-}
-.primary-action-btn:hover:not(:disabled) { opacity: 0.85; }
-.primary-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-icon { width: 14px; height: 14px; }
 
 .scroll-content { flex: 1; overflow-y: auto; padding-right: 8px; }

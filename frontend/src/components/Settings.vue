@@ -602,9 +602,6 @@ p {
 .arrow { color: var(--text-sub); font-size: 1.2rem; }
 .divider { height: 1px; background: var(--glass-border); opacity: 0.5; margin: 0; }
 
-.action-btn { padding: 8px 16px; border-radius: 8px; border: none; background: var(--surface-hover); color: var(--accent); font-weight: bold; cursor: pointer; transition: 0.2s; white-space: nowrap;}
-.action-btn:hover:not(:disabled) { background: var(--accent); color: white; }
-.action-btn:disabled { opacity: 0.5; cursor: not-allowed; background: var(--surface-hover); color: var(--text-muted); }
 
 .modern-input, .modern-select, .modern-textarea { background: var(--surface-hover); border: none; color: var(--text-main); padding: 8px 12px; border-radius: 8px; outline: none; }
 .modern-input { text-align: right; }

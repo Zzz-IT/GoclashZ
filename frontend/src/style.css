@@ -67,3 +67,71 @@ html, body, #app {
 
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-thumb { background: var(--surface-hover); border-radius: 4px; }
+
+/* --- 全局通用 UI 规范 (按钮、弹窗、动画) --- */
+
+/* 1. 基础布局类 */
+.flex-1 { flex: 1; justify-content: center; }
+
+/* 2. 弹窗标准容器 */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: none !important;
+  display: flex; align-items: center; justify-content: center; z-index: 2000;
+}
+.custom-modal-card { width: 440px; padding: 24px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+
+.modal-footer { 
+    display: flex; gap: 12px; margin-top: 24px; width: 100%; 
+}
+
+/* 3. 按钮体系 (按照 Subscriptions 重命名按钮对齐) */
+.primary-btn { 
+    display: flex; align-items: center; gap: 8px; padding: 10px 20px; 
+    border-radius: 8px; border: none; background: var(--text-main); 
+    color: var(--accent-fg); font-weight: 600; cursor: pointer; transition: 0.2s; 
+}
+.primary-btn:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
+.primary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.action-btn { 
+    display: flex; align-items: center; gap: 8px; padding: 10px 20px; 
+    border-radius: 8px; border: none; background: var(--surface); 
+    color: var(--text-main); cursor: pointer; font-weight: 500; transition: 0.2s; 
+}
+.action-btn:hover { background: var(--surface-hover); }
+
+/* 强调色辅助类 (黑白反色) */
+.accent-btn {
+    background: var(--accent) !important;
+    color: var(--accent-fg) !important;
+    justify-content: center;
+}
+
+/* 危险操作红字 */
+.red-text-btn {
+    color: #ff4d4f !important;
+}
+
+/* 4. 修复后的弹窗动画 (Pop) - 解决阴影缩放问题 */
+.pop-enter-active { 
+    transition: none; 
+}
+.pop-leave-active { 
+    transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+}
+.pop-enter-from, .pop-leave-to { 
+    opacity: 0; 
+}
+
+/* 仅让卡片内容缩放，不缩放遮罩阴影 */
+.pop-enter-active .custom-modal-card, 
+.pop-leave-active .custom-modal-card { 
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+}
+.pop-enter-from .custom-modal-card, 
+.pop-leave-to .custom-modal-card { 
+    opacity: 0; 
+    transform: scale(0.95); 
+}

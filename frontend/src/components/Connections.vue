@@ -6,13 +6,13 @@
           <span class="count">活跃连接: {{ connections.length }}</span>
         </div>
         <div class="global-actions">
-          <button class="secondary-btn" @click="isPaused = !isPaused">
+          <button class="action-btn" @click="isPaused = !isPaused">
             <span class="btn-icon" v-html="isPaused ? ICONS.play : ICONS.pause"></span>
             {{ isPaused ? '继续刷新' : '暂停刷新' }}
           </button>
-          <button class="primary-action-btn stop-btn" @click="closeAll">
+          <button class="primary-btn accent-btn red-text-btn" @click="closeAll">
             <span class="btn-icon" v-html="ICONS.xCircle"></span>
-            断开全部
+            断开全部连接
           </button>
         </div>
       </div>
@@ -49,7 +49,7 @@
     <template v-else>
       <div class="detail-page glass-panel">
         <div class="detail-header">
-          <button class="secondary-btn back-btn" @click="closeDetail">
+          <button class="action-btn back-btn" @click="closeDetail">
             <span class="btn-icon" v-html="ICONS.back"></span> 返回列表
           </button>
           <h3>连接详情</h3>
@@ -69,7 +69,7 @@
         </div>
 
         <div class="detail-footer">
-          <button class="danger-btn" @click="closeSingleConnection(selectedConn.id)">强行断开此连接</button>
+          <button class="action-btn red-text-btn" @click="closeSingleConnection(selectedConn.id)">强行断开此连接</button>
         </div>
       </div>
     </template>
@@ -172,11 +172,6 @@ const closeSingleConnection = async (id: string) => {
 .stats .count { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
 
 .global-actions { display: flex; gap: 12px; }
-.secondary-btn, .primary-action-btn { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; border: none; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: 0.2s; }
-.secondary-btn { background: var(--surface-hover); color: var(--text-main); }
-.secondary-btn:hover { background: var(--surface); }
-.stop-btn { background: var(--text-main); color: var(--accent-fg); }
-.stop-btn:hover { opacity: 0.85; }
 .btn-icon { width: 14px; height: 14px; display: inline-flex; }
 
 .scroll-content { flex: 1; overflow-y: auto; padding-right: 8px; }
@@ -217,7 +212,4 @@ const closeSingleConnection = async (id: string) => {
 .path-chain { color: var(--text-main) !important; font-weight: 500; }
 
 .detail-footer { display: flex; justify-content: flex-end; margin-top: 24px; padding-top: 16px; }
-
-.danger-btn { background: var(--surface-hover); color: var(--text-main); border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: 500; font-size: 0.85rem; transition: 0.2s; }
-.danger-btn:hover { background: var(--text-main); color: var(--accent-fg); }
 </style>

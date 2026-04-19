@@ -26,23 +26,23 @@
     <Transition name="pop">
       <div v-if="showAddModal || activeModal === 'delete'" class="modal-overlay" @click.self="showAddModal = false; activeModal = null">
         <!-- 新增规则弹窗 -->
-        <div v-if="showAddModal" class="modal-box glass-panel">
+        <div v-if="showAddModal" class="custom-modal-card glass-panel">
           <h3>新增分流规则</h3>
           <p class="hint">格式: 类型,目标,策略 (例如: DOMAIN-SUFFIX,google.com,Proxy)</p>
           <input v-model="newRuleStr" class="modal-input" placeholder="DOMAIN,example.com,DIRECT" @keyup.enter="handleAdd" />
-          <div class="modal-actions">
-            <button class="cancel-btn flex-1" @click="showAddModal = false">取消</button>
-            <button class="confirm-btn flex-1" @click="handleAdd" :disabled="!newRuleStr">确定添加</button>
+          <div class="modal-footer">
+            <button class="action-btn flex-1" @click="showAddModal = false">取消</button>
+            <button class="primary-btn accent-btn flex-1" @click="handleAdd" :disabled="!newRuleStr">确定添加</button>
           </div>
         </div>
 
         <!-- 删除确认弹窗 -->
-        <div v-if="activeModal === 'delete'" class="modal-box glass-panel">
+        <div v-if="activeModal === 'delete'" class="custom-modal-card glass-panel">
           <h3 class="danger-text">删除规则</h3>
           <p class="hint">确定要永久删除这条规则吗？此操作不可撤销。</p>
-          <div class="modal-actions">
-            <button class="cancel-btn flex-1" @click="activeModal = null">取消</button>
-            <button class="confirm-btn danger-btn flex-1" @click="confirmDelete">确定删除</button>
+          <div class="modal-footer">
+            <button class="action-btn flex-1" @click="activeModal = null">取消</button>
+            <button class="primary-btn accent-btn red-text-btn flex-1" @click="confirmDelete">确定删除</button>
           </div>
         </div>
       </div>
@@ -178,7 +178,7 @@ onMounted(() => {
 }
 .rule-policy { font-size: 0.8rem; color: var(--text-main); font-weight: 600; }
 .delete-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 6px; transition: 0.2s; }
-.delete-btn:hover { color: var(--text-main); background: var(--surface-hover); }
+.delete-btn:hover { color: #ff4d4f; background: rgba(255, 77, 79, 0.1); }
 
 /* 同步弹窗样式 */
 .modal-overlay { 
@@ -189,23 +189,12 @@ onMounted(() => {
   z-index: 2000; 
 }
 
-.modal-box { 
-  width: 440px; padding: 24px; border-radius: 16px; 
-  background: var(--glass-panel);
-  border: none;
-  box-shadow: 0 20px 50px rgba(0,0,0,0.3);
-}
+/* 弹窗标准容器已迁移至全局 */
 
-/* 统一动画类名 */
-.pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-.pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.95); }
-
-.modal-actions { display: flex; gap: 12px; width: 100%; }
-.flex-1 { flex: 1; justify-content: center; }
-.danger-btn { background: #ff4d4f !important; color: #fff !important; }
+/* 弹窗动画与按钮样式已迁移至全局 */
 .danger-text { color: #ff4d4f; }
 
-.modal-box h3 { margin-top: 0; color: var(--text-main); }
+.custom-modal-card h3 { margin-top: 0; color: var(--text-main); margin-bottom: 24px; }
 .hint { font-size: 0.75rem; color: var(--text-sub); margin-bottom: 16px; }
 
 .modal-input { 
@@ -218,11 +207,5 @@ onMounted(() => {
   background: var(--surface-hover);
 }
 
-.modal-actions { display: flex; justify-content: flex-end; gap: 12px; }
-.cancel-btn, .confirm-btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 500; transition: 0.2s;}
-.cancel-btn { background: transparent; color: var(--text-sub); }
-.cancel-btn:hover { background: var(--surface); color: var(--text-main); }
-.confirm-btn { background: var(--accent); color: var(--accent-fg); }
-.confirm-btn:hover:not(:disabled) { opacity: 0.85; }
-.confirm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 </style>

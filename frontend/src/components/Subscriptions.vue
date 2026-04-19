@@ -317,33 +317,7 @@ onUnmounted(() => {
 .sub-text { font-size: 0.85rem; color: var(--text-sub); }
 .header-actions { display: flex; gap: 12px; }
 
-/* 按钮样式 */
-.primary-btn { 
-  display: flex; align-items: center; gap: 8px; padding: 10px 20px; 
-  border-radius: 8px; border: none; background: var(--text-main); 
-  color: var(--accent-fg); font-weight: 600; cursor: pointer; transition: 0.2s; 
-}
-.primary-btn:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
-.action-btn { 
-  display: flex; align-items: center; gap: 8px; padding: 10px 20px; 
-  border-radius: 8px; border: none; background: var(--surface); 
-  color: var(--text-main); cursor: pointer; font-weight: 500; transition: 0.2s; 
-}
-.action-btn:hover { background: var(--surface-hover); }
-
-/* 反色按钮 */
-.accent-btn {
-  background: var(--accent) !important;
-  color: var(--accent-fg) !important;
-  justify-content: center;
-  min-width: 120px;
-}
-.danger-btn { background: #ff4d4f !important; color: #fff !important; justify-content: center; }
-
-/* 新增：红色字体确定按钮 */
-.red-text-btn {
-  color: #ff4d4f !important;
-}
+/* 按钮样式已迁移至全局 */
 
 /* 列表部分 */
 .subs-list { flex: 1; overflow-y: auto; padding-right: 8px; }
@@ -386,15 +360,7 @@ onUnmounted(() => {
 .icon-btn :deep(svg) { width: 14px !important; height: 14px !important; }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
-/* 模态框遮罩：彻底移除模糊 */
-.modal-overlay {
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: none !important;
-  display: flex; align-items: center; justify-content: center; z-index: 2000;
-}
-.custom-modal-card { width: 440px; padding: 24px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
-
+/* 模态框布局已迁移至全局 */
 .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
 .modal-header h3 { margin: 0; font-size: 1.25rem; font-weight: 600; }
 .close-x { background: none; border: none; font-size: 28px; cursor: pointer; color: var(--text-sub); }
@@ -411,35 +377,12 @@ onUnmounted(() => {
 .divider-text::before { left: 0; } .divider-text::after { right: 0; }
 .w-full-btn { width: 100%; justify-content: center; padding: 14px; font-weight: 600; border-radius: 10px; border: none; background: var(--surface-hover); color: var(--text-main); cursor: pointer; }
 
-/* 按钮等宽逻辑 */
-.modal-footer { display: flex; gap: 12px; margin-top: 10px; width: 100%; }
-.flex-1 { flex: 1; justify-content: center; }
+/* 布局样式已迁移至全局 */
 
 .danger-text { color: #ff4d4f; }
 .warning-box { background: rgba(255, 77, 79, 0.1); padding: 12px; border-radius: 8px; color: #ff4d4f; font-size: 0.85rem; line-height: 1.4; border: 1px solid rgba(255, 77, 79, 0.2); }
 
-/* ==== 修复动画逻辑 ==== */
-/* 1. 遮罩层自身：取消缩放，只保留透明度渐变 */
-.pop-enter-active { 
-  transition: none; 
-}
-.pop-leave-active { 
-  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
-}
-.pop-enter-from, .pop-leave-to { 
-  opacity: 0; 
-}
-
-/* 2. 内部卡片：单独应用缩放和浮现动画，避免整个屏幕的阴影跟着放大 */
-.pop-enter-active .custom-modal-card, 
-.pop-leave-active .custom-modal-card { 
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
-}
-.pop-enter-from .custom-modal-card, 
-.pop-leave-to .custom-modal-card { 
-  opacity: 0; 
-  transform: scale(0.95); 
-}
+/* 动画样式已迁移至全局 */
 
 /* 下拉菜单边框与颜色修复 */
 .dropdown-menu { 
