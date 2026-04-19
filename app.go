@@ -32,33 +32,35 @@ type App struct {
 	tunActive      bool             // 👈 替换：TUN 模式是否开启
 }
 
-// 订阅信息结构
-type SubInfo struct {
+// SubRecord 用于记录文件名与订阅链接的映射
+type SubRecord struct {
 	URL string `json:"url"`
 }
 
 // 获取订阅信息存储路径
-func getSubsJsonPath() string {
+func (a *App) getSubsRecordPath() string {
 	configDir, _ := os.UserConfigDir()
-	appDir := filepath.Join(configDir, "GoclashZ")
-	os.MkdirAll(appDir, 0755)
-	return filepath.Join(appDir, "subs.json")
+	path := filepath.Join(configDir, "GoclashZ", "subs_history.json")
+	os.MkdirAll(filepath.Dir(path), 0755)
+	return path
 }
 
-// 辅助方法：读取订阅记录
-func (a *App) readSubsMap() map[string]SubInfo {
-	m := make(map[string]SubInfo)
-	data, err := os.ReadFile(getSubsJsonPath())
+// 读取所有订阅记录
+func (a *App) readSubRecords() map[string]SubRecord {
+	records := make(map[string]SubRecord)
+	data, err := os.ReadFile(a.getSubsRecordPath())
 	if err == nil {
-		json.Unmarshal(data, &m)
+		json.Unmarshal(data, &records)
 	}
-	return m
+	return records
 }
 
-// 辅助方法：保存订阅记录
-func (a *App) saveSubsMap(m map[string]SubInfo) {
-	data, _ := json.Marshal(m)
-	os.WriteFile(getSubsJsonPath(), data, 0644)
+// 保存订阅记录
+func (a *App) saveSubRecord(filename string, url string) {
+	records := a.readSubRecords()
+	records[filename] = SubRecord{URL: url}
+	data, _ := json.MarshalIndent(records, "", "  ")
+	os.WriteFile(a.getSubsRecordPath(), data, 0644)
 }
 
 // ProxyStatus 新增给前端返回的双重状态结构
@@ -510,9 +512,7 @@ func (a *App) UpdateSub(url string) error {
 	}
 
 	// 2. 记录 URL 映射
-	m := a.readSubsMap()
-	m[filename] = SubInfo{URL: url}
-	a.saveSubsMap(m)
+	a.saveSubRecord(filename, url)
 
 	// 3. 如果更新的是当前正在使用的配置，触发重载
 	if a.getActiveConfig() == filename && clash.IsRunning() {
@@ -526,13 +526,13 @@ func (a *App) UpdateSub(url string) error {
 
 // UpdateSingleSub 实装：更新单个文件
 func (a *App) UpdateSingleSub(filename string) error {
-	m := a.readSubsMap()
-	info, ok := m[filename]
-	if !ok || info.URL == "" {
+	records := a.readSubRecords()
+	record, ok := records[filename]
+	if !ok || record.URL == "" {
 		return fmt.Errorf("未找到该文件的订阅链接，请重新导入")
 	}
 
-	_, err := clash.UpdateSubscription(info.URL, filename)
+	_, err := clash.UpdateSubscription(record.URL, filename)
 	if err != nil {
 		return err
 	}
@@ -549,18 +549,18 @@ func (a *App) UpdateSingleSub(filename string) error {
 
 // UpdateAllSubs 实装：遍历并更新所有已记录链接的文件
 func (a *App) UpdateAllSubs() error {
-	m := a.readSubsMap()
-	for filename, info := range m {
-		if info.URL != "" {
+	records := a.readSubRecords()
+	for filename, record := range records {
+		if record.URL != "" {
 			// 忽略错误继续更新下一个
-			_, _ = clash.UpdateSubscription(info.URL, filename)
+			_, _ = clash.UpdateSubscription(record.URL, filename)
 		}
 	}
 
 	// 更新完成后，如果当前活动配置在其中，触发一次重载
 	active := a.getActiveConfig()
 	if active != "" && clash.IsRunning() {
-		if _, exists := m[active]; exists {
+		if _, exists := records[active]; exists {
 			mode := a.getActiveMode()
 			clash.BuildRuntimeConfig(active, mode)
 			clash.ReloadConfig()
