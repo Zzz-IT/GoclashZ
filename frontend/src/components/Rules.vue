@@ -16,7 +16,7 @@
         </div>
         <div class="rule-footer">
           <div class="rule-policy">{{ rule.policy }}</div>
-          <button v-if="isEditable" class="delete-btn" @click="handleDelete(rule.originalIndex)" title="删除规则">
+          <button v-if="isEditable" class="delete-btn" @click="openDeleteModal(rule.originalIndex)" title="删除规则">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
           </button>
         </div>
@@ -24,14 +24,25 @@
     </div>
 
     <Transition name="pop">
-      <div v-if="showAddModal" class="modal-overlay" @click.self="showAddModal = false">
-        <div class="modal-box glass-panel">
+      <div v-if="showAddModal || activeModal === 'delete'" class="modal-overlay" @click.self="showAddModal = false; activeModal = null">
+        <!-- 新增规则弹窗 -->
+        <div v-if="showAddModal" class="modal-box glass-panel">
           <h3>新增分流规则</h3>
           <p class="hint">格式: 类型,目标,策略 (例如: DOMAIN-SUFFIX,google.com,Proxy)</p>
           <input v-model="newRuleStr" class="modal-input" placeholder="DOMAIN,example.com,DIRECT" @keyup.enter="handleAdd" />
           <div class="modal-actions">
-            <button class="cancel-btn" @click="showAddModal = false">取消</button>
-            <button class="confirm-btn" @click="handleAdd" :disabled="!newRuleStr">确定添加</button>
+            <button class="cancel-btn flex-1" @click="showAddModal = false">取消</button>
+            <button class="confirm-btn flex-1" @click="handleAdd" :disabled="!newRuleStr">确定添加</button>
+          </div>
+        </div>
+
+        <!-- 删除确认弹窗 -->
+        <div v-if="activeModal === 'delete'" class="modal-box glass-panel">
+          <h3 class="danger-text">删除规则</h3>
+          <p class="hint">确定要永久删除这条规则吗？此操作不可撤销。</p>
+          <div class="modal-actions">
+            <button class="cancel-btn flex-1" @click="activeModal = null">取消</button>
+            <button class="confirm-btn danger-btn flex-1" @click="confirmDelete">确定删除</button>
           </div>
         </div>
       </div>
@@ -48,6 +59,8 @@ const isEditable = ref(false);
 const searchQuery = ref('');
 const showAddModal = ref(false);
 const newRuleStr = ref('');
+const activeModal = ref<'add' | 'delete' | null>(null);
+const pendingIdx = ref(-1);
 
 const loadRules = async () => {
   try {
@@ -100,14 +113,18 @@ const handleAdd = async () => {
   }
 };
 
-const handleDelete = async (idx: number) => {
-  if (confirm("确定删除该规则吗？")) {
-    try {
-      await API.DeleteRule(idx);
-      await loadRules();
-    } catch (e) {
-      alert("删除失败: " + e);
-    }
+const openDeleteModal = (idx: number) => {
+  pendingIdx.value = idx;
+  activeModal.value = 'delete';
+};
+
+const confirmDelete = async () => {
+  try {
+    await API.DeleteRule(pendingIdx.value);
+    activeModal.value = null;
+    await loadRules();
+  } catch (e) {
+    alert("删除失败: " + e);
   }
 };
 
@@ -166,7 +183,8 @@ onMounted(() => {
 /* 同步弹窗样式 */
 .modal-overlay { 
   position: fixed; inset: 0; 
-  background: rgba(0,0,0,0.4); /* 移除模糊 */
+  background: rgba(0,0,0,0.4); 
+  backdrop-filter: none !important; /* 彻底移除模糊 */
   display: flex; align-items: center; justify-content: center; 
   z-index: 2000; 
 }
@@ -181,6 +199,11 @@ onMounted(() => {
 /* 统一动画类名 */
 .pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
 .pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.95); }
+
+.modal-actions { display: flex; gap: 12px; width: 100%; }
+.flex-1 { flex: 1; justify-content: center; }
+.danger-btn { background: #ff4d4f !important; color: #fff !important; }
+.danger-text { color: #ff4d4f; }
 
 .modal-box h3 { margin-top: 0; color: var(--text-main); }
 .hint { font-size: 0.75rem; color: var(--text-sub); margin-bottom: 16px; }

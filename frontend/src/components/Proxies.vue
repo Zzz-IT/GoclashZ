@@ -28,8 +28,13 @@
                :class="['node-item', { active: activeGroupData.now === node.name }]"
                @click="selectNode(activeGroupData.name, node.name)">
 
-            <div class="node-info">
-              <span class="n-name" :title="node.name">{{ node.name }}</span>
+            <div class="node-main-area">
+              <div class="node-info">
+                <span class="n-name" :title="node.name">{{ node.name }}</span>
+              </div>
+              <div class="node-meta">
+                <span class="n-protocol">{{ node.type }}</span>
+              </div>
             </div>
 
             <div class="n-latency-box" @click.stop="testSingleDelay(node)">
@@ -100,8 +105,11 @@ const loadData = async () => {
 
         if (isGroupType && !isSystemReserved) {
           const proxies = (item.all || []).map((memberName: string) => {
+            // 修复：后端返回的节点和组信息都在 data.groups 中，并没有 data.proxies 属性
+            const detail = data.groups ? data.groups[memberName] : null;
             return {
               name: memberName,
+              type: detail && detail.type ? detail.type.toUpperCase() : 'PROXY',
               now: item.now,
               delay: null,
               testing: false
@@ -294,13 +302,14 @@ onUnmounted(() => {
 .scroll-content { flex: 1; overflow-y: auto; padding-right: 8px; }
 
 .group-section { margin-bottom: 24px; }
-.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
 
 .node-item {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: stretch;
   padding: 16px 20px;
+  height: 84px;
   border: none;
   border-radius: 12px;
   cursor: pointer;
@@ -349,8 +358,22 @@ onUnmounted(() => {
   stroke: var(--accent-fg);
 }
 
-.node-info { flex: 1; min-width: 0; }
+.node-main-area { flex: 1; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
+
+.node-info { min-width: 0; }
 .n-name { font-size: 0.95rem; font-weight: 500; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main); }
+
+.node-meta { display: flex; align-items: center; }
+.n-protocol {
+  font-size: 0.65rem; font-weight: 800;
+  color: var(--text-muted);
+  background: var(--surface-hover);
+  padding: 1px 6px; border-radius: 4px;
+  width: fit-content;
+  text-transform: uppercase;
+}
+
+.node-item.active .n-protocol { background: rgba(255,255,255,0.2); color: var(--accent-fg); }
 
 .n-latency-box {
   margin-left: 12px;

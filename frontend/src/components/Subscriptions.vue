@@ -96,8 +96,8 @@
               <input v-model="renameValue" class="modern-input full-width-input" placeholder="输入新文件名" @keyup.enter="confirmRename" />
             </div>
             <div class="modal-footer">
-              <button class="action-btn" @click="closeAllModals">取消</button>
-              <button class="primary-btn accent-btn" @click="confirmRename" :disabled="!renameValue || loading">确定</button>
+              <button class="action-btn flex-1" @click="closeAllModals">取消</button>
+              <button class="primary-btn accent-btn flex-1" @click="confirmRename" :disabled="!renameValue || loading">确定</button>
             </div>
           </div>
         </div>
@@ -113,8 +113,8 @@
             </p>
             <p v-else>确定要彻底删除 <strong>{{ targetFile }}</strong> 吗？此操作不可撤销。</p>
             <div class="modal-footer">
-              <button class="action-btn" @click="closeAllModals">取消</button>
-              <button class="primary-btn danger-btn" @click="confirmDelete" :disabled="loading">
+              <button class="action-btn flex-1" @click="closeAllModals">取消</button>
+              <button class="primary-btn danger-btn flex-1" @click="confirmDelete" :disabled="loading">
                 {{ loading ? '删除中...' : '确定删除' }}
               </button>
             </div>
@@ -381,10 +381,11 @@ onUnmounted(() => {
 .icon-btn :deep(svg) { width: 14px !important; height: 14px !important; }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
-/* 模态框遮罩 */
+/* 模态框遮罩：彻底移除模糊 */
 .modal-overlay {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
   background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: none !important;
   display: flex; align-items: center; justify-content: center; z-index: 2000;
 }
 .custom-modal-card { width: 440px; padding: 24px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
@@ -405,14 +406,17 @@ onUnmounted(() => {
 .divider-text::before { left: 0; } .divider-text::after { right: 0; }
 .w-full-btn { width: 100%; justify-content: center; padding: 14px; font-weight: 600; border-radius: 10px; border: none; background: var(--surface-hover); color: var(--text-main); cursor: pointer; }
 
-.modal-footer { display: flex; justify-content: flex-end; gap: 12px; margin-top: 10px; }
+/* 按钮等宽逻辑 */
+.modal-footer { display: flex; gap: 12px; margin-top: 10px; width: 100%; }
+.flex-1 { flex: 1; justify-content: center; }
+
 .danger-text { color: #ff4d4f; }
 .warning-box { background: rgba(255, 77, 79, 0.1); padding: 12px; border-radius: 8px; color: #ff4d4f; font-size: 0.85rem; line-height: 1.4; border: 1px solid rgba(255, 77, 79, 0.2); }
 
 .pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
 .pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.95); }
 
-/* 下拉菜单 */
+/* 下拉菜单边框与颜色修复 */
 .dropdown-menu { 
   position: absolute; right: 0; top: 30px; width: 150px; border-radius: 8px; z-index: 10; overflow: hidden;
   background: var(--glass-panel); border: 1px solid var(--surface-hover); box-shadow: 0 4px 12px rgba(0,0,0,0.1);
