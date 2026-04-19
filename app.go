@@ -288,9 +288,12 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 }
 
-func (a *App) shutdown(_ context.Context) {
-	sys.DisableSystemProxy()
-	clash.Stop()
+func (a *App) shutdown(ctx context.Context) {
+	// ⚠️ 核心逻辑：退出时强制恢复网络环境
+	fmt.Println("正在关闭 GoclashZ，正在清理网络代理设置...")
+
+	_ = a.ToggleSystemProxy(false) // 关闭系统代理
+	_ = a.ToggleTunMode(false)    // 关闭虚拟网卡
 }
 
 // --- 代理核心控制 ---

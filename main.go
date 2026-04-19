@@ -27,7 +27,8 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		OnStartup: app.startup,
+		OnStartup:  app.startup,
+		OnShutdown: app.shutdown, // 👈 关键修改：注册退出时的回调函数
 		Bind: []interface{}{
 			app,
 		},

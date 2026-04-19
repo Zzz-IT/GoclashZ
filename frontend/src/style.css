@@ -22,20 +22,25 @@
     --status-online: #10B981;  /* 更现代的翠绿色 */
 }
 
-/* 🌙 暗色模式：极客深灰，层次分明 */
+/* 🌙 暗色模式：更浅、更高级的炭灰色调 */
 .dark {
-    --glass-bg: #09090B;       /* 极其深邃的近黑底色，作为无垠的背景 */
-    --glass-panel: #18181B;    /* 稍微提亮的深灰面板，形成物理高度感 */
-    --glass-border: #27272A;   /* 勾勒面板轮廓的暗线 */
+    /* 背景色：从原来的 #09090B 提升到 #18181B，不再死黑 */
+    --glass-bg: #18181B;       
+    
+    /* 面板色：稍微提亮，增加物理层次感 */
+    --glass-panel: #242427;    
+    
+    /* 边框线：稍微加深一点，勾勒出轮廓 */
+    --glass-border: #333336;   
 
-    --text-main: #FAFAFA;      /* 柔和的亮白，不刺眼 */
+    --text-main: #E4E4E7;      /* 稍微柔化文字白 */
     --text-sub: #A1A1AA;
     --text-muted: #71717A;
 
-    --accent: #FAFAFA;         /* 暗色下的强调色使用纯白 */
-    --accent-fg: #09090B;      /* 白按钮上的黑字 */
+    --accent: #FAFAFA;         
+    --accent-fg: #18181B;
 
-    --surface: #27272A;        /* 内部小卡片底色 */
+    --surface: #2D2D30;        /* 按钮与输入框 */
     --surface-hover: #3F3F46;  
 }
 
@@ -66,8 +71,8 @@ html, body, #app {
 }
 
 .dark .glass-panel {
-    /* 暗色模式下：加深阴影的浓度，以抵消暗背景的吞没感 */
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.2);
+    /* 暗色模式下：由于背景变浅了，阴影浓度适当降低，显得边缘更清爽 */
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 ::-webkit-scrollbar { width: 4px; }
