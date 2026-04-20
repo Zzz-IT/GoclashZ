@@ -30,13 +30,18 @@ type App struct {
 	cancelTraffic context.CancelFunc
 	cancelLogs    context.CancelFunc
 	logRunning    bool
-	mu            sync.RWMutex      // 👈 升级为读写锁
+	mu            sync.RWMutex      
 	activeConfig  string
-	activeMode    string            // 👈 新增：存储当前路由模式 (rule, global, direct)
-	offlineNodes  map[string]string // 👈 新增：存储离线状态下选中的节点
-	sysProxyActive bool             // 👈 替换：系统代理是否开启
-	tunActive      bool             // 👈 替换：TUN 模式是否开启
+	activeMode    string            
+	offlineNodes  map[string]string 
+	sysProxyActive bool             
+	tunActive      bool             
+
+	// 👈 新增：专用于应用行为配置的内存缓存及读写锁
+	behaviorCache  AppBehavior
+	behaviorMu     sync.RWMutex
 }
+
 
 // AppBehavior 定义应用行为设置
 type AppBehavior struct {
@@ -58,45 +63,55 @@ func (a *App) getAppBehaviorPath() string {
 	return path
 }
 
-// GetAppBehavior 供前端获取当前设置 (Wails 绑定方法)
-func (a *App) GetAppBehavior() AppBehavior {
-	data, err := os.ReadFile(a.getAppBehaviorPath())
-	var config AppBehavior
-	
-	// 默认配置
+// 内部初始化缓存的方法，在 startup 中调用
+func (a *App) initBehaviorCache() {
 	defaultConfig := AppBehavior{
 		SilentStart: false, 
 		CloseToTray: true, 
-		LogLevel: "info", 
-		HideLogs: false,
+		LogLevel:    "info", 
+		HideLogs:    false,
 	}
 
+	data, err := os.ReadFile(a.getAppBehaviorPath())
 	if err == nil {
-		if err := json.Unmarshal(data, &config); err != nil {
-			// 如果解析失败（如文件损坏或格式错误），回退到默认值
-			return defaultConfig
+		if err := json.Unmarshal(data, &defaultConfig); err != nil {
+			fmt.Println("行为配置解析失败，使用默认值")
 		}
-	} else {
-		// 文件不存在
-		return defaultConfig
 	}
 	
-	// 补全字段缺省值（防止旧版本配置文件缺失新字段）
-	if config.LogLevel == "" {
-		config.LogLevel = "info"
+	if defaultConfig.LogLevel == "" {
+		defaultConfig.LogLevel = "info"
 	}
-	return config
+
+	a.behaviorMu.Lock()
+	a.behaviorCache = defaultConfig
+	a.behaviorMu.Unlock()
 }
 
-// SaveAppBehavior 供前端保存设置 (Wails 绑定方法)
+// GetAppBehavior 供前端获取当前设置 (Wails 绑定方法)
+func (a *App) GetAppBehavior() AppBehavior {
+	a.behaviorMu.RLock()
+	defer a.behaviorMu.RUnlock()
+	return a.behaviorCache
+}
+
+
+// 修改保存逻辑，写盘的同时更新缓存
 func (a *App) SaveAppBehavior(config AppBehavior) error {
+	// 1. 写入磁盘
 	data, _ := json.MarshalIndent(config, "", "  ")
 	err := os.WriteFile(a.getAppBehaviorPath(), data, 0644)
 	
-	// 👉 发送广播事件，通知所有组件配置已更改
+	// 2. 更新内存缓存
+	if err == nil {
+		a.behaviorMu.Lock()
+		a.behaviorCache = config
+		a.behaviorMu.Unlock()
+	}
+	
+	// 3. 广播与同步
 	runtime.EventsEmit(a.ctx, "behavior-changed", config)
 
-	// 👇 新增：保存后动态重载内核配置，使日志等级立即生效
 	active := a.getActiveConfig()
 	if active != "" {
 		mode := a.getActiveMode()
@@ -105,10 +120,10 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 			clash.ReloadConfig()
 		}
 	}
-	// 触发全局同步
 	a.SyncState()
 	return err
 }
+
 
 // SubRecord 用于记录文件名与订阅链接的映射
 type SubRecord struct {
@@ -370,19 +385,18 @@ func (a *App) stopCoreService() {
 
 // GetProxyStatus 获取当前双轨状态
 func (a *App) GetProxyStatus() ProxyStatus {
-	a.mu.RLock() // 👈 前端高频轮询，使用读锁！
+	a.mu.RLock() 
 	sysProxy := a.sysProxyActive
+	// ✅ 优化：不再调用 clash.GetTunConfig() 去读文件，直接读取内存中的 tunActive 状态
+	realTun := a.tunActive && clash.IsRunning()
 	a.mu.RUnlock()
 	
-	// 读取真实配置作为校验
-	tunCfg, _ := clash.GetTunConfig()
-	realTun := tunCfg != nil && tunCfg.Enable && clash.IsRunning()
-
 	return ProxyStatus{
 		SystemProxy: sysProxy,
 		Tun:         realTun,
 	}
 }
+
 
 // ToggleSystemProxy 开关 1：系统代理
 func (a *App) ToggleSystemProxy(enable bool) error {
@@ -466,9 +480,11 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.initBehaviorCache() // 👈 新增：初始化配置缓存
 	
 	// 读取行为配置
 	config := a.GetAppBehavior()
+
 
 	// 判断是否静默启动
 	if !config.SilentStart {
@@ -679,21 +695,19 @@ func (a *App) TestAllProxies(nodeNames []string) {
 }
 
 func (a *App) UpdateClashMode(mode string) error {
-	// 1. 持久化到本地和内存
 	a.mu.Lock()
 	a.activeMode = mode
-	a.saveActiveMode(mode)
-	isRunning := clash.IsRunning()
-	a.mu.Unlock()
+	isRunning := clash.IsRunning() // 提取内核运行状态
+	a.mu.Unlock() // ✅ 立即释放锁
 
-	// 2. 如果内核在运行，动态下发指令
+	// 耗时的磁盘 I/O 放在锁外执行
+	a.saveActiveMode(mode)
+
 	if isRunning {
 		return clash.UpdateMode(mode)
 	}
 
-	// 3. 如果内核没运行，只改文件
-	activeCfg := a.getActiveConfig() // 👈 替换为安全获取
-
+	activeCfg := a.getActiveConfig() 
 	if activeCfg != "" {
 		err := clash.BuildRuntimeConfig(activeCfg, mode)
 		a.SyncState()
@@ -702,6 +716,7 @@ func (a *App) UpdateClashMode(mode string) error {
 	a.SyncState()
 	return nil
 }
+
 
 func (a *App) SelectProxy(groupName, nodeName string) error {
 	// ⚠️ 核心修复 1：无论内核是否运行，都将用户的选择同步记录到离线缓存中
@@ -1074,9 +1089,9 @@ func (a *App) RenameConfig(oldName, newName string) error {
 	oldPath := filepath.Join(a.getProfilesDir(), oldName)
 	newPath := filepath.Join(a.getProfilesDir(), newName)
 
-	// ⚠️ 修复：如果正在重命名当前处于活动状态的配置，必须先停止代理内核释放文件锁
 	a.mu.Lock()
 	isActiveConfig := (a.activeConfig == oldName)
+	mode := a.activeMode // 提前取出 mode
 	a.mu.Unlock()
 	
 	if isActiveConfig && clash.IsRunning() {
@@ -1095,21 +1110,28 @@ func (a *App) RenameConfig(oldName, newName string) error {
 
 	err := renameFunc()
 
-	// ⚠️ 修复：如果刚才停掉了内核，重命名完成后需要重启
 	if isActiveConfig {
+		// ✅ 优化：增加错误回退处理，如果重命名失败，必须用旧配置将内核救回来
+		if err != nil {
+			clash.BuildRuntimeConfig(oldName, mode)
+			a.ensureCoreRunning()
+			return fmt.Errorf("文件重命名失败，已恢复原状态: %v", err)
+		}
+
+		// ✅ 重命名成功，更新为 newName 再启动
 		a.mu.Lock()
-		a.activeConfig = newName // 更新内部记录
-		a.saveActiveConfig(newName)
+		a.activeConfig = newName 
 		a.mu.Unlock()
 		
-		// 👈 核心修复：使用 getActiveMode 防止状态为空
-		mode := a.getActiveMode() 
+		a.saveActiveConfig(newName) // 移出锁外
+		
 		clash.BuildRuntimeConfig(newName, mode)
 		a.ensureCoreRunning()
 	}
 
 	return err
 }
+
 
 // OpenConfigFile 使用系统默认应用打开配置文件
 func (a *App) OpenConfigFile(fileName string) error {
@@ -1161,20 +1183,18 @@ func (a *App) SelectLocalConfig(fileName string) error {
 
 	a.mu.Lock()
 	a.activeConfig = fileName
-	a.saveActiveConfig(fileName)
+	mode := a.activeMode // 顺便把 mode 一起取出来，后面不用再加锁
 	wasActive := a.sysProxyActive || a.tunActive
-	
-	// ⚠️ 核心修复 3：切换配置时清空前一个配置的离线记忆，防止策略组名称冲突
 	a.offlineNodes = make(map[string]string) 
-	
-	a.mu.Unlock()
+	a.mu.Unlock() // ✅ 立即释放锁
 
+	// 耗时的磁盘 I/O 放在锁外执行
+	a.saveActiveConfig(fileName)
+	
 	a.stopCoreService()
 	sys.DisableSystemProxy()
 
-	a.mu.Lock()
-	mode := a.activeMode
-	a.mu.Unlock()
+	// 使用刚刚在锁内提取出的 mode
 	if err := clash.BuildRuntimeConfig(fileName, mode); err != nil {
 		return fmt.Errorf("生成运行时配置失败: %v", err)
 	}
@@ -1183,7 +1203,6 @@ func (a *App) SelectLocalConfig(fileName string) error {
 		if err := a.ensureCoreRunning(); err != nil {
 			return err
 		}
-		// 如果刚刚关掉前系统代理是开的，由于前面的 DisableSystemProxy，现在需要重新挂上
 		a.mu.Lock()
 		sysProxy := a.sysProxyActive
 		a.mu.Unlock()
@@ -1192,13 +1211,13 @@ func (a *App) SelectLocalConfig(fileName string) error {
 			sys.EnableSystemProxy("127.0.0.1", 7890, bypass)
 		}
 	} else {
-		// 如果只是离线切换，稍微让文件系统缓一下即可
 		time.Sleep(200 * time.Millisecond)
 	}
 
 	runtime.EventsEmit(a.ctx, "config-changed", fileName)
 	return nil
 }
+
 
 // --- 规则管理 (新增) ---
 

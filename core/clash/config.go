@@ -10,7 +10,12 @@ import (
 
 	"encoding/json"
 	"gopkg.in/yaml.v3"
+	"sync"
 )
+
+// 👈 新增：定义一个全局互斥锁，专门保护 config.yaml 的并发 RMW (读-改-写) 操作
+var configMu sync.Mutex
+
 
 // GetConfigPath 获取 config.yaml 的绝对路径（导出供 app.go 使用，确保路径一致）
 func GetConfigPath() string {
@@ -224,6 +229,9 @@ func GetTunConfig() (*TunConfig, error) {
 
 // UpdateTunConfig 将新的 TUN 配置写入 config.yaml
 func UpdateTunConfig(newTun *TunConfig) error {
+	configMu.Lock()         // ✅ 加锁
+	defer configMu.Unlock() // ✅ 保证最终释放
+
 	configPath := GetConfigPath() // 👈 使用绝对路径
 
 	data, err := os.ReadFile(configPath)
@@ -341,6 +349,9 @@ func GetDNSConfig() (*DNSConfig, error) {
 
 // UpdateDNSConfig 将新的 DNS 配置写入 config.yaml
 func UpdateDNSConfig(newDNS *DNSConfig) error {
+	configMu.Lock()         // ✅ 加锁
+	defer configMu.Unlock() // ✅ 保证最终释放
+
 	configPath := GetConfigPath()
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -428,6 +439,9 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 
 // UpdateNetworkConfig 更新基础网络配置
 func UpdateNetworkConfig(newCfg *NetworkConfig) error {
+	configMu.Lock()         // ✅ 加锁
+	defer configMu.Unlock() // ✅ 保证最终释放
+
 	configPath := GetConfigPath()
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -460,6 +474,9 @@ func UpdateNetworkConfig(newCfg *NetworkConfig) error {
 
 // BuildRuntimeConfig 核心流水线：基础配置 + 用户设置 = 最终运行配置
 func BuildRuntimeConfig(profileName string, mode string) error {
+	configMu.Lock()         // ✅ 加锁
+	defer configMu.Unlock() // ✅ 保证最终释放
+
 	configPath := GetConfigPath() // 目标: core/bin/config.yaml
 	baseDir := filepath.Dir(configPath)
 
