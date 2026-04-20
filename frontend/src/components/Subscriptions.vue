@@ -48,9 +48,19 @@
               <button class="arrow-btn" :disabled="index === localConfigs.length - 1" @click.stop="moveDown(index)" v-html="ICONS.down"></button>
             </div>
 
-            <div>
+            <div style="flex: 1; min-width: 0;">
               <h4 class="sub-name">{{ config }}</h4>
               <span class="sub-path font-mono">core/bin/{{ config }}</span>
+              
+              <div v-if="subRecords[config] && subRecords[config].total" class="traffic-container">
+                <div class="traffic-bar">
+                  <div class="traffic-fill" :style="{ width: (subRecords[config].percentage || 0) + '%' }"></div>
+                </div>
+                <div class="traffic-text">
+                  <span>已用 {{ subRecords[config].used || '0B' }}</span>
+                  <span>总计 {{ subRecords[config].total }}</span>
+                </div>
+              </div>
             </div>
           </div>
           
@@ -558,5 +568,37 @@ onUnmounted(() => {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* ================================== */
+/* 订阅流量条样式 (实色黑白风格)       */
+/* ================================== */
+.traffic-container {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  max-width: 320px;
+}
+.traffic-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--surface-hover); 
+  border-radius: 4px;
+  overflow: hidden;
+}
+.traffic-fill {
+  height: 100%;
+  background: var(--text-main); 
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+.traffic-text {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--text-sub);
+  font-weight: 500;
 }
 </style>

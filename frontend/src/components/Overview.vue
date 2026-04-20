@@ -185,7 +185,10 @@ onMounted(() => {
   transition: 0.3s;
 }
 .icon-ring :deep(svg) { width: 22px; height: 22px; }
-.on .icon-ring { background: rgba(255, 255, 255, 0.15); color: var(--accent-fg); }
+.on .icon-ring { 
+  background: rgba(128, 128, 128, 0.25) !important; 
+  color: var(--accent-fg); 
+}
 
 .card-title { display: block; font-size: 1rem; font-weight: 600; margin-bottom: 2px; color: var(--text-main); }
 .card-hint { font-size: 0.75rem; color: var(--text-sub); }

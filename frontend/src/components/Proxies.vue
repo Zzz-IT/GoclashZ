@@ -169,7 +169,13 @@ const testSingleDelay = async (node: any) => {
     console.error("单点测速失败:", e);
     node.delay = 0;
   } finally {
-      setTimeout(() => { node.testing = false }, 5000);
+      // 统一改为 500ms 缓冲收尾
+      setTimeout(() => { 
+          if (node.testing) {
+              node.testing = false;
+              if (node.delay === null) node.delay = 0;
+          }
+      }, 500);
   }
 };
 
@@ -204,10 +210,19 @@ onMounted(async () => {
   });
 
   EventsOn("proxy-test-finished", () => {
-    isTesting.value = false;
-    if(activeGroupData.value) {
-        activeGroupData.value.proxies.forEach((n:any) => n.testing = false);
-    }
+    // 延迟 500ms 等待最后的延迟数据到达，消除闪电图标闪烁
+    setTimeout(() => {
+      isTesting.value = false;
+      if (activeGroupData.value) {
+          activeGroupData.value.proxies.forEach((n:any) => {
+             if (n.testing) {
+                 n.testing = false;
+                 // 如果测速结束依然没拿到数据，则记为超时 0
+                 if (n.delay === null) n.delay = 0; 
+             }
+          });
+      }
+    }, 500);
   });
 
   await loadData();
