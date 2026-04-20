@@ -589,8 +589,11 @@ const behavior = ref({
   closeToTray: true,
   logLevel: 'info',
   hideLogs: false,
-  subUA: ''
+  subUA: '',
+  activeConfig: '',
+  activeMode: ''
 });
+
 
 const uwpApps = ref<any[]>([]);
 const uwpSearch = ref('');
@@ -669,16 +672,24 @@ const handleTunToggle = async (e: Event) => {
     return;
   }
   
+  // 1. 记录操作前的原始状态
+  const originalValue = !tunConfig.value.enable;
+  
   try {
+    // 2. 调用后端 API
     await API.ToggleTunMode(tunConfig.value.enable);
     await saveTun();
 
+    // 同步刷新全局状态
     const newStatus = await API.GetProxyStatus();
     window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: newStatus }));
   } catch (err) {
+    // 3. 核心修复：发生错误时回滚 UI 状态
+    tunConfig.value.enable = originalValue; 
     await showAlert("操作内核 TUN 失败: " + err, '错误');
   }
 };
+
 
 const installDriver = async () => {
   isInstalling.value = true;

@@ -175,6 +175,8 @@ export namespace main {
 	    logLevel: string;
 	    hideLogs: boolean;
 	    subUA: string;
+	    activeConfig: string;
+	    activeMode: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppBehavior(source);
@@ -187,6 +189,8 @@ export namespace main {
 	        this.logLevel = source["logLevel"];
 	        this.hideLogs = source["hideLogs"];
 	        this.subUA = source["subUA"];
+	        this.activeConfig = source["activeConfig"];
+	        this.activeMode = source["activeMode"];
 	    }
 	}
 	export class RuleItem {

@@ -42,9 +42,12 @@ type App struct {
 type AppBehavior struct {
 	SilentStart   bool   `json:"silentStart"`   // 静默启动 (不弹窗，直接进托盘)
 	CloseToTray   bool   `json:"closeToTray"`   // 点击关闭时隐藏到托盘
-	LogLevel      string `json:"logLevel"`      // 👈 新增：日志等级
-	HideLogs      bool   `json:"hideLogs"`      // 👈 新增
-	SubUA         string `json:"subUA"`         // 👈 新增：订阅更新 User-Agent
+	LogLevel      string `json:"logLevel"`      // 日志等级
+	HideLogs      bool   `json:"hideLogs"`      
+	SubUA         string `json:"subUA"`         // 订阅更新 User-Agent
+	// 新增：统持久化字段
+	ActiveConfig  string `json:"activeConfig"`
+	ActiveMode    string `json:"activeMode"`
 }
 
 // 获取配置文件的存放路径
@@ -236,38 +239,32 @@ func getBaseDir() string {
 
 // 记录当前选中的配置文件名到本地
 func (a *App) saveActiveConfig(fileName string) {
-	baseDir := getBaseDir()
-	activeFile := filepath.Join(baseDir, "core", "bin", "active_config.txt")
-	os.WriteFile(activeFile, []byte(fileName), 0644)
+    behavior := a.GetAppBehavior()
+    behavior.ActiveConfig = fileName
+    data, _ := json.MarshalIndent(behavior, "", "  ")
+    os.WriteFile(a.getAppBehaviorPath(), data, 0644)
 }
 
 // 启动时读取上次选中的配置文件名
 func (a *App) loadActiveConfig() string {
-	baseDir := getBaseDir()
-	activeFile := filepath.Join(baseDir, "core", "bin", "active_config.txt")
-	data, err := os.ReadFile(activeFile)
-	if err == nil && len(data) > 0 {
-		return string(data)
-	}
-	return ""
+    return a.GetAppBehavior().ActiveConfig
 }
 
 // 记录当前选中的模式到本地
 func (a *App) saveActiveMode(mode string) {
-	baseDir := getBaseDir()
-	activeFile := filepath.Join(baseDir, "core", "bin", "active_mode.txt")
-	os.WriteFile(activeFile, []byte(mode), 0644)
+    behavior := a.GetAppBehavior()
+    behavior.ActiveMode = mode
+    data, _ := json.MarshalIndent(behavior, "", "  ")
+    os.WriteFile(a.getAppBehaviorPath(), data, 0644)
 }
 
 // 启动时读取上次选中的模式
 func (a *App) loadActiveMode() string {
-	baseDir := getBaseDir()
-	activeFile := filepath.Join(baseDir, "core", "bin", "active_mode.txt")
-	data, err := os.ReadFile(activeFile)
-	if err == nil && len(data) > 0 {
-		return string(data)
-	}
-	return "rule" // 默认规则模式
+    mode := a.GetAppBehavior().ActiveMode
+    if mode == "" {
+        return "rule"
+    }
+    return mode
 }
 
 // --- 状态获取辅助方法（新增） ---
@@ -332,7 +329,13 @@ func (a *App) ensureCoreRunning() error {
 	apiReady := false
 	for i := 0; i < 20; i++ { // 最长等待 2 秒
 		time.Sleep(100 * time.Millisecond)
-		// 用获取初始数据作为 API 就绪的探针
+
+		// 关键：检查内核进程是否还在运行
+		if !clash.IsRunning() {
+			return fmt.Errorf("内核启动后意外停止。请检查端口(7890/9090)是否被占用，或查看日志以获取详细配置错误。")
+		}
+
+		// 探针：尝试请求一次数据，如果成功说明 API 已就绪
 		if _, err := clash.GetInitialData(); err == nil {
 			apiReady = true
 			break

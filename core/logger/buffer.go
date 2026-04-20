@@ -11,59 +11,51 @@ type LogEntry struct {
 	Time    string `json:"time"`
 }
 
-type RingBuffer struct {
-	mu       sync.RWMutex
-	logs     []LogEntry
-	capacity int
-	head     int
-	tail     int
-	count    int
+const MaxLogLines = 1000 // 最大日志存储量
+
+type LogBuffer struct {
+	mu      sync.RWMutex
+	entries []LogEntry
 }
 
-// 预先分配好 1000 个长度的固定数组，永不扩容，彻底解决内存抖动
-var AppLogs = &RingBuffer{
-	logs:     make([]LogEntry, 1000),
-	capacity: 1000,
+var AppLogs = &LogBuffer{
+	entries: make([]LogEntry, 0, MaxLogLines),
 }
 
-func (rb *RingBuffer) Add(entry LogEntry) {
-	rb.mu.Lock()
-	defer rb.mu.Unlock()
+func (b *LogBuffer) Add(entry LogEntry) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	rb.logs[rb.tail] = entry
-	rb.tail = (rb.tail + 1) % rb.capacity
+	b.entries = append(b.entries, entry)
 
-	if rb.count < rb.capacity {
-		rb.count++
-	} else {
-		// 满了之后，覆盖旧数据，头指针同步向前推进
-		rb.head = (rb.head + 1) % rb.capacity
+	// 如果超过限制，移除最旧的条目
+	if len(b.entries) > MaxLogLines {
+		// 截断 Slice，保留最后 MaxLogLines 条
+		b.entries = b.entries[len(b.entries)-MaxLogLines:]
 	}
 }
 
-func (rb *RingBuffer) GetAll() []LogEntry {
-	rb.mu.RLock()
-	defer rb.mu.RUnlock()
+func (b *LogBuffer) GetAll() []LogEntry {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-	res := make([]LogEntry, 0, rb.count)
-	for i := 0; i < rb.count; i++ {
-		idx := (rb.head + i) % rb.capacity
-		res = append(res, rb.logs[idx])
-	}
+	// 返回副本以防并发修改
+	res := make([]LogEntry, len(b.entries))
+	copy(res, b.entries)
 	return res
 }
 
-func (rb *RingBuffer) Search(keyword string) []LogEntry {
-	rb.mu.RLock()
-	defer rb.mu.RUnlock()
+func (b *LogBuffer) Search(keyword string) []LogEntry {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
 	var res []LogEntry
 	lowerKw := strings.ToLower(keyword)
-	for i := 0; i < rb.count; i++ {
-		idx := (rb.head + i) % rb.capacity
-		if strings.Contains(strings.ToLower(rb.logs[idx].Payload), lowerKw) {
-			res = append(res, rb.logs[idx])
+	for _, entry := range b.entries {
+		if strings.Contains(strings.ToLower(entry.Payload), lowerKw) {
+			res = append(res, entry)
 		}
 	}
 	return res
 }
+

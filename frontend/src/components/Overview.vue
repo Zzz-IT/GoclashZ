@@ -79,6 +79,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
+import { showAlert } from '../store';
 import { ICONS } from '../utils/icons';
 
 defineProps<{
@@ -108,15 +109,27 @@ const refreshData = async () => {
 };
 
 const toggleSysProxy = async () => {
-  await API.ToggleSystemProxy(!status.value.systemProxy);
-  status.value = await API.GetProxyStatus() as any;
-  window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: status.value }));
+  const originalValue = status.value.systemProxy;
+  try {
+    await API.ToggleSystemProxy(!originalValue);
+    status.value = await API.GetProxyStatus() as any;
+    window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: status.value }));
+  } catch (err) {
+    status.value.systemProxy = originalValue;
+    await showAlert("操作系统代理失败: " + err, '错误');
+  }
 };
 
 const toggleTun = async () => {
-  await API.ToggleTunMode(!status.value.tun);
-  status.value = await API.GetProxyStatus() as any;
-  window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: status.value }));
+  const originalValue = status.value.tun;
+  try {
+    await API.ToggleTunMode(!originalValue);
+    status.value = await API.GetProxyStatus() as any;
+    window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: status.value }));
+  } catch (err) {
+    status.value.tun = originalValue;
+    await showAlert("操作虚拟网卡失败: " + err, '错误');
+  }
 };
 
 const handleModeChange = (val: string) => {

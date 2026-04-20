@@ -100,21 +100,41 @@ func getExemptedSids() (map[string]bool, error) {
 	return exemptMap, nil
 }
 
-// SaveUwpExemptions 批量保存豁免
-func SaveUwpExemptions(sids []string) error {
-	// 先清除所有现有的 (策略：先全删再全加，保证状态绝对一致)
-	cmdClear := exec.Command("CheckNetIsolation.exe", "LoopbackExempt", "-c")
-	cmdClear.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	cmdClear.Run()
-
-	for _, sid := range sids {
-		// 使用 SID 添加豁免是最精确的
-		cmd := exec.Command("CheckNetIsolation.exe", "LoopbackExempt", "-a", "-p="+sid)
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		cmd.Run()
+// SaveUwpExemptions 批量保存豁免（增量更新版）
+func SaveUwpExemptions(targetSids []string) error {
+	// 1. 获取当前系统已有的豁免列表
+	currentExempted, err := getExemptedSids()
+	if err != nil {
+		return err
 	}
+
+	// 2. 将目标列表转为 Map 方便查询
+	targetMap := make(map[string]bool)
+	for _, sid := range targetSids {
+		targetMap[sid] = true
+	}
+
+	// 3. 增量删除：存在于系统但不在目标列表中的
+	for sid := range currentExempted {
+		if !targetMap[sid] {
+			cmd := exec.Command("CheckNetIsolation.exe", "LoopbackExempt", "-d", "-p="+sid)
+			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			_ = cmd.Run()
+		}
+	}
+
+	// 4. 增量添加：存在于目标列表但不在系统中的
+	for sid := range targetMap {
+		if !currentExempted[sid] {
+			cmd := exec.Command("CheckNetIsolation.exe", "LoopbackExempt", "-a", "-p="+sid)
+			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			_ = cmd.Run()
+		}
+	}
+
 	return nil
 }
+
 
 // ExemptAllUWP 兼容旧接口：一键豁免所有应用
 func ExemptAllUWP() error {
