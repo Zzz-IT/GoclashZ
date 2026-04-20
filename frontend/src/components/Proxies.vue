@@ -369,31 +369,38 @@ onUnmounted(() => {
 .n-name { font-size: 0.95rem; font-weight: 500; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main); }
 
 .node-meta { display: flex; align-items: center; }
+
+/* ================================ */
+/* 协议标签：精确视觉对齐方案          */
+/* ================================ */
 .n-protocol {
   font-size: 0.65rem; 
   font-weight: 800;
-  color: var(--text-sub);
-  background: var(--surface-hover); 
-  border: none; 
-  padding: 2px 8px; 
-  border-radius: 6px;
+  /* 修正圆角：从 Pill 形状改为 4px 小圆角，与 12px 的卡片外框形成视觉嵌套感 */
+  border-radius: 4px; 
+  padding: 1px 6px; 
   width: fit-content;
   text-transform: uppercase;
   display: flex;
   align-items: center;
 }
 
-/* ================================ */
-/* 2. 选中状态：完美复刻代理组 active 配色 */
-/* ================================ */
+/* 情况 1：未选中的节点卡片 */
+/* 照抄顶部“已选中的代理组 Tab”的高亮逻辑 */
+.node-item:not(.active) .n-protocol {
+  background: var(--surface-panel); 
+  color: var(--text-main);
+}
+
+/* 情况 2：已选中的节点卡片 (反色态) */
+/* 严格照抄 Overview.vue 中 .on .icon-ring 的夜间/激活模式处理逻辑 */
 .node-item.active .n-protocol { 
-  /* 使用面板色作为背景，主文本色作为字体，和顶部选中的组名按钮保持绝对一致 */
-  background: var(--surface-panel) !important; 
-  color: var(--text-main) !important; 
-  
-  /* 加上一点极微弱的阴影或边框，确保在任何主题下边缘都极其清晰 */
-  border: 1px solid var(--surface-hover) !important; 
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15); 
+  /* 这里的 rgba(128, 128, 128, 0.25) 是 Overview 中定义的标准半透明遮罩 */
+  background: rgba(128, 128, 128, 0.25) !important; 
+  color: var(--accent-fg) !important;
+  /* 确保完全没有边框或阴影干扰，保持通透感 */
+  box-shadow: none; 
+  border: none;
 }
 
 .n-latency-box {
