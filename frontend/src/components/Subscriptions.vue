@@ -297,8 +297,12 @@ const handleUpdateSingle = async (filename: string) => {
   try {
     await (API as any).UpdateSingleSub(filename);
     await fetchConfigs();
+    // 👇 新增：成功提示
+    await showAlert(`"${filename}" 更新成功`, "更新完毕");
   } catch (e) {
     console.error("更新订阅失败:", e);
+    // 👇 新增：失败提示
+    await showAlert(`"${filename}" 更新失败: ${e}`, "发生错误");
   } finally {
     loading.value = false;
   }
@@ -589,40 +593,59 @@ onUnmounted(() => {
 /* ================================== */
 /* 订阅流量条样式 (实色黑白风格)       */
 /* ================================== */
-/* 订阅流量条 */
+/* 订阅流量条样式 (实色黑白风格)       */
+/* ================================== */
 .traffic-container {
-  margin-top: 12px; 
-  padding-top: 12px; /* 与上面的信息拉开一点层次感 */
-  border-top: 1px dashed var(--surface-hover); /* 增加一条极淡的虚线分割，更显精致 */
+  margin-top: 10px; 
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: 100%; /* 因为已经提到了外层，这里的 100% 就会完美撑满整个卡片背景 */
+  gap: 6px;
+  width: 100%;
 }
+
 .traffic-bar {
   width: 100%;
-  height: 4px;
-  background: var(--surface-hover); 
-  border-radius: 4px;
+  height: 6px; /* 从 4px 加粗到 6px，让进度条更明显 */
+  background: rgba(128, 128, 128, 0.2); /* 使用万能的半透明灰作为轨道，取代原本容易隐形的 surface-hover */
+  border-radius: 6px;
   overflow: hidden;
 }
+
 .traffic-fill {
   height: 100%;
   background: var(--text-main); 
-  border-radius: 4px;
+  border-radius: 6px;
   transition: width 0.4s ease;
 }
+
 .traffic-text {
   display: flex;
   justify-content: space-between;
   font-size: 0.7rem;
-  color: var(--text-main);
+  color: var(--text-sub);
   font-weight: 600;
 }
+
 .expire-text {
   font-size: 0.65rem;
   color: var(--text-muted);
   text-align: right;
   margin-top: -2px;
+}
+
+/* 👇 新增：专门修复选中状态（反色）下的文字与进度条隐形问题 */
+.active-card .traffic-bar {
+  background: rgba(0, 0, 0, 0.2); /* 在反色背景下，使用更深的半透明轨道以凸显轮廓 */
+}
+.active-card .traffic-fill {
+  background: var(--accent-fg); /* 填充色跟随选中卡片的文字色（通常是纯白） */
+}
+.active-card .traffic-text {
+  color: var(--accent-fg); /* 强制文字变成反色文字 */
+  opacity: 0.9;
+}
+.active-card .expire-text {
+  color: var(--accent-fg); /* 强制过期时间文字变成反色文字 */
+  opacity: 0.7;
 }
 </style>
