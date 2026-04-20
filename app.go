@@ -109,7 +109,11 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 
 // SubRecord 用于记录文件名与订阅链接的映射
 type SubRecord struct {
-	URL string `json:"url"`
+	URL      string `json:"url"`
+	Upload   int64  `json:"upload"`   // 👈 新增
+	Download int64  `json:"download"` // 👈 新增
+	Total    int64  `json:"total"`    // 👈 新增
+	Expire   int64  `json:"expire"`   // 👈 新增
 }
 
 // 获取订阅信息存储路径
@@ -131,9 +135,26 @@ func (a *App) readSubRecords() map[string]SubRecord {
 }
 
 // 保存订阅记录
-func (a *App) saveSubRecord(filename string, url string) {
+func (a *App) saveSubRecord(filename string, url string, info *clash.SubInfo) {
 	records := a.readSubRecords()
-	records[filename] = SubRecord{URL: url}
+	record := SubRecord{URL: url}
+
+	// 保留历史流量记录
+	if old, exists := records[filename]; exists {
+		record.Upload = old.Upload
+		record.Download = old.Download
+		record.Total = old.Total
+		record.Expire = old.Expire
+	}
+	// 如果本次请求有新流量数据，则覆盖
+	if info != nil {
+		record.Upload = info.Upload
+		record.Download = info.Download
+		record.Total = info.Total
+		record.Expire = info.Expire
+	}
+
+	records[filename] = record
 	data, _ := json.MarshalIndent(records, "", "  ")
 	os.WriteFile(a.getSubsRecordPath(), data, 0644)
 }
@@ -691,13 +712,13 @@ func (a *App) SelectProxy(groupName, nodeName string) error {
 func (a *App) UpdateSub(url string) error {
 	ua := a.GetAppBehavior().SubUA
 	// 1. 下载订阅
-	filename, err := clash.UpdateSubscription(url, "", ua)
+	filename, info, err := clash.UpdateSubscription(url, "", ua)
 	if err != nil {
 		return err
 	}
 
 	// 2. 记录 URL 映射
-	a.saveSubRecord(filename, url)
+	a.saveSubRecord(filename, url, info)
 
 	// 3. 如果更新的是当前正在使用的配置，触发重载
 	if a.getActiveConfig() == filename && clash.IsRunning() {
@@ -718,10 +739,13 @@ func (a *App) UpdateSingleSub(filename string) error {
 	}
 
 	ua := a.GetAppBehavior().SubUA
-	_, err := clash.UpdateSubscription(record.URL, filename, ua)
+	_, info, err := clash.UpdateSubscription(record.URL, filename, ua)
 	if err != nil {
 		return err
 	}
+
+	// 更新流量信息
+	a.saveSubRecord(filename, record.URL, info)
 
 	// 如果更新的是当前正在使用的配置，触发重载
 	if a.getActiveConfig() == filename && clash.IsRunning() {
@@ -740,7 +764,10 @@ func (a *App) UpdateAllSubs() error {
 	for filename, record := range records {
 		if record.URL != "" {
 			// 忽略错误继续更新下一个
-			_, _ = clash.UpdateSubscription(record.URL, filename, ua)
+			_, info, _ := clash.UpdateSubscription(record.URL, filename, ua)
+			if info != nil {
+				a.saveSubRecord(filename, record.URL, info)
+			}
 		}
 	}
 

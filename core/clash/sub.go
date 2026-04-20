@@ -6,16 +6,51 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv" // 👈 新增导入
 	"strings"
 	"time"
 )
 
+// SubInfo 👈 新增结构体
+type SubInfo struct {
+	Upload   int64 `json:"upload"`
+	Download int64 `json:"download"`
+	Total    int64 `json:"total"`
+	Expire   int64 `json:"expire"`
+}
+
+// ParseSubInfo 👈 新增解析函数
+func ParseSubInfo(header string) *SubInfo {
+	if header == "" {
+		return nil
+	}
+	info := &SubInfo{}
+	parts := strings.Split(header, ";")
+	for _, part := range parts {
+		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
+		if len(kv) == 2 {
+			val, _ := strconv.ParseInt(kv[1], 10, 64)
+			switch strings.ToLower(kv[0]) {
+			case "upload":
+				info.Upload = val
+			case "download":
+				info.Download = val
+			case "total":
+				info.Total = val
+			case "expire":
+				info.Expire = val
+			}
+		}
+	}
+	return info
+}
+
 // UpdateSubscription 下载 YAML 订阅
 // 如果 targetName 为空，则自动根据 URL 生成文件名
-func UpdateSubscription(subURL string, targetName string, userAgent string) (string, error) {
+func UpdateSubscription(subURL string, targetName string, userAgent string) (string, *SubInfo, error) {
 	pwd, err := os.Getwd()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// 1. 决定文件名
@@ -33,7 +68,7 @@ func UpdateSubscription(subURL string, targetName string, userAgent string) (str
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", subURL, nil)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// 使用传入的 UA，如果没有则使用默认值
@@ -44,28 +79,32 @@ func UpdateSubscription(subURL string, targetName string, userAgent string) (str
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("订阅下载失败: %v", err)
+		return "", nil, fmt.Errorf("订阅下载失败: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("订阅服务器异常: HTTP %d", resp.StatusCode)
+		return "", nil, fmt.Errorf("订阅服务器异常: HTTP %d", resp.StatusCode)
 	}
+
+	// 👈 核心拦截：在这里抓取流量 Header
+	infoStr := resp.Header.Get("Subscription-Userinfo")
+	info := ParseSubInfo(infoStr)
 
 	out, err := os.Create(configPath)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	_, err = io.Copy(out, resp.Body)
 	out.Close()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// 如果当前正在运行且更新的是活动配置，则热重载
 	// 注意：这里为了简单，暂时不在此处判断是否是活动配置，由 App 层决定是否 Reload
-	return fileName, nil
+	return fileName, info, nil
 }
 
 // ReloadConfig 调用内核 API 热重载

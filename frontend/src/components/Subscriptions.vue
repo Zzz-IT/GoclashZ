@@ -52,13 +52,16 @@
               <h4 class="sub-name">{{ config }}</h4>
               <span class="sub-path font-mono">core/bin/{{ config }}</span>
               
-              <div v-if="subRecords[config] && subRecords[config].total" class="traffic-container">
+              <div v-if="subRecords[config] && subRecords[config].total > 0" class="traffic-container">
                 <div class="traffic-bar">
-                  <div class="traffic-fill" :style="{ width: (subRecords[config].percentage || 0) + '%' }"></div>
+                  <div class="traffic-fill" :style="{ width: Math.min(100, ((subRecords[config].upload + subRecords[config].download) / subRecords[config].total) * 100) + '%' }"></div>
                 </div>
                 <div class="traffic-text">
-                  <span>已用 {{ subRecords[config].used || '0B' }}</span>
-                  <span>总计 {{ subRecords[config].total }}</span>
+                  <span>已用 {{ formatBytes(subRecords[config].upload + subRecords[config].download) }}</span>
+                  <span>总计 {{ formatBytes(subRecords[config].total) }}</span>
+                </div>
+                <div v-if="subRecords[config].expire > 0" class="expire-text">
+                  到期时间: {{ formatDate(subRecords[config].expire) }}
                 </div>
               </div>
             </div>
@@ -170,6 +173,19 @@ const currentPath = ref('');
 const localConfigs = ref<string[]>([]);
 const activeMenu = ref<string | null>(null);
 const subRecords = ref<Record<string, any>>({});
+
+const formatBytes = (bytes: number) => {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
+const formatDate = (timestamp: number) => {
+  if (!timestamp) return '';
+  return new Date(timestamp * 1000).toLocaleDateString();
+};
 
 const isSortingMode = ref(false);
 
@@ -573,13 +589,14 @@ onUnmounted(() => {
 /* ================================== */
 /* 订阅流量条样式 (实色黑白风格)       */
 /* ================================== */
+/* 订阅流量条 */
 .traffic-container {
-  margin-top: 8px;
+  margin-top: 10px;
   display: flex;
   flex-direction: column;
   gap: 5px;
   width: 100%;
-  max-width: 320px;
+  min-width: 220px;
 }
 .traffic-bar {
   width: 100%;
@@ -598,7 +615,13 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   font-size: 0.7rem;
-  color: var(--text-sub);
-  font-weight: 500;
+  color: var(--text-main);
+  font-weight: 600;
+}
+.expire-text {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  text-align: right;
+  margin-top: -2px;
 }
 </style>
