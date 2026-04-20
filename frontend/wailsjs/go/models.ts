@@ -254,3 +254,26 @@ export namespace main {
 
 }
 
+export namespace sys {
+	
+	export class UwpApp {
+	    displayName: string;
+	    packageFamilyName: string;
+	    sid: string;
+	    isEnabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new UwpApp(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.displayName = source["displayName"];
+	        this.packageFamilyName = source["packageFamilyName"];
+	        this.sid = source["sid"];
+	        this.isEnabled = source["isEnabled"];
+	    }
+	}
+
+}
+

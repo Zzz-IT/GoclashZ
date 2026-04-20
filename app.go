@@ -1378,3 +1378,16 @@ func (a *App) GetAllRules(keyword string) (PagedRules, error) {
 		IsEditable: info.IsEditable,
 	}, nil
 }
+
+// GetUwpApps 供前端拉取所有 UWP 应用
+func (a *App) GetUwpApps() ([]sys.UwpApp, error) {
+	return sys.GetUwpAppList()
+}
+
+// SaveUwpExemptions 供前端批量保存选中的 SID 列表
+func (a *App) SaveUwpExemptions(sids []string) error {
+	if !sys.CheckAdmin() {
+		return fmt.Errorf("此操作需要管理员权限")
+	}
+	return sys.SaveUwpExemptions(sids)
+}

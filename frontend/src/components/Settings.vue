@@ -5,12 +5,12 @@
       <div class="glass-card setting-group">
         <h3>系统与网络</h3>
 
-        <div class="setting-item">
+        <div class="setting-item clickable" @click="enterUwpManager">
           <div class="info">
-            <h4>UWP 环回免除 (Loopback Exemption)</h4>
-            <p>解决 Windows 10/11 应用商店、邮件等自带 UWP 软件在开启代理后无法联网的问题。</p>
+            <h4>UWP 环回免除工具</h4>
+            <p>管理 Windows UWP 应用（如 Microsoft Store）的代理访问权限。</p>
           </div>
-          <button class="action-btn" @click="fixUWP">🔧 一键修复</button>
+          <span class="arrow">➔</span>
         </div>
 
         <div class="setting-item clickable" @click="view = 'tun'">
@@ -469,11 +469,55 @@
       </div>
     </div>
 
+    <div v-else-if="view === 'uwp'" class="settings-page slide-in">
+      <div class="sub-header">
+        <button class="back-btn" @click="view = 'main'">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        </button>
+        <h3>UWP 环回管理</h3>
+      </div>
+
+      <div class="uwp-action-bar">
+        <div class="search-box">
+           <input v-model="uwpSearch" placeholder="搜索应用名称或包名..." />
+        </div>
+        <div class="batch-btns">
+          <button class="mini-btn" @click="toggleAllUwp(true)">全选</button>
+          <button class="mini-btn" @click="toggleAllUwp(false)">全不选</button>
+        </div>
+      </div>
+
+      <div class="uwp-list-container scrollable">
+        <div 
+          v-for="app in filteredUwpApps" 
+          :key="app.sid" 
+          class="uwp-app-card"
+          :class="{ 'active': app.isEnabled }"
+          @click="app.isEnabled = !app.isEnabled"
+        >
+          <div class="app-info">
+            <span class="app-name">{{ app.displayName || 'Unnamed App' }}</span>
+            <span class="app-family">{{ app.packageFamilyName }}</span>
+          </div>
+          <div class="modern-switch-small" :class="{ 'on': app.isEnabled }">
+            <div class="knob"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="uwp-footer">
+         <button class="save-all-btn" :disabled="savingUwp" @click="saveUwpChanges">
+           {{ savingUwp ? '正在保存...' : '应用更改 (需要管理员权限)' }}
+         </button>
+      </div>
+    </div>
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+
+import { ref, onMounted, watch, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { showAlert } from '../store';
 
@@ -536,6 +580,44 @@ const behavior = ref({
   hideLogs: false,
   subUA: ''
 });
+
+const uwpApps = ref<any[]>([]);
+const uwpSearch = ref('');
+const savingUwp = ref(false);
+
+const enterUwpManager = async () => {
+  view.value = 'uwp';
+  try {
+    uwpApps.value = await (API as any).GetUwpApps();
+  } catch (e) {
+    showAlert('获取 UWP 列表失败: ' + e, '错误');
+  }
+};
+
+const filteredUwpApps = computed(() => {
+  const q = uwpSearch.value.toLowerCase();
+  return uwpApps.value.filter(app => 
+    (app.displayName || '').toLowerCase().includes(q) || 
+    (app.packageFamilyName || '').toLowerCase().includes(q)
+  );
+});
+
+const toggleAllUwp = (val: boolean) => {
+  uwpApps.value.forEach(app => app.isEnabled = val);
+};
+
+const saveUwpChanges = async () => {
+  savingUwp.value = true;
+  try {
+    const sids = uwpApps.value.filter(a => a.isEnabled).map(a => a.sid);
+    await (API as any).SaveUwpExemptions(sids);
+    await showAlert('豁免配置已成功更新！', '完成');
+  } catch (e) {
+    await showAlert('保存失败: ' + e, '错误');
+  } finally {
+    savingUwp.value = false;
+  }
+};
 
 const loadData = async () => {
   try {
@@ -784,4 +866,118 @@ input:checked + .slider:before {
 .status-msg { margin-top: 4px; font-weight: 500; }
 .green-text { color: var(--text-main); font-weight: 600; }
 .red-text { color: var(--text-muted); }
+
+/* 针对 UWP 管理页的专属样式 */
+.uwp-action-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+
+.search-box {
+  flex: 1; /* 搜索框自适应宽度 */
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.search-box input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  outline: none;
+}
+
+.batch-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.mini-btn {
+  background: var(--surface-hover);
+  color: var(--text-main);
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s;
+}
+.mini-btn:hover { filter: brightness(0.9); }
+
+.uwp-list-container {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px; /* 只有间距，没有细线 */
+  margin-bottom: 16px;
+}
+
+.uwp-app-card {
+  background: var(--surface);
+  border-radius: 12px; /* 遵循 12px 容器圆角 */
+  padding: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.uwp-app-card:hover { background: var(--surface-hover); }
+
+/* 选中后的反色高亮逻辑 */
+.uwp-app-card.active {
+  background: var(--accent);
+}
+.uwp-app-card.active .app-name { color: var(--accent-fg); }
+.uwp-app-card.active .app-family { color: var(--accent-fg); opacity: 0.7; }
+
+.app-info { display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
+.app-name { font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-family { font-size: 0.7rem; color: var(--text-sub); }
+
+.uwp-footer {
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+.save-all-btn {
+  width: 100%;
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: none;
+  padding: 12px;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s;
+}
+.save-all-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.save-all-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* 现代感的小型 Switch */
+.modern-switch-small {
+  width: 32px;
+  height: 18px;
+  background: var(--surface-hover);
+  border-radius: 10px;
+  position: relative;
+  transition: 0.3s;
+}
+.modern-switch-small.on { background: rgba(255, 255, 255, 0.3); }
+.modern-switch-small .knob {
+  width: 12px;
+  height: 12px;
+  background: white;
+  border-radius: 50%;
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  transition: 0.3s;
+}
+.modern-switch-small.on .knob { transform: translateX(14px); }
 </style>

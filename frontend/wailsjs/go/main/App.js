@@ -86,6 +86,10 @@ export function GetTunConfig() {
   return window['go']['main']['App']['GetTunConfig']();
 }
 
+export function GetUwpApps() {
+  return window['go']['main']['App']['GetUwpApps']();
+}
+
 export function ImportLocalConfig() {
   return window['go']['main']['App']['ImportLocalConfig']();
 }
@@ -128,6 +132,10 @@ export function SaveThemePreference(arg1) {
 
 export function SaveTunConfig(arg1) {
   return window['go']['main']['App']['SaveTunConfig'](arg1);
+}
+
+export function SaveUwpExemptions(arg1) {
+  return window['go']['main']['App']['SaveUwpExemptions'](arg1);
 }
 
 export function SearchLogs(arg1) {

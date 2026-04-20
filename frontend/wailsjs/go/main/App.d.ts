@@ -3,6 +3,7 @@
 import {main} from '../models';
 import {clash} from '../models';
 import {logger} from '../models';
+import {sys} from '../models';
 
 export function AddRule(arg1:string):Promise<void>;
 
@@ -46,6 +47,8 @@ export function GetSubRecords():Promise<Record<string, main.SubRecord>>;
 
 export function GetTunConfig():Promise<clash.TunConfig>;
 
+export function GetUwpApps():Promise<Array<sys.UwpApp>>;
+
 export function ImportLocalConfig():Promise<void>;
 
 export function InstallTunDriver():Promise<void>;
@@ -67,6 +70,8 @@ export function SaveNetworkConfig(arg1:clash.NetworkConfig):Promise<void>;
 export function SaveThemePreference(arg1:boolean):Promise<void>;
 
 export function SaveTunConfig(arg1:clash.TunConfig):Promise<void>;
+
+export function SaveUwpExemptions(arg1:Array<string>):Promise<void>;
 
 export function SearchLogs(arg1:string):Promise<Array<logger.LogEntry>>;
 
