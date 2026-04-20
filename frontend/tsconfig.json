@@ -22,6 +22,10 @@
     "src/**/*.tsx",
     "src/**/*.vue"
   ],
+  "exclude": [
+    "node_modules",
+    "src/components/Logs.vue"
+  ],
   "references": [
     {
       "path": "./tsconfig.node.json"
