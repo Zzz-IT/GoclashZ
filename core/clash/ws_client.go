@@ -5,23 +5,23 @@ import (
 	"encoding/json"
 	"goclashz/core/traffic"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 var (
 	connMutex  sync.Mutex
 	connCancel context.CancelFunc
-	connActive bool
+	connActive atomic.Bool
 )
 
 // StartConnectionMonitor 启动连接监控（REST 轮询 + 事件推送）
 func StartConnectionMonitor(ctx context.Context) error {
-	connMutex.Lock()
-	if connActive {
-		connMutex.Unlock()
+	if !connActive.CompareAndSwap(false, true) {
 		return nil
 	}
-	connActive = true
+
+	connMutex.Lock()
 	var pollCtx context.Context
 	pollCtx, connCancel = context.WithCancel(context.Background())
 	connMutex.Unlock()
@@ -59,11 +59,12 @@ func StartConnectionMonitor(ctx context.Context) error {
 
 // StopConnectionMonitor 停止连接监控
 func StopConnectionMonitor() {
-	connMutex.Lock()
-	defer connMutex.Unlock()
-	if connCancel != nil {
-		connCancel()
-		connCancel = nil
+	if connActive.CompareAndSwap(true, false) {
+		connMutex.Lock()
+		defer connMutex.Unlock()
+		if connCancel != nil {
+			connCancel()
+			connCancel = nil
+		}
 	}
-	connActive = false
 }

@@ -1,6 +1,6 @@
 <template>
   <div class="proxies-view">
-    <div class="action-bar card-panel">
+    <div class="action-bar">
       <div class="group-tabs">
         <button
           v-for="group in localGroups"
@@ -14,7 +14,7 @@
       </div>
 
       <div class="global-actions">
-        <button class="action-btn" @click="testAllDelays" :disabled="isTesting || !activeGroupData">
+        <button class="primary-btn accent-btn" @click="testAllDelays" :disabled="isTesting || !activeGroupData">
           <span class="btn-icon" v-html="ICONS.zap"></span>
           {{ isTesting ? '测速中...' : '测速当前组' }}
         </button>
@@ -52,7 +52,6 @@
               </div>
               
               <span v-else :class="['n-delay font-mono', getDelayColorClass(node.delay)]">
-                <span class="status-dot"></span>
                 {{ formatDelay(node.delay) }}
               </span>
             </div>
@@ -230,6 +229,8 @@ onUnmounted(() => {
   align-items: center;
   padding: 12px 16px;
   margin-bottom: 24px;
+  background: var(--surface);
+  border-radius: 12px;
 }
 
 .group-tabs {
@@ -300,20 +301,12 @@ onUnmounted(() => {
   color: var(--accent-fg); 
 }
 
-.node-item.active .n-latency-box {
-  background: rgba(128, 128, 128, 0.2); 
-}
-
 .node-item.active .t-fast,
 .node-item.active .t-mid,
 .node-item.active .t-slow,
 .node-item.active .t-fail,
 .node-item.active .t-unknown { 
   color: var(--accent-fg); 
-}
-
-.node-item.active .status-dot { 
-  background: var(--accent-fg); 
 }
 
 .node-item.active .ping-idle {
@@ -346,15 +339,21 @@ onUnmounted(() => {
   margin-left: 12px;
   padding: 6px 10px;
   border-radius: 6px;
-  background: var(--surface);
+  background: transparent !important;
   cursor: pointer;
-  transition: background 0.2s;
   min-width: 54px;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: opacity 0.2s;
 }
-.n-latency-box:hover { background: var(--surface-hover); }
+.n-latency-box:hover {
+  opacity: 0.6;
+}
+
+.node-item.active .n-latency-box {
+  background: transparent !important;
+}
 
 .scanner-container {
   width: 18px;
@@ -396,26 +395,15 @@ onUnmounted(() => {
   font-size: 0.8rem;
   font-weight: 600;
 }
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 2px;
-}
 
 .t-fast { color: var(--text-main); }
-.t-fast .status-dot { background: var(--text-main); }
-
 .t-mid { color: var(--text-sub); }
-.t-mid .status-dot { background: var(--text-sub); }
-
 .t-slow, .t-fail { color: var(--text-muted); }
-.t-slow .status-dot, .t-fail .status-dot { background: var(--text-muted); }
+.t-unknown { color: var(--text-muted); }
 
 @keyframes rotate {
   100% { transform: rotate(360deg); }
 }
-
-.t-unknown { color: var(--text-muted); }
 
 .empty-state {
   display: flex;

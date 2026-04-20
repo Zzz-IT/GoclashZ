@@ -485,4 +485,30 @@ onUnmounted(() => {
 .menu-item.danger { color: #ff4d4f !important; font-weight: 600; }
 .menu-divider { height: 1px; margin: 4px 0; background: var(--surface-hover); }
 .empty-state { padding: 30px; text-align: center; color: var(--text-muted); border: none; border-radius: 10px; background: var(--surface); }
+
+/* ================================== */
+/* 顶部按钮图标与动画样式 */
+/* ================================== */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 4px; /* 图标与文字的间距 */
+}
+
+/* 强制规定 SVG 的尺寸，防止变形或消失 */
+.btn-icon :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
+
+/* 刷新按钮的旋转加载动画 */
+.spin :deep(svg) {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 </style>

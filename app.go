@@ -30,7 +30,7 @@ type App struct {
 	cancelTraffic context.CancelFunc
 	cancelLogs    context.CancelFunc
 	logRunning    bool
-	mu            sync.Mutex
+	mu            sync.RWMutex      // 👈 升级为读写锁
 	activeConfig  string
 	activeMode    string            // 👈 新增：存储当前路由模式 (rule, global, direct)
 	offlineNodes  map[string]string // 👈 新增：存储离线状态下选中的节点
@@ -251,16 +251,31 @@ func (a *App) loadActiveMode() string {
 // --- 状态获取辅助方法（新增） ---
 
 func (a *App) getActiveConfig() string {
+	a.mu.RLock() 
+	cfg := a.activeConfig
+	a.mu.RUnlock()
+
+	if cfg != "" {
+		return cfg
+	}
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	// 如果内存为空，则从本地文件读取并缓存到内存
-	if a.activeConfig == "" {
+	if a.activeConfig == "" { // 👈 二次校验，防止多协程重复读文件
 		a.activeConfig = a.loadActiveConfig()
 	}
 	return a.activeConfig
 }
 
 func (a *App) getActiveMode() string {
+	a.mu.RLock()
+	mode := a.activeMode
+	a.mu.RUnlock()
+
+	if mode != "" {
+		return mode
+	}
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.activeMode == "" {
@@ -330,15 +345,16 @@ func (a *App) stopCoreService() {
 
 // GetProxyStatus 获取当前双轨状态
 func (a *App) GetProxyStatus() ProxyStatus {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.mu.RLock() // 👈 前端高频轮询，使用读锁！
+	sysProxy := a.sysProxyActive
+	a.mu.RUnlock()
 	
 	// 读取真实配置作为校验
 	tunCfg, _ := clash.GetTunConfig()
 	realTun := tunCfg != nil && tunCfg.Enable && clash.IsRunning()
 
 	return ProxyStatus{
-		SystemProxy: a.sysProxyActive,
+		SystemProxy: sysProxy,
 		Tun:         realTun,
 	}
 }
