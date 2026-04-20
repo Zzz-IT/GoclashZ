@@ -1,6 +1,6 @@
 <template>
   <div class="overview-layout">
-    <section class="hero-panel glass-panel">
+    <section class="hero-panel card-panel">
       <div class="status-core">
         <div class="orb-visual">
           <div class="orb" :class="{ 'active': isRunning }"></div>
@@ -79,24 +79,15 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
+import { ICONS } from '../utils/icons';
 
-// 👉 新增：接收从 App.vue 传过来的全局流量数据
 defineProps<{
   traffic: { up: string; down: string; }
 }>();
 
-const ICONS = {
-  sysProxy: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3z"/></svg>`,
-  tun: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"/><path d="M10 11v4"/><path d="M14 11v4"/></svg>`,
-  arrowUp: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5m-7 7 7-7 7 7"/></svg>`,
-  arrowDown: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14m-7-7 7 7 7-7"/></svg>`
-};
-
 const status = ref({ systemProxy: false, tun: false });
 const currentMode = ref('rule');
 const clashVersion = ref('');
-
-// ⚠️ 已删除：const traffic = ref({ up: '0 B/s', down: '0 B/s' }); (改为用 Prop)
 
 const modes = [
   { label: '规则分流', val: 'rule' },
@@ -135,10 +126,7 @@ const handleModeChange = (val: string) => {
 
 onMounted(() => {
   refreshData();
-  // ⚠️ 已删除：独立的 EventsOn 监听
 });
-
-// ⚠️ 已删除：onUnmounted 生命周期里的 EventsOff，这是导致侧边栏断流的罪魁祸首！
 </script>
 
 <style scoped>
@@ -147,16 +135,14 @@ onMounted(() => {
   flex-direction: column;
   gap: 24px;
   animation: fadeIn 0.4s ease-out;
-  font-family: "Microsoft YaHei", -apple-system, sans-serif !important;
 }
 
-/* 顶部面板：强化层次感 */
+/* 顶部面板 */
 .hero-panel {
   padding: 24px 32px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border: none;
 }
 
 .status-core { display: flex; align-items: center; gap: 24px; }
@@ -222,7 +208,7 @@ onMounted(() => {
 .seg-item.active { color: var(--text-main); font-weight: 600; }
 .seg-slider {
   position: absolute; top: 4px; left: 4px; width: calc(33.33% - 8px); height: calc(100% - 8px);
-  background: var(--glass-panel); border-radius: 10px; z-index: 0;
+  background: var(--surface-panel); border-radius: 10px; z-index: 0;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -230,5 +216,4 @@ onMounted(() => {
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
 .micro-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; color: var(--text-muted); }
-.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

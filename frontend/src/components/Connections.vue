@@ -1,7 +1,7 @@
 <template>
   <div class="connections-view">
     <template v-if="!selectedConn">
-      <div class="action-bar glass-panel">
+      <div class="action-bar card-panel">
         <div class="stats">
           <span class="count">活跃连接: {{ connections.length }}</span>
         </div>
@@ -61,7 +61,7 @@
     </template>
 
     <template v-else>
-      <div class="detail-page glass-panel">
+      <div class="detail-page card-panel">
         <div class="detail-header">
           <h3>连接详情</h3>
           <button class="action-btn back-btn" @click="closeDetail">
@@ -94,27 +94,17 @@ import { ref, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 import { showConfirm, showAlert } from '../store';
-
-// 所有 SVG 图标强制硬编码 width="14" height="14"，彻底防止被拉伸成诡异的线条
-const ICONS = {
-  pause: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`,
-  play: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`,
-  xCircle: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>`,
-  x: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`,
-  clock: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`,
-  upload: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>`,
-  download: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>`
-};
+import { ICONS } from '../utils/icons';
 
 const connections = ref<any[]>([]);
 const isPaused = ref(false);
 const selectedConn = ref<any>(null);
 
-let isMonitoring = false; // 增加一个状态锁，防止重复注册监听
+const isMonitoring = ref(false); // 增加一个状态锁，防止重复注册监听
 
 const startMonitor = async () => {
-  if (isMonitoring) return;
-  isMonitoring = true;
+  if (isMonitoring.value) return;
+  isMonitoring.value = true;
   
   EventsOn("connections-update", (data: any) => {
     if (isPaused.value) return;
@@ -139,8 +129,8 @@ const startMonitor = async () => {
 };
 
 const stopMonitor = () => {
-  if (!isMonitoring) return;
-  isMonitoring = false;
+  if (!isMonitoring.value) return;
+  isMonitoring.value = false;
   EventsOff("connections-update");
   (API as any).StopConnectionMonitor();
 };
@@ -198,7 +188,7 @@ const closeSingleConnection = async (id: string) => {
 <style scoped>
 .connections-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
-.action-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; margin-bottom: 24px; border-radius: 12px; }
+.action-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; margin-bottom: 24px; }
 .stats .count { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
 
 .global-actions { display: flex; gap: 12px; }

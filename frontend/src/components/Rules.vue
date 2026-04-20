@@ -2,7 +2,7 @@
   <div class="rules-view">
     <div class="rules-header">
       <div class="search-bar">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span v-html="ICONS.search"></span>
         <input v-model="searchQuery" placeholder="搜索规则、目标或策略..." />
       </div>
       <button v-if="isEditable" class="add-rule-btn" @click="showAddModal = true">+ 添加规则</button>
@@ -17,7 +17,7 @@
         <div class="rule-footer">
           <div class="rule-policy">{{ rule.policy }}</div>
           <button v-if="isEditable" class="delete-btn" @click="handleDeleteRequest(rule.originalIndex)" title="删除规则">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            <span v-html="ICONS.trash"></span>
           </button>
         </div>
       </div>
@@ -48,6 +48,7 @@
 import { ref, onMounted, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { showAlert, showConfirm } from '../store';
+import { ICONS } from '../utils/icons';
 
 const rules = ref<string[]>([]);
 const isEditable = ref(false);
@@ -170,30 +171,6 @@ onMounted(() => {
 .delete-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 6px; transition: 0.2s; }
 .delete-btn:hover { color: #ff4d4f; background: rgba(255, 77, 79, 0.1); }
 
-/* 局部弹窗遮罩 (用于新增规则) */
-.modal-overlay { 
-  position: fixed; inset: 0; 
-  background: rgba(0,0,0,0.4); 
-  display: flex; align-items: center; justify-content: center; 
-  z-index: 2000; 
-}
-
-/* 局部弹窗卡片对齐全局风格 */
-.custom-modal-card {
-  width: 90%; 
-  max-width: 400px; 
-  padding: 24px; 
-  border-radius: 12px;
-  background: var(--surface);
-  border: 1px solid var(--surface-hover);
-  box-shadow: 0 8px 30px rgba(0,0,0,0.2);
-}
-
-.modal-header { margin-bottom: 20px; }
-.modal-header h3 { margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--text-main); }
-
-.modal-body { display: flex; flex-direction: column; gap: 20px; }
-
 .hint { font-size: 0.75rem; color: var(--text-sub); margin-bottom: 0; line-height: 1.6; }
 
 .modal-input { 
@@ -201,24 +178,5 @@ onMounted(() => {
   border: none;
   background: var(--surface-hover); 
   color: var(--text-main); outline: none; 
-}
-
-.modal-footer { 
-  display: flex; 
-  gap: 12px; 
-  width: 100%; 
-}
-
-.modal-footer .action-btn, .modal-footer .primary-btn {
-  border: none;
-  padding: 12px;
-  border-radius: 10px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.modal-footer .action-btn {
-  background: var(--surface-hover);
-  color: var(--text-main);
 }
 </style>

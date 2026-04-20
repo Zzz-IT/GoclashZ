@@ -5,9 +5,8 @@
     --font-mono: 'JetBrains Mono', monospace;
 
     /* ☀️ 日间模式：纯净黑白灰，无色彩干扰 */
-    --glass-bg: #F2F2F2;       /* 底色：温暖的浅灰 */
-    --glass-panel: #FAFAFA;    /* 面板：近白，靠色差而非边框浮出 */
-    --glass-border: transparent;/* 🚫 无边框：靠色块自身对比 */
+    --app-bg: #F2F2F2;          /* 底色：温暖的浅灰 */
+    --surface-panel: #FAFAFA;   /* 面板：近白，靠色差而非边框浮出 */
 
     --text-main: #1A1A1A;      /* 主文字：极深灰 */
     --text-sub: #777777;       /* 次要文字：中灰 */
@@ -24,9 +23,8 @@
 
 /* 🌙 暗色模式：深沉纯黑灰，层次靠明度递进 */
 .dark {
-    --glass-bg: #111111;       /* 底色：极深灰黑 */
-    --glass-panel: #1A1A1A;    /* 面板：比底色亮一阶，产生浮层感 */
-    --glass-border: transparent;
+    --app-bg: #111111;         /* 底色：极深灰黑 */
+    --surface-panel: #1A1A1A;  /* 面板：比底色亮一阶，产生浮层感 */
 
     --text-main: #E8E8E8;      /* 主文字：柔和白 */
     --text-sub: #888888;
@@ -48,7 +46,7 @@
 }
 
 html, body, #app {
-    background: var(--glass-bg) !important;
+    background: var(--app-bg) !important;
     height: 100vh;
     width: 100vw;
     overflow: hidden;
@@ -57,8 +55,8 @@ html, body, #app {
 }
 
 /* 面板：无边框，纯靠色差 */
-.glass-panel {
-    background: var(--glass-panel);
+.card-panel {
+    background: var(--surface-panel);
     border: none;
     border-radius: 12px;
     box-shadow: none;
@@ -73,18 +71,36 @@ html, body, #app {
 /* 1. 基础布局类 */
 .flex-1 { flex: 1; justify-content: center; }
 
-/* 2. 弹窗标准容器 */
+/* ================================== */
+/* 全局弹窗样式 (统一整合) */
+/* ================================== */
 .modal-overlay {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
   background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: none !important;
-  display: flex; align-items: center; justify-content: center; z-index: 2000;
+  display: flex; align-items: center; justify-content: center; z-index: 9999;
 }
-.custom-modal-card { width: 440px; padding: 24px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
 
-.modal-footer { 
-    display: flex; gap: 12px; margin-top: 24px; width: 100%; 
+.custom-modal-card { 
+  width: 90%; 
+  max-width: 440px; 
+  padding: 24px; 
+  border-radius: 16px; 
+  background: var(--surface);
+  border: 1px solid var(--surface-hover);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3); 
 }
+
+.modal-header { margin-bottom: 20px; }
+.modal-header h3 { margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--text-main); }
+.modal-body { display: flex; flex-direction: column; gap: 20px; }
+.global-modal-msg { margin: 0; font-size: 0.9rem; color: var(--text-sub); line-height: 1.6; white-space: pre-wrap; }
+
+.modal-footer { display: flex; gap: 12px; width: 100%; margin-top: 10px; }
+.danger-text { color: #ff4d4f !important; }
+
+/* 统一缩放动画 */
+.pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); }
+.pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.95); }
 
 /* 3. 按钮体系 (按照 Subscriptions 重命名按钮对齐) */
 .primary-btn { 
@@ -112,26 +128,4 @@ html, body, #app {
 /* 危险操作红字 */
 .red-text-btn {
     color: #ff4d4f !important;
-}
-
-/* 4. 修复后的弹窗动画 (Pop) - 解决阴影缩放问题 */
-.pop-enter-active { 
-    transition: none; 
-}
-.pop-leave-active { 
-    transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
-}
-.pop-enter-from, .pop-leave-to { 
-    opacity: 0; 
-}
-
-/* 仅让卡片内容缩放，不缩放遮罩阴影 */
-.pop-enter-active .custom-modal-card, 
-.pop-leave-active .custom-modal-card { 
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
-}
-.pop-enter-from .custom-modal-card, 
-.pop-leave-to .custom-modal-card { 
-    opacity: 0; 
-    transform: scale(0.95); 
 }

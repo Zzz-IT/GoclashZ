@@ -52,7 +52,7 @@
         </div>
       </aside>
 
-      <main class="content glass-panel">
+      <main class="content card-panel">
         <header class="content-header">
           <h1>{{ activeMenuLabel }}</h1>
         </header>
@@ -118,6 +118,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import * as API from '../wailsjs/go/main/App';
+import { ICONS } from './utils/icons';
 import Overview from './components/Overview.vue';
 import Proxies from './components/Proxies.vue';
 import Subscriptions from './components/Subscriptions.vue';
@@ -135,22 +136,6 @@ import {
   Quit
 } from '../wailsjs/runtime/runtime';
 import { globalState } from './store';
-
-const ICONS = {
-  home: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>`,
-  subs: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
-  proxies: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
-  logs: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`,
-  settings: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
-  sun: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`,
-  moon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
-  power: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"></path></svg>`,
-  connections: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`,
-  rules: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>`,
-  min: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
-  max: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>`,
-  close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
-};
 
 const currentTab = ref('home');
 const targetSettingsView = ref('main');
@@ -401,77 +386,4 @@ watch(currentTab, (newTab) => {
 .log-line.debug .l-type { color: var(--text-muted); }
 
 .view-settings { height: 100%; display: flex; flex-direction: column; }
-
-/* ================================== */
-/* 全局弹窗样式 (严格对齐 Subscriptions) */
-/* ================================== */
-.modal-overlay { 
-  position: fixed; inset: 0; 
-  background: rgba(0,0,0,0.4); 
-  backdrop-filter: none !important; 
-  display: flex; align-items: center; justify-content: center; 
-  z-index: 9999; 
-}
-
-/* 移除所有玻璃/模糊效果，使用纯色 */
-.custom-modal-card {
-  width: 90%; 
-  max-width: 400px; 
-  padding: 24px; 
-  border-radius: 12px;
-  background: var(--surface);
-  border: 1px solid var(--surface-hover);
-  box-shadow: 0 8px 30px rgba(0,0,0,0.2);
-}
-
-.modal-header { margin-bottom: 20px; }
-.modal-header h3 { margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--text-main); }
-
-.modal-body { display: flex; flex-direction: column; gap: 20px; }
-
-.global-modal-msg { 
-  margin: 0; 
-  font-size: 0.9rem; 
-  color: var(--text-sub); 
-  line-height: 1.6; 
-  white-space: pre-wrap; 
-}
-
-/* 底部按钮排版 */
-.modal-footer { 
-  display: flex; 
-  gap: 12px; 
-  width: 100%; 
-  margin-top: 10px; /* 留出间距 */
-}
-
-/* 按钮颜色校正：对齐实色风格 */
-.modal-footer .action-btn {
-  background: var(--surface-hover); /* 确保取消键有微弱的背景色 */
-  color: var(--text-main);
-  border: none;
-  padding: 12px;
-  border-radius: 10px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: 0.2s;
-}
-
-.modal-footer .action-btn:hover {
-  filter: brightness(0.9);
-}
-
-.modal-footer .primary-btn {
-  border: none;
-  padding: 12px;
-  border-radius: 10px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.danger-text { color: #ff4d4f !important; }
-
-/* 统一缩放动画 */
-.pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); }
-.pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.95); }
 </style>

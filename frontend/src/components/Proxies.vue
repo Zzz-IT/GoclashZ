@@ -1,6 +1,6 @@
 <template>
   <div class="proxies-view">
-    <div class="action-bar glass-panel">
+    <div class="action-bar card-panel">
       <div class="group-tabs">
         <button
           v-for="group in localGroups"
@@ -71,10 +71,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 import { showAlert } from '../store';
-
-const ICONS = {
-  zap: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>`
-};
+import { ICONS } from '../utils/icons';
 
 const localGroups = ref<any[]>([]);
 const currentGroup = ref<string>('');
@@ -233,8 +230,6 @@ onUnmounted(() => {
   align-items: center;
   padding: 12px 16px;
   margin-bottom: 24px;
-  background: var(--surface);
-  border-radius: 12px;
 }
 
 .group-tabs {
@@ -244,7 +239,7 @@ onUnmounted(() => {
   padding-bottom: 4px;
 }
 .group-tabs::-webkit-scrollbar { height: 4px; }
-.group-tabs::-webkit-scrollbar-thumb { background-color: var(--glass-border); border-radius: 4px; }
+.group-tabs::-webkit-scrollbar-thumb { background-color: var(--surface-hover); border-radius: 4px; }
 
 .group-tab-btn {
   display: flex;
@@ -265,7 +260,7 @@ onUnmounted(() => {
   background: var(--surface-hover);
 }
 .group-tab-btn.active {
-  background: var(--glass-panel);
+  background: var(--surface-panel);
   color: var(--text-main);
   font-weight: 600;
 }
@@ -359,9 +354,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
 }
-.dark .n-latency-box { background: var(--surface); }
 .n-latency-box:hover { background: var(--surface-hover); }
-.dark .n-latency-box:hover { background: var(--surface-hover); }
 
 .scanner-container {
   width: 18px;

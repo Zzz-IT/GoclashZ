@@ -66,7 +66,7 @@
           <span class="sub-hint">点击应用此配置</span>
           <div class="sub-actions">
             <button class="icon-btn" @click.stop="toggleMenu(config)" v-html="ICONS.more"></button>
-            <div v-if="activeMenu === config" class="dropdown-menu glass-panel">
+            <div v-if="activeMenu === config" class="dropdown-menu card-panel">
               <button v-if="hasUrlRecord(config)" class="menu-item" @click.stop="handleUpdateSingle(config)">更新订阅</button>
               <div v-if="hasUrlRecord(config)" class="menu-divider"></div>
               <button class="menu-item" @click.stop="openRenameModal(config)">重命名</button>
@@ -82,7 +82,7 @@
     <Transition name="pop">
       <div v-if="activeModal" class="modal-overlay" @click="closeAllModals">
         <!-- 导入弹窗 -->
-        <div v-if="activeModal === 'import'" class="custom-modal-card glass-panel" @click.stop>
+        <div v-if="activeModal === 'import'" class="custom-modal-card" @click.stop>
           <div class="modal-header">
             <h3>导入配置文件</h3>
             <button class="close-x" @click="closeAllModals">&times;</button>
@@ -106,7 +106,7 @@
         </div>
 
         <!-- 重命名弹窗 -->
-        <div v-if="activeModal === 'rename'" class="custom-modal-card glass-panel" @click.stop>
+        <div v-if="activeModal === 'rename'" class="custom-modal-card" @click.stop>
           <div class="modal-header">
             <h3>重命名配置文件</h3>
           </div>
@@ -123,14 +123,14 @@
         </div>
 
         <!-- 删除确认弹窗 -->
-        <div v-if="activeModal === 'delete'" class="custom-modal-card glass-panel" @click.stop>
+        <div v-if="activeModal === 'delete'" class="custom-modal-card" @click.stop>
           <div class="modal-header">
             <h3 class="danger-text">彻底删除</h3>
           </div>
           <div class="modal-body">
-            <p v-if="isCurrentConfig(targetFile)" class="warning-box">
+            <div v-if="isCurrentConfig(targetFile)" class="warning-box">
               <strong>警告：</strong> "{{ targetFile }}" 正在运行中。删除将强制停止所有代理服务。
-            </p>
+            </div>
             <p v-else>确定要彻底删除 <strong>{{ targetFile }}</strong> 吗？此操作不可撤销。</p>
             <div class="modal-footer">
               <button class="action-btn flex-1" @click="closeAllModals">取消</button>
@@ -148,16 +148,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-
-const ICONS = {
-  refresh: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>`,
-  more: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg>`,
-  plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`,
-  folder: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`,
-  sort: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M7 12h10M10 18h4"/></svg>`,
-  up: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>`,
-  down: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`
-};
+import { ICONS } from '../utils/icons';
 
 const activeModal = ref<'import' | 'rename' | 'delete' | null>(null);
 const targetFile = ref('');
@@ -475,8 +466,6 @@ onUnmounted(() => {
 .icon-btn :deep(svg) { width: 14px !important; height: 14px !important; }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
-.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-.modal-header h3 { margin: 0; font-size: 1.25rem; font-weight: 600; }
 .close-x { background: none; border: none; font-size: 28px; cursor: pointer; color: var(--text-sub); }
 .modal-body { display: flex; flex-direction: column; gap: 20px; }
 .section label { display: block; font-size: 0.85rem; color: var(--text-sub); margin-bottom: 8px; font-weight: 600; }
@@ -488,7 +477,6 @@ onUnmounted(() => {
 .divider-text::before, .divider-text::after { content: ""; position: absolute; top: 50%; width: 40%; height: 1px; background: var(--surface-hover); }
 .divider-text::before { left: 0; } .divider-text::after { right: 0; }
 .w-full-btn { width: 100%; justify-content: center; padding: 14px; font-weight: 600; border-radius: 10px; border: none; background: var(--surface-hover); color: var(--text-main); cursor: pointer; }
-.danger-text { color: #ff4d4f; }
 .warning-box { background: rgba(255, 77, 79, 0.1); padding: 12px; border-radius: 8px; color: #ff4d4f; font-size: 0.85rem; line-height: 1.4; border: 1px solid rgba(255, 77, 79, 0.2); }
 .dropdown-menu { 
   position: absolute; right: 0; top: 30px; width: 150px; border-radius: 8px; z-index: 10; overflow: hidden;
