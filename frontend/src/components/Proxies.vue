@@ -161,14 +161,11 @@ const testAllDelays = () => {
 // 单点测速
 const testSingleDelay = async (node: any) => {
   if (node.testing) return;
-  node.testing = true;
-  node.delay = null;
   try {
+    // 触发 Go 后端，随后一概不管，由事件驱动状态
     await API.TestAllProxies([node.name]);
   } catch (e) {
-    console.error("单点测速失败:", e);
-    node.delay = 0;
-    node.testing = false; // 仅在请求直接崩溃时关闭
+    console.error("测速请求发送失败:", e);
   }
 };
 
@@ -187,12 +184,24 @@ const getDelayColorClass = (delay: number | null) => {
 };
 
 onMounted(async () => {
+  // 接收到“开始”信号，节点开始转圈
+  EventsOn("proxy-test-start", (nodeName: string) => {
+    localGroups.value.forEach(g => {
+      const node = g.proxies.find((n: any) => n.name === nodeName);
+      if (node) {
+        node.testing = true;
+        node.delay = null;
+      }
+    });
+  });
+
+  // 接收到“结果”信号，节点停转并显示真实数字
   EventsOn("proxy-delay-update", (data: any) => {
     localGroups.value.forEach(g => {
       const node = g.proxies.find((n: any) => n.name === data.name);
       if (node) {
-        node.delay = data.delay;
         node.testing = false;
+        node.delay = data.delay; // 如果 data.status 是 timeout，这里就是 0
       }
     });
   });
@@ -210,6 +219,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  EventsOff("proxy-test-start");
   EventsOff("proxy-delay-update");
   EventsOff("config-changed");
   EventsOff("proxy-test-finished");

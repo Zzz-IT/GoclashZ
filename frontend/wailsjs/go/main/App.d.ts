@@ -22,6 +22,8 @@ export function ElevatePrivileges():Promise<void>;
 
 export function FixUWPNetwork():Promise<void>;
 
+export function GetAllRules(arg1:string):Promise<main.PagedRules>;
+
 export function GetAppBehavior():Promise<main.AppBehavior>;
 
 export function GetConnections():Promise<Record<string, any>>;
@@ -39,8 +41,6 @@ export function GetProxyStatus():Promise<main.ProxyStatus>;
 export function GetRecentLogs():Promise<Array<logger.LogEntry>>;
 
 export function GetRules():Promise<clash.RuleInfo>;
-
-export function GetRulesPaged(arg1:number,arg2:number,arg3:string):Promise<main.PagedRules>;
 
 export function GetSubRecords():Promise<Record<string, main.SubRecord>>;
 

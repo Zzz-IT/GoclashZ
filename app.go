@@ -621,7 +621,6 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 func (a *App) TestAllProxies(nodeNames []string) {
 	if !clash.IsRunning() {
 		if err := clash.Start(a.ctx); err != nil {
-			// ⚠️ 修复：不要静默 return，通知前端测速异常结束
 			runtime.EventsEmit(a.ctx, "proxy-test-finished", "内核启动失败，无法测速")
 			return 
 		}
@@ -629,37 +628,45 @@ func (a *App) TestAllProxies(nodeNames []string) {
 	}
 
 	go func() {
-		concurrency := 8
+		concurrency := 16 // 稍微提高并发
 		semaphore := make(chan struct{}, concurrency)
 		var wg sync.WaitGroup
 		
-		// ⚠️ 修复：为整个测速任务设置一个最高 15 秒的超时 Context，防止 HTTP 卡死
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 
 		for _, name := range nodeNames {
-			wg.Add(1)
+			// 1. 立即发射“开始测速”事件，告诉前端这个节点开始转圈了
+			runtime.EventsEmit(a.ctx, "proxy-test-start", name)
 			
+			wg.Add(1)
 			go func(nName string) {
 				defer wg.Done()
 				
 				select {
-				case semaphore <- struct{}{}: // 获取令牌
-				case <-ctx.Done(): // 整体超时，直接退出
+				case semaphore <- struct{}{}:
+				case <-ctx.Done():
 					return 
 				}
 				defer func() { <-semaphore }()
 
-				// 假设 GetProxyDelay 内部也有超时控制，否则这里依然需要配合 ctx 改造
+				// 2. 向 Clash 内核请求真实测速
 				delay, err := clash.GetProxyDelay(nName)
+				
+				// 3. 发射结果
 				if err != nil || delay <= 0 {
-					delay = -1 
+					runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
+						"name":   nName,
+						"delay":  0,
+						"status": "timeout",
+					})
+				} else {
+					runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
+						"name":   nName,
+						"delay":  delay,
+						"status": "success",
+					})
 				}
-
-				runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-					"name":  nName,
-					"delay": delay,
-				})
 			}(name)
 		}
 
@@ -1348,8 +1355,8 @@ type PagedRules struct {
 	IsEditable bool       `json:"isEditable"`
 }
 
-// GetRulesPaged 供前端分页并带搜索地获取规则，彻底解决数万条规则时的卡顿问题
-func (a *App) GetRulesPaged(page int, pageSize int, keyword string) (PagedRules, error) {
+// GetAllRules 供前端一次性获取所有匹配规则，配合虚拟滚动实现极致流畅
+func (a *App) GetAllRules(keyword string) (PagedRules, error) {
 	info, err := clash.GetRules(a.getActiveConfig())
 	if err != nil {
 		return PagedRules{}, err
@@ -1365,19 +1372,9 @@ func (a *App) GetRulesPaged(page int, pageSize int, keyword string) (PagedRules,
 		}
 	}
 
-	total := len(filtered)
-	
-	// 分页越界保护
-	start := (page - 1) * pageSize
-	if start < 0 { start = 0 }
-	if start > total { start = total }
-
-	end := start + pageSize
-	if end > total { end = total }
-
 	return PagedRules{
-		Total:      total,
-		Items:      filtered[start:end],
+		Total:      len(filtered),
+		Items:      filtered,
 		IsEditable: info.IsEditable,
 	}, nil
 }

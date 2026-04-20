@@ -8,21 +8,25 @@
       <button v-if="isEditable" class="add-rule-btn" @click="showAddModal = true">+ 添加规则</button>
     </div>
 
-    <div class="rules-grid" @scroll="handleScroll">
-      <div v-for="rule in parsedRules" :key="rule.originalIndex" class="rule-card">
-        <div class="rule-main">
-          <div class="rule-type" :class="getTypeClass(rule.type)">{{ rule.type }}</div>
-          <div class="rule-payload truncate" :title="rule.payload">{{ rule.payload }}</div>
-        </div>
-        <div class="rule-footer">
-          <div class="rule-policy">{{ rule.policy }}</div>
-          <button v-if="isEditable" class="delete-btn" @click="handleDeleteRequest(rule.originalIndex)" title="删除规则">
-            <span v-html="ICONS.trash"></span>
-          </button>
+    <!-- 核心魔法：虚拟滚动容器 -->
+    <div v-bind="containerProps" class="virtual-scroll-container">
+      <div v-bind="wrapperProps" class="virtual-scroll-wrapper">
+        <div v-for="item in list" :key="item.data.originalIndex" class="rule-card-list">
+          <div class="rule-main">
+            <div class="rule-type" :class="getTypeClass(item.data.type)">{{ item.data.type }}</div>
+            <div class="rule-payload truncate" :title="item.data.payload">{{ item.data.payload }}</div>
+          </div>
+          <div class="rule-footer">
+            <div class="rule-policy">{{ item.data.policy }}</div>
+            <button v-if="isEditable" class="delete-btn" @click="handleDeleteRequest(item.data.originalIndex)" title="删除规则">
+              <span v-html="ICONS.trash"></span>
+            </button>
+          </div>
         </div>
       </div>
       
       <div v-if="loading" class="loading-state">加载中...</div>
+      <div v-if="!loading && rules.length === 0" class="empty-state">未找到匹配规则</div>
     </div>
 
     <Transition name="pop">
@@ -47,6 +51,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
+import { useVirtualList } from '@vueuse/core';
 import * as API from '../../wailsjs/go/main/App';
 import { showAlert, showConfirm } from '../store';
 import { ICONS } from '../utils/icons';
@@ -57,33 +62,16 @@ const isEditable = ref(false);
 const searchQuery = ref('');
 const showAddModal = ref(false);
 const newRuleStr = ref('');
-
-// 分页与滚动控制参数
-const currentPage = ref(1);
-const totalRules = ref(0);
-const pageSize = 50; // 每次只拉 50 条，渲染瞬间完成
 const loading = ref(false);
 
-const loadRules = async (resetPage = false) => {
-  if (resetPage) {
-    currentPage.value = 1;
-    rules.value = [];
-  }
-  
+const loadAllRules = async () => {
   if (loading.value) return;
   loading.value = true;
   
   try {
-    // 调用我们刚写的后端分页 API
-    const res: any = await (API as any).GetRulesPaged(currentPage.value, pageSize, searchQuery.value);
-    
-    if (resetPage) {
-      rules.value = res.items || [];
-    } else {
-      rules.value = [...rules.value, ...(res.items || [])];
-    }
-    
-    totalRules.value = res.total;
+    // 调用一次性获取所有过滤结果的 API
+    const res: any = await (API as any).GetAllRules(searchQuery.value);
+    rules.value = res.items || [];
     isEditable.value = res.isEditable;
   } catch (e) {
     console.error("加载规则失败", e);
@@ -92,25 +80,13 @@ const loadRules = async (resetPage = false) => {
   }
 };
 
-// 搜索防抖机制 (输入 300ms 后才请求后端)
+// 搜索防抖
 let searchTimeout: any = null;
 const onSearch = () => {
   clearTimeout(searchTimeout);
   searchTimeout = setTimeout(() => {
-    loadRules(true);
+    loadAllRules();
   }, 300);
-};
-
-// 监听列表滚动实现无限加载
-const handleScroll = (e: any) => {
-  const { scrollTop, clientHeight, scrollHeight } = e.target;
-  // 距底部 100px 缓冲即触发加载下一页
-  if (scrollTop + clientHeight >= scrollHeight - 100) {
-    if (rules.value.length < totalRules.value && !loading.value) {
-      currentPage.value++;
-      loadRules(false);
-    }
-  }
 };
 
 const parsedRules = computed(() => {
@@ -120,10 +96,19 @@ const parsedRules = computed(() => {
       type: parts[0]?.trim() || 'UNKNOWN',
       payload: parts[1]?.trim() || '',
       policy: parts[2]?.trim() || '',
-      originalIndex: r.index // 后端准确返回，直接解绑前端索引强依赖
+      originalIndex: r.index
     };
   });
 });
+
+// 激活虚拟滚动
+const { list, containerProps, wrapperProps } = useVirtualList(
+  parsedRules, 
+  {
+    itemHeight: 64, // 卡片高度 52px + 间距等
+    overscan: 10,
+  }
+);
 
 const getTypeClass = (type: string) => {
   if (type.startsWith('DOMAIN')) return 'tag-blue';
@@ -138,7 +123,7 @@ const handleAdd = async () => {
     await API.AddRule(newRuleStr.value);
     newRuleStr.value = '';
     showAddModal.value = false;
-    await loadRules(true); // 添加后重置回第一页以显示
+    await loadAllRules();
   } catch (e) {
     await showAlert("添加失败: " + e, '错误');
   }
@@ -149,7 +134,7 @@ const handleDeleteRequest = async (idx: number) => {
   if (ok) {
     try {
       await API.DeleteRule(idx);
-      await loadRules(true); // 删除后刷新视图
+      await loadAllRules();
     } catch (e) {
       await showAlert("删除失败: " + e, '错误');
     }
@@ -157,14 +142,14 @@ const handleDeleteRequest = async (idx: number) => {
 };
 
 onMounted(() => {
-  loadRules(true);
+  loadAllRules();
 });
 </script>
 
 <style scoped>
-.rules-view { display: flex; flex-direction: column; height: 100%; }
+.rules-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
-.rules-header { display: flex; gap: 16px; align-items: center; margin-bottom: 20px; }
+.rules-header { display: flex; gap: 16px; align-items: center; margin-bottom: 20px; flex-shrink: 0; }
 .search-bar { 
   flex: 1; display: flex; align-items: center; gap: 10px;
   background: var(--surface); border: none;
@@ -178,35 +163,65 @@ onMounted(() => {
 }
 .add-rule-btn:hover { opacity: 0.8; }
 
-.rules-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px; overflow-y: auto; padding-right: 10px; padding-bottom: 20px;
+/* 虚拟滚动容器 */
+.virtual-scroll-container {
+  flex: 1;
+  overflow-y: auto;
+  width: 100%;
+  padding-right: 8px;
 }
 
-.rule-card {
-  background: var(--surface); border: none;
-  border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;
-  transition: transform 0.2s, background 0.2s;
+.virtual-scroll-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 20px;
 }
-.rule-card:hover { transform: translateY(-2px); background: var(--surface-hover); }
 
-.rule-main { display: flex; flex-direction: column; gap: 6px; }
-.rule-type { font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; width: fit-content; }
+/* 单列长条状卡片 */
+.rule-card-list {
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 0 16px;
+  transition: background 0.2s;
+}
+.rule-card-list:hover { background: var(--surface-hover); }
+
+.rule-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+}
+
+.rule-type { font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; flex-shrink: 0; }
 .rule-payload { font-size: 0.85rem; color: var(--text-main); font-weight: 500; font-family: var(--font-mono); }
 
-/* 标签：纯灰度，靠明度区分类型 */
-.tag-blue { background: var(--surface-hover); color: var(--text-main); }
-.tag-green { background: var(--surface-hover); color: var(--text-sub); }
-.tag-orange { background: var(--surface-hover); color: var(--text-sub); }
-.tag-gray { background: var(--surface-hover); color: var(--text-muted); }
+.tag-blue { background: rgba(128, 128, 128, 0.15); color: var(--text-main); }
+.tag-green { background: rgba(128, 128, 128, 0.15); color: var(--text-sub); }
+.tag-orange { background: rgba(128, 128, 128, 0.15); color: var(--text-sub); }
+.tag-gray { background: rgba(128, 128, 128, 0.15); color: var(--text-muted); }
 
 .rule-footer {
-  display: flex; justify-content: space-between; align-items: center;
-  padding-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 .rule-policy { font-size: 0.8rem; color: var(--text-main); font-weight: 600; }
-.delete-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 6px; transition: 0.2s; }
+.delete-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 6px; transition: 0.2s; display: flex; align-items: center; }
 .delete-btn:hover { color: #ff4d4f; background: rgba(255, 77, 79, 0.1); }
+
+.loading-state, .empty-state {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
 
 .hint { font-size: 0.75rem; color: var(--text-sub); margin-bottom: 0; line-height: 1.6; }
 
@@ -215,14 +230,5 @@ onMounted(() => {
   border: none;
   background: var(--surface-hover); 
   color: var(--text-main); outline: none; 
-}
-
-/* 加载占位提示样式 */
-.loading-state {
-  grid-column: 1 / -1;
-  text-align: center;
-  padding: 20px;
-  color: var(--text-muted);
-  font-size: 0.85rem;
 }
 </style>

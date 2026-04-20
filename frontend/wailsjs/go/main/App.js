@@ -38,6 +38,10 @@ export function FixUWPNetwork() {
   return window['go']['main']['App']['FixUWPNetwork']();
 }
 
+export function GetAllRules(arg1) {
+  return window['go']['main']['App']['GetAllRules'](arg1);
+}
+
 export function GetAppBehavior() {
   return window['go']['main']['App']['GetAppBehavior']();
 }
@@ -72,10 +76,6 @@ export function GetRecentLogs() {
 
 export function GetRules() {
   return window['go']['main']['App']['GetRules']();
-}
-
-export function GetRulesPaged(arg1, arg2, arg3) {
-  return window['go']['main']['App']['GetRulesPaged'](arg1, arg2, arg3);
 }
 
 export function GetSubRecords() {
