@@ -16,7 +16,7 @@
         </div>
         <div class="rule-footer">
           <div class="rule-policy">{{ rule.policy }}</div>
-          <button v-if="isEditable" class="delete-btn" @click="openDeleteModal(rule.originalIndex)" title="删除规则">
+          <button v-if="isEditable" class="delete-btn" @click="handleDeleteRequest(rule.originalIndex)" title="删除规则">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
           </button>
         </div>
@@ -24,25 +24,19 @@
     </div>
 
     <Transition name="pop">
-      <div v-if="showAddModal || activeModal === 'delete'" class="modal-overlay" @click.self="showAddModal = false; activeModal = null">
+      <div v-if="showAddModal" class="modal-overlay" @click.self="showAddModal = false">
         <!-- 新增规则弹窗 -->
-        <div v-if="showAddModal" class="custom-modal-card glass-panel">
-          <h3>新增分流规则</h3>
-          <p class="hint">格式: 类型,目标,策略 (例如: DOMAIN-SUFFIX,google.com,Proxy)</p>
-          <input v-model="newRuleStr" class="modal-input" placeholder="DOMAIN,example.com,DIRECT" @keyup.enter="handleAdd" />
-          <div class="modal-footer">
-            <button class="action-btn flex-1" @click="showAddModal = false">取消</button>
-            <button class="primary-btn accent-btn flex-1" @click="handleAdd" :disabled="!newRuleStr">确定添加</button>
+        <div class="custom-modal-card">
+          <div class="modal-header">
+            <h3>新增分流规则</h3>
           </div>
-        </div>
-
-        <!-- 删除确认弹窗 -->
-        <div v-if="activeModal === 'delete'" class="custom-modal-card glass-panel">
-          <h3 class="danger-text">删除规则</h3>
-          <p class="hint">确定要永久删除这条规则吗？此操作不可撤销。</p>
-          <div class="modal-footer">
-            <button class="action-btn flex-1" @click="activeModal = null">取消</button>
-            <button class="primary-btn accent-btn red-text-btn flex-1" @click="confirmDelete">确定删除</button>
+          <div class="modal-body">
+            <p class="hint">格式: 类型,目标,策略 (例如: DOMAIN-SUFFIX,google.com,Proxy)</p>
+            <input v-model="newRuleStr" class="modal-input" placeholder="DOMAIN,example.com,DIRECT" @keyup.enter="handleAdd" />
+            <div class="modal-footer">
+              <button class="action-btn flex-1" @click="showAddModal = false">取消</button>
+              <button class="primary-btn accent-btn flex-1" @click="handleAdd" :disabled="!newRuleStr">确定添加</button>
+            </div>
           </div>
         </div>
       </div>
@@ -53,14 +47,13 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
+import { showAlert, showConfirm } from '../store';
 
 const rules = ref<string[]>([]);
 const isEditable = ref(false);
 const searchQuery = ref('');
 const showAddModal = ref(false);
 const newRuleStr = ref('');
-const activeModal = ref<'add' | 'delete' | null>(null);
-const pendingIdx = ref(-1);
 
 const loadRules = async () => {
   try {
@@ -109,22 +102,19 @@ const handleAdd = async () => {
     showAddModal.value = false;
     await loadRules();
   } catch (e) {
-    alert("添加失败: " + e);
+    await showAlert("添加失败: " + e, '错误');
   }
 };
 
-const openDeleteModal = (idx: number) => {
-  pendingIdx.value = idx;
-  activeModal.value = 'delete';
-};
-
-const confirmDelete = async () => {
-  try {
-    await API.DeleteRule(pendingIdx.value);
-    activeModal.value = null;
-    await loadRules();
-  } catch (e) {
-    alert("删除失败: " + e);
+const handleDeleteRequest = async (idx: number) => {
+  const ok = await showConfirm('确定要永久删除这条规则吗？此操作不可撤销。', '删除规则');
+  if (ok) {
+    try {
+      await API.DeleteRule(idx);
+      await loadRules();
+    } catch (e) {
+      await showAlert("删除失败: " + e, '错误');
+    }
   }
 };
 
@@ -180,32 +170,55 @@ onMounted(() => {
 .delete-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 6px; transition: 0.2s; }
 .delete-btn:hover { color: #ff4d4f; background: rgba(255, 77, 79, 0.1); }
 
-/* 同步弹窗样式 */
+/* 局部弹窗遮罩 (用于新增规则) */
 .modal-overlay { 
   position: fixed; inset: 0; 
   background: rgba(0,0,0,0.4); 
-  backdrop-filter: none !important; /* 彻底移除模糊 */
   display: flex; align-items: center; justify-content: center; 
   z-index: 2000; 
 }
 
-/* 弹窗标准容器已迁移至全局 */
+/* 局部弹窗卡片对齐全局风格 */
+.custom-modal-card {
+  width: 90%; 
+  max-width: 400px; 
+  padding: 24px; 
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--surface-hover);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+}
 
-/* 弹窗动画与按钮样式已迁移至全局 */
-.danger-text { color: #ff4d4f; }
+.modal-header { margin-bottom: 20px; }
+.modal-header h3 { margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--text-main); }
 
-.custom-modal-card h3 { margin-top: 0; color: var(--text-main); margin-bottom: 24px; }
-.hint { font-size: 0.75rem; color: var(--text-sub); margin-bottom: 16px; }
+.modal-body { display: flex; flex-direction: column; gap: 20px; }
+
+.hint { font-size: 0.75rem; color: var(--text-sub); margin-bottom: 0; line-height: 1.6; }
 
 .modal-input { 
-  width: 100%; padding: 12px; margin-bottom: 20px; border-radius: 8px; 
+  width: 100%; padding: 12px; border-radius: 8px; 
   border: none;
-  background: var(--surface); 
+  background: var(--surface-hover); 
   color: var(--text-main); outline: none; 
 }
-.modal-input:focus {
-  background: var(--surface-hover);
+
+.modal-footer { 
+  display: flex; 
+  gap: 12px; 
+  width: 100%; 
 }
 
+.modal-footer .action-btn, .modal-footer .primary-btn {
+  border: none;
+  padding: 12px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
 
+.modal-footer .action-btn {
+  background: var(--surface-hover);
+  color: var(--text-main);
+}
 </style>

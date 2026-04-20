@@ -70,6 +70,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
+import { showAlert } from '../store';
 
 const ICONS = {
   zap: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>`
@@ -91,21 +92,19 @@ const loadData = async () => {
     if (data && data.groups) {
       const processedGroups: any[] = [];
       
-      // 👉 [新增] 优先使用后端传递的 groupOrder 数组，如果没有则降级使用 Object.keys
       const keys = (data.groupOrder && data.groupOrder.length > 0) 
                    ? data.groupOrder 
                    : Object.keys(data.groups);
 
       keys.forEach((name: string) => {
         const item = data.groups[name];
-        if (!item) return; // 容错处理
+        if (!item) return;
 
         const isGroupType = ['Selector', 'URLTest', 'Fallback', 'LoadBalance'].includes(item.type);
         const isSystemReserved = ['GLOBAL', 'DIRECT', 'REJECT'].includes(name);
 
         if (isGroupType && !isSystemReserved) {
           const proxies = (item.all || []).map((memberName: string) => {
-            // 修复：后端返回的节点和组信息都在 data.groups 中，并没有 data.proxies 属性
             const detail = data.groups ? data.groups[memberName] : null;
             return {
               name: memberName,
@@ -141,7 +140,7 @@ const selectNode = async (groupName: string, nodeName: string) => {
         targetGroup.now = nodeName;
     }
   } catch (e) {
-    alert("切换失败: " + e);
+    await showAlert("切换失败: " + e, '错误');
   }
 };
 
@@ -157,7 +156,6 @@ const testAllDelays = () => {
   });
 
   if (nodesArray.length > 0) {
-    // ⚠️ 核心修复：这里只发送触发指令，不依赖返回值结束状态
     API.TestAllProxies(nodesArray);
   } else {
     isTesting.value = false;
@@ -181,14 +179,12 @@ const testSingleDelay = async (node: any) => {
 
 const formatDelay = (delay: number | null) => {
   if (delay === null) return '--';
-  // 👇 修复：小于等于 0 统称为超时
   if (delay <= 0) return '超时'; 
   return `${delay}ms`;
 };
 
 const getDelayColorClass = (delay: number | null) => {
   if (delay === null) return 't-unknown';
-  // 👇 修复：把 <= 0 的情况优先拦截，赋予红色失败样式
   if (delay <= 0) return 't-fail'; 
   if (delay < 250) return 't-fast';
   if (delay < 600) return 't-mid';
@@ -211,7 +207,6 @@ onMounted(async () => {
       await loadData();
   });
 
-  // ⚠️ 核心修复：统一监听后端 Go 语言 WaitGroup 触发的全局完成事件
   EventsOn("proxy-test-finished", () => {
     isTesting.value = false;
     if(activeGroupData.value) {
@@ -225,7 +220,7 @@ onMounted(async () => {
 onUnmounted(() => {
   EventsOff("proxy-delay-update");
   EventsOff("config-changed");
-  EventsOff("proxy-test-finished"); // 记得注销
+  EventsOff("proxy-test-finished");
 });
 </script>
 
@@ -300,24 +295,20 @@ onUnmounted(() => {
   transition: all 0.2s ease;
 }
 .node-item:hover { background: var(--surface-hover); }
-/* 将原本的 .node-item.active 修改为反色背景 */
 .node-item.active { 
   background: var(--accent); 
   color: var(--accent-fg);
   font-weight: 600; 
 }
 
-/* 覆盖卡片内节点名称的颜色为反色 */
 .node-item.active .n-name { 
   color: var(--accent-fg); 
 }
 
-/* 将测速框的背景调整为半透明，以融入反色卡片 */
 .node-item.active .n-latency-box {
   background: rgba(128, 128, 128, 0.2); 
 }
 
-/* 覆盖测速状态下的所有文字和圆点颜色为反色，去除灰度递进 */
 .node-item.active .t-fast,
 .node-item.active .t-mid,
 .node-item.active .t-slow,
@@ -330,13 +321,11 @@ onUnmounted(() => {
   background: var(--accent-fg); 
 }
 
-/* 覆盖未测速图标的颜色 */
 .node-item.active .ping-idle {
   color: var(--accent-fg);
   opacity: 0.8;
 }
 
-/* 覆盖测速加载动画的颜色 */
 .node-item.active .scanner-bar {
   stroke: var(--accent-fg);
 }
@@ -374,7 +363,6 @@ onUnmounted(() => {
 .n-latency-box:hover { background: var(--surface-hover); }
 .dark .n-latency-box:hover { background: var(--surface-hover); }
 
-/* 环形扫描器样式 */
 .scanner-container {
   width: 18px;
   height: 18px;
@@ -395,7 +383,6 @@ onUnmounted(() => {
   stroke-linecap: round;
 }
 
-/* 未测试图标 */
 .ping-idle {
   color: var(--text-muted);
   opacity: 0.4;
@@ -409,7 +396,6 @@ onUnmounted(() => {
 }
 .idle-icon { width: 14px; height: 14px; }
 
-/* 状态圆点：摒弃发光效果，使用 JB 风格的实色块 */
 .n-delay {
   display: flex;
   align-items: center;
@@ -420,10 +406,9 @@ onUnmounted(() => {
 .status-dot {
   width: 6px;
   height: 6px;
-  border-radius: 2px; /* 方形圆角点，更符合 IDE 气质 */
+  border-radius: 2px;
 }
 
-/* 延迟颜色：纯灰度明度递进 */
 .t-fast { color: var(--text-main); }
 .t-fast .status-dot { background: var(--text-main); }
 

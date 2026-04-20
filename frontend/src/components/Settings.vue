@@ -458,6 +458,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
+import { showAlert } from '../store';
 
 const props = defineProps({
   initialView: {
@@ -477,7 +478,6 @@ const tunConfig = ref({
   dnsHijack: ['any:53'], strictRoute: true, mtu: 1500
 });
 
-// DNS 配置响应式对象
 const dnsConfig = ref<any>({
   enable: true, 
   listen: '0.0.0.0:1053',
@@ -509,7 +509,7 @@ const netConfig = ref({
   tcpConcurrent: true,
   tcpKeepAlive: true,
   tcpKeepAliveInterval: 15,
-  testUrl: 'http://www.gstatic.com/generate_204' // 👈 1. 响应式绑定
+  testUrl: 'http://www.gstatic.com/generate_204'
 });
 
 const behavior = ref({
@@ -526,7 +526,6 @@ const loadData = async () => {
     const tunConf = await API.GetTunConfig();
     if (tunConf) tunConfig.value = tunConf;
 
-    // 👉 [新增] 每次进入设置页，强制拉取当前真实运行状态，覆盖 UI 显示
     const realStatus: any = await API.GetProxyStatus();
     if (realStatus) {
       tunConfig.value.enable = realStatus.tun;
@@ -550,9 +549,9 @@ onMounted(() => { loadData(); });
 const fixUWP = async () => {
   try {
     await API.FixUWPNetwork();
-    alert('✅ UWP 环回限制已成功解除！');
+    await showAlert('UWP 环回限制已成功解除！', '修复成功');
   } catch (e) {
-    alert('修复失败，请尝试右键以管理员身份运行本软件。\n错误信息: ' + e);
+    await showAlert('修复失败，请尝试右键以管理员身份运行本软件。\n错误信息: ' + e, '修复失败');
   }
 };
 
@@ -560,20 +559,18 @@ const handleTunToggle = async (e: Event) => {
   if (tunConfig.value.enable && !tunStatus.value.hasWintun) {
     e.preventDefault();
     tunConfig.value.enable = false;
-    alert('⚠️ 无法开启 TUN 模式：\n请先点击下方的“安装驱动”按钮下载并配置 wintun.dll。');
+    await showAlert('无法开启 TUN 模式：\n请先点击下方的“安装驱动”按钮下载并配置 wintun.dll。', '缺少依赖');
     return;
   }
   
   try {
-    // 👉 [新增] 设置页拨动开关时，直接调用内核指令同步改变状态
     await API.ToggleTunMode(tunConfig.value.enable);
-    await saveTun(); // 保存配置
+    await saveTun();
 
-    // 👉 [新增] 广播给控制台和左下角呼吸灯
     const newStatus = await API.GetProxyStatus();
     window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: newStatus }));
   } catch (err) {
-    alert("操作内核 TUN 失败: " + err);
+    await showAlert("操作内核 TUN 失败: " + err, '错误');
   }
 };
 
@@ -583,12 +580,12 @@ const installDriver = async () => {
     await API.InstallTunDriver();
     await loadData();
     if (tunStatus.value.hasWintun) {
-       alert('✅ 驱动安装成功，现在可以开启 TUN 模式了！');
+       await showAlert('驱动安装成功，现在可以开启 TUN 模式了！', '安装成功');
     } else {
-       alert('❌ 系统仍未检测到 wintun.dll。请确认网络或以管理员运行。');
+       await showAlert('系统仍未检测到 wintun.dll。请确认网络或以管理员运行。', '安装失败');
     }
   } catch (e) {
-    alert('安装提示: ' + e);
+    await showAlert('安装提示: ' + e, '发生错误');
   } finally {
     isInstalling.value = false;
   }
@@ -608,7 +605,6 @@ const saveDns = async () => {
   try { await (API.SaveDNSConfig as any)(dnsConfig.value); } catch (e) { console.error('DNS 保存失败', e); }
 };
 
-// 保存基础网络设置
 const saveNet = async () => {
   try {
     await (API.SaveNetworkConfig as any)(netConfig.value);
@@ -625,34 +621,29 @@ const saveBehavior = async () => {
   }
 };
 
-// 处理多行文本框的数组更新（换行符分割）
 const updateDnsArray = (e: Event, key: string) => {
   const val = (e.target as HTMLTextAreaElement).value;
   dnsConfig.value[key] = val.split('\n').map(s => s.trim()).filter(s => s);
   saveDns();
 };
 
-// 专门处理 fallbackFilter 的 IPCIDR 数组
 const updateFallbackFilterIpcidr = (e: Event) => {
     const val = (e.target as HTMLTextAreaElement).value;
     dnsConfig.value.fallbackFilter.ipcidr = val.split('\n').map(s => s.trim()).filter(s => s);
     saveDns();
 };
 
-// 专门处理 fallbackFilter 的 Domain 数组
 const updateFallbackFilterDomain = (e: Event) => {
     const val = (e.target as HTMLTextAreaElement).value;
     dnsConfig.value.fallbackFilter.domain = val.split('\n').map(s => s.trim()).filter(s => s);
     saveDns();
 };
 
-// 格式化展示 nameserver-policy 对象
 const formatNameserverPolicy = (policy: Record<string, string>) => {
   if (!policy) return '';
   return Object.entries(policy).map(([k, v]) => `${k}: ${v}`).join('\n');
 };
 
-// 解析输入框内的内容转为 nameserver-policy 对象
 const updateNameserverPolicy = (e: Event) => {
   const val = (e.target as HTMLTextAreaElement).value;
   const policy: Record<string, string> = {};
@@ -688,19 +679,18 @@ p {
   margin: 0; 
   font-size: 0.85rem; 
   color: var(--text-sub); 
-  max-width: 100%;    /* 修改：允许占据全部可用宽度，不再强制 80% */
-  line-height: 1.5;   /* 顺便优化下行高，增加可读性 */
+  max-width: 100%;
+  line-height: 1.5;
 }
 
-/* 1. 为 info 容器增加弹性布局指令 */
 .info {
-  flex: 1;           /* 占据左侧全部剩余空间 */
-  padding-right: 24px; /* 保护右侧间距，防止文字贴着开关 */
-  min-width: 0;      /* 防止 flex 容器溢出 */
+  flex: 1;
+  padding-right: 24px;
+  min-width: 0;
 }
 
 .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; }
-.col-item { flex-direction: column; align-items: stretch; gap: 10px; padding: 16px 0; } /* 专为 textarea 设计 */
+.col-item { flex-direction: column; align-items: stretch; gap: 10px; padding: 16px 0; }
 .setting-item.clickable { cursor: pointer; padding: 16px; border-radius: 12px; margin: 0 -16px; transition: 0.2s; }
 .setting-item.clickable:hover { background: var(--surface-hover); }
 
@@ -717,18 +707,14 @@ p {
 .modern-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
 .modern-switch input { opacity: 0; width: 0; height: 0; }
 
-/* 1. 修复无效的 .dark 匹配，直接使用全局动态变量 var(--surface-hover) 或更明显的背景色 */
 .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--surface-hover); transition: .3s; border-radius: 24px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
 
-/* 未选中时：保持白色圆形，因为无论白天黑夜，灰色底 + 白圆点都很清晰 */
 .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3);}
 
 input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
 
-/* 选中时：底色变为 accent（白天黑，黑夜白） */
 input:checked + .slider { background-color: var(--accent); }
 
-/* 2. 核心修复：选中时的圆点必须使用 accent-fg 进行反色匹配（白天白，黑夜黑） */
 input:checked + .slider:before { 
   transform: translateX(20px); 
   background-color: var(--accent-fg); 
@@ -742,12 +728,11 @@ input:checked + .slider:before {
 .back-btn { background: var(--surface); border: none; color: var(--text-main); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; }
 .back-btn:hover { background: var(--surface-hover); }
 
-/* 子选项缩进，使其看起来隶属于上一个开关 */
 .sub-item {
   padding-left: 20px !important;
   border-left: 2px solid var(--surface-hover);
   margin-left: 8px;
-  margin-top: -10px; /* 拉近与主开关的距离 */
+  margin-top: -10px;
   margin-bottom: 10px;
 }
 
@@ -756,13 +741,11 @@ input:checked + .slider:before {
   font-weight: 500 !important;
 }
 
-/* 禁用状态的淡出效果 */
 .disabled-fade {
   opacity: 0.5;
   pointer-events: none;
 }
 
-/* 带单位的输入框容器 */
 .input-with-unit {
   display: flex;
   align-items: center;

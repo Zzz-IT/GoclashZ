@@ -93,6 +93,7 @@
 import { ref, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
+import { showConfirm, showAlert } from '../store';
 
 // 所有 SVG 图标强制硬编码 width="14" height="14"，彻底防止被拉伸成诡异的线条
 const ICONS = {
@@ -170,19 +171,27 @@ const closeDetail = () => {
 };
 
 const closeAll = async () => {
-  if (confirm('确定要强行切断当前所有的网络连接吗？')) {
+  const ok = await showConfirm('确定要强行切断当前所有的网络连接吗？', '强行断开全部');
+  if (ok) {
     try {
       await (API as any).CloseAllConnections();
       if (selectedConn.value) closeDetail();
-    } catch (e) { alert("操作失败: " + e); }
+    } catch (e) { 
+      await showAlert("操作失败: " + e, '错误'); 
+    }
   }
 };
 
 const closeSingleConnection = async (id: string) => {
+  const ok = await showConfirm(`确定要强行断开连接吗？`, '断开连接');
+  if (!ok) return;
+  
   try {
     await (API as any).CloseConnection(id);
     closeDetail();
-  } catch (e) { alert("断开失败: " + e); }
+  } catch (e) { 
+    await showAlert("断开失败: " + e, '错误'); 
+  }
 };
 </script>
 

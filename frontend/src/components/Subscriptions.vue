@@ -10,25 +10,26 @@
       
       <div class="header-actions">
         <button 
-          class="action-btn" 
+          class="action-btn accent-btn" 
           :class="{ 'sorting-active': isSortingMode }" 
           @click.stop="toggleSortMode"
         >
           <span class="btn-icon" v-html="ICONS.sort"></span> 
-          {{ isSortingMode ? '完成排序' : '排序' }}
+          {{ isSortingMode ? '完成' : '排序' }}
         </button>
-        <button class="action-btn accent-btn" @click.stop="activeModal = 'import'" v-show="!isSortingMode">
+        <button class="action-btn accent-btn" @click.stop="activeModal = 'import'">
           <span class="btn-icon" v-html="ICONS.plus"></span> 导入配置
         </button>
-        <button class="primary-btn accent-btn" @click="handleUpdateAll" :disabled="loading" v-show="!isSortingMode">
+        <button class="primary-btn accent-btn" @click="handleUpdateAll" :disabled="loading">
           <span class="btn-icon" v-html="ICONS.refresh" :class="{ 'spin': loading }"></span>
           {{ loading ? '更新中...' : '更新全部' }}
         </button>
       </div>
     </div>
 
-    <div class="subs-list">
-      <div v-if="localConfigs.length === 0" class="empty-state">
+    <!-- 列表过渡动画 -->
+    <TransitionGroup name="list" tag="div" class="subs-list">
+      <div v-if="localConfigs.length === 0" class="empty-state" key="empty">
         暂无本地配置文件。
       </div>
 
@@ -75,7 +76,7 @@
           </div>
         </div>
       </div>
-    </div>
+    </TransitionGroup>
 
     <!-- 统一模态框系统 -->
     <Transition name="pop">
@@ -153,7 +154,6 @@ const ICONS = {
   more: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg>`,
   plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`,
   folder: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`,
-  // 新增：排序、向上、向下 图标
   sort: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M7 12h10M10 18h4"/></svg>`,
   up: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>`,
   down: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`
@@ -170,35 +170,29 @@ const localConfigs = ref<string[]>([]);
 const activeMenu = ref<string | null>(null);
 const subRecords = ref<Record<string, any>>({});
 
-// 🎯 新增：控制是否处于排序模式
 const isSortingMode = ref(false);
 
 const toggleSortMode = () => {
   isSortingMode.value = !isSortingMode.value;
-  activeMenu.value = null; // 退出任何打开的菜单
+  activeMenu.value = null;
 };
 
-// 🎯 新增：上移逻辑
 const moveUp = async (index: number) => {
   if (index <= 0) return;
   const items = [...localConfigs.value];
-  // 交换数组元素
   [items[index - 1], items[index]] = [items[index], items[index - 1]];
   localConfigs.value = items;
   await saveOrder();
 };
 
-// 🎯 新增：下移逻辑
 const moveDown = async (index: number) => {
   if (index >= localConfigs.value.length - 1) return;
   const items = [...localConfigs.value];
-  // 交换数组元素
   [items[index + 1], items[index]] = [items[index], items[index + 1]];
   localConfigs.value = items;
   await saveOrder();
 };
 
-// 调用后端保存顺序
 const saveOrder = async () => {
   try {
     await (API as any).SaveConfigsOrder(localConfigs.value);
@@ -374,7 +368,7 @@ onUnmounted(() => {
 .main-title { font-size: 1.6rem; font-weight: 600; margin-bottom: 4px; }
 .sub-text { font-size: 0.85rem; color: var(--text-sub); }
 .header-actions { display: flex; gap: 12px; }
-.subs-list { flex: 1; overflow-y: auto; padding-right: 8px; }
+.subs-list { flex: 1; overflow-y: auto; padding-right: 8px; position: relative; }
 
 /* 卡片基础样式 */
 .sub-card { 
@@ -383,8 +377,6 @@ onUnmounted(() => {
   transition: 0.2s; border: 1px solid transparent; 
 }
 .sub-card:not(.is-sorting):hover { background: var(--surface-hover); }
-
-/* 排序模式下，禁用悬停效果和指针切换，表明它现在不可选择 */
 .sub-card.is-sorting { cursor: default; }
 
 .active-card { background: var(--accent) !important; color: var(--accent-fg) !important; border: none !important; }
@@ -395,7 +387,26 @@ onUnmounted(() => {
 .sub-path { font-size: 0.7rem; color: var(--text-muted); }
 
 /* ================================== */
-/* 极简点击排序控制区 (纯黑白风格) */
+/* 列表过渡动画 */
+/* ================================== */
+.list-move,
+.list-enter-active,
+.list-leave-active {
+  transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.list-enter-from,
+.list-leave-to {
+  opacity: 0;
+  transform: translateY(15px) scale(0.98);
+}
+.list-leave-active {
+  position: absolute;
+  right: 8px;
+  left: 0;
+}
+
+/* ================================== */
+/* 排序控制区 */
 /* ================================== */
 .sorting-active {
   background: var(--text-main) !important;
@@ -442,7 +453,6 @@ onUnmounted(() => {
   opacity: 0.2;
   cursor: not-allowed;
 }
-/* ================================== */
 
 .status-badge-active { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; font-weight: 700; }
 .breathe-dot {

@@ -84,6 +84,34 @@
         </div>
       </main>
     </div>
+
+    <!-- 全局模态框提示系统 -->
+    <Transition name="pop">
+      <div v-if="globalState.modal.show" class="modal-overlay" @click.self="handleModalCancel">
+        <div class="custom-modal-card" @click.stop>
+          <div class="modal-header">
+            <h3 :class="{ 'danger-text': globalState.modal.type === 'confirm' }">
+              {{ globalState.modal.title }}
+            </h3>
+          </div>
+          
+          <div class="modal-body">
+            <p class="global-modal-msg">{{ globalState.modal.message }}</p>
+            
+            <div class="modal-footer">
+              <template v-if="globalState.modal.type === 'confirm'">
+                <button class="action-btn flex-1" @click="handleModalCancel">取消</button>
+                <button class="primary-btn accent-btn red-text-btn flex-1" @click="handleModalConfirm">确定</button>
+              </template>
+              
+              <template v-else>
+                <button class="primary-btn accent-btn flex-1" style="width: 100%" @click="handleModalConfirm">我知道了</button>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -125,7 +153,7 @@ const ICONS = {
 };
 
 const currentTab = ref('home');
-const targetSettingsView = ref('main'); // 用于控制 Settings 子页面
+const targetSettingsView = ref('main');
 
 const traffic = ref({ up: '0 B/s', down: '0 B/s' });
 const logLines = ref<any[]>([]);
@@ -152,7 +180,6 @@ const currentModeName = computed(() => modes.find(m => m.id === globalState.mode
 
 const toggleTheme = () => {
   const newTheme = globalState.theme === 'dark' ? 'light' : 'dark';
-  // 调用后端方法，后端会通过 SyncState 同步更新前端 globalState.theme
   API.SaveThemePreference(newTheme === 'dark');
 };
 
@@ -165,7 +192,16 @@ const handleClose = async () => {
   }
 };
 
-// 4. 监听变化，同步处理渲染和原生窗口底色
+const handleModalConfirm = () => {
+  globalState.modal.show = false;
+  if (globalState.modal.onConfirm) globalState.modal.onConfirm();
+};
+
+const handleModalCancel = () => {
+  globalState.modal.show = false;
+  if (globalState.modal.onCancel) globalState.modal.onCancel();
+};
+
 watch(() => globalState.theme, (val) => {
   if (val === 'dark') {
     document.documentElement.classList.add('dark');
@@ -179,8 +215,6 @@ watch(() => globalState.theme, (val) => {
 }, { immediate: true });
 
 onMounted(async () => {
-  // 1. 【唯一真理来源】：主动触发一次全局状态同步
-  // 后端收到指令后，会将 isRunning, mode, theme, hideLogs 一次性推给 store.ts 
   await (API as any).SyncState();
 
   try {
@@ -190,7 +224,6 @@ onMounted(async () => {
 
   EventsOn("traffic-data", (data: any) => { traffic.value = data; });
 
-  // 1. 先拉取历史日志
   const history = await (API as any).GetRecentLogs();
   if (history) logLines.value = history;
 
@@ -218,7 +251,6 @@ onMounted(async () => {
   });
 });
 
-// 监听切换到日志页面时，强制滚动到底部
 watch(currentTab, (newTab) => {
   if (newTab === 'logs') {
     nextTick(() => {
@@ -231,14 +263,12 @@ watch(currentTab, (newTab) => {
 </script>
 
 <style scoped>
-/* 窗口控制 */
 .window-controls { display: flex; align-items: center; gap: 2px; margin-left: 12px; }
 .ctrl-btn { width: 28px !important; height: 28px !important; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
 .ctrl-btn :deep(svg) { width: 12px; height: 12px; }
 .ctrl-btn:hover { background: var(--surface-hover); }
 .close-btn:hover { background: var(--text-main) !important; color: var(--accent-fg) !important; }
 
-/* 基础架构 */
 .app-shell { display: flex; flex-direction: column; height: 100vh; color: var(--text-main); }
 .drag-bar { height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 24px; }
 .brand { font-weight: 600; font-size: 0.85rem; letter-spacing: 0.5px; }
@@ -251,7 +281,6 @@ watch(currentTab, (newTab) => {
 
 .main-layout { display: flex; flex: 1; padding: 0 16px 16px 0; gap: 16px; overflow: hidden; }
 
-/* 极简侧边栏 */
 .sidebar { width: 220px; display: flex; flex-direction: column; padding: 12px; }
 .nav-list { flex: 1; }
 .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 4px; border-radius: 8px; cursor: pointer; color: var(--text-sub); transition: all 0.2s ease; }
@@ -260,7 +289,6 @@ watch(currentTab, (newTab) => {
 .icon { width: 16px; height: 16px; display: flex; align-items: center; }
 .nav-label { font-size: 0.85rem; letter-spacing: 0.02em; }
 
-/* 侧边栏底部容器 */
 .sidebar-footer {
   padding: 16px 20px;
   display: flex;
@@ -270,7 +298,6 @@ watch(currentTab, (newTab) => {
   margin-top: auto;
 }
 
-/* 统一的图标容器，用于水平对齐 */
 .icon-box {
   width: 16px;
   height: 16px;
@@ -288,7 +315,6 @@ watch(currentTab, (newTab) => {
   height: 14px;
 }
 
-/* 流量行样式 */
 .side-traffic {
   display: flex;
   flex-direction: column;
@@ -298,7 +324,7 @@ watch(currentTab, (newTab) => {
 .t-item, .theme-switch-row, .status-indicator {
   display: flex;
   align-items: center;
-  gap: 12px; /* 图标与文字的间距 */
+  gap: 12px;
   height: 20px;
 }
 
@@ -316,7 +342,6 @@ watch(currentTab, (newTab) => {
   opacity: 0.9;
 }
 
-/* 主题切换行 */
 .theme-switch-row {
   cursor: pointer;
   transition: opacity 0.2s;
@@ -326,14 +351,12 @@ watch(currentTab, (newTab) => {
   opacity: 0.7;
 }
 
-/* 状态指示样式 */
 .status-indicator {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-/* 状态圆点对齐补丁 */
 .dot {
   width: 6px;
   height: 6px;
@@ -352,12 +375,10 @@ watch(currentTab, (newTab) => {
   50% { opacity: 1; box-shadow: 0 0 12px var(--text-main); }
 }
 
-/* 内容区 */
 .content { flex: 1; display: flex; flex-direction: column; padding: 32px 40px; overflow: hidden; }
 .content-header h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 32px; }
 .view-scroller { flex: 1; overflow-y: auto; padding-right: 12px; }
 
-/* 日志终端 */
 .terminal-box { 
   background: var(--surface);
   color: var(--text-main);
@@ -374,12 +395,83 @@ watch(currentTab, (newTab) => {
 .l-time { color: var(--text-muted); margin-right: 12px; opacity: 0.8; }
 .l-type { margin-right: 12px; font-weight: 600; }
 
-/* 日志级别：纯灰度，不同粗细/明度区分 */
 .log-line.info .l-type { color: var(--text-main); }
 .log-line.warning .l-type { color: var(--text-sub); font-style: italic; }
 .log-line.error .l-type { color: var(--text-main); font-weight: 700; }
 .log-line.debug .l-type { color: var(--text-muted); }
 
-/* 设置组件容器占满 */
 .view-settings { height: 100%; display: flex; flex-direction: column; }
+
+/* ================================== */
+/* 全局弹窗样式 (严格对齐 Subscriptions) */
+/* ================================== */
+.modal-overlay { 
+  position: fixed; inset: 0; 
+  background: rgba(0,0,0,0.4); 
+  backdrop-filter: none !important; 
+  display: flex; align-items: center; justify-content: center; 
+  z-index: 9999; 
+}
+
+/* 移除所有玻璃/模糊效果，使用纯色 */
+.custom-modal-card {
+  width: 90%; 
+  max-width: 400px; 
+  padding: 24px; 
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--surface-hover);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+}
+
+.modal-header { margin-bottom: 20px; }
+.modal-header h3 { margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--text-main); }
+
+.modal-body { display: flex; flex-direction: column; gap: 20px; }
+
+.global-modal-msg { 
+  margin: 0; 
+  font-size: 0.9rem; 
+  color: var(--text-sub); 
+  line-height: 1.6; 
+  white-space: pre-wrap; 
+}
+
+/* 底部按钮排版 */
+.modal-footer { 
+  display: flex; 
+  gap: 12px; 
+  width: 100%; 
+  margin-top: 10px; /* 留出间距 */
+}
+
+/* 按钮颜色校正：对齐实色风格 */
+.modal-footer .action-btn {
+  background: var(--surface-hover); /* 确保取消键有微弱的背景色 */
+  color: var(--text-main);
+  border: none;
+  padding: 12px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.modal-footer .action-btn:hover {
+  filter: brightness(0.9);
+}
+
+.modal-footer .primary-btn {
+  border: none;
+  padding: 12px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.danger-text { color: #ff4d4f !important; }
+
+/* 统一缩放动画 */
+.pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); }
+.pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.95); }
 </style>
