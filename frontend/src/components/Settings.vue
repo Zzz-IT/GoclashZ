@@ -472,7 +472,7 @@
     <div v-else-if="view === 'uwp'" class="settings-page slide-in">
       <div class="sub-header">
         <button class="back-btn" @click="view = 'main'">
-          <span class="icon" v-html="ICONS.arrowLeft"></span>
+          <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>
         </button>
         <h3>UWP 环回管理</h3>
       </div>
@@ -509,7 +509,7 @@
 
           <div class="app-status-wrapper">
             <div class="uwp-status-tag">
-              {{ app.isEnabled ? 'Exempted' : 'Restricted' }}
+              {{ app.isEnabled ? '已豁免' : '受限' }}
             </div>
           </div>
         </div>
@@ -617,9 +617,6 @@ const toggleAllUwp = (val: boolean) => {
   if (val) {
     uwpApps.value.forEach(app => app.isEnabled = true);
   } else {
-    // 逻辑修正：反选通常是指对当前所有项取反，这里用户要求的是“反选”，
-    // 但按钮逻辑习惯上可能是“全不选”。根据用户提供的代码片段描述是“反选”，
-    // 我将实现为真正的逻辑反选（Toggle all）。
     uwpApps.value.forEach(app => app.isEnabled = !app.isEnabled);
   }
 };
@@ -997,12 +994,12 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 
 /* 状态标签：对齐 Proxies 页面的 4px 圆角风格 */
 .uwp-status-tag {
-  font-size: 0.65rem;
-  font-weight: 800;
+  font-size: 0.7rem; /* 中文稍微大一点点 */
+  letter-spacing: 0; /* 中文不需要额外的字母间距 */
+  font-weight: 600;
   padding: 3px 10px;
   border-radius: 4px; /* 4px 内部标签圆角 */
   text-transform: uppercase;
-  letter-spacing: 0.5px;
   transition: all 0.2s;
   
   /* 未选中：中性面板色 */
@@ -1050,5 +1047,18 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   align-items: center;
   justify-content: center;
   gap: 8px;
+}
+
+/* 确保返回按钮内的图标有尺寸 */
+.back-btn .icon svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+/* 针对 UWP 专属的返回图标额外修正 */
+.back-icon-svg :deep(svg) {
+  width: 18px;
+  height: 18px;
 }
 </style>
