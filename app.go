@@ -44,6 +44,7 @@ type AppBehavior struct {
 	CloseToTray   bool   `json:"closeToTray"`   // 点击关闭时隐藏到托盘
 	LogLevel      string `json:"logLevel"`      // 👈 新增：日志等级
 	HideLogs      bool   `json:"hideLogs"`      // 👈 新增
+	SubUA         string `json:"subUA"`         // 👈 新增：订阅更新 User-Agent
 }
 
 // 获取配置文件的存放路径
@@ -688,8 +689,9 @@ func (a *App) SelectProxy(groupName, nodeName string) error {
 }
 
 func (a *App) UpdateSub(url string) error {
+	ua := a.GetAppBehavior().SubUA
 	// 1. 下载订阅
-	filename, err := clash.UpdateSubscription(url, "")
+	filename, err := clash.UpdateSubscription(url, "", ua)
 	if err != nil {
 		return err
 	}
@@ -715,7 +717,8 @@ func (a *App) UpdateSingleSub(filename string) error {
 		return fmt.Errorf("未找到该文件的订阅链接，请重新导入")
 	}
 
-	_, err := clash.UpdateSubscription(record.URL, filename)
+	ua := a.GetAppBehavior().SubUA
+	_, err := clash.UpdateSubscription(record.URL, filename, ua)
 	if err != nil {
 		return err
 	}
@@ -733,10 +736,11 @@ func (a *App) UpdateSingleSub(filename string) error {
 // UpdateAllSubs 实装：遍历并更新所有已记录链接的文件
 func (a *App) UpdateAllSubs() error {
 	records := a.readSubRecords()
+	ua := a.GetAppBehavior().SubUA
 	for filename, record := range records {
 		if record.URL != "" {
 			// 忽略错误继续更新下一个
-			_, _ = clash.UpdateSubscription(record.URL, filename)
+			_, _ = clash.UpdateSubscription(record.URL, filename, ua)
 		}
 	}
 

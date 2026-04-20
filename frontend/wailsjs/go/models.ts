@@ -174,6 +174,7 @@ export namespace main {
 	    closeToTray: boolean;
 	    logLevel: string;
 	    hideLogs: boolean;
+	    subUA: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppBehavior(source);
@@ -185,6 +186,7 @@ export namespace main {
 	        this.closeToTray = source["closeToTray"];
 	        this.logLevel = source["logLevel"];
 	        this.hideLogs = source["hideLogs"];
+	        this.subUA = source["subUA"];
 	    }
 	}
 	export class ProxyStatus {

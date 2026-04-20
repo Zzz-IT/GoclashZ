@@ -449,6 +449,23 @@
             <span class="slider"></span>
           </label>
         </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info">
+            <h4>订阅更新 User-Agent</h4>
+            <p>自定义下载或更新订阅配置时的请求头，留空使用默认值。</p>
+          </div>
+          <input 
+            type="text" 
+            class="modern-input" 
+            style="width: 200px; text-align: center;" 
+            v-model="behavior.subUA" 
+            @blur="saveBehavior" 
+            placeholder="默认 UA" 
+          />
+        </div>
       </div>
     </div>
 
@@ -516,7 +533,8 @@ const behavior = ref({
   silentStart: false,
   closeToTray: true,
   logLevel: 'info',
-  hideLogs: false
+  hideLogs: false,
+  subUA: ''
 });
 
 const loadData = async () => {

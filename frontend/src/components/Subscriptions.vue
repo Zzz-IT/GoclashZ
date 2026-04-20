@@ -148,6 +148,7 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { ICONS } from '../utils/icons';
+import { showAlert } from '../store';
 
 const activeModal = ref<'import' | 'rename' | 'delete' | null>(null);
 const targetFile = ref('');
@@ -227,14 +228,40 @@ const handleSelectConfig = async (name: string) => {
 };
 
 const handleUpdateAll = async () => {
+  // 筛选出所有拥有订阅链接的配置名称
+  const targets = localConfigs.value.filter(name => hasUrlRecord(name));
+
+  // 逻辑 1：若不存在链接订阅，则显示提示并不进行尝试
+  if (targets.length === 0) {
+    await showAlert("不存在链接订阅", "提示");
+    return;
+  }
+
   loading.value = true;
-  try {
-    await (API as any).UpdateAllSubs();
-    await fetchConfigs();
-  } catch (e) {
-    console.error("批量更新失败:", e);
-  } finally {
-    loading.value = false;
+  const failedConfigs: string[] = [];
+
+  // 逻辑 2：遍历更新
+  for (const name of targets) {
+    try {
+      // 调用单体更新接口
+      await (API as any).UpdateSingleSub(name);
+    } catch (e) {
+      // 记录失败的配置名
+      failedConfigs.push(name);
+    }
+  }
+
+  // 更新完成后刷新列表状态
+  await fetchConfigs();
+  loading.value = false;
+
+  // 逻辑 3：根据更新结果弹出对应提示
+  if (failedConfigs.length === 0) {
+    // 全部成功
+    await showAlert("全部更新完成", "更新成功");
+  } else {
+    // 存在失败项，显示具体失败的名称
+    await showAlert(`${failedConfigs.join(' ')} 更新失败`, "更新结果");
   }
 };
 

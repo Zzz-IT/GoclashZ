@@ -12,7 +12,7 @@ import (
 
 // UpdateSubscription 下载 YAML 订阅
 // 如果 targetName 为空，则自动根据 URL 生成文件名
-func UpdateSubscription(subURL string, targetName string) (string, error) {
+func UpdateSubscription(subURL string, targetName string, userAgent string) (string, error) {
 	pwd, err := os.Getwd()
 	if err != nil {
 		return "", err
@@ -35,7 +35,12 @@ func UpdateSubscription(subURL string, targetName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "ClashforWindows/0.20.39")
+
+	// 使用传入的 UA，如果没有则使用默认值
+	if userAgent == "" {
+		userAgent = "ClashforWindows/0.20.39"
+	}
+	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := client.Do(req)
 	if err != nil {

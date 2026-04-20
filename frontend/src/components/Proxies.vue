@@ -330,7 +330,7 @@ onUnmounted(() => {
 
 .node-main-area { flex: 1; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
 
-.node-info { min-width: 0; }
+.node-info { flex: 1; min-width: 0; }
 .n-name { font-size: 0.95rem; font-weight: 500; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main); }
 
 .node-meta { display: flex; align-items: center; }
@@ -346,6 +346,9 @@ onUnmounted(() => {
 .node-item.active .n-protocol { background: rgba(255,255,255,0.2); color: var(--accent-fg); }
 
 .n-latency-box {
+  flex-shrink: 0 !important;
+  white-space: nowrap;
+  min-width: max-content;
   margin-left: 12px;
   padding: 6px 10px;
   border-radius: 6px;
