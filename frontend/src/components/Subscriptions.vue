@@ -52,7 +52,7 @@
               <h4 class="sub-name">{{ config }}</h4>
               <span class="sub-path font-mono">core/bin/{{ config }}</span>
               
-              <div v-if="subRecords[config] && subRecords[config].total > 0" class="traffic-container">
+              <div v-if="!isSortingMode && subRecords[config] && subRecords[config].total > 0" class="traffic-container">
                 <div class="traffic-bar">
                   <div class="traffic-fill" :style="{ width: Math.min(100, ((subRecords[config].upload + subRecords[config].download) / subRecords[config].total) * 100) + '%' }"></div>
                 </div>
@@ -591,12 +591,12 @@ onUnmounted(() => {
 /* ================================== */
 /* 订阅流量条 */
 .traffic-container {
-  margin-top: 10px;
+  margin-top: 12px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   width: 100%;
-  min-width: 220px;
+  padding-right: 10px;
 }
 .traffic-bar {
   width: 100%;
