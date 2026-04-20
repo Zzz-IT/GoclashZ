@@ -164,11 +164,15 @@ onMounted(() => {
   height: 100%;
 }
 
+/* ================================== */
+/* 头部区域：搜索框与按钮               */
+/* ================================== */
 .rules-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 16px; 
   margin-bottom: 16px;
+  width: 100%; /* 确保整个头部区域随页面宽度完全展开 */
 }
 
 .search-bar {
@@ -178,7 +182,7 @@ onMounted(() => {
   border: 1px solid var(--surface-hover);
   border-radius: 8px;
   padding: 8px 12px;
-  width: 350px;
+  flex: 1; /* 完全占据可用空间，已移除 max-width 限制 */
 }
 
 .search-bar input {
@@ -199,11 +203,12 @@ onMounted(() => {
   font-weight: 600;
   cursor: pointer;
   transition: 0.2s;
+  flex-shrink: 0; /* 确保添加按钮不会被挤压变形 */
 }
 .add-rule-btn:hover { filter: brightness(0.9); }
 
 /* ================================== */
-/* 恢复经典的 Grid 多列网格布局       */
+/* 卡片布局                            */
 /* ================================== */
 .rules-grid {
   flex: 1; 
@@ -222,13 +227,17 @@ onMounted(() => {
   background: var(--surface);
   border: 1px solid var(--surface-hover);
   border-radius: 10px;
-  padding: 16px;
+  padding: 12px 14px; /* 减小内边距，使卡片更紧凑 */
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  transition: all 0.2s;
+  gap: 6px; /* 减小卡片内部元素间距 */
+  transition: background 0.2s; /* 过渡效果改为背景色 */
 }
-.rule-card:hover { border-color: var(--text-muted); }
+
+/* 统一选中悬停交互：使用背景色而非边框线 */
+.rule-card:hover { 
+  background: var(--surface-hover); 
+}
 
 .rule-main {
   display: flex;
@@ -236,19 +245,38 @@ onMounted(() => {
   gap: 6px;
 }
 
-/* 极简高能实色标签 */
+/* 极简高能实色标签 (已去除所有轮廓线)  */
 .rule-type {
   font-size: 0.7rem;
   font-weight: 700;
   padding: 4px 8px;
   border-radius: 6px;
   width: fit-content;
-  border: 1px solid transparent;
+  border: none; /* 彻底移除所有默认边框 */
 }
-.tag-blue { background: var(--text-main); color: var(--surface); } 
-.tag-green { background: transparent; color: var(--text-main); border-color: var(--text-main); } 
-.tag-orange { background: transparent; color: var(--text-main); border-color: var(--text-sub); border-style: dashed; } 
-.tag-gray { background: var(--surface-hover); color: var(--text-muted); } 
+
+.tag-blue { 
+  background: var(--text-main); 
+  color: var(--surface); 
+} 
+
+/* 修改 tag-green：去除边框，改为实色背景 */
+.tag-green { 
+  background: var(--surface-hover); 
+  color: var(--text-main); 
+} 
+
+/* 修改 tag-orange：去除虚线边框，改为实色背景 */
+.tag-orange { 
+  background: var(--surface-hover); 
+  color: var(--text-main); 
+  opacity: 0.8; /* 用透明度区分不同类型的次要标签 */
+} 
+
+.tag-gray { 
+  background: var(--surface-hover); 
+  color: var(--text-muted); 
+} 
 
 .rule-payload {
   font-size: 0.95rem;
@@ -261,9 +289,8 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-top: 1px solid var(--surface-hover);
-  padding-top: 12px;
-  margin-top: auto;
+  /* 移除了 border-top 分割线和 padding-top */
+  margin-top: auto; 
 }
 
 .rule-policy {
