@@ -3,16 +3,26 @@
     <div class="page-header">
       <div class="header-text">
         <h2 class="main-title">本地配置库</h2>
-        <span class="sub-text">按住左侧握把可上下拖拽排序</span>
+        <span class="sub-text">
+          {{ isSortingMode ? '排序模式：点击卡片左侧箭头上下移动' : '点击卡片应用该配置' }}
+        </span>
       </div>
       
       <div class="header-actions">
-        <button class="action-btn accent-btn" @click.stop="activeModal = 'import'">
+        <button 
+          class="action-btn" 
+          :class="{ 'sorting-active': isSortingMode }" 
+          @click.stop="toggleSortMode"
+        >
+          <span class="btn-icon" v-html="ICONS.sort"></span> 
+          {{ isSortingMode ? '完成排序' : '排序' }}
+        </button>
+        <button class="action-btn accent-btn" @click.stop="activeModal = 'import'" v-show="!isSortingMode">
           <span class="btn-icon" v-html="ICONS.plus"></span> 导入配置
         </button>
-        <button class="primary-btn accent-btn" @click="handleUpdateAll" :disabled="loading">
+        <button class="primary-btn accent-btn" @click="handleUpdateAll" :disabled="loading" v-show="!isSortingMode">
           <span class="btn-icon" v-html="ICONS.refresh" :class="{ 'spin': loading }"></span>
-          {{ loading ? '更新中...' : '更新全部订阅' }}
+          {{ loading ? '更新中...' : '更新全部' }}
         </button>
       </div>
     </div>
@@ -22,53 +32,49 @@
         暂无本地配置文件。
       </div>
 
-      <!-- 终极 Vue3 拖拽容器 -->
-      <VueDraggable
-        v-model="localConfigs"
-        :animation="150"
-        handle=".drag-handle"
-        ghostClass="ghost-card"
-        dragClass="drag-card"
-        @end="onSortEnd"
+      <div
+        v-for="(config, index) in localConfigs"
+        :key="config"
+        class="sub-card clickable"
+        :class="{ 'active-card': isCurrentConfig(config), 'is-sorting': isSortingMode }"
+        @click="!isSortingMode && handleSelectConfig(config)"
       >
-        <div
-          v-for="config in localConfigs"
-          :key="config"
-          class="sub-card clickable"
-          :class="{ 'active-card': isCurrentConfig(config) }"
-          @click="handleSelectConfig(config)"
-        >
-          <div class="sub-header">
-            <div class="sub-info">
-              <div class="drag-handle" title="按住拖拽排序" v-html="ICONS.drag" @click.stop></div>
-              <div>
-                <h4 class="sub-name">{{ config }}</h4>
-                <span class="sub-path font-mono">core/bin/{{ config }}</span>
-              </div>
+        <div class="sub-header">
+          <div class="sub-info">
+            
+            <div v-if="isSortingMode" class="sort-controls">
+              <button class="arrow-btn" :disabled="index === 0" @click.stop="moveUp(index)" v-html="ICONS.up"></button>
+              <button class="arrow-btn" :disabled="index === localConfigs.length - 1" @click.stop="moveDown(index)" v-html="ICONS.down"></button>
             </div>
-            <div class="sub-status">
-              <div v-if="isCurrentConfig(config)" class="status-badge-active">
-                <div class="breathe-dot"></div>
-                <span>正在使用</span>
-              </div>
+
+            <div>
+              <h4 class="sub-name">{{ config }}</h4>
+              <span class="sub-path font-mono">core/bin/{{ config }}</span>
             </div>
           </div>
-
-          <div class="sub-footer">
-            <span class="sub-hint">点击应用此配置</span>
-            <div class="sub-actions">
-              <button class="icon-btn" @click.stop="toggleMenu(config)" v-html="ICONS.more"></button>
-              <div v-if="activeMenu === config" class="dropdown-menu glass-panel">
-                <button v-if="hasUrlRecord(config)" class="menu-item" @click.stop="handleUpdateSingle(config)">更新订阅</button>
-                <div v-if="hasUrlRecord(config)" class="menu-divider"></div>
-                <button class="menu-item" @click.stop="openRenameModal(config)">重命名</button>
-                <button class="menu-item" @click.stop="handleEditFile(config)">记事本编辑</button>
-                <button class="menu-item danger" @click.stop="openDeleteModal(config)">彻底删除</button>
-              </div>
+          
+          <div class="sub-status">
+            <div v-if="isCurrentConfig(config)" class="status-badge-active">
+              <div class="breathe-dot"></div>
+              <span>正在使用</span>
             </div>
           </div>
         </div>
-      </VueDraggable>
+
+        <div class="sub-footer" v-show="!isSortingMode">
+          <span class="sub-hint">点击应用此配置</span>
+          <div class="sub-actions">
+            <button class="icon-btn" @click.stop="toggleMenu(config)" v-html="ICONS.more"></button>
+            <div v-if="activeMenu === config" class="dropdown-menu glass-panel">
+              <button v-if="hasUrlRecord(config)" class="menu-item" @click.stop="handleUpdateSingle(config)">更新订阅</button>
+              <div v-if="hasUrlRecord(config)" class="menu-divider"></div>
+              <button class="menu-item" @click.stop="openRenameModal(config)">重命名</button>
+              <button class="menu-item" @click.stop="handleEditFile(config)">记事本编辑</button>
+              <button class="menu-item danger" @click.stop="openDeleteModal(config)">彻底删除</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 统一模态框系统 -->
@@ -141,15 +147,16 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-// 引入专门为 Vue3 打造的拖拽组件
-import { VueDraggable } from 'vue-draggable-plus';
 
 const ICONS = {
   refresh: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>`,
   more: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg>`,
   plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`,
   folder: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`,
-  drag: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="16" y2="6"></line><line x1="8" y1="12" x2="16" y2="12"></line><line x1="8" y1="18" x2="16" y2="18"></line></svg>`
+  // 新增：排序、向上、向下 图标
+  sort: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M7 12h10M10 18h4"/></svg>`,
+  up: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>`,
+  down: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`
 };
 
 const activeModal = ref<'import' | 'rename' | 'delete' | null>(null);
@@ -163,6 +170,43 @@ const localConfigs = ref<string[]>([]);
 const activeMenu = ref<string | null>(null);
 const subRecords = ref<Record<string, any>>({});
 
+// 🎯 新增：控制是否处于排序模式
+const isSortingMode = ref(false);
+
+const toggleSortMode = () => {
+  isSortingMode.value = !isSortingMode.value;
+  activeMenu.value = null; // 退出任何打开的菜单
+};
+
+// 🎯 新增：上移逻辑
+const moveUp = async (index: number) => {
+  if (index <= 0) return;
+  const items = [...localConfigs.value];
+  // 交换数组元素
+  [items[index - 1], items[index]] = [items[index], items[index - 1]];
+  localConfigs.value = items;
+  await saveOrder();
+};
+
+// 🎯 新增：下移逻辑
+const moveDown = async (index: number) => {
+  if (index >= localConfigs.value.length - 1) return;
+  const items = [...localConfigs.value];
+  // 交换数组元素
+  [items[index + 1], items[index]] = [items[index], items[index + 1]];
+  localConfigs.value = items;
+  await saveOrder();
+};
+
+// 调用后端保存顺序
+const saveOrder = async () => {
+  try {
+    await (API as any).SaveConfigsOrder(localConfigs.value);
+  } catch (e) {
+    console.error("保存排序失败:", e);
+  }
+};
+
 const isCurrentConfig = (name: string) => {
   if (!currentPath.value) return false;
   const currentFile = currentPath.value.split(/[\\/]/).pop();
@@ -170,15 +214,6 @@ const isCurrentConfig = (name: string) => {
 };
 
 const hasUrlRecord = (name: string) => !!subRecords.value[name];
-
-// 当拖拽松手，v-model 已经自动更新了 localConfigs，我们只需要发给后端保存即可
-const onSortEnd = async () => {
-  try {
-    await (API as any).SaveConfigsOrder(localConfigs.value);
-  } catch (e) {
-    console.error("保存排序失败:", e);
-  }
-};
 
 const fetchConfigs = async () => {
   try {
@@ -340,54 +375,72 @@ onUnmounted(() => {
 .sub-text { font-size: 0.85rem; color: var(--text-sub); }
 .header-actions { display: flex; gap: 12px; }
 .subs-list { flex: 1; overflow-y: auto; padding-right: 8px; }
-.sub-card { position: relative; padding: 20px; border-radius: 12px; background: var(--surface); margin-bottom: 16px; transition: 0.2s; border: 1px solid transparent; }
-.sub-card:hover { background: var(--surface-hover); }
+
+/* 卡片基础样式 */
+.sub-card { 
+  position: relative; padding: 20px; border-radius: 12px; 
+  background: var(--surface); margin-bottom: 16px; 
+  transition: 0.2s; border: 1px solid transparent; 
+}
+.sub-card:not(.is-sorting):hover { background: var(--surface-hover); }
+
+/* 排序模式下，禁用悬停效果和指针切换，表明它现在不可选择 */
+.sub-card.is-sorting { cursor: default; }
 
 .active-card { background: var(--accent) !important; color: var(--accent-fg) !important; border: none !important; }
 .active-card .sub-path, .active-card .sub-hint, .active-card .icon-btn { color: var(--accent-fg) !important; opacity: 0.8; }
 .sub-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
+.sub-info { display: flex; align-items: center; gap: 16px; }
 .sub-name { font-size: 0.95rem; font-weight: 600; margin: 0; }
 .sub-path { font-size: 0.7rem; color: var(--text-muted); }
 
 /* ================================== */
-/* 拖拽专属 CSS (极致黑白硬边投影风格) */
+/* 极简点击排序控制区 (纯黑白风格) */
 /* ================================== */
-.sub-info { display: flex; align-items: center; gap: 12px; }
+.sorting-active {
+  background: var(--text-main) !important;
+  color: var(--surface) !important;
+  border-color: var(--text-main) !important;
+  font-weight: 600;
+}
+.sorting-active .btn-icon { color: var(--surface) !important; }
 
-.drag-handle {
-  width: 16px; height: 16px;
+.sort-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.arrow-btn {
+  width: 24px;
+  height: 20px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
   color: var(--text-muted);
-  cursor: grab;
-  opacity: 0.5;
-  transition: opacity 0.2s;
-  display: flex; align-items: center;
-}
-.sub-card:hover .drag-handle { opacity: 1; }
-.drag-handle:active { cursor: grabbing; }
-.drag-handle :deep(svg) { width: 100%; height: 100%; }
-
-/* 留在原地的坑位（Ghost） */
-.ghost-card {
-  opacity: 1 !important;
-  background: var(--surface-hover) !important;
-  border: 1px dashed var(--text-sub) !important;
-  box-shadow: none !important;
+  transition: all 0.2s;
 }
 
-/* 被鼠标抓在半空中移动的实体卡片（Drag） */
-.drag-card {
-  opacity: 1 !important;
-  background: var(--surface) !important; 
-  border: 1px solid var(--text-main) !important;
-  /* 0 模糊半径的硬边阴影，营造“被提起”的空间感 */
-  box-shadow: 4px 4px 0px var(--text-main) !important; 
-  cursor: grabbing !important;
-  z-index: 1000 !important;
+.arrow-btn :deep(svg) { width: 14px; height: 14px; }
+.arrow-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-main);
+  border-color: var(--text-sub);
 }
-
-/* 强制把悬浮卡片内部所有指针设为抓取 */
-.drag-card * {
-  cursor: grabbing !important;
+.active-card .arrow-btn { color: var(--accent-fg); opacity: 0.7; }
+.active-card .arrow-btn:hover:not(:disabled) {
+  background: rgba(0,0,0,0.1);
+  color: var(--accent-fg);
+  opacity: 1;
+  border-color: var(--accent-fg);
+}
+.arrow-btn:disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
 }
 /* ================================== */
 

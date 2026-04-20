@@ -9,8 +9,7 @@
         "preview": "vite preview"
     },
     "dependencies": {
-        "vue": "^3.2.37",
-        "vue-draggable-plus": "^0.6.1"
+        "vue": "^3.2.37"
     },
     "devDependencies": {
         "@babel/types": "^7.18.10",
