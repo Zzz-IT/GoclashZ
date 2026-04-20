@@ -146,6 +146,27 @@ export namespace clash {
 
 }
 
+export namespace logger {
+	
+	export class LogEntry {
+	    type: string;
+	    payload: string;
+	    time: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LogEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.payload = source["payload"];
+	        this.time = source["time"];
+	    }
+	}
+
+}
+
 export namespace main {
 	
 	export class AppBehavior {

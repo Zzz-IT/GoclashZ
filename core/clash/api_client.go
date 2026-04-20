@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"time"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // 关键修复：创建一个全局的、强制不走系统代理的 HTTP 客户端
@@ -21,8 +19,8 @@ var localAPIClient = &http.Client{
 	Timeout: 10 * time.Second,
 }
 
-// FetchLogs 从内核获取实时日志流并推送至前端
-func FetchLogs(ctx context.Context) {
+// FetchLogs 从内核获取实时日志流并执行回调
+func FetchLogs(ctx context.Context, onLog func(data interface{})) {
 	req, err := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:9090/logs", nil)
 	if err != nil {
 		return
@@ -42,7 +40,7 @@ func FetchLogs(ctx context.Context) {
 	for scanner.Scan() {
 		var logData interface{}
 		if err := json.Unmarshal(scanner.Bytes(), &logData); err == nil {
-			runtime.EventsEmit(ctx, "log-message", logData)
+			onLog(logData)
 		}
 	}
 }

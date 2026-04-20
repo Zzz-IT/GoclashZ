@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"goclashz/core/clash"
+	"goclashz/core/logger"
 	"goclashz/core/sys"
 	"goclashz/core/traffic"
 	"os"
@@ -87,6 +88,8 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 			clash.ReloadConfig()
 		}
 	}
+	// 触发全局同步
+	a.SyncState()
 	return err
 }
 
@@ -130,6 +133,14 @@ func (a *App) GetSubRecords() map[string]SubRecord {
 type ProxyStatus struct {
 	SystemProxy bool `json:"systemProxy"`
 	Tun         bool `json:"tun"`
+}
+
+// AppState 定义全局状态同步结构
+type AppState struct {
+	IsRunning bool   `json:"isRunning"`
+	Mode      string `json:"mode"`
+	Theme     string `json:"theme"`
+	HideLogs  bool   `json:"hideLogs"`
 }
 
 // 1. 在 app.go 任意位置新增这个辅助方法，用于将离线缓存合并到数据源
@@ -393,8 +404,43 @@ func (a *App) startup(ctx context.Context) {
 		runtime.WindowHide(ctx)
 	}
 
+	// 初始化完成后推一次状态给前端
+	a.SyncState()
+
+	// 启动后台守护任务 (Goroutine)
+	go a.startDaemonTasks()
+
 	// 👈 新增：在后台协程中启动系统托盘
 	go a.setupTray()
+}
+
+func (a *App) startDaemonTasks() {
+	// 设定定时器：比如每 12 小时更新订阅，每 30 分钟测速
+	subTicker := time.NewTicker(12 * time.Hour)
+	speedTicker := time.NewTicker(30 * time.Minute)
+	
+	defer func() {
+		subTicker.Stop()
+		speedTicker.Stop()
+	}()
+
+	for {
+		select {
+		case <-subTicker.C:
+			// 执行订阅更新逻辑
+			err := a.UpdateAllSubs()
+			if err == nil {
+				// 告诉前端：后台订阅更新完毕
+				runtime.EventsEmit(a.ctx, "subs-background-updated")
+			}
+		case <-speedTicker.C:
+			// 执行全部节点测速 (这里需要节点列表，可以从 GetInitialData 逻辑中提取或简化)
+			// 为了简化，这里先占位，实际实现需要更复杂的节点获取逻辑
+		case <-a.ctx.Done():
+			// 软件关闭，安全退出协程
+			return
+		}
+	}
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -560,8 +606,11 @@ func (a *App) UpdateClashMode(mode string) error {
 	activeCfg := a.getActiveConfig() // 👈 替换为安全获取
 
 	if activeCfg != "" {
-		return clash.BuildRuntimeConfig(activeCfg, mode)
+		err := clash.BuildRuntimeConfig(activeCfg, mode)
+		a.SyncState()
+		return err
 	}
+	a.SyncState()
 	return nil
 }
 
@@ -694,8 +743,19 @@ func (a *App) StartStreamingLogs() {
 	a.cancelLogs = cancel
 	a.mu.Unlock()
 
-	// 调用 api_client.go 中定义的 FetchLogs，传入受控的 logCtx
-	go clash.FetchLogs(logCtx)
+	// 调用 api_client.go 中定义的 FetchLogs，传入受控的 logCtx 和回调
+	go clash.FetchLogs(logCtx, func(data interface{}) {
+		// 解析为 LogEntry 并存入 Buffer
+		if m, ok := data.(map[string]interface{}); ok {
+			entry := logger.LogEntry{
+				Type:    fmt.Sprintf("%v", m["type"]),
+				Payload: fmt.Sprintf("%v", m["payload"]),
+				Time:    time.Now().Format("15:04:05"),
+			}
+			logger.AppLogs.Add(entry)
+			runtime.EventsEmit(a.ctx, "log-message", entry)
+		}
+	})
 }
 
 func (a *App) StopStreamingLogs() {
@@ -707,6 +767,16 @@ func (a *App) StopStreamingLogs() {
 		a.cancelLogs = nil // 清空
 		a.logRunning = false
 	}
+}
+
+// GetRecentLogs 供前端拉取最近的日志记录 (Wails 绑定方法)
+func (a *App) GetRecentLogs() []logger.LogEntry {
+	return logger.AppLogs.GetAll()
+}
+
+// SearchLogs 供前端搜索日志 (Wails 绑定方法)
+func (a *App) SearchLogs(keyword string) []logger.LogEntry {
+	return logger.AppLogs.Search(keyword)
 }
 
 // --- 系统工具 ---
@@ -1081,6 +1151,26 @@ func (a *App) SaveThemePreference(isDark bool) {
 		theme = "dark"
 	}
 	_ = os.WriteFile(getThemeConfigPath(), []byte(theme), 0644)
+	// 触发全局同步
+	a.SyncState()
+}
+
+// SyncState 统一推送当前应用状态给前端
+func (a *App) SyncState() {
+	behavior := a.GetAppBehavior()
+	theme := "light"
+	data, err := os.ReadFile(getThemeConfigPath())
+	if err == nil {
+		theme = string(data)
+	}
+
+	state := AppState{
+		IsRunning: clash.IsRunning(),
+		Mode:      a.getActiveMode(),
+		Theme:     theme,
+		HideLogs:  behavior.HideLogs,
+	}
+	runtime.EventsEmit(a.ctx, "app-state-sync", state)
 }
 
 // ==========================================

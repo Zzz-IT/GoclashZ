@@ -66,6 +66,10 @@ export function GetProxyStatus() {
   return window['go']['main']['App']['GetProxyStatus']();
 }
 
+export function GetRecentLogs() {
+  return window['go']['main']['App']['GetRecentLogs']();
+}
+
 export function GetRules() {
   return window['go']['main']['App']['GetRules']();
 }
@@ -118,6 +122,10 @@ export function SaveTunConfig(arg1) {
   return window['go']['main']['App']['SaveTunConfig'](arg1);
 }
 
+export function SearchLogs(arg1) {
+  return window['go']['main']['App']['SearchLogs'](arg1);
+}
+
 export function SelectLocalConfig(arg1) {
   return window['go']['main']['App']['SelectLocalConfig'](arg1);
 }
@@ -152,6 +160,10 @@ export function StopStreamingLogs() {
 
 export function StopTrafficStream() {
   return window['go']['main']['App']['StopTrafficStream']();
+}
+
+export function SyncState() {
+  return window['go']['main']['App']['SyncState']();
 }
 
 export function TestAllProxies(arg1) {

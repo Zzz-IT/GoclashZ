@@ -3,7 +3,7 @@
     <div class="logo">GoclashZ</div>
     <nav class="nav">
       <div v-for="item in menu" :key="item.id"
-           v-show="item.id !== 'logs' || !hideLogs"
+           v-show="item.id !== 'logs' || !globalState.hideLogs"
            :class="['nav-item', { active: activeId === item.id }]"
            @click="$emit('update:activeId', item.id)">
         <span class="icon">{{ item.icon }}</span>
@@ -14,25 +14,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { GetAppBehavior } from '../../wailsjs/go/main/App';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { globalState } from '../store';
 
 defineProps<{ activeId: string }>();
 defineEmits(['update:activeId']);
-
-const hideLogs = ref(false);
-
-onMounted(async () => {
-  // 1. 初始加载配置
-  const config = await (GetAppBehavior as any)();
-  if (config) hideLogs.value = config.hideLogs;
-
-  // 2. 监听后端发来的更新事件
-  EventsOn("behavior-changed", (config: any) => {
-    hideLogs.value = config.hideLogs;
-  });
-});
 
 const menu = [
   { id: 'home', label: '运行状态', icon: '📊' },

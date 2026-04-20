@@ -39,16 +39,16 @@
             <div class="conn-footer font-mono">
               <div class="time-info">
                 <span class="icon-svg" v-html="ICONS.clock"></span>
-                <span>{{ formatDuration(conn.start) }}</span>
+                <span>{{ conn.durationStr }}</span>
               </div>
               <div class="traffic-info">
                 <span class="transfer up">
                   <span class="icon-svg" v-html="ICONS.upload"></span>
-                  <span>{{ formatBytes(conn.upload) }}</span>
+                  <span>{{ conn.uploadStr }}</span>
                 </span>
                 <span class="transfer down">
                   <span class="icon-svg" v-html="ICONS.download"></span>
-                  <span>{{ formatBytes(conn.download) }}</span>
+                  <span>{{ conn.downloadStr }}</span>
                 </span>
               </div>
             </div>
@@ -76,9 +76,9 @@
           <div class="detail-row"><span>目标地址:</span> <span class="font-mono">{{ selectedConn.metadata.destinationIP || selectedConn.metadata.host }}:{{ selectedConn.metadata.destinationPort }}</span></div>
           <div class="detail-row"><span>匹配规则:</span> <span>{{ selectedConn.rule }} {{ selectedConn.rulePayload ? `(${selectedConn.rulePayload})` : '' }}</span></div>
           <div class="detail-row"><span>代理链路:</span> <span class="path-chain">{{ selectedConn.chains.join(' ➔ ') }}</span></div>
-          <div class="detail-row"><span>上传流量:</span> <span class="font-mono">{{ formatBytes(selectedConn.upload) }}</span></div>
-          <div class="detail-row"><span>下载流量:</span> <span class="font-mono">{{ formatBytes(selectedConn.download) }}</span></div>
-          <div class="detail-row"><span>连接时间:</span> <span>{{ new Date(selectedConn.start).toLocaleString() }}</span></div>
+          <div class="detail-row"><span>上传流量:</span> <span class="font-mono">{{ selectedConn.uploadStr }}</span></div>
+          <div class="detail-row"><span>下载流量:</span> <span class="font-mono">{{ selectedConn.downloadStr }}</span></div>
+          <div class="detail-row"><span>连接时间:</span> <span>{{ new Date(selectedConn.start).toLocaleString() }} ({{ selectedConn.durationStr }})</span></div>
         </div>
 
         <div class="detail-footer">
@@ -159,27 +159,6 @@ const getProxyName = (conn: any) => {
   const chains = conn.chains || [];
   if (chains.length > 0) return chains[0];
   return 'Unknown';
-};
-
-const formatBytes = (bytes: number) => {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
-
-// 计算连接已建立的时间 (跟随每次 WebSocket 刷新自动更新)
-const formatDuration = (startTime: string) => {
-  if (!startTime) return '00:00';
-  const start = new Date(startTime).getTime();
-  const now = new Date().getTime();
-  const diff = Math.floor((now - start) / 1000);
-  if (diff <= 0) return '00:00';
-  
-  const m = Math.floor(diff / 60).toString().padStart(2, '0');
-  const s = (diff % 60).toString().padStart(2, '0');
-  return `${m}:${s}`;
 };
 
 const openDetail = (conn: any) => {

@@ -3,10 +3,9 @@ package clash
 import (
 	"context"
 	"encoding/json"
+	"goclashz/core/traffic"
 	"sync"
 	"time"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 var (
@@ -41,14 +40,16 @@ func StartConnectionMonitor(ctx context.Context) error {
 					continue
 				}
 
-				var data map[string]interface{}
+				var data struct {
+					Connections []traffic.RawConnection `json:"connections"`
+				}
 				if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 					resp.Body.Close()
 					continue
 				}
 				resp.Body.Close()
 
-				runtime.EventsEmit(ctx, "connections-update", data)
+				traffic.EmitConnections(ctx, data.Connections)
 			}
 		}
 	}()

@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell" :class="{ dark: isDark }">
+  <div class="app-shell" :class="{ dark: globalState.theme === 'dark' }">
     <div class="drag-bar" style="--wails-draggable:drag">
       <div class="brand">GoclashZ</div>
 
@@ -16,7 +16,7 @@
       <aside class="sidebar">
         <nav class="nav-list">
           <div v-for="item in menu" :key="item.id"
-               v-show="item.id !== 'logs' || !hideLogs"
+               v-show="item.id !== 'logs' || !globalState.hideLogs"
                :class="['nav-item', { active: currentTab === item.id }]"
                @click="currentTab = item.id">
             <span class="icon" v-html="item.icon"></span>
@@ -39,15 +39,15 @@
           </div>
 
           <div class="theme-switch-row" @click="toggleTheme">
-            <span class="icon-box" v-html="isDark ? ICONS.moon : ICONS.sun"></span>
-            <span class="label">{{ isDark ? '夜间模式' : '日间模式' }}</span>
+            <span class="icon-box" v-html="globalState.theme === 'dark' ? ICONS.moon : ICONS.sun"></span>
+            <span class="label">{{ globalState.theme === 'dark' ? '夜间模式' : '日间模式' }}</span>
           </div>
 
           <div class="status-indicator">
             <div class="icon-box">
-              <div :class="['dot', { online: isRunning }]"></div>
+              <div :class="['dot', { online: globalState.isRunning }]"></div>
             </div>
-            <span class="status-text">{{ isRunning ? '内核已启动' : '服务未运行' }}</span>
+            <span class="status-text">{{ globalState.isRunning ? '内核已启动' : '服务未运行' }}</span>
           </div>
         </div>
       </aside>
@@ -108,6 +108,7 @@ import {
   WindowHide,
   Quit
 } from '../wailsjs/runtime/runtime';
+import { globalState } from './store';
 
 const ICONS = {
   home: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>`,
@@ -125,18 +126,12 @@ const ICONS = {
   close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
 };
 
-// 1. 初始化：优先从 localStorage 读取
-const isDark = ref(localStorage.getItem('goclashz-theme') === 'dark');
 const currentTab = ref('home');
 const targetSettingsView = ref('main'); // 用于控制 Settings 子页面
 
-const isRunning = ref(false);
 const traffic = ref({ up: '0 B/s', down: '0 B/s' });
-const currentMode = ref('rule');
-const tunStatus = ref<Record<string, boolean>>({ hasWintun: false, isAdmin: false });
 const logLines = ref<any[]>([]);
 const logBox = ref<HTMLElement | null>(null);
-const hideLogs = ref(false); // 👈 新增：控制日志项显示
 
 const menu = [
   { id: 'home', label: '控制台', icon: ICONS.home },
@@ -155,14 +150,12 @@ const modes = [
 ];
 
 const activeMenuLabel = computed(() => menu.find(m => m.id === currentTab.value)?.label);
-const currentModeName = computed(() => modes.find(m => m.id === currentMode.value)?.name || '规则分流');
+const currentModeName = computed(() => modes.find(m => m.id === globalState.mode)?.name || '规则分流');
 
 const toggleTheme = () => {
-  isDark.value = !isDark.value;
-  // 2. 保存到前端缓存
-  localStorage.setItem('goclashz-theme', isDark.value ? 'dark' : 'light');
-  // 3. 调用后端方法持久化到磁盘
-  API.SaveThemePreference(isDark.value);
+  const newTheme = globalState.theme === 'dark' ? 'light' : 'dark';
+  // 调用后端方法，后端会通过 SyncState 同步更新前端 globalState.theme
+  API.SaveThemePreference(newTheme === 'dark');
 };
 
 const handleClose = async () => {
@@ -175,58 +168,44 @@ const handleClose = async () => {
 };
 
 // 4. 监听变化，同步处理渲染和原生窗口底色
-watch(isDark, (val) => {
-  if (val) {
+watch(() => globalState.theme, (val) => {
+  if (val === 'dark') {
     document.documentElement.classList.add('dark');
     WindowSetDarkTheme();
-    WindowSetBackgroundColour(17, 17, 17, 255); // 防止拖拽时的颜色断层 (#111111)
+    WindowSetBackgroundColour(17, 17, 17, 255);
   } else {
     document.documentElement.classList.remove('dark');
     WindowSetLightTheme();
-    WindowSetBackgroundColour(242, 242, 242, 255); // (#F2F2F2)
+    WindowSetBackgroundColour(242, 242, 242, 255);
   }
 }, { immediate: true });
 
 onMounted(async () => {
-  // 确保启动时根据初始状态设置 class
-  if (isDark.value) {
-    document.documentElement.classList.add('dark');
-    WindowSetDarkTheme();
-  } else {
-    WindowSetLightTheme();
-  }
+  // 基础数据初始化
   const s: any = await API.GetProxyStatus();
-  isRunning.value = s.systemProxy || s.tun;
+  globalState.isRunning = s.systemProxy || s.tun;
+  
   const data: any = await API.GetInitialData();
-  if (data) currentMode.value = data.mode;
-
-  // 👉 新增：初始加载配置，判断是否隐藏日志
-  const behaviorConf = await (API.GetAppBehavior as any)();
-  if (behaviorConf) hideLogs.value = behaviorConf.hideLogs;
-
-  // 👉 新增：监听后端发来的更新事件
-  EventsOn("behavior-changed", (config: any) => {
-    hideLogs.value = config.hideLogs;
-  });
-
-  window.addEventListener('proxy-status-sync', ((e: CustomEvent) => {
-    isRunning.value = e.detail.systemProxy || e.detail.tun;
-  }) as EventListener);
+  if (data) globalState.mode = data.mode;
 
   try {
     const status = await API.CheckTunEnv();
-    tunStatus.value = status as Record<string, boolean>;
+    globalState.tunStatus = status as any;
   } catch (e) { console.error("TUN Env Check Error:", e); }
 
   EventsOn("traffic-data", (data: any) => { traffic.value = data; });
+
+  // 1. 先拉取历史日志
+  const history = await (API as any).GetRecentLogs();
+  if (history) logLines.value = history;
 
   API.StartStreamingLogs();
   
   let scrollTimer: ReturnType<typeof setTimeout> | null = null;
   
   EventsOn("log-message", (log: any) => {
-    logLines.value.push({ ...log, time: new Date().toLocaleTimeString('zh-CN', { hour12: false }) });
-    if (logLines.value.length > 200) logLines.value.shift();
+    logLines.value.push(log);
+    if (logLines.value.length > 1000) logLines.value.shift();
     
     if (!scrollTimer) {
       scrollTimer = setTimeout(() => {
@@ -239,7 +218,7 @@ onMounted(async () => {
   });
 
   EventsOn("clash-exited", () => { 
-    isRunning.value = false; 
+    globalState.isRunning = false; 
     window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: { systemProxy: false, tun: false } }));
   });
 });
