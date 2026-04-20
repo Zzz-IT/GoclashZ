@@ -376,7 +376,9 @@ func (a *App) ToggleSystemProxy(enable bool) error {
 		}
 		// 2. 开启 Windows 系统代理
 		bypass := "localhost;127.*;10.*;172.16.*;192.168.*;<local>"
-		return sys.EnableSystemProxy("127.0.0.1", 7890, bypass)
+		err := sys.EnableSystemProxy("127.0.0.1", 7890, bypass)
+		a.SyncState()
+		return err
 	} else {
 		// 1. 关闭 Windows 系统代理
 		sys.DisableSystemProxy()
@@ -384,6 +386,7 @@ func (a *App) ToggleSystemProxy(enable bool) error {
 		if !needCore {
 			a.stopCoreService()
 		}
+		a.SyncState()
 		return nil
 	}
 }
@@ -419,8 +422,11 @@ func (a *App) ToggleTunMode(enable bool) error {
 	
 	if needCore {
 		time.Sleep(300 * time.Millisecond) // 等待旧端口释放
-		return a.ensureCoreRunning()
+		err := a.ensureCoreRunning()
+		a.SyncState()
+		return err
 	}
+	a.SyncState()
 	return nil
 }
 
@@ -528,6 +534,8 @@ func (a *App) StopProxy() error {
 	a.mu.Unlock()
 	sys.DisableSystemProxy()
 	a.stopCoreService()
+	
+	a.SyncState() // 👈 关键：同步状态
 	return nil
 }
 

@@ -177,8 +177,12 @@ onMounted(async () => {
   }
 
   // 2. 监听内核状态变更 (用于实时点亮左下角灯)
-  (window as any).runtime.EventsOn("clash-state-changed", (running: boolean) => {
-    globalState.isRunning = running;
+  // 修正：将事件名从 "clash-state-changed" 改为 "app-state-sync"
+  // 并且因为 app-state-sync 返回的是整个 state 对象，需要结构化赋值
+  (window as any).runtime.EventsOn("app-state-sync", (state: any) => {
+    globalState.isRunning = state.isRunning;
+    globalState.mode = state.mode;
+    // 主题等其他状态也会在这里一并更新
   });
 
   try {
@@ -211,7 +215,8 @@ onMounted(async () => {
 
   EventsOn("clash-exited", () => { 
     globalState.isRunning = false; 
-    window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: { systemProxy: false, tun: false } }));
+    // 同时也让后端同步一下，确保状态一致
+    (API as any).SyncState();
   });
 });
 
