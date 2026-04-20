@@ -237,10 +237,31 @@ onUnmounted(() => {
   display: flex;
   gap: 12px;
   overflow-x: auto;
-  padding-bottom: 4px;
+  padding-bottom: 8px;
+  flex: 1;
+  min-width: 0;
+  margin-right: 16px;
+  user-select: none;
+  -webkit-user-select: none;
 }
-.group-tabs::-webkit-scrollbar { height: 4px; }
-.group-tabs::-webkit-scrollbar-thumb { background-color: var(--surface-hover); border-radius: 4px; }
+.group-tabs::-webkit-scrollbar { 
+  height: 6px; 
+}
+.group-tabs::-webkit-scrollbar-thumb { 
+  background-color: var(--text-muted); 
+  border-radius: 6px; 
+}
+.group-tabs::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-sub);
+}
+.group-tabs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.global-actions {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 
 .group-tab-btn {
   display: flex;
@@ -255,6 +276,9 @@ onUnmounted(() => {
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.2s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  flex-shrink: 0;
 }
 .group-tab-btn:hover {
   color: var(--text-main);
