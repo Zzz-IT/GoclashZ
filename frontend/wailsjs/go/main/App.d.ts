@@ -56,6 +56,8 @@ export function RunProxy():Promise<void>;
 
 export function SaveAppBehavior(arg1:main.AppBehavior):Promise<void>;
 
+export function SaveConfigsOrder(arg1:Array<string>):Promise<void>;
+
 export function SaveDNSConfig(arg1:clash.DNSConfig):Promise<void>;
 
 export function SaveNetworkConfig(arg1:clash.NetworkConfig):Promise<void>;

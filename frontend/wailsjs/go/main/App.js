@@ -106,6 +106,10 @@ export function SaveAppBehavior(arg1) {
   return window['go']['main']['App']['SaveAppBehavior'](arg1);
 }
 
+export function SaveConfigsOrder(arg1) {
+  return window['go']['main']['App']['SaveConfigsOrder'](arg1);
+}
+
 export function SaveDNSConfig(arg1) {
   return window['go']['main']['App']['SaveDNSConfig'](arg1);
 }

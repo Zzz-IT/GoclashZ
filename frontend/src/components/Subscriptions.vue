@@ -23,16 +23,24 @@
       </div>
 
       <div
-        v-for="config in localConfigs"
+        v-for="(config, index) in localConfigs"
         :key="config"
         class="sub-card clickable"
-        :class="{ 'active-card': isCurrentConfig(config) }"
+        :class="{ 'active-card': isCurrentConfig(config), 'dragging': dragIndex === index }"
+        draggable="true"
+        @dragstart="onDragStart(index, $event)"
+        @dragenter.prevent="onDragEnter(index, $event)"
+        @dragover.prevent
+        @dragend="onDragEnd"
         @click="handleSelectConfig(config)"
       >
         <div class="sub-header">
           <div class="sub-info">
-            <h4 class="sub-name">{{ config }}</h4>
-            <span class="sub-path font-mono">core/bin/{{ config }}</span>
+            <div class="drag-handle" title="按住拖拽排序" v-html="ICONS.drag"></div>
+            <div>
+               <h4 class="sub-name">{{ config }}</h4>
+               <span class="sub-path font-mono">core/bin/{{ config }}</span>
+            </div>
           </div>
           <div class="sub-status">
             <div v-if="isCurrentConfig(config)" class="status-badge-active">
@@ -133,7 +141,8 @@ const ICONS = {
   refresh: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>`,
   more: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg>`,
   plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`,
-  folder: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`
+  folder: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`,
+  drag: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="16" y2="6"></line><line x1="8" y1="12" x2="16" y2="12"></line><line x1="8" y1="18" x2="16" y2="18"></line></svg>`
 };
 
 const activeModal = ref<'import' | 'rename' | 'delete' | null>(null);
@@ -146,6 +155,39 @@ const currentPath = ref('');
 const localConfigs = ref<string[]>([]);
 const activeMenu = ref<string | null>(null);
 const subRecords = ref<Record<string, any>>({});
+const dragIndex = ref<number | null>(null); // 新增：记录当前正在拖拽的索引
+
+// --- 新增：原生拖拽处理函数 ---
+const onDragStart = (index: number, event: DragEvent) => {
+  dragIndex.value = index;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.dropEffect = 'move';
+  }
+};
+
+const onDragEnter = (index: number, event: DragEvent) => {
+  if (dragIndex.value === null || dragIndex.value === index) return;
+  
+  // 实时交换数组元素位置
+  const items = [...localConfigs.value];
+  const draggedItem = items[dragIndex.value];
+  items.splice(dragIndex.value, 1);
+  items.splice(index, 0, draggedItem);
+  
+  localConfigs.value = items;
+  dragIndex.value = index; // 更新当前拖拽物的新索引
+};
+
+const onDragEnd = async () => {
+  dragIndex.value = null;
+  // 拖拽结束时，调用后端接口永久保存现在的顺序
+  try {
+    await (API as any).SaveConfigsOrder(localConfigs.value);
+  } catch (e) {
+    console.error("保存排序失败:", e);
+  }
+};
 
 const isCurrentConfig = (name: string) => {
   if (!currentPath.value) return false;
@@ -317,11 +359,9 @@ onUnmounted(() => {
 .sub-text { font-size: 0.85rem; color: var(--text-sub); }
 .header-actions { display: flex; gap: 12px; }
 
-/* 按钮样式已迁移至全局 */
-
 /* 列表部分 */
 .subs-list { flex: 1; overflow-y: auto; padding-right: 8px; }
-.sub-card { position: relative; padding: 20px; border-radius: 12px; background: var(--surface); margin-bottom: 16px; transition: 0.2s; }
+.sub-card { position: relative; padding: 20px; border-radius: 12px; background: var(--surface); margin-bottom: 16px; transition: 0.2s; border: 1px solid transparent; }
 .sub-card:hover { background: var(--surface-hover); }
 
 /* 选中卡片反色 */
@@ -335,6 +375,45 @@ onUnmounted(() => {
 .sub-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
 .sub-name { font-size: 0.95rem; font-weight: 600; }
 .sub-path { font-size: 0.7rem; color: var(--text-muted); }
+
+/* 修改原有的 .sub-info 以适应拖拽图标 */
+.sub-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.drag-handle {
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  cursor: grab;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+  display: flex;
+  align-items: center;
+}
+
+.sub-card:hover .drag-handle {
+  opacity: 1;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.drag-handle :deep(svg) {
+  width: 100%;
+  height: 100%;
+}
+
+/* 拖拽时的卡片样式特效 */
+.sub-card.dragging {
+  opacity: 0.4;
+  transform: scale(0.98);
+  border: 2px dashed var(--accent) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
 
 /* 呼吸灯 */
 .status-badge-active { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; font-weight: 700; }
@@ -360,7 +439,6 @@ onUnmounted(() => {
 .icon-btn :deep(svg) { width: 14px !important; height: 14px !important; }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
-/* 模态框布局已迁移至全局 */
 .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
 .modal-header h3 { margin: 0; font-size: 1.25rem; font-weight: 600; }
 .close-x { background: none; border: none; font-size: 28px; cursor: pointer; color: var(--text-sub); }
@@ -377,14 +455,9 @@ onUnmounted(() => {
 .divider-text::before { left: 0; } .divider-text::after { right: 0; }
 .w-full-btn { width: 100%; justify-content: center; padding: 14px; font-weight: 600; border-radius: 10px; border: none; background: var(--surface-hover); color: var(--text-main); cursor: pointer; }
 
-/* 布局样式已迁移至全局 */
-
 .danger-text { color: #ff4d4f; }
 .warning-box { background: rgba(255, 77, 79, 0.1); padding: 12px; border-radius: 8px; color: #ff4d4f; font-size: 0.85rem; line-height: 1.4; border: 1px solid rgba(255, 77, 79, 0.2); }
 
-/* 动画样式已迁移至全局 */
-
-/* 下拉菜单边框与颜色修复 */
 .dropdown-menu { 
   position: absolute; right: 0; top: 30px; width: 150px; border-radius: 8px; z-index: 10; overflow: hidden;
   background: var(--glass-panel); border: 1px solid var(--surface-hover); box-shadow: 0 4px 12px rgba(0,0,0,0.1);

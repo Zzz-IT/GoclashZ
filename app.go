@@ -142,6 +142,20 @@ func (a *App) GetSubRecords() map[string]SubRecord {
 	return a.readSubRecords()
 }
 
+// 1. 获取配置排序记忆文件的路径
+func (a *App) getSubsOrderPath() string {
+	configDir, _ := os.UserConfigDir()
+	path := filepath.Join(configDir, "GoclashZ", "subs_order.json")
+	os.MkdirAll(filepath.Dir(path), 0755)
+	return path
+}
+
+// 2. 供前端调用的保存顺序 API (Wails 绑定方法)
+func (a *App) SaveConfigsOrder(order []string) error {
+	data, _ := json.MarshalIndent(order, "", "  ")
+	return os.WriteFile(a.getSubsOrderPath(), data, 0644)
+}
+
 // ProxyStatus 新增给前端返回的双重状态结构
 type ProxyStatus struct {
 	SystemProxy bool `json:"systemProxy"`
@@ -910,7 +924,7 @@ func (a *App) getProfilesDir() string {
 	return filepath.Join(getBaseDir(), "core", "bin")
 }
 
-// 修改 GetLocalConfigs，排除 config.yaml
+// 修改 GetLocalConfigs，让它结合物理文件和用户的自定义排序
 func (a *App) GetLocalConfigs() ([]string, error) {
 	dir := a.getProfilesDir()
 	files, err := os.ReadDir(dir)
@@ -918,15 +932,45 @@ func (a *App) GetLocalConfigs() ([]string, error) {
 		return nil, err
 	}
 
-	var configs []string
+	// 1. 获取实际存在的文件
+	var actualConfigs []string
+	actualMap := make(map[string]bool)
 	for _, file := range files {
-		// ⚠️ 关键：排除 config.yaml，它不是用户的订阅源，只是运行时副本
 		if !file.IsDir() && file.Name() != "config.yaml" &&
 			(strings.HasSuffix(file.Name(), ".yaml") || strings.HasSuffix(file.Name(), ".yml")) {
-			configs = append(configs, file.Name())
+			actualConfigs = append(actualConfigs, file.Name())
+			actualMap[file.Name()] = true
 		}
 	}
-	return configs, nil
+
+	// 2. 读取之前保存的排序
+	orderPath := a.getSubsOrderPath()
+	data, err := os.ReadFile(orderPath)
+	var savedOrder []string
+	if err == nil {
+		json.Unmarshal(data, &savedOrder)
+	}
+
+	// 3. 重建有序列表
+	var finalConfigs []string
+	seen := make(map[string]bool)
+
+	// 先按保存的顺序推入（且确保文件确实存在）
+	for _, name := range savedOrder {
+		if actualMap[name] {
+			finalConfigs = append(finalConfigs, name)
+			seen[name] = true
+		}
+	}
+
+	// 把新下载/新导入、还不在排序记录里的文件追加到末尾
+	for _, name := range actualConfigs {
+		if !seen[name] {
+			finalConfigs = append(finalConfigs, name)
+		}
+	}
+
+	return finalConfigs, nil
 }
 
 // ImportLocalConfig 导入本地配置文件

@@ -179,15 +179,8 @@ watch(() => globalState.theme, (val) => {
 }, { immediate: true });
 
 onMounted(async () => {
-  // 基础数据初始化
-  const s: any = await API.GetProxyStatus();
-  globalState.isRunning = s.systemProxy || s.tun;
-  
-  const data: any = await API.GetInitialData();
-  if (data) globalState.mode = data.mode;
-
-  // 2. 【核心修复】主动触发一次全局状态同步
-  // 这会强制后端重新读取磁盘上的 app_behavior.json 并推送到前端
+  // 1. 【唯一真理来源】：主动触发一次全局状态同步
+  // 后端收到指令后，会将 isRunning, mode, theme, hideLogs 一次性推给 store.ts 
   await (API as any).SyncState();
 
   try {
