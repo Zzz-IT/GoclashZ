@@ -9,32 +9,32 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// 定义发给前端的视图对象 (VO)
-type ConnectionVO struct {
-	ID          string   `json:"id"`
-	Network     string   `json:"network"`
-	Host        string   `json:"host"`
-	SourceIP    string   `json:"sourceIP"`
-	Rule        string   `json:"rule"`
-	Chains      []string `json:"chains"`
-	UploadStr   string   `json:"uploadStr"`   // Go计算好的上传
-	DownloadStr string   `json:"downloadStr"` // Go计算好的下载
-	DurationStr string   `json:"durationStr"` // Go计算好的时长
-}
-
 // RawConnection 对应 Clash API 返回的原始连接项
 type RawConnection struct {
 	ID       string `json:"id"`
 	Metadata struct {
-		Network  string `json:"network"`
-		Host     string `json:"host"`
-		SourceIP string `json:"sourceIP"`
+		Network         string `json:"network"`
+		Type            string `json:"type"`
+		SourceIP        string `json:"sourceIP"`
+		DestinationIP   string `json:"destinationIP"`
+		SourcePort      string `json:"sourcePort"`
+		DestinationPort string `json:"destinationPort"`
+		Host            string `json:"host"`
 	} `json:"metadata"`
-	Upload   int64     `json:"upload"`
-	Download int64     `json:"download"`
-	Start    time.Time `json:"start"`
-	Chains   []string  `json:"chains"`
-	Rule     string    `json:"rule"`
+	Upload      int64     `json:"upload"`
+	Download    int64     `json:"download"`
+	Start       time.Time `json:"start"`
+	Chains      []string  `json:"chains"`
+	Rule        string    `json:"rule"`
+	RulePayload string    `json:"rulePayload"`
+}
+
+// 视图对象：无损继承 RawConnection 的所有内容
+type ConnectionVO struct {
+	RawConnection         // 匿名组合，直接继承
+	UploadStr   string `json:"uploadStr"`
+	DownloadStr string `json:"downloadStr"`
+	DurationStr string `json:"durationStr"`
 }
 
 // StreamTraffic 建立一个长连接并持续监听内核推送的流量数据
@@ -98,15 +98,10 @@ func EmitConnections(ctx context.Context, rawConnections []RawConnection) {
 	var vos []ConnectionVO
 	for _, conn := range rawConnections {
 		vos = append(vos, ConnectionVO{
-			ID:          conn.ID,
-			Network:     conn.Metadata.Network,
-			Host:        conn.Metadata.Host,
-			SourceIP:    conn.Metadata.SourceIP,
-			Rule:        conn.Rule,
-			Chains:      conn.Chains,
-			UploadStr:   formatBytes(conn.Upload),
-			DownloadStr: formatBytes(conn.Download),
-			DurationStr: formatDuration(conn.Start),
+			RawConnection: conn, // 将解析到的原始数据原封不动塞入
+			UploadStr:     formatBytes(conn.Upload),
+			DownloadStr:   formatBytes(conn.Download),
+			DurationStr:   formatDuration(conn.Start),
 		})
 	}
 	// 发送组装好的 VO 数组给前端

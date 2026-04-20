@@ -66,11 +66,9 @@
 
           <Rules v-if="currentTab === 'rules'" />
 
-          <KeepAlive>
-            <Connections v-if="currentTab === 'connections'" />
-          </KeepAlive>
+          <Connections v-show="currentTab === 'connections'" />
 
-          <div v-if="currentTab === 'logs'" class="view-logs">
+          <div v-show="currentTab === 'logs'" class="view-logs">
             <div class="terminal-box" ref="logBox">
               <div v-for="(log, i) in logLines" :key="i" :class="['log-line', log.type]">
                 <span class="l-time">{{ log.time }}</span>
@@ -188,6 +186,10 @@ onMounted(async () => {
   const data: any = await API.GetInitialData();
   if (data) globalState.mode = data.mode;
 
+  // 2. 【核心修复】主动触发一次全局状态同步
+  // 这会强制后端重新读取磁盘上的 app_behavior.json 并推送到前端
+  await (API as any).SyncState();
+
   try {
     const status = await API.CheckTunEnv();
     globalState.tunStatus = status as any;
@@ -221,6 +223,17 @@ onMounted(async () => {
     globalState.isRunning = false; 
     window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: { systemProxy: false, tun: false } }));
   });
+});
+
+// 监听切换到日志页面时，强制滚动到底部
+watch(currentTab, (newTab) => {
+  if (newTab === 'logs') {
+    nextTick(() => {
+      if (logBox.value) {
+        logBox.value.scrollTop = logBox.value.scrollHeight;
+      }
+    });
+  }
 });
 </script>
 

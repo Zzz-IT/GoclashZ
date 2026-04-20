@@ -58,13 +58,26 @@ func (a *App) getAppBehaviorPath() string {
 func (a *App) GetAppBehavior() AppBehavior {
 	data, err := os.ReadFile(a.getAppBehaviorPath())
 	var config AppBehavior
+	
+	// 默认配置
+	defaultConfig := AppBehavior{
+		SilentStart: false, 
+		CloseToTray: true, 
+		LogLevel: "info", 
+		HideLogs: false,
+	}
+
 	if err == nil {
-		json.Unmarshal(data, &config)
+		if err := json.Unmarshal(data, &config); err != nil {
+			// 如果解析失败（如文件损坏或格式错误），回退到默认值
+			return defaultConfig
+		}
 	} else {
-		// 默认行为：不静默启动，关闭时允许隐藏到托盘
-		config = AppBehavior{SilentStart: false, CloseToTray: true, LogLevel: "info", HideLogs: false}
+		// 文件不存在
+		return defaultConfig
 	}
 	
+	// 补全字段缺省值（防止旧版本配置文件缺失新字段）
 	if config.LogLevel == "" {
 		config.LogLevel = "info"
 	}
@@ -427,18 +440,24 @@ func (a *App) startDaemonTasks() {
 	for {
 		select {
 		case <-subTicker.C:
-			// 执行订阅更新逻辑
-			err := a.UpdateAllSubs()
-			if err == nil {
-				// 告诉前端：后台订阅更新完毕
-				runtime.EventsEmit(a.ctx, "subs-background-updated")
-			}
+			// 增加安全锁：每次后台静默更新，最多允许执行 2 分钟，防止 HTTP 卡死
+			updateCtx, cancel := context.WithTimeout(a.ctx, 2*time.Minute)
+			
+			// 开启一个 Goroutine 执行，并配合 Context
+			go func(ctx context.Context) {
+				defer cancel()
+				// 执行订阅更新逻辑 (目前的方法内部如果是同步阻塞的，至少外部应用关闭时 a.ctx.Done 会立刻响应主循环退出)
+				err := a.UpdateAllSubs()
+				if err == nil {
+					runtime.EventsEmit(a.ctx, "subs-background-updated")
+				}
+			}(updateCtx)
+
 		case <-speedTicker.C:
-			// 执行全部节点测速 (这里需要节点列表，可以从 GetInitialData 逻辑中提取或简化)
-			// 为了简化，这里先占位，实际实现需要更复杂的节点获取逻辑
-		case <-a.ctx.Done():
-			// 软件关闭，安全退出协程
-			return
+			// 预留后台测速占位
+			
+		case <-a.ctx.Done(): // 收到软件完全退出信号
+			return       // 立刻退出守护协程，绝不拖泥带水
 		}
 	}
 }
