@@ -90,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 
@@ -109,7 +109,12 @@ const connections = ref<any[]>([]);
 const isPaused = ref(false);
 const selectedConn = ref<any>(null);
 
-onMounted(async () => {
+let isMonitoring = false; // 增加一个状态锁，防止重复注册监听
+
+const startMonitor = async () => {
+  if (isMonitoring) return;
+  isMonitoring = true;
+  
   EventsOn("connections-update", (data: any) => {
     if (isPaused.value) return;
 
@@ -130,12 +135,20 @@ onMounted(async () => {
   } catch (e) {
     console.error("启动连接监控失败:", e);
   }
-});
+};
 
-onUnmounted(() => {
+const stopMonitor = () => {
+  if (!isMonitoring) return;
+  isMonitoring = false;
   EventsOff("connections-update");
   (API as any).StopConnectionMonitor();
-});
+};
+
+// 配合 KeepAlive 的生命周期控制
+onMounted(() => startMonitor());
+onActivated(() => startMonitor());       // 再次切回连接页时恢复更新
+onDeactivated(() => stopMonitor());      // 切到别的页面时暂停后台请求，节省性能
+onUnmounted(() => stopMonitor());
 
 const isDirect = (conn: any) => {
   const chains = conn.chains || [];
@@ -252,9 +265,9 @@ const closeSingleConnection = async (id: string) => {
   border-radius: 6px; 
 }
 
-/* 上下行颜色区分 */
-.up { color: var(--accent-orange, #e67e22); }
-.down { color: var(--accent-green, #27ae60); }
+/* 上下行颜色区分 - 取消彩色，使用统一的次要文本色 */
+.up { color: inherit; }
+.down { color: inherit; }
 
 .icon-svg { 
   display: flex; 

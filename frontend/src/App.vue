@@ -60,15 +60,17 @@
         <div class="view-scroller">
           <Overview v-if="currentTab === 'home'" :traffic="traffic" />
 
-          <Subscriptions v-else-if="currentTab === 'subs'" />
+          <Subscriptions v-if="currentTab === 'subs'" />
 
-          <Proxies v-else-if="currentTab === 'proxies'" />
+          <Proxies v-if="currentTab === 'proxies'" />
 
-          <Rules v-else-if="currentTab === 'rules'" />
+          <Rules v-if="currentTab === 'rules'" />
 
-          <Connections v-else-if="currentTab === 'connections'" />
+          <KeepAlive>
+            <Connections v-if="currentTab === 'connections'" />
+          </KeepAlive>
 
-          <div v-else-if="currentTab === 'logs'" class="view-logs">
+          <div v-if="currentTab === 'logs'" class="view-logs">
             <div class="terminal-box" ref="logBox">
               <div v-for="(log, i) in logLines" :key="i" :class="['log-line', log.type]">
                 <span class="l-time">{{ log.time }}</span>
@@ -78,7 +80,7 @@
             </div>
           </div>
 
-          <div v-else-if="currentTab === 'settings'" class="view-settings">
+          <div v-if="currentTab === 'settings'" class="view-settings">
             <Settings :initialView="targetSettingsView" />
           </div>
         </div>
