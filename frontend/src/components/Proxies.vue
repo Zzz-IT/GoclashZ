@@ -101,9 +101,12 @@ const loadData = async () => {
 
         if (isGroupType && !isSystemReserved) {
           const proxies = (item.all || []).map((memberName: string) => {
-            const detail = data.groups ? data.groups[memberName] : null;
+            // 【核心修改】：同时去 data.proxies 和 data.groups 中查找节点详情
+            const detail = (data.proxies && data.proxies[memberName]) || (data.groups && data.groups[memberName]);
+            
             return {
               name: memberName,
+              // 如果找到了真实详情，就取它的 type (如 vless, hysteria2)，否则回退到 PROXY
               type: detail && detail.type ? detail.type.toUpperCase() : 'PROXY',
               now: item.now,
               delay: null,
@@ -241,9 +244,11 @@ onUnmounted(() => {
 
 .group-tabs {
   display: flex;
+  align-items: center;
   gap: 12px;
   overflow-x: auto;
-  padding-bottom: 8px;
+  padding-bottom: 4px;
+  margin-bottom: -4px;
   flex: 1;
   min-width: 0;
   margin-right: 16px;
@@ -251,7 +256,7 @@ onUnmounted(() => {
   -webkit-user-select: none;
 }
 .group-tabs::-webkit-scrollbar { 
-  height: 6px; 
+  height: 4px; 
 }
 .group-tabs::-webkit-scrollbar-thumb { 
   background-color: var(--text-muted); 
@@ -365,15 +370,23 @@ onUnmounted(() => {
 
 .node-meta { display: flex; align-items: center; }
 .n-protocol {
-  font-size: 0.65rem; font-weight: 800;
-  color: var(--text-muted);
-  background: var(--surface-hover);
-  padding: 1px 6px; border-radius: 4px;
+  font-size: 0.65rem; 
+  font-weight: 800;
+  color: var(--text-sub);
+  background: var(--surface-hover); /* 使用比底色稍深的实色背景来凸显标签形状 */
+  border: none; /* 明确去除所有线条 */
+  padding: 2px 6px; /* 稍微增加一点上下内边距，让色块看起来更饱满 */
+  border-radius: 4px;
   width: fit-content;
   text-transform: uppercase;
 }
 
-.node-item.active .n-protocol { background: rgba(255,255,255,0.2); color: var(--accent-fg); }
+/* 保持选中时的反色高亮显示 */
+.node-item.active .n-protocol { 
+  background: rgba(255,255,255,0.2); 
+  color: var(--accent-fg); 
+  border: none; 
+}
 
 .n-latency-box {
   flex-shrink: 0 !important;

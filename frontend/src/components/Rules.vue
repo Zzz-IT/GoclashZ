@@ -260,10 +260,11 @@ onMounted(() => {
   color: var(--surface); 
 } 
 
-/* 修改 tag-green：去除边框，改为实色背景 */
+/* 修改 tag-green：采用反色 (深色背景，浅色文字) */
 .tag-green { 
-  background: var(--surface-hover); 
-  color: var(--text-main); 
+  background: var(--text-main); 
+  color: var(--surface); 
+  opacity: 0.85; 
 } 
 
 /* 修改 tag-orange：去除虚线边框，改为实色背景 */
@@ -341,25 +342,32 @@ onMounted(() => {
   gap: 12px;
 }
 
+button {
+  outline: none !important;
+}
+
 .page-controls .action-btn {
   padding: 6px 16px;
   border-radius: 8px;
   background: var(--surface-hover);
   color: var(--text-main);
-  border: 1px solid transparent;
+  border: none; /* 彻底移除原有的透明边框占位 */
+  outline: none; /* 移除点击或选中时浏览器自带的轮廓线 */
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: 0.2s;
+  transition: all 0.2s;
 }
 
+/* 统一选中/悬停交互：使用亮度/背景色变化，不再使用轮廓线 */
 .page-controls .action-btn:hover:not(:disabled) {
-  border-color: var(--text-sub);
+  filter: brightness(0.85); /* 悬停时让背景稍微加深，保持纯色块体验 */
 }
 
 .page-controls .action-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
+  filter: none;
 }
 
 .flex-1 { flex: 1; }
