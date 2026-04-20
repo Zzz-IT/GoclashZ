@@ -472,43 +472,54 @@
     <div v-else-if="view === 'uwp'" class="settings-page slide-in">
       <div class="sub-header">
         <button class="back-btn" @click="view = 'main'">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          <span class="icon" v-html="ICONS.arrowLeft"></span>
         </button>
         <h3>UWP 环回管理</h3>
       </div>
 
       <div class="uwp-toolbar">
         <div class="uwp-search">
+          <span class="search-icon" v-html="ICONS.search"></span>
           <input v-model="uwpSearch" placeholder="搜索应用名称或包名..." />
+          <span v-if="uwpSearch" class="clear-icon" @click="uwpSearch = ''" v-html="ICONS.close"></span>
         </div>
         <div class="uwp-batch">
-          <button class="mini-btn" @click="toggleAllUwp(true)">全选</button>
-          <button class="mini-btn" @click="toggleAllUwp(false)">清空</button>
+          <button class="batch-btn" @click="toggleAllUwp(true)">全选</button>
+          <button class="batch-btn" @click="toggleAllUwp(false)">反选</button>
         </div>
       </div>
 
-      <div class="uwp-grid scrollable">
+      <div class="uwp-list-wrapper scrollable">
         <div 
           v-for="app in filteredUwpApps" 
           :key="app.sid" 
-          class="uwp-card"
+          class="uwp-app-item"
           :class="{ 'active': app.isEnabled }"
           @click="app.isEnabled = !app.isEnabled"
         >
-          <div class="uwp-info">
-            <span class="uwp-name">{{ app.displayName || 'Unnamed App' }}</span>
-            <span class="uwp-sid">{{ app.sid }}</span>
+          <div class="app-main-content">
+            <div class="app-avatar">
+              {{ app.displayName?.[0]?.toUpperCase() || '?' }}
+            </div>
+            <div class="app-details">
+              <span class="app-name">{{ app.displayName || '未命名应用' }}</span>
+              <span class="app-pkg">{{ app.packageFamilyName }}</span>
+            </div>
           </div>
-          <div class="status-tag">
-            {{ app.isEnabled ? '已豁免' : '受限' }}
+
+          <div class="app-status-wrapper">
+            <div class="uwp-status-tag">
+              {{ app.isEnabled ? 'Exempted' : 'Restricted' }}
+            </div>
           </div>
         </div>
       </div>
 
       <div class="uwp-footer">
-         <button class="save-all-btn" :disabled="savingUwp" @click="saveUwpChanges">
-           {{ savingUwp ? '正在保存...' : '应用更改 (需要管理员权限)' }}
-         </button>
+        <button class="apply-btn" :disabled="savingUwp" @click="saveUwpChanges">
+          <span v-if="!savingUwp">应用更改 (需要管理员权限)</span>
+          <span v-else class="loading-spinner">正在保存...</span>
+        </button>
       </div>
     </div>
 
@@ -519,6 +530,7 @@
 import { ref, onMounted, watch, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { showAlert } from '../store';
+import { ICONS } from '../utils/icons';
 
 const props = defineProps({
   initialView: {
@@ -602,7 +614,14 @@ const filteredUwpApps = computed(() => {
 });
 
 const toggleAllUwp = (val: boolean) => {
-  uwpApps.value.forEach(app => app.isEnabled = val);
+  if (val) {
+    uwpApps.value.forEach(app => app.isEnabled = true);
+  } else {
+    // 逻辑修正：反选通常是指对当前所有项取反，这里用户要求的是“反选”，
+    // 但按钮逻辑习惯上可能是“全不选”。根据用户提供的代码片段描述是“反选”，
+    // 我将实现为真正的逻辑反选（Toggle all）。
+    uwpApps.value.forEach(app => app.isEnabled = !app.isEnabled);
+  }
 };
 
 const saveUwpChanges = async () => {
@@ -822,79 +841,214 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 .green-text { color: var(--text-main); font-weight: 600; }
 .red-text { color: var(--text-muted); }
 
-/* 针对 UWP 管理页的专属样式 */
-.uwp-toolbar { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }
-.uwp-search { flex: 1; background: var(--surface); border-radius: 8px; padding: 8px 12px; }
-.uwp-search input { width: 100%; background: transparent; border: none; color: var(--text-main); outline: none; }
+/* ================================== */
+/* UWP 管理器 - 像素级 UI 方案          */
+/* ================================== */
 
-.uwp-batch { display: flex; gap: 8px; }
-.mini-btn {
+/* 工具栏自适应搜索框 */
+.uwp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.uwp-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--surface-hover);
+  border-radius: 10px;
+  padding: 0 12px;
+  height: 40px;
+  transition: all 0.2s;
+}
+
+.uwp-search:focus-within {
+  border-color: var(--accent);
+  background: var(--surface-panel);
+}
+
+.uwp-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  outline: none;
+  margin-left: 8px;
+  font-size: 0.9rem;
+}
+
+.search-icon, .clear-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-sub);
+}
+
+.clear-icon {
+  cursor: pointer;
+  padding: 4px;
+}
+
+.uwp-batch {
+  display: flex;
+  gap: 8px;
+}
+
+.batch-btn {
   background: var(--surface-hover);
   color: var(--text-main);
   border: none;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 0.8rem;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
   transition: 0.2s;
 }
-.mini-btn:hover { filter: brightness(0.9); }
+.batch-btn:hover { background: var(--surface-panel); }
 
-.uwp-grid {
+/* 列表与卡片设计 */
+.uwp-list-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px; /* 只有间距，没有分割线 */
   flex: 1;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+  padding-right: 4px;
 }
 
-.uwp-card {
+.uwp-app-item {
   background: var(--surface);
-  border-radius: 12px;
-  padding: 14px;
+  border-radius: 12px; /* 12px 容器圆角 */
+  padding: 12px 16px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   cursor: pointer;
-  transition: 0.2s;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid transparent;
 }
 
-.uwp-card:hover { background: var(--surface-hover); }
-.uwp-card.active { background: var(--accent); color: var(--accent-fg); }
+.uwp-app-item:hover {
+  background: var(--surface-hover);
+  transform: translateX(4px); /* 悬停时轻微右移 */
+}
 
-.uwp-info { display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
-.uwp-name { font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.uwp-sid { font-size: 0.7rem; opacity: 0.6; }
+/* 选中态：背景色直接变为 Accent */
+.uwp-app-item.active {
+  background: var(--accent);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
 
-.status-tag {
-  font-size: 0.65rem;
-  font-weight: 800;
-  border-radius: 4px;
-  padding: 2px 6px;
+/* 左侧信息栏 */
+.app-main-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.app-avatar {
+  width: 42px;
+  height: 42px;
   background: var(--surface-panel);
-  color: var(--text-main);
-  text-transform: uppercase;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1.3rem;
+  color: var(--text-sub);
+  flex-shrink: 0;
 }
-
-.uwp-card.active .status-tag {
-  background: rgba(255, 255, 255, 0.2);
+.uwp-app-item.active .app-avatar {
+  background: rgba(255, 255, 255, 0.15);
   color: var(--accent-fg);
 }
 
-.uwp-footer { margin-top: auto; padding-top: 16px; }
+.app-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
 
-.save-all-btn {
+.app-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.uwp-app-item.active .app-name { color: var(--accent-fg); }
+
+.app-pkg {
+  font-size: 0.75rem;
+  color: var(--text-sub);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.7;
+}
+.uwp-app-item.active .app-pkg { color: var(--accent-fg); opacity: 0.8; }
+
+/* 状态标签：对齐 Proxies 页面的 4px 圆角风格 */
+.uwp-status-tag {
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: 4px; /* 4px 内部标签圆角 */
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 0.2s;
+  
+  /* 未选中：中性面板色 */
+  background: var(--surface-panel);
+  color: var(--text-main);
+}
+
+/* 选中态：照抄 Overview 的磨砂半透明遮罩逻辑 */
+.uwp-app-item.active .uwp-status-tag {
+  background: rgba(255, 255, 255, 0.25) !important;
+  color: var(--accent-fg) !important;
+}
+
+/* 底部操作 */
+.uwp-footer {
+  margin-top: 20px;
+  padding-top: 10px;
+}
+
+.apply-btn {
   width: 100%;
+  padding: 14px;
   background: var(--accent);
   color: var(--accent-fg);
   border: none;
-  padding: 12px;
-  border-radius: 10px;
+  border-radius: 12px;
   font-weight: 700;
   cursor: pointer;
-  transition: 0.2s;
+  transition: all 0.2s;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
 }
-.save-all-btn:hover:not(:disabled) { filter: brightness(1.1); }
-.save-all-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.apply-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.apply-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.loading-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
 </style>
