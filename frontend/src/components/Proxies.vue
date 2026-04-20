@@ -373,19 +373,27 @@ onUnmounted(() => {
   font-size: 0.65rem; 
   font-weight: 800;
   color: var(--text-sub);
-  background: var(--surface-hover); /* 使用比底色稍深的实色背景来凸显标签形状 */
-  border: none; /* 明确去除所有线条 */
-  padding: 2px 6px; /* 稍微增加一点上下内边距，让色块看起来更饱满 */
-  border-radius: 4px;
+  background: var(--surface-hover); 
+  border: none; 
+  padding: 2px 8px; 
+  border-radius: 6px;
   width: fit-content;
   text-transform: uppercase;
+  display: flex;
+  align-items: center;
 }
 
-/* 保持选中时的反色高亮显示 */
+/* ================================ */
+/* 2. 选中状态：完美复刻代理组 active 配色 */
+/* ================================ */
 .node-item.active .n-protocol { 
-  background: rgba(255,255,255,0.2); 
-  color: var(--accent-fg); 
-  border: none; 
+  /* 使用面板色作为背景，主文本色作为字体，和顶部选中的组名按钮保持绝对一致 */
+  background: var(--surface-panel) !important; 
+  color: var(--text-main) !important; 
+  
+  /* 加上一点极微弱的阴影或边框，确保在任何主题下边缘都极其清晰 */
+  border: 1px solid var(--surface-hover) !important; 
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15); 
 }
 
 .n-latency-box {

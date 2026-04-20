@@ -76,8 +76,10 @@ func GetOfflineData(fileName string) (map[string]interface{}, error) {
 		return nil, err
 	}
 
+	// ⭐️ 核心修复 1：结构体中加入对 Proxies 原始节点的解析
 	var conf struct {
 		Mode        string                   `yaml:"mode"`
+		Proxies     []map[string]interface{} `yaml:"proxies"` // <--- 新增这行，读取底层节点
 		ProxyGroups []map[string]interface{} `yaml:"proxy-groups"`
 	}
 	if err := yaml.Unmarshal(data, &conf); err != nil {
@@ -85,14 +87,22 @@ func GetOfflineData(fileName string) (map[string]interface{}, error) {
 	}
 
 	// 2. 构造与内核 API 完全一致的 Map 结构
-	// 内核返回的 proxies 字段是一个 Map，Key 是组名
 	proxiesMap := make(map[string]interface{})
+
+	// ⭐️ 核心修复 2：遍历底层节点，将其注入到 Map 中，供前端提取协议名
+	for _, p := range conf.Proxies {
+		name, _ := p["name"].(string)
+		pType, _ := p["type"].(string)
+		proxiesMap[name] = map[string]interface{}{
+			"name": name,
+			"type": pType, // 这里就是真实的 vless, trojan, hysteria2 等
+		}
+	}
 
 	for _, g := range conf.ProxyGroups {
 		name, _ := g["name"].(string)
-		gTypeRaw, _ := g["type"].(string) // 改个名字，获取原始 type
+		gTypeRaw, _ := g["type"].(string) 
 
-		// 👇 新增类型转换，将其翻译为前端认识的 API 标准名称
 		gType := gTypeRaw
 		switch gTypeRaw {
 		case "select":
@@ -118,14 +128,14 @@ func GetOfflineData(fileName string) (map[string]interface{}, error) {
 		proxiesMap[name] = map[string]interface{}{
 			"name": name,
 			"type": gType,
-			"now":  "", // 离线状态下没有当前选中项
+			"now":  "", 
 			"all":  all,
 		}
 	}
 
 	return map[string]interface{}{
 		"mode":       conf.Mode,
-		"groups":     proxiesMap, // 这里的格式将完美契合前端 Proxies.vue 的逻辑
+		"groups":     proxiesMap, // 现在包含了所有真实节点信息
 		"groupOrder": ExtractGroupOrder(data),
 	}, nil
 }
