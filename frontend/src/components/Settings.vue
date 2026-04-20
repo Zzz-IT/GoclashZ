@@ -477,30 +477,30 @@
         <h3>UWP 环回管理</h3>
       </div>
 
-      <div class="uwp-action-bar">
-        <div class="search-box">
-           <input v-model="uwpSearch" placeholder="搜索应用名称或包名..." />
+      <div class="uwp-toolbar">
+        <div class="uwp-search">
+          <input v-model="uwpSearch" placeholder="搜索应用名称或包名..." />
         </div>
-        <div class="batch-btns">
+        <div class="uwp-batch">
           <button class="mini-btn" @click="toggleAllUwp(true)">全选</button>
-          <button class="mini-btn" @click="toggleAllUwp(false)">全不选</button>
+          <button class="mini-btn" @click="toggleAllUwp(false)">清空</button>
         </div>
       </div>
 
-      <div class="uwp-list-container scrollable">
+      <div class="uwp-grid scrollable">
         <div 
           v-for="app in filteredUwpApps" 
           :key="app.sid" 
-          class="uwp-app-card"
+          class="uwp-card"
           :class="{ 'active': app.isEnabled }"
           @click="app.isEnabled = !app.isEnabled"
         >
-          <div class="app-info">
-            <span class="app-name">{{ app.displayName || 'Unnamed App' }}</span>
-            <span class="app-family">{{ app.packageFamilyName }}</span>
+          <div class="uwp-info">
+            <span class="uwp-name">{{ app.displayName || 'Unnamed App' }}</span>
+            <span class="uwp-sid">{{ app.sid }}</span>
           </div>
-          <div class="modern-switch-small" :class="{ 'on': app.isEnabled }">
-            <div class="knob"></div>
+          <div class="status-tag">
+            {{ app.isEnabled ? '已豁免' : '受限' }}
           </div>
         </div>
       </div>
@@ -516,7 +516,6 @@
 </template>
 
 <script setup lang="ts">
-
 import { ref, onMounted, watch, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { showAlert } from '../store';
@@ -646,15 +645,6 @@ const loadData = async () => {
 
 onMounted(() => { loadData(); });
 
-const fixUWP = async () => {
-  try {
-    await API.FixUWPNetwork();
-    await showAlert('UWP 环回限制已成功解除！', '修复成功');
-  } catch (e) {
-    await showAlert('修复失败，请尝试右键以管理员身份运行本软件。\n错误信息: ' + e, '修复失败');
-  }
-};
-
 const handleTunToggle = async (e: Event) => {
   if (tunConfig.value.enable && !tunStatus.value.hasWintun) {
     e.preventDefault();
@@ -783,11 +773,7 @@ p {
   line-height: 1.5;
 }
 
-.info {
-  flex: 1;
-  padding-right: 24px;
-  min-width: 0;
-}
+.info { flex: 1; padding-right: 24px; min-width: 0; }
 
 .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; }
 .col-item { flex-direction: column; align-items: stretch; gap: 10px; padding: 16px 0; }
@@ -796,7 +782,6 @@ p {
 
 .arrow { color: var(--text-sub); font-size: 1.2rem; }
 .divider { height: 1px; background: var(--glass-border); opacity: 0.5; margin: 0; }
-
 
 .modern-input, .modern-select, .modern-textarea { background: var(--surface-hover); border: none; color: var(--text-main); padding: 8px 12px; border-radius: 8px; outline: none; }
 .modern-input { text-align: right; }
@@ -808,17 +793,10 @@ p {
 .modern-switch input { opacity: 0; width: 0; height: 0; }
 
 .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--surface-hover); transition: .3s; border-radius: 24px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
-
 .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3);}
-
 input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
-
 input:checked + .slider { background-color: var(--accent); }
-
-input:checked + .slider:before { 
-  transform: translateX(20px); 
-  background-color: var(--accent-fg); 
-}
+input:checked + .slider:before { transform: translateX(20px); background-color: var(--accent-fg); }
 
 .slide-in { animation: slideIn 0.2s ease forwards; }
 @keyframes slideIn { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
@@ -836,65 +814,20 @@ input:checked + .slider:before {
   margin-bottom: 10px;
 }
 
-.sub-label {
-  font-size: 0.9rem !important;
-  font-weight: 500 !important;
-}
-
-.disabled-fade {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-.input-with-unit {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.unit {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-}
-
-.num-input {
-  width: 70px;
-  text-align: center;
-}
-
+.sub-label { font-size: 0.9rem !important; font-weight: 500 !important; }
+.disabled-fade { opacity: 0.5; pointer-events: none; }
+.input-with-unit { display: flex; align-items: center; gap: 8px; }
+.unit { font-size: 0.85rem; color: var(--text-muted); font-family: var(--font-mono); }
 .status-msg { margin-top: 4px; font-weight: 500; }
 .green-text { color: var(--text-main); font-weight: 600; }
 .red-text { color: var(--text-muted); }
 
 /* 针对 UWP 管理页的专属样式 */
-.uwp-action-bar {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
-  align-items: center;
-}
+.uwp-toolbar { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }
+.uwp-search { flex: 1; background: var(--surface); border-radius: 8px; padding: 8px 12px; }
+.uwp-search input { width: 100%; background: transparent; border: none; color: var(--text-main); outline: none; }
 
-.search-box {
-  flex: 1; /* 搜索框自适应宽度 */
-  background: var(--surface);
-  border-radius: 8px;
-  padding: 8px 12px;
-}
-
-.search-box input {
-  width: 100%;
-  background: transparent;
-  border: none;
-  color: var(--text-main);
-  outline: none;
-}
-
-.batch-btns {
-  display: flex;
-  gap: 8px;
-}
-
+.uwp-batch { display: flex; gap: 8px; }
 .mini-btn {
   background: var(--surface-hover);
   color: var(--text-main);
@@ -908,17 +841,17 @@ input:checked + .slider:before {
 }
 .mini-btn:hover { filter: brightness(0.9); }
 
-.uwp-list-container {
+.uwp-grid {
   flex: 1;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px; /* 只有间距，没有细线 */
+  gap: 12px;
   margin-bottom: 16px;
 }
 
-.uwp-app-card {
+.uwp-card {
   background: var(--surface);
-  border-radius: 12px; /* 遵循 12px 容器圆角 */
+  border-radius: 12px;
   padding: 14px;
   display: flex;
   justify-content: space-between;
@@ -927,23 +860,29 @@ input:checked + .slider:before {
   transition: 0.2s;
 }
 
-.uwp-app-card:hover { background: var(--surface-hover); }
+.uwp-card:hover { background: var(--surface-hover); }
+.uwp-card.active { background: var(--accent); color: var(--accent-fg); }
 
-/* 选中后的反色高亮逻辑 */
-.uwp-app-card.active {
-  background: var(--accent);
+.uwp-info { display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
+.uwp-name { font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uwp-sid { font-size: 0.7rem; opacity: 0.6; }
+
+.status-tag {
+  font-size: 0.65rem;
+  font-weight: 800;
+  border-radius: 4px;
+  padding: 2px 6px;
+  background: var(--surface-panel);
+  color: var(--text-main);
+  text-transform: uppercase;
 }
-.uwp-app-card.active .app-name { color: var(--accent-fg); }
-.uwp-app-card.active .app-family { color: var(--accent-fg); opacity: 0.7; }
 
-.app-info { display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
-.app-name { font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.app-family { font-size: 0.7rem; color: var(--text-sub); }
-
-.uwp-footer {
-  margin-top: auto;
-  padding-top: 16px;
+.uwp-card.active .status-tag {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--accent-fg);
 }
+
+.uwp-footer { margin-top: auto; padding-top: 16px; }
 
 .save-all-btn {
   width: 100%;
@@ -958,26 +897,4 @@ input:checked + .slider:before {
 }
 .save-all-btn:hover:not(:disabled) { filter: brightness(1.1); }
 .save-all-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-
-/* 现代感的小型 Switch */
-.modern-switch-small {
-  width: 32px;
-  height: 18px;
-  background: var(--surface-hover);
-  border-radius: 10px;
-  position: relative;
-  transition: 0.3s;
-}
-.modern-switch-small.on { background: rgba(255, 255, 255, 0.3); }
-.modern-switch-small .knob {
-  width: 12px;
-  height: 12px;
-  background: white;
-  border-radius: 50%;
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  transition: 0.3s;
-}
-.modern-switch-small.on .knob { transform: translateX(14px); }
 </style>
