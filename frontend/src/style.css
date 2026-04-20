@@ -85,7 +85,7 @@ html, body, #app {
   max-width: 440px; 
   padding: 24px; 
   border-radius: 16px; 
-  background: var(--surface);
+  background: var(--surface-panel); 
   border: 1px solid var(--surface-hover);
   box-shadow: 0 10px 30px rgba(0,0,0,0.3); 
 }

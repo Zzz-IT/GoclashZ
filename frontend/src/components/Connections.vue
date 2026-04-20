@@ -256,7 +256,7 @@ const closeSingleConnection = async (id: string) => {
 .empty-state { height: 200px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-style: italic; }
 
 /* --- 详情子页样式 --- */
-.detail-page { display: flex; flex-direction: column; height: 100%; border-radius: 12px; background: var(--surface); border: none; padding: 24px; box-sizing: border-box; }
+.detail-page { display: flex; flex-direction: column; height: 100%; border: none; padding: 24px; box-sizing: border-box; }
 
 /* 详情头部排版：左标题右按钮 */
 .detail-header { 

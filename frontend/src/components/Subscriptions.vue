@@ -85,7 +85,6 @@
         <div v-if="activeModal === 'import'" class="custom-modal-card" @click.stop>
           <div class="modal-header">
             <h3>导入配置文件</h3>
-            <button class="close-x" @click="closeAllModals">&times;</button>
           </div>
           <div class="modal-body">
             <div class="section">
@@ -466,7 +465,6 @@ onUnmounted(() => {
 .icon-btn :deep(svg) { width: 14px !important; height: 14px !important; }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
-.close-x { background: none; border: none; font-size: 28px; cursor: pointer; color: var(--text-sub); }
 .modal-body { display: flex; flex-direction: column; gap: 20px; }
 .section label { display: block; font-size: 0.85rem; color: var(--text-sub); margin-bottom: 8px; font-weight: 600; }
 .input-row { display: flex; gap: 8px; background: var(--surface-hover); padding: 4px 4px 4px 12px; border-radius: 10px; align-items: center; }
