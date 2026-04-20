@@ -51,19 +51,6 @@
             <div style="flex: 1; min-width: 0;">
               <h4 class="sub-name">{{ config }}</h4>
               <span class="sub-path font-mono">core/bin/{{ config }}</span>
-              
-              <div v-if="!isSortingMode && subRecords[config] && subRecords[config].total > 0" class="traffic-container">
-                <div class="traffic-bar">
-                  <div class="traffic-fill" :style="{ width: Math.min(100, ((subRecords[config].upload + subRecords[config].download) / subRecords[config].total) * 100) + '%' }"></div>
-                </div>
-                <div class="traffic-text">
-                  <span>已用 {{ formatBytes(subRecords[config].upload + subRecords[config].download) }}</span>
-                  <span>总计 {{ formatBytes(subRecords[config].total) }}</span>
-                </div>
-                <div v-if="subRecords[config].expire > 0" class="expire-text">
-                  到期时间: {{ formatDate(subRecords[config].expire) }}
-                </div>
-              </div>
             </div>
           </div>
           
@@ -72,6 +59,19 @@
               <div class="breathe-dot"></div>
               <span>正在使用</span>
             </div>
+          </div>
+        </div>
+
+        <div v-if="!isSortingMode && subRecords[config] && subRecords[config].total > 0" class="traffic-container">
+          <div class="traffic-bar">
+            <div class="traffic-fill" :style="{ width: Math.min(100, ((subRecords[config].upload + subRecords[config].download) / subRecords[config].total) * 100) + '%' }"></div>
+          </div>
+          <div class="traffic-text">
+            <span>已用 {{ formatBytes(subRecords[config].upload + subRecords[config].download) }}</span>
+            <span>总计 {{ formatBytes(subRecords[config].total) }}</span>
+          </div>
+          <div v-if="subRecords[config].expire > 0" class="expire-text">
+            到期时间: {{ formatDate(subRecords[config].expire) }}
           </div>
         </div>
 
@@ -591,12 +591,13 @@ onUnmounted(() => {
 /* ================================== */
 /* 订阅流量条 */
 .traffic-container {
-  margin-top: 12px;
+  margin-top: 12px; 
+  padding-top: 12px; /* 与上面的信息拉开一点层次感 */
+  border-top: 1px dashed var(--surface-hover); /* 增加一条极淡的虚线分割，更显精致 */
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  width: 100%;
-  padding-right: 10px;
+  gap: 8px;
+  width: 100%; /* 因为已经提到了外层，这里的 100% 就会完美撑满整个卡片背景 */
 }
 .traffic-bar {
   width: 100%;
