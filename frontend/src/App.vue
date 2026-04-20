@@ -13,44 +13,13 @@
     </div>
 
     <div class="main-layout">
-      <aside class="sidebar">
-        <nav class="nav-list">
-          <div v-for="item in menu" :key="item.id"
-               v-show="item.id !== 'logs' || !globalState.hideLogs"
-               :class="['nav-item', { active: currentTab === item.id }]"
-               @click="currentTab = item.id">
-            <span class="icon" v-html="item.icon"></span>
-            <span class="nav-label">{{ item.label }}</span>
-          </div>
-        </nav>
-
-        <div class="sidebar-footer">
-          <div class="side-traffic">
-            <div class="t-item">
-              <span class="icon-box">↑</span>
-              <span class="t-label">上传</span>
-              <span class="t-val">{{ traffic.up }}</span>
-            </div>
-            <div class="t-item">
-              <span class="icon-box">↓</span>
-              <span class="t-label">下载</span>
-              <span class="t-val">{{ traffic.down }}</span>
-            </div>
-          </div>
-
-          <div class="theme-switch-row" @click="toggleTheme">
-            <span class="icon-box" v-html="globalState.theme === 'dark' ? ICONS.moon : ICONS.sun"></span>
-            <span class="label">{{ globalState.theme === 'dark' ? '夜间模式' : '日间模式' }}</span>
-          </div>
-
-          <div class="status-indicator">
-            <div class="icon-box">
-              <div :class="['dot', { online: globalState.isRunning }]"></div>
-            </div>
-            <span class="status-text">{{ globalState.isRunning ? '内核已启动' : '服务未运行' }}</span>
-          </div>
-        </div>
-      </aside>
+      <Sidebar 
+        :activeId="currentTab" 
+        :traffic="traffic" 
+        :menu="menu" 
+        :icons="ICONS"
+        @update:activeId="val => currentTab = val" 
+      />
 
       <main class="content card-panel">
         <header class="content-header">
@@ -119,6 +88,7 @@
 import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import * as API from '../wailsjs/go/main/App';
 import { ICONS } from './utils/icons';
+import Sidebar from './components/Sidebar.vue';
 import Overview from './components/Overview.vue';
 import Proxies from './components/Proxies.vue';
 import Subscriptions from './components/Subscriptions.vue';
@@ -200,7 +170,16 @@ watch(() => globalState.theme, (val) => {
 }, { immediate: true });
 
 onMounted(async () => {
-  await (API as any).SyncState();
+  // 1. 初始化同步 (必须赋值给 globalState)
+  const state = await (API as any).SyncState();
+  if (state) {
+    globalState.isRunning = state.isRunning;
+  }
+
+  // 2. 监听内核状态变更 (用于实时点亮左下角灯)
+  (window as any).runtime.EventsOn("clash-state-changed", (running: boolean) => {
+    globalState.isRunning = running;
+  });
 
   try {
     const status = await API.CheckTunEnv();
@@ -265,100 +244,6 @@ watch(currentTab, (newTab) => {
 .icon-btn :deep(svg) { width: 14px; height: 14px; }
 
 .main-layout { display: flex; flex: 1; padding: 0 16px 16px 0; gap: 16px; overflow: hidden; }
-
-.sidebar { width: 220px; display: flex; flex-direction: column; padding: 12px; }
-.nav-list { flex: 1; }
-.nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 4px; border-radius: 8px; cursor: pointer; color: var(--text-sub); transition: all 0.2s ease; }
-.nav-item:hover { background: var(--surface); color: var(--text-main); }
-.nav-item.active { background: var(--surface-hover); color: var(--text-main); font-weight: 600; }
-.icon { width: 16px; height: 16px; display: flex; align-items: center; }
-.nav-label { font-size: 0.85rem; letter-spacing: 0.02em; }
-
-.sidebar-footer {
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  border-top: none;
-  margin-top: auto;
-}
-
-.icon-box {
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: bold;
-  color: var(--text-muted);
-}
-
-.icon-box :deep(svg) {
-  width: 14px;
-  height: 14px;
-}
-
-.side-traffic {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.t-item, .theme-switch-row, .status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 20px;
-}
-
-.t-label, .theme-switch-row .label, .status-text {
-  font-size: 0.8rem;
-  color: var(--text-sub);
-  white-space: nowrap;
-}
-
-.t-val {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--text-main);
-  opacity: 0.9;
-}
-
-.theme-switch-row {
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.theme-switch-row:hover {
-  opacity: 0.7;
-}
-
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  transition: 0.3s;
-}
-.dot.online {
-  background: var(--text-main);
-  box-shadow: 0 0 8px var(--text-main);
-  animation: breathe 2s ease-in-out infinite;
-}
-
-@keyframes breathe {
-  0%, 100% { opacity: 0.6; box-shadow: 0 0 4px var(--text-main); }
-  50% { opacity: 1; box-shadow: 0 0 12px var(--text-main); }
-}
 
 .content { flex: 1; display: flex; flex-direction: column; padding: 32px 40px; overflow: hidden; }
 .content-header h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 32px; }

@@ -309,13 +309,23 @@ onUnmounted(() => {
   color: var(--accent-fg); 
 }
 
+/* 确保选中节点（active）的图标完全不透明且使用反色（白色） */
 .node-item.active .ping-idle {
-  color: var(--accent-fg);
-  opacity: 0.8;
+  color: var(--accent-fg) !important; /* 在日间模式选中时为白色 */
+  opacity: 1 !important;
+  transform: none !important;        /* 选中后禁止悬停缩放，保持静止 */
 }
 
+/* 彻底移除选中状态下延迟框的背景色块 */
+.node-item.active .n-latency-box,
+.node-item.active .n-latency-box:hover {
+  background: transparent !important;
+  transform: none !important;
+}
+
+/* 确保测速中的动画在选中态也是反色 */
 .node-item.active .scanner-bar {
-  stroke: var(--accent-fg);
+  stroke: var(--accent-fg) !important;
 }
 
 .node-main-area { flex: 1; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
@@ -351,10 +361,6 @@ onUnmounted(() => {
   opacity: 0.6;
 }
 
-.node-item.active .n-latency-box {
-  background: transparent !important;
-}
-
 .scanner-container {
   width: 18px;
   height: 18px;
@@ -376,9 +382,9 @@ onUnmounted(() => {
 }
 
 .ping-idle {
-  color: var(--text-muted);
-  opacity: 0.4;
-  transition: all 0.2s;
+  color: var(--text-sub);      /* 使用比 muted 更深的颜色 */
+  opacity: 0.7;                /* 提高初始不透明度，确保可见 */
+  transition: all 0.2s ease;
   display: flex;
 }
 .n-latency-box:hover .ping-idle {

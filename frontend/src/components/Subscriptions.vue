@@ -10,8 +10,8 @@
       
       <div class="header-actions">
         <button 
-          class="action-btn accent-btn" 
-          :class="{ 'sorting-active': isSortingMode }" 
+          class="action-btn" 
+          :class="isSortingMode ? 'sorting-active' : 'accent-btn'" 
           @click.stop="toggleSortMode"
         >
           <span class="btn-icon" v-html="ICONS.sort"></span> 
@@ -395,16 +395,37 @@ onUnmounted(() => {
   left: 0;
 }
 
-/* ================================== */
-/* 排序控制区 */
-/* ================================== */
+/* 1. 统一头部按钮的基础样式，锁定高度防止内容变化导致抖动 */
+.header-actions .action-btn, 
+.header-actions .primary-btn {
+  height: 40px;            /* 锁定统一高度 */
+  border: none !important; /* 彻底禁用边框 */
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease, color 0.2s ease; /* 仅平滑过渡颜色，不影响布局 */
+}
+
+/* 2. 排序模式激活状态（反色的反色） */
 .sorting-active {
-  background: var(--text-main) !important;
-  color: var(--surface) !important;
-  border-color: var(--text-main) !important;
+  /* 使用类似节点卡片悬停时的颜色 (surface-hover) 来表示“正在编辑” */
+  background: var(--surface-hover) !important; 
+  color: var(--text-main) !important;
   font-weight: 600;
 }
-.sorting-active .btn-icon { color: var(--surface) !important; }
+
+/* 3. 确保图标在激活态下颜色同步 */
+.sorting-active .btn-icon {
+  color: var(--text-main) !important;
+  opacity: 1;
+}
+
+/* 4. 优化：如果想让“完成”更有点击感，可以使用 scale 而不是位移 */
+.header-actions .action-btn:active,
+.header-actions .primary-btn:active {
+  transform: scale(0.98); /* 缩放不会引起周围元素位移 */
+}
 
 .sort-controls {
   display: flex;
