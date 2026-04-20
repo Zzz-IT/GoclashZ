@@ -3,13 +3,13 @@
     <div class="rules-header">
       <div class="search-bar">
         <span v-html="ICONS.search"></span>
-        <input v-model="searchQuery" placeholder="搜索规则、目标或策略..." />
+        <input v-model="searchQuery" @input="onSearch" placeholder="搜索规则、目标或策略..." />
       </div>
       <button v-if="isEditable" class="add-rule-btn" @click="showAddModal = true">+ 添加规则</button>
     </div>
 
-    <div class="rules-grid">
-      <div v-for="(rule, index) in filteredRules" :key="index" class="rule-card">
+    <div class="rules-grid" @scroll="handleScroll">
+      <div v-for="rule in parsedRules" :key="rule.originalIndex" class="rule-card">
         <div class="rule-main">
           <div class="rule-type" :class="getTypeClass(rule.type)">{{ rule.type }}</div>
           <div class="rule-payload truncate" :title="rule.payload">{{ rule.payload }}</div>
@@ -21,11 +21,12 @@
           </button>
         </div>
       </div>
+      
+      <div v-if="loading" class="loading-state">加载中...</div>
     </div>
 
     <Transition name="pop">
       <div v-if="showAddModal" class="modal-overlay" @click.self="showAddModal = false">
-        <!-- 新增规则弹窗 -->
         <div class="custom-modal-card">
           <div class="modal-header">
             <h3>新增分流规则</h3>
@@ -50,42 +51,78 @@ import * as API from '../../wailsjs/go/main/App';
 import { showAlert, showConfirm } from '../store';
 import { ICONS } from '../utils/icons';
 
-const rules = ref<string[]>([]);
+// 接收带有原始 Index 的对象切片
+const rules = ref<{index: number, text: string}[]>([]);
 const isEditable = ref(false);
 const searchQuery = ref('');
 const showAddModal = ref(false);
 const newRuleStr = ref('');
 
-const loadRules = async () => {
+// 分页与滚动控制参数
+const currentPage = ref(1);
+const totalRules = ref(0);
+const pageSize = 50; // 每次只拉 50 条，渲染瞬间完成
+const loading = ref(false);
+
+const loadRules = async (resetPage = false) => {
+  if (resetPage) {
+    currentPage.value = 1;
+    rules.value = [];
+  }
+  
+  if (loading.value) return;
+  loading.value = true;
+  
   try {
-    const res: any = await API.GetRules();
-    rules.value = res.rules || [];
+    // 调用我们刚写的后端分页 API
+    const res: any = await (API as any).GetRulesPaged(currentPage.value, pageSize, searchQuery.value);
+    
+    if (resetPage) {
+      rules.value = res.items || [];
+    } else {
+      rules.value = [...rules.value, ...(res.items || [])];
+    }
+    
+    totalRules.value = res.total;
     isEditable.value = res.isEditable;
   } catch (e) {
     console.error("加载规则失败", e);
+  } finally {
+    loading.value = false;
+  }
+};
+
+// 搜索防抖机制 (输入 300ms 后才请求后端)
+let searchTimeout: any = null;
+const onSearch = () => {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(() => {
+    loadRules(true);
+  }, 300);
+};
+
+// 监听列表滚动实现无限加载
+const handleScroll = (e: any) => {
+  const { scrollTop, clientHeight, scrollHeight } = e.target;
+  // 距底部 100px 缓冲即触发加载下一页
+  if (scrollTop + clientHeight >= scrollHeight - 100) {
+    if (rules.value.length < totalRules.value && !loading.value) {
+      currentPage.value++;
+      loadRules(false);
+    }
   }
 };
 
 const parsedRules = computed(() => {
-  return rules.value.map((r, index) => {
-    const parts = r.split(',');
+  return rules.value.map((r) => {
+    const parts = r.text.split(',');
     return {
       type: parts[0]?.trim() || 'UNKNOWN',
       payload: parts[1]?.trim() || '',
       policy: parts[2]?.trim() || '',
-      originalIndex: index
+      originalIndex: r.index // 后端准确返回，直接解绑前端索引强依赖
     };
   });
-});
-
-const filteredRules = computed(() => {
-  if (!searchQuery.value) return parsedRules.value;
-  const q = searchQuery.value.toLowerCase();
-  return parsedRules.value.filter(r => 
-    r.payload?.toLowerCase().includes(q) || 
-    r.type?.toLowerCase().includes(q) ||
-    r.policy?.toLowerCase().includes(q)
-  );
 });
 
 const getTypeClass = (type: string) => {
@@ -101,7 +138,7 @@ const handleAdd = async () => {
     await API.AddRule(newRuleStr.value);
     newRuleStr.value = '';
     showAddModal.value = false;
-    await loadRules();
+    await loadRules(true); // 添加后重置回第一页以显示
   } catch (e) {
     await showAlert("添加失败: " + e, '错误');
   }
@@ -112,7 +149,7 @@ const handleDeleteRequest = async (idx: number) => {
   if (ok) {
     try {
       await API.DeleteRule(idx);
-      await loadRules();
+      await loadRules(true); // 删除后刷新视图
     } catch (e) {
       await showAlert("删除失败: " + e, '错误');
     }
@@ -120,7 +157,7 @@ const handleDeleteRequest = async (idx: number) => {
 };
 
 onMounted(() => {
-  loadRules();
+  loadRules(true);
 });
 </script>
 
@@ -178,5 +215,14 @@ onMounted(() => {
   border: none;
   background: var(--surface-hover); 
   color: var(--text-main); outline: none; 
+}
+
+/* 加载占位提示样式 */
+.loading-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 </style>

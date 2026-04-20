@@ -1332,3 +1332,52 @@ func (a *App) onReady() {
 func (a *App) onExit() {
 	// 托盘结束时的收尾工作（一般留空即可）
 }
+
+// ==========================================
+// --- 规则分页与搜索支持 (新增) ---
+// ==========================================
+
+type RuleItem struct {
+	Index int    `json:"index"` // 记录在原始切片中的真实索引，确保删除时准确无误
+	Text  string `json:"text"`
+}
+
+type PagedRules struct {
+	Total      int        `json:"total"`
+	Items      []RuleItem `json:"items"`
+	IsEditable bool       `json:"isEditable"`
+}
+
+// GetRulesPaged 供前端分页并带搜索地获取规则，彻底解决数万条规则时的卡顿问题
+func (a *App) GetRulesPaged(page int, pageSize int, keyword string) (PagedRules, error) {
+	info, err := clash.GetRules(a.getActiveConfig())
+	if err != nil {
+		return PagedRules{}, err
+	}
+
+	var filtered []RuleItem
+	keyword = strings.ToLower(keyword)
+
+	// Go 语言层面的极速过滤
+	for i, r := range info.Rules {
+		if keyword == "" || strings.Contains(strings.ToLower(r), keyword) {
+			filtered = append(filtered, RuleItem{Index: i, Text: r})
+		}
+	}
+
+	total := len(filtered)
+	
+	// 分页越界保护
+	start := (page - 1) * pageSize
+	if start < 0 { start = 0 }
+	if start > total { start = total }
+
+	end := start + pageSize
+	if end > total { end = total }
+
+	return PagedRules{
+		Total:      total,
+		Items:      filtered[start:end],
+		IsEditable: info.IsEditable,
+	}, nil
+}

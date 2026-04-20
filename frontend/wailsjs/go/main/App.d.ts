@@ -40,6 +40,8 @@ export function GetRecentLogs():Promise<Array<logger.LogEntry>>;
 
 export function GetRules():Promise<clash.RuleInfo>;
 
+export function GetRulesPaged(arg1:number,arg2:number,arg3:string):Promise<main.PagedRules>;
+
 export function GetSubRecords():Promise<Record<string, main.SubRecord>>;
 
 export function GetTunConfig():Promise<clash.TunConfig>;
