@@ -10,7 +10,7 @@
             <span class="btn-icon" v-html="isPaused ? ICONS.play : ICONS.pause"></span>
             {{ isPaused ? '继续刷新' : '暂停刷新' }}
           </button>
-          <button class="primary-btn accent-btn" @click="closeAll">
+          <button v-if="connections.length > 0" class="primary-btn accent-btn" @click="closeAll">
             <span class="btn-icon" style="color: #ff5a5a;" v-html="ICONS.xCircle"></span>
             断开全部连接
           </button>

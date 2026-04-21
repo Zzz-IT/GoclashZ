@@ -7,7 +7,7 @@
 
         <div class="setting-item clickable" @click="view = 'network'">
           <div class="info">
-            <h4>基础 network 设置</h4>
+            <h4>基础网络设置</h4>
             <p>配置内核底层的 TCP 并发、超时以及连接测速逻辑。</p>
           </div>
           <span class="arrow">➔</span>
@@ -15,7 +15,7 @@
 
         <div class="setting-item clickable" @click="view = 'dns'">
           <div class="info">
-            <h4>DNS 服务器配置 (DNS Config)</h4>
+            <h4>DNS 服务器配置</h4>
             <p>管理防污染解析、Fake-IP 策略以及分流专用的 DNS 群组。</p>
           </div>
           <span class="arrow">➔</span>
@@ -35,7 +35,7 @@
 
         <div class="setting-item clickable" @click="view = 'behavior'">
           <div class="info">
-            <h4>应用行为设置 (App Behavior)</h4>
+            <h4>应用行为设置</h4>
             <p>定制软件启动模式、托盘图标逻辑及订阅请求 User-Agent。</p>
           </div>
           <span class="arrow">➔</span>
@@ -51,7 +51,7 @@
 
         <div class="setting-item clickable" @click="view = 'update'">
           <div class="info">
-            <h4>内核与驱动更新 (Update Center)</h4>
+            <h4>组件与库更新</h4>
             <p>检查并更新 Mihomo 内核二进制文件及 Wintun 驱动组件。</p>
           </div>
           <span class="arrow">➔</span>
@@ -64,7 +64,7 @@
         <button class="back-btn" @click="view = 'main'">
           <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>
         </button>
-        <h3>组件更新中心</h3>
+        <h3>组件与库更新</h3>
       </div>
 
       <div class="glass-card setting-group scrollable">
@@ -234,7 +234,13 @@
 
         <div class="setting-item">
           <div class="info"><h4>最大传输单元 (MTU)</h4></div>
-          <input type="number" class="modern-input num-input" v-model.number="tunConfig.mtu" @blur="saveTun" :disabled="!tunStatus.hasWintun" />
+          <ModernNumberInput 
+            v-model="tunConfig.mtu" 
+            :min="576" 
+            :max="1500" 
+            @change="saveTun" 
+            :disabled="!tunStatus.hasWintun" 
+          />
         </div>
 
       </div>
@@ -466,12 +472,12 @@
             <p>单位为秒，建议值 15-30s</p>
           </div>
           <div class="input-with-unit">
-            <input 
-              type="number" 
-              class="modern-input num-input" 
-              v-model.number="netConfig.tcpKeepAliveInterval" 
-              :disabled="!netConfig.tcpKeepAlive"
-              @blur="saveNet"
+            <ModernNumberInput 
+              v-model="netConfig.tcpKeepAliveInterval" 
+              :min="1" 
+              :max="3600" 
+              @change="saveNet" 
+              :disabled="!netConfig.tcpKeepAlive" 
             />
             <span class="unit">s</span>
           </div>
@@ -652,6 +658,7 @@ import * as API from '../../wailsjs/go/main/App';
 import { showAlert } from '../store';
 import { ICONS } from '../utils/icons';
 import ModernSelect from './ModernSelect.vue';
+import ModernNumberInput from './ModernNumberInput.vue';
 
 const props = defineProps({
   initialView: {
@@ -1268,7 +1275,6 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 
 .uwp-app-item:hover {
   background: var(--surface-hover);
-  transform: translateX(4px); /* 悬停时轻微右移 */
 }
 
 /* 选中态：背景色直接变为 Accent */

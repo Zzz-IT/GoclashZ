@@ -1,36 +1,59 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
+/* 彻底清除所有元素的默认获取焦点轮廓线 */
+*, *::before, *::after {
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+*:focus, *:focus-visible {
+  outline: none !important;
+  box-shadow: none; /* 防止有些内核用 boxShadow 模拟边框 */
+}
+
 :root {
     --font-sans: 'Inter', -apple-system, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
 
     /* ☀️ 日间模式：纯净黑白灰，无色彩干扰 */
-    --app-bg: #F2F2F2;          /* 底色：温暖的浅灰 */
-    --surface-panel: #FAFAFA;   /* 面板：近白，靠色差而非边框浮出 */
+    --app-bg: #F2F2F2;
+    /* 底色：温暖的浅灰 */
+    --surface-panel: #FAFAFA;
+    /* 面板：近白，靠色差而非边框浮出 */
 
-    --text-main: #1A1A1A;      /* 主文字：极深灰 */
-    --text-sub: #777777;       /* 次要文字：中灰 */
-    --text-muted: #AAAAAA;     /* 禁用态：浅灰 */
+    --text-main: #1A1A1A;
+    /* 主文字：极深灰 */
+    --text-sub: #777777;
+    /* 次要文字：中灰 */
+    --text-muted: #AAAAAA;
+    /* 禁用态：浅灰 */
 
-    --accent: #1A1A1A;         /* 强调色 = 文字色，黑白体系 */
+    --accent: #1A1A1A;
+    /* 强调色 = 文字色，黑白体系 */
     --accent-fg: #FFFFFF;
 
-    --surface: #EBEBEB;        /* 输入框/按钮底色 */
+    --surface: #EBEBEB;
+    /* 输入框/按钮底色 */
     --surface-hover: #E0E0E0;
 
-    --status-online: #1A1A1A;  /* 呼吸灯使用纯黑，通过动画而非颜色表达 */
+    --status-online: #1A1A1A;
+    /* 呼吸灯使用纯黑，通过动画而非颜色表达 */
 }
 
 /* 🌙 暗色模式：深沉纯黑灰，层次靠明度递进 */
 .dark {
-    --app-bg: #111111;         /* 底色：极深灰黑 */
-    --surface-panel: #1A1A1A;  /* 面板：比底色亮一阶，产生浮层感 */
+    --app-bg: #111111;
+    /* 底色：极深灰黑 */
+    --surface-panel: #1A1A1A;
+    /* 面板：比底色亮一阶，产生浮层感 */
 
-    --text-main: #E8E8E8;      /* 主文字：柔和白 */
+    --text-main: #E8E8E8;
+    /* 主文字：柔和白 */
     --text-sub: #888888;
     --text-muted: #555555;
 
-    --accent: #E8E8E8;         /* 强调色 = 文字色 */
+    --accent: #E8E8E8;
+    /* 强调色 = 文字色 */
     --accent-fg: #111111;
 
     --surface: #222222;
@@ -41,13 +64,16 @@
 
 * {
     box-sizing: border-box;
-    margin: 0; padding: 0;
+    margin: 0;
+    padding: 0;
     font-family: var(--font-sans) !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
 }
 
-html, body, #app {
+html,
+body,
+#app {
     background: var(--app-bg) !important;
     height: 100vh;
     width: 100vw;
@@ -65,38 +91,73 @@ html, body, #app {
     transition: background-color 0.3s;
 }
 
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-thumb { background: var(--surface-hover); border-radius: 4px; }
+::-webkit-scrollbar {
+    width: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--surface-hover);
+    border-radius: 4px;
+}
 
 /* --- 全局通用 UI 规范 (按钮、弹窗、动画) --- */
 
 /* 1. 基础布局类 */
-.flex-1 { flex: 1; }
+.flex-1 {
+    flex: 1;
+}
 
 /* ================================== */
 /* 全局弹窗样式 (统一整合) */
 /* ================================== */
 .modal-overlay {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0, 0, 0, 0.6); /* 调深阴影，适应黑白高对比 */
-    display: flex; align-items: center; justify-content: center; 
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    /* 调深阴影，适应黑白高对比 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
     z-index: 9999;
 }
 
-.custom-modal-card { 
-  width: 90%; 
-  max-width: 440px; 
-  padding: 24px; 
-  border-radius: 16px; 
-  background: var(--surface-panel); 
-  border: 1px solid var(--surface-hover);
-  box-shadow: 0 10px 30px rgba(0,0,0,0.3); 
+.custom-modal-card {
+    width: 90%;
+    max-width: 440px;
+    padding: 24px;
+    border-radius: 16px;
+    background: var(--surface-panel);
+    border: 1px solid var(--surface-hover);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
 }
 
-.modal-header { margin-bottom: 20px; }
-.modal-header h3 { margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--text-main); }
-.modal-body { display: flex; flex-direction: column; gap: 20px; }
-.global-modal-msg { margin: 0; font-size: 0.9rem; color: var(--text-sub); line-height: 1.6; white-space: pre-wrap; }
+.modal-header {
+    margin-bottom: 20px;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.global-modal-msg {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--text-sub);
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
 
 .modal-input {
     width: 100%;
@@ -110,52 +171,123 @@ html, body, #app {
     outline: none;
     transition: all 0.2s ease;
 }
+
 .modal-input:focus {
     border-color: var(--text-sub);
     background: var(--surface-panel);
 }
 
-.modal-footer { display: flex; gap: 12px; width: 100%; margin-top: 10px; }
-.danger-text { color: #ff4d4f !important; }
+.modal-footer {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    margin-top: 10px;
+}
+
+.danger-text {
+    color: #ff4d4f !important;
+}
 
 /* ================================== */
 /* 动画规范 */
 /* ================================== */
-.pop-enter-active { transition: opacity 0.2s ease-out; }
-.pop-leave-active { transition: opacity 0.15s ease-in; }
-.pop-enter-from, .pop-leave-to { opacity: 0; }
+.pop-enter-active {
+    transition: opacity 0.2s ease-out;
+}
+
+.pop-leave-active {
+    transition: opacity 0.15s ease-in;
+}
+
+.pop-enter-from,
+.pop-leave-to {
+    opacity: 0;
+}
 
 .pop-enter-active .custom-modal-card {
     transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+
 .pop-leave-active .custom-modal-card {
     transition: transform 0.15s ease-in;
 }
+
 .pop-enter-from .custom-modal-card {
     transform: scale(0.9) translateY(10px);
 }
+
 .pop-leave-to .custom-modal-card {
     transform: scale(0.95);
 }
 
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes pulse { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(2.5); opacity: 0; } }
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+        opacity: 0.5;
+    }
+
+    100% {
+        transform: scale(2.5);
+        opacity: 0;
+    }
+}
 
 /* 3. 按钮体系 (按照 Subscriptions 重命名按钮对齐) */
-.primary-btn { 
-    display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 20px; 
-    border-radius: 8px; border: none; background: var(--text-main); 
-    color: var(--accent-fg); font-weight: 600; cursor: pointer; transition: 0.2s; 
+.primary-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: none;
+    background: var(--text-main);
+    color: var(--accent-fg);
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.2s;
 }
-.primary-btn:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
-.primary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.action-btn { 
-    display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 20px; 
-    border-radius: 8px; border: none; background: var(--surface); 
-    color: var(--text-main); cursor: pointer; font-weight: 500; transition: 0.2s; 
+.primary-btn:hover:not(:disabled) {
+    opacity: 0.85;
+    transform: translateY(-1px);
 }
-.action-btn:hover { background: var(--surface-hover); }
+
+.primary-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: none;
+    background: var(--surface);
+    color: var(--text-main);
+    cursor: pointer;
+    font-weight: 500;
+    transition: 0.2s;
+}
+
+.action-btn:hover {
+    background: var(--surface-hover);
+}
 
 /* 强调色辅助类 (黑白反色) */
 .accent-btn {

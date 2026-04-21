@@ -64,7 +64,7 @@
 
     <section class="mode-section">
       <div class="section-title">
-        <span class="micro-title">流量分配规则</span>
+        <h3 class="section-heading">出站路由规则</h3>
       </div>
       <div class="segmented-control">
         <div 
@@ -321,4 +321,6 @@ onMounted(() => {
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
 .micro-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; color: var(--text-muted); }
+.section-heading { font-size: 1.1rem; font-weight: 600; color: var(--text-main); margin: 0 0 12px 4px; }
+
 </style>
