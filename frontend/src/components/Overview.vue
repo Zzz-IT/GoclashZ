@@ -2,9 +2,12 @@
   <div class="overview-layout">
     <section class="hero-panel card-panel">
       <div class="status-core">
-        <div class="orb-visual">
-          <div class="orb" :class="{ 'active': isRunning }"></div>
-          <div class="orb-glow" v-if="isRunning"></div>
+        <div class="restart-trigger" @click="handleRestartCore" title="重启内核">
+          <div class="orb-visual">
+            <div class="orb" :class="{ 'active': isRunning }"></div>
+            <div class="orb-glow" v-if="isRunning"></div>
+          </div>
+          <span class="refresh-icon" v-html="ICONS.refresh"></span>
         </div>
         <div class="status-meta">
           <span class="micro-title">引擎状态</span>
@@ -21,7 +24,6 @@
           </div>
           <div class="t-val">{{ traffic.up }}</div>
         </div>
-        <div class="v-line"></div>
         <div class="traffic-box">
           <div class="t-header">
             <span class="t-arrow down" v-html="ICONS.arrowDown"></span>
@@ -99,6 +101,18 @@ const modes = [
 const isRunning = computed(() => status.value.systemProxy || status.value.tun);
 const sliderStyle = computed(() => ({ transform: `translateX(${modes.findIndex(m => m.val === currentMode.value) * 100}%)` }));
 
+const handleRestartCore = async () => {
+  const ok = await (window as any).go.main.App.ShowConfirm("确定要重新启动内核服务吗？这可能会导致短暂的网络中断。", "重启内核");
+  if (ok) {
+    try {
+      await (API as any).RestartCore();
+      await refreshData();
+    } catch (e) {
+      await showAlert("重启失败: " + e, '错误');
+    }
+  }
+};
+
 const refreshData = async () => {
   try {
     const data: any = await API.GetInitialData();
@@ -154,29 +168,45 @@ onMounted(() => {
 
 /* 顶部面板 */
 .hero-panel {
-  padding: 24px 32px;
+  padding: 28px 36px;
+  background: var(--surface);
+  border-radius: 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
 }
 
-.status-core { display: flex; align-items: center; gap: 24px; }
-.orb-visual { position: relative; width: 12px; height: 12px; }
+.status-core { display: flex; align-items: center; gap: 20px; }
+.restart-trigger { 
+  position: relative; width: 44px; height: 44px; 
+  display: flex; align-items: center; justify-content: center; 
+  cursor: pointer; border-radius: 50%; transition: 0.3s;
+}
+.restart-trigger:hover { background: var(--surface-hover); }
+.orb-visual { position: relative; width: 10px; height: 10px; z-index: 1; }
 .orb { width: 100%; height: 100%; border-radius: 50%; background: var(--text-muted); transition: 0.4s; }
-.orb.active { background: var(--text-main); box-shadow: 0 0 12px var(--text-main); }
+.orb.active { background: var(--text-main); box-shadow: 0 0 10px var(--text-main); }
 .orb-glow { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 50%; background: var(--text-main); animation: pulse 2s infinite; }
+
+.refresh-icon { 
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+  display: flex; align-items: center; justify-content: center; 
+  color: var(--text-muted); opacity: 0; transition: 0.3s; transform: scale(0.8);
+}
+.restart-trigger:hover .refresh-icon { opacity: 0.4; transform: scale(1) rotate(90deg); }
+.restart-trigger:hover .orb-visual { opacity: 0.3; }
 
 .status-heading { font-size: 1.6rem; font-weight: 600; margin: 4px 0; color: var(--text-main); }
 .version-tag { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-sub); opacity: 0.8; }
 
-.traffic-meter { display: flex; gap: 40px; }
+.traffic-meter { display: flex; gap: 32px; }
 .traffic-box { text-align: right; }
 .t-header { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-bottom: 4px; }
 .t-arrow { width: 12px; height: 12px; }
 .t-arrow.up { color: var(--text-sub); }
 .t-arrow.down { color: var(--text-main); }
 .t-val { font-family: var(--font-mono); font-size: 1.15rem; font-weight: 500; color: var(--text-main); }
-.v-line { width: 1px; height: 32px; background: var(--surface-hover); align-self: center; }
 
 /* 开关卡片 */
 .switch-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }

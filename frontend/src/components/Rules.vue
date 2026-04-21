@@ -122,10 +122,7 @@ const changePage = (p: number) => {
 
 // 极简高对比度标签
 const getTypeClass = (type: string) => {
-  if (type.startsWith('DOMAIN')) return 'tag-blue';
-  if (type.startsWith('IP')) return 'tag-green';
-  if (type === 'GEOIP' || type === 'MATCH') return 'tag-orange';
-  return 'tag-gray';
+  return 'tag-primary';
 };
 
 const handleAdd = async () => {
@@ -255,28 +252,9 @@ onMounted(() => {
   border: none; /* 彻底移除所有默认边框 */
 }
 
-.tag-blue { 
+.tag-primary { 
   background: var(--text-main); 
   color: var(--surface); 
-} 
-
-/* 修改 tag-green：采用反色 (深色背景，浅色文字) */
-.tag-green { 
-  background: var(--text-main); 
-  color: var(--surface); 
-  opacity: 0.85; 
-} 
-
-/* 修改 tag-orange：去除虚线边框，改为实色背景 */
-.tag-orange { 
-  background: var(--surface-hover); 
-  color: var(--text-main); 
-  opacity: 0.8; /* 用透明度区分不同类型的次要标签 */
-} 
-
-.tag-gray { 
-  background: var(--surface-hover); 
-  color: var(--text-muted); 
 } 
 
 .rule-payload {

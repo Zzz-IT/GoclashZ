@@ -5,9 +5,9 @@
 
       <div class="top-actions" style="--wails-draggable:none">
         <div class="window-controls">
-          <button @click="WindowMinimise" class="icon-btn ctrl-btn" title="最小化" v-html="ICONS.min"></button>
-          <button @click="WindowToggleMaximise" class="icon-btn ctrl-btn" title="最大化" v-html="ICONS.max"></button>
-          <button @click="handleClose" class="icon-btn ctrl-btn close-btn" title="关闭" v-html="ICONS.close"></button>
+          <button @click="WindowMinimise" class="ctrl-btn" title="最小化" v-html="ICONS.min"></button>
+          <button @click="handleToggleMaximise" class="ctrl-btn" title="最大化/还原" v-html="isMaximized ? ICONS.restore : ICONS.max"></button>
+          <button @click="handleClose" class="ctrl-btn close-btn" title="关闭" v-html="ICONS.close"></button>
         </div>
       </div>
     </div>
@@ -109,6 +109,7 @@ import { globalState } from './store';
 
 const currentTab = ref('home');
 const targetSettingsView = ref('main');
+const isMaximized = ref(false);
 
 const traffic = ref({ up: '0 B/s', down: '0 B/s' });
 const logLines = ref<any[]>([]);
@@ -116,11 +117,11 @@ const logBox = ref<HTMLElement | null>(null);
 
 const menu = [
   { id: 'home', label: '控制台', icon: ICONS.home },
-  { id: 'subs', label: '订阅管理', icon: ICONS.subs },
   { id: 'proxies', label: '代理节点', icon: ICONS.proxies },
-  { id: 'rules', label: '配置规则', icon: ICONS.rules },
   { id: 'connections', label: '当前连接', icon: ICONS.connections },
   { id: 'logs', label: '实时日志', icon: ICONS.logs },
+  { id: 'rules', label: '配置规则', icon: ICONS.rules },
+  { id: 'subs', label: '订阅管理', icon: ICONS.subs },
   { id: 'settings', label: '软件设置', icon: ICONS.settings }
 ];
 
@@ -136,6 +137,14 @@ const currentModeName = computed(() => modes.find(m => m.id === globalState.mode
 const toggleTheme = () => {
   const newTheme = globalState.theme === 'dark' ? 'light' : 'dark';
   API.SaveThemePreference(newTheme === 'dark');
+};
+
+const handleToggleMaximise = async () => {
+  WindowToggleMaximise();
+  // 延迟检查，确保状态已同步
+  setTimeout(async () => {
+    isMaximized.value = await (window as any).runtime.WindowIsMaximised();
+  }, 50);
 };
 
 const handleClose = async () => {
@@ -170,19 +179,14 @@ watch(() => globalState.theme, (val) => {
 }, { immediate: true });
 
 onMounted(async () => {
-  // 1. 初始化同步 (必须赋值给 globalState)
   const state = await (API as any).SyncState();
   if (state) {
     globalState.isRunning = state.isRunning;
   }
 
-  // 2. 监听内核状态变更 (用于实时点亮左下角灯)
-  // 修正：将事件名从 "clash-state-changed" 改为 "app-state-sync"
-  // 并且因为 app-state-sync 返回的是整个 state 对象，需要结构化赋值
   (window as any).runtime.EventsOn("app-state-sync", (state: any) => {
     globalState.isRunning = state.isRunning;
     globalState.mode = state.mode;
-    // 主题等其他状态也会在这里一并更新
   });
 
   try {
@@ -218,6 +222,11 @@ onMounted(async () => {
     // 同时也让后端同步一下，确保状态一致
     (API as any).SyncState();
   });
+
+  // 监听窗口大小变化，同步最大化状态
+  window.addEventListener('resize', async () => {
+    isMaximized.value = await (window as any).runtime.WindowIsMaximised();
+  });
 });
 
 watch(currentTab, (newTab) => {
@@ -232,11 +241,74 @@ watch(currentTab, (newTab) => {
 </script>
 
 <style scoped>
-.window-controls { display: flex; align-items: center; gap: 2px; margin-left: 12px; }
-.ctrl-btn { width: 28px !important; height: 28px !important; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
-.ctrl-btn :deep(svg) { width: 12px; height: 12px; }
-.ctrl-btn:hover { background: var(--surface-hover); }
-.close-btn:hover { background: var(--text-main) !important; color: var(--accent-fg) !important; }
+/* ================================== */
+/* 窗口控制按钮 (右上角)               */
+/* ================================== */
+
+/* 🚀 1. 锁死最外层动作区容器 */
+.top-actions { 
+  display: flex; 
+  align-items: center; 
+  flex-shrink: 0; 
+}
+
+/* 🚀 2. 锁死按钮包裹区 */
+.window-controls { 
+  display: flex; 
+  align-items: center; 
+  gap: 6px; /* 恢复间距，让独立的圆角矩形更好看 */
+  margin-left: 12px; 
+  flex-shrink: 0; 
+  min-width: max-content; /* 强制占据所需宽度，绝不参与外部宽度挤压 */
+}
+
+/* 🚀 3. 完美还原视觉并双重锁死按钮盒子 */
+.ctrl-btn { 
+  background: transparent;
+  border: none;
+  width: 36px;       /* 恢复更协调的宽度 */
+  height: 32px; 
+  min-width: 36px;   /* 双重锁死：禁止窗口还原瞬间缩小宽度 */
+  min-height: 32px;  /* 双重锁死：禁止窗口还原瞬间缩小高度 */
+  padding: 0; 
+  border-radius: 6px; /* 恢复你喜欢的圆角设计 */
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  color: var(--text-sub);
+  cursor: pointer; 
+  transition: all 0.2s; 
+  flex-shrink: 0; 
+}
+
+/* 🚀 4. 彻底锁死 SVG 的内部渲染框 */
+.ctrl-btn :deep(svg) { 
+  width: 12px !important;      /* 恢复图标大小 */
+  height: 12px !important; 
+  min-width: 12px !important;  /* 终极锁死：确保矢量图在重绘帧中绝对不拉伸 */
+  min-height: 12px !important;
+  display: block;
+  flex-shrink: 0;
+}
+
+/* 保留对 "X" 视觉膨胀感的精细微调 */
+.close-btn :deep(svg) {
+  width: 11.5px !important; 
+  height: 11.5px !important;
+  min-width: 11.5px !important;
+  min-height: 11.5px !important;
+}
+
+.ctrl-btn:hover { 
+  background: var(--surface-hover); 
+  color: var(--text-main); 
+}
+
+/* 还原更好看的 Windows 红色 */
+.close-btn:hover { 
+  background: #E81123 !important; 
+  color: #FFFFFF !important; 
+}
 
 .app-shell { display: flex; flex-direction: column; height: 100vh; color: var(--text-main); }
 .drag-bar { height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 24px; }
@@ -267,16 +339,6 @@ watch(currentTab, (newTab) => {
   line-height: 1.6; 
 }
 
-.l-time { color: var(--text-muted); margin-right: 12px; opacity: 0.8; }
-.l-type { margin-right: 12px; font-weight: 600; }
-
-.log-line.info .l-type { color: var(--text-main); }
-.log-line.warning .l-type { color: var(--text-sub); font-style: italic; }
-.log-line.error .l-type { color: var(--text-main); font-weight: 700; }
-.log-line.debug .l-type { color: var(--text-muted); }
-
-.view-settings { height: 100%; display: flex; flex-direction: column; }
-</style>
 .l-time { color: var(--text-muted); margin-right: 12px; opacity: 0.8; }
 .l-type { margin-right: 12px; font-weight: 600; }
 
