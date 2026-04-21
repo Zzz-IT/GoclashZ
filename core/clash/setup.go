@@ -8,72 +8,93 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"goclashz/core/utils"
 )
 
-// 🎯 核心修复：移除 defer，手动释放句柄，解决 core.zip 删不掉的 Bug
+// 🎯 优化：复用 Wintun 风格的缓冲拷贝逻辑，提升大文件处理速度并增加请求稳定性
 func downloadAndExtractKernel(destDir, finalExePath string) error {
 	kernelURL := "https://ghproxy.net/https://github.com/MetaCubeX/mihomo/releases/download/v1.18.3/mihomo-windows-amd64-v1.18.3.zip"
-	zipPath := filepath.Join(destDir, "core.zip")
+	zipPath := filepath.Join(destDir, "core_temp.zip")
 
-	// 1. 下载
-	resp, err := http.Get(kernelURL)
+	// 1. 下载 ZIP (优化请求与接收流)
+	client := &http.Client{Timeout: 120 * time.Second} // 内核稍大，给 2 分钟超时
+	req, err := http.NewRequest("GET", kernelURL, nil)
 	if err != nil {
-		return fmt.Errorf("下载内核失败: %v", err)
+		return err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) goclashz")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("下载内核网络错误: %v", err)
 	}
 	defer resp.Body.Close()
 
-	out, err := os.Create(zipPath)
-	if err != nil {
-		return fmt.Errorf("创建压缩包失败: %v", err)
-	}
-	_, err = io.Copy(out, resp.Body)
-	out.Close()
-	if err != nil {
-		return fmt.Errorf("写入压缩包失败: %v", err)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("服务器返回错误状态码: %d", resp.StatusCode)
 	}
 
-	// 2. 解压
+	out, err := os.Create(zipPath)
+	if err != nil {
+		return fmt.Errorf("创建临时文件失败: %v", err)
+	}
+
+	// 使用缓冲拷贝提高磁盘写入速度
+	buf := make([]byte, 32*1024)
+	_, err = io.CopyBuffer(out, resp.Body, buf)
+	out.Close()
+	if err != nil {
+		os.Remove(zipPath)
+		return fmt.Errorf("写入压缩包异常中断: %v", err)
+	}
+
+	// 2. 解压并提取 (修复解除文件锁定逻辑)
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
 		os.Remove(zipPath)
 		return fmt.Errorf("解压读取失败: %v", err)
 	}
-	// ❌ 这里千万不能写 defer r.Close()
 
+	found := false
 	for _, f := range r.File {
-		if strings.HasSuffix(f.Name, ".exe") {
+		if strings.HasSuffix(strings.ToLower(f.Name), ".exe") {
 			rc, err := f.Open()
 			if err != nil {
-				r.Close() // 提前释放
+				r.Close()
 				return err
 			}
-			
+
 			outFile, err := os.Create(finalExePath)
 			if err != nil {
 				rc.Close()
-				r.Close() // 提前释放
+				r.Close()
 				return err
 			}
-			
-			_, err = io.Copy(outFile, rc)
+
+			// 再次使用缓冲提升解压释放速度
+			_, err = io.CopyBuffer(outFile, rc, buf)
 			outFile.Close()
 			rc.Close()
-			
+
 			if err != nil {
-				r.Close() // 提前释放
+				r.Close()
 				return err
 			}
+			found = true
 			break
 		}
 	}
 
-	// ✅ 手动关闭压缩包句柄，释放 Windows 文件锁
+	// 3. 安全清理临时压缩包 (必须先释放 Reader)
 	r.Close()
-	
-	// 现在可以100%成功删除 core.zip 了
-	os.Remove(zipPath) 
+	os.Remove(zipPath)
+
+	if !found {
+		return fmt.Errorf("在内核压缩包中未找到 .exe 执行文件")
+	}
+
 	return nil
 }
 

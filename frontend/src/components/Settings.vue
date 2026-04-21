@@ -73,8 +73,8 @@
             <h4>Mihomo 内核</h4>
             <p>当前版本: v1.18.3</p>
           </div>
-          <button class="action-btn" @click="handleUpdate('core')" :disabled="updating">
-            {{ updating ? '正在处理...' : '检查更新' }}
+          <button class="action-btn" @click="handleUpdateCore" :disabled="updatingCore">
+            {{ updatingCore ? '正在处理...' : '检查更新' }}
           </button>
         </div>
 
@@ -85,8 +85,8 @@
             <h4>Wintun 驱动 (DLL)</h4>
             <p>当前版本: 0.14.1</p>
           </div>
-          <button class="action-btn" @click="handleUpdate('wintun')" :disabled="updating">
-            重新安装
+          <button class="action-btn" @click="installDriver" :disabled="isInstalling">
+            {{ isInstalling ? '正在处理...' : '重新安装' }}
           </button>
         </div>
         
@@ -591,22 +591,17 @@ const view = ref(props.initialView as 'main' | 'uwp' | 'tun' | 'dns' | 'network'
 watch(() => props.initialView, (newVal) => { view.value = newVal as any; });
 
 const isInstalling = ref(false);
-const updating = ref(false);
+const updatingCore = ref(false);
 
-const handleUpdate = async (type: string) => {
-  updating.value = true;
+const handleUpdateCore = async () => {
+  updatingCore.value = true;
   try {
-    if (type === 'core') {
-      await (API as any).UpdateCoreComponent();
-      await showAlert("内核更新成功！", "通知");
-    } else if (type === 'wintun') {
-      await installDriver(); // 复用原有的驱动安装逻辑
-      await showAlert("驱动准备就绪", "通知");
-    }
+    await (API as any).UpdateCoreComponent();
+    await showAlert("内核更新成功！", "通知");
   } catch (e) {
     await showAlert("更新失败: " + e, "错误");
   } finally {
-    updating.value = false;
+    updatingCore.value = false;
   }
 };
 const tunStatus = ref<Record<string, boolean>>({ hasWintun: false, isAdmin: false });
