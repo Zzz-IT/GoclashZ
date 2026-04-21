@@ -413,9 +413,20 @@ func (a *App) ToggleSystemProxy(enable bool) error {
 			a.mu.Unlock()
 			return err
 		}
+
+		// ✅ 核心修复：动态读取真实端口
+		proxyPort := 7890 // 默认兜底端口
+		if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil {
+			if netCfg.MixedPort != 0 {
+				proxyPort = netCfg.MixedPort
+			} else if netCfg.Port != 0 {
+				proxyPort = netCfg.Port
+			}
+		}
+
 		// 2. 开启 Windows 系统代理
 		bypass := "localhost;127.*;10.*;172.16.*;192.168.*;<local>"
-		err := sys.EnableSystemProxy("127.0.0.1", 7890, bypass)
+		err := sys.EnableSystemProxy("127.0.0.1", proxyPort, bypass)
 		a.SyncState()
 		return err
 	} else {
@@ -850,6 +861,13 @@ func (a *App) StartStreamingLogs() {
 		a.mu.Unlock()
 		return
 	}
+
+	// ✅ 核心加固：防御性清理残留的 cancel 函数，防止 Goroutine 泄露
+	if a.cancelLogs != nil {
+		a.cancelLogs()
+		a.cancelLogs = nil
+	}
+
 	a.logRunning = true
 	// 👈 创建独立的子 Context 控制日志
 	logCtx, cancel := context.WithCancel(a.ctx)
@@ -1118,15 +1136,21 @@ func (a *App) RenameConfig(oldName, newName string) error {
 			return fmt.Errorf("文件重命名失败，已恢复原状态: %v", err)
 		}
 
-		// ✅ 重命名成功，更新为 newName 再启动
+		// ✅ 核心修复：重新加锁执行 CAS 状态校验
 		a.mu.Lock()
-		a.activeConfig = newName 
-		a.mu.Unlock()
-		
-		a.saveActiveConfig(newName) // 移出锁外
-		
-		clash.BuildRuntimeConfig(newName, mode)
-		a.ensureCoreRunning()
+		// 仅当 activeConfig 仍是刚才重命名的文件时，才予以更新
+		if a.activeConfig == oldName {
+			a.activeConfig = newName
+			a.mu.Unlock() // 尽早释放锁
+
+			// 耗时的磁盘操作放在锁外
+			a.saveActiveConfig(newName) 
+			
+			clash.BuildRuntimeConfig(newName, mode)
+			a.ensureCoreRunning()
+		} else {
+			a.mu.Unlock() // 如果已经被其他协程修改，则放弃覆盖
+		}
 	}
 
 	return err

@@ -82,6 +82,8 @@ export namespace clash {
 	}
 	
 	export class NetworkConfig {
+	    port: number;
+	    mixedPort: number;
 	    ipv6: boolean;
 	    unifiedDelay: boolean;
 	    tcpConcurrent: boolean;
@@ -95,6 +97,8 @@ export namespace clash {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.port = source["port"];
+	        this.mixedPort = source["mixedPort"];
 	        this.ipv6 = source["ipv6"];
 	        this.unifiedDelay = source["unifiedDelay"];
 	        this.tcpConcurrent = source["tcpConcurrent"];

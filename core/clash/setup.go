@@ -85,28 +85,32 @@ func downloadAndExtractKernel(destDir, finalExePath string) error {
 		os.Remove(zipPath)
 		return fmt.Errorf("解压失败: %v", err)
 	}
-	defer r.Close()
 
 	for _, f := range r.File {
 		if strings.HasSuffix(f.Name, ".exe") {
 			rc, err := f.Open()
 			if err != nil {
+				r.Close()
 				return err
 			}
 			outFile, err := os.Create(finalExePath)
 			if err != nil {
 				rc.Close()
+				r.Close()
 				return err
 			}
 			_, err = io.Copy(outFile, rc)
 			outFile.Close()
 			rc.Close()
 			if err != nil {
+				r.Close()
 				return err
 			}
 			break
 		}
 	}
+	
+	r.Close()
 	os.Remove(zipPath)
 	return nil
 }

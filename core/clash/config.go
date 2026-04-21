@@ -34,6 +34,8 @@ type ClashConfig struct {
 
 // NetworkConfig 基础网络配置
 type NetworkConfig struct {
+	Port                 int    `yaml:"port" json:"port"`
+	MixedPort            int    `yaml:"mixed-port" json:"mixedPort"`
 	IPv6                 bool   `yaml:"ipv6" json:"ipv6"`
 	UnifiedDelay         bool   `yaml:"unified-delay" json:"unifiedDelay"`
 	TCPConcurrent        bool   `yaml:"tcp-concurrent" json:"tcpConcurrent"`
@@ -406,6 +408,8 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 
 	// 默认值设置
 	conf := &NetworkConfig{
+		Port:                 0,
+		MixedPort:            7890,
 		IPv6:                 false,
 		UnifiedDelay:         true,
 		TCPConcurrent:        true,
@@ -415,6 +419,12 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 	}
 
 	// 从 yaml 根路径读取
+	if v, ok := root["port"].(int); ok {
+		conf.Port = v
+	}
+	if v, ok := root["mixed-port"].(int); ok {
+		conf.MixedPort = v
+	}
 	if v, ok := root["ipv6"].(bool); ok {
 		conf.IPv6 = v
 	}
@@ -454,6 +464,12 @@ func UpdateNetworkConfig(newCfg *NetworkConfig) error {
 	}
 
 	// 直接注入根节点
+	if newCfg.Port != 0 {
+		root["port"] = newCfg.Port
+	}
+	if newCfg.MixedPort != 0 {
+		root["mixed-port"] = newCfg.MixedPort
+	}
 	root["ipv6"] = newCfg.IPv6
 	root["unified-delay"] = newCfg.UnifiedDelay
 	root["tcp-concurrent"] = newCfg.TCPConcurrent
@@ -556,8 +572,16 @@ func BuildRuntimeConfig(profileName string, mode string) error {
 	}
 
 	// 👇 新增：强制注入混合代理端口和外部控制 API
-	// 确保在不启用 TUN 时，系统代理 (7890) 依然能够将流量送入内核
-	root["mixed-port"] = 7890
+	// 确保在不启用 TUN 时，系统代理能够将流量送入内核
+	if userNet != nil && userNet.MixedPort != 0 {
+		root["mixed-port"] = userNet.MixedPort
+	} else if userNet != nil && userNet.Port != 0 {
+		// 如果只有 Port 没有 MixedPort，优先保证连通性
+		root["port"] = userNet.Port
+		delete(root, "mixed-port")
+	} else {
+		root["mixed-port"] = 7890
+	}
 	root["allow-lan"] = true
 	root["external-controller"] = "127.0.0.1:9090"
 	root["secret"] = "" // 确保没有意外的密码阻挡前端 WebSocket
