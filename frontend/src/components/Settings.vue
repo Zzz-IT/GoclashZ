@@ -187,12 +187,12 @@
 
         <div class="setting-item">
           <div class="info"><h4>堆栈 (Stack)</h4></div>
-          <select class="modern-select" v-model="tunConfig.stack" @change="saveTun" :disabled="!tunStatus.hasWintun">
-            <option value="gvisor">gVisor</option>
-            <option value="mixed">Mixed</option>
-            <option value="system">System</option>
-            <option value="lwip">LWIP</option>
-          </select>
+          <ModernSelect 
+            v-model="tunConfig.stack" 
+            :options="stackOptions" 
+            @change="saveTun" 
+            :disabled="!tunStatus.hasWintun" 
+          />
         </div>
 
         <div class="divider"></div>
@@ -288,11 +288,12 @@
 
         <div class="setting-item">
           <div class="info"><h4>增强模式 (Enhanced Mode)</h4></div>
-          <select class="modern-select" v-model="dnsConfig.enhancedMode" @change="saveDns" :disabled="!dnsConfig.enable">
-            <option value="fake-ip">Fake-IP</option>
-            <option value="redir-host">Redir-Host</option>
-            <option value="normal">Normal</option>
-          </select>
+          <ModernSelect 
+            v-model="dnsConfig.enhancedMode" 
+            :options="enhancedModeOptions" 
+            @change="saveDns" 
+            :disabled="!dnsConfig.enable" 
+          />
         </div>
         <div class="divider"></div>
 
@@ -550,13 +551,11 @@
             <h4>内核日志等级 (Log Level)</h4>
             <p>调整核心输出的日志详细程度。如遇到问题无法排查，可改为 debug。</p>
           </div>
-          <select class="modern-select" v-model="behavior.logLevel" @change="saveBehavior">
-            <option value="info">Info (默认)</option>
-            <option value="warning">Warning</option>
-            <option value="error">Error</option>
-            <option value="debug">Debug</option>
-            <option value="silent">Silent</option>
-          </select>
+          <ModernSelect 
+            v-model="behavior.logLevel" 
+            :options="logLevelOptions" 
+            @change="saveBehavior" 
+          />
         </div>
         <div class="divider"></div>
 
@@ -652,6 +651,7 @@ import { ref, onMounted, watch, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { showAlert } from '../store';
 import { ICONS } from '../utils/icons';
+import ModernSelect from './ModernSelect.vue';
 
 const props = defineProps({
   initialView: {
@@ -678,6 +678,27 @@ const dbList = [
   { key: 'asn', title: 'ASN', behaviorKey: 'asnLink' },
 ];
 const dbTitles: Record<string, string> = { geoip: 'GeoIP', geosite: 'GeoSite', mmdb: 'MMDB', asn: 'ASN' };
+
+const stackOptions = [
+  { label: 'gVisor', value: 'gvisor' },
+  { label: 'Mixed', value: 'mixed' },
+  { label: 'System', value: 'system' },
+  { label: 'LWIP', value: 'lwip' }
+];
+
+const enhancedModeOptions = [
+  { label: 'Fake-IP', value: 'fake-ip' },
+  { label: 'Redir-Host', value: 'redir-host' },
+  { label: 'Normal', value: 'normal' }
+];
+
+const logLevelOptions = [
+  { label: '调试 (Debug)', value: 'debug' },
+  { label: '信息 (Info)', value: 'info' },
+  { label: '警告 (Warning)', value: 'warning' },
+  { label: '错误 (Error)', value: 'error' },
+  { label: '静默 (Silent)', value: 'silent' }
+];
 
 const showDbModal = ref(false);
 const editingDb = ref({ type: '', link: '' });
