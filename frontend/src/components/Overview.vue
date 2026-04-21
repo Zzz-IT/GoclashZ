@@ -39,7 +39,7 @@
     </section>
 
     <section class="switch-row">
-      <div class="action-card" :class="{ 'on': status.systemProxy }" @click="toggleSysProxy">
+      <div class="action-card" :class="{ 'on': status.systemProxy, 'is-disabled': isToggling }" @click="toggleSysProxy">
         <div class="card-content">
           <div class="icon-ring" v-html="ICONS.sysProxy"></div>
           <div class="text-group">
@@ -50,7 +50,7 @@
         <div class="status-node"></div>
       </div>
 
-      <div class="action-card" :class="{ 'on': status.tun }" @click="toggleTun">
+      <div class="action-card" :class="{ 'on': status.tun, 'is-disabled': isToggling }" @click="toggleTun">
         <div class="card-content">
           <div class="icon-ring" v-html="ICONS.tun"></div>
           <div class="text-group">
@@ -83,8 +83,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
+// 👇 新增：引入 Wails 运行时的事件监听机制
+import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 import { showAlert, showConfirm } from '../store';
 import { ICONS } from '../utils/icons';
 
@@ -95,6 +97,7 @@ defineProps<{
 const status = ref({ systemProxy: false, tun: false });
 const currentMode = ref('rule');
 const clashVersion = ref('');
+const isToggling = ref(false); // 👈 新增：全局开关锁
 
 const modes = [
   { label: '规则分流', val: 'rule' },
@@ -135,6 +138,9 @@ const refreshData = async () => {
 };
 
 const toggleSysProxy = async () => {
+  if (isToggling.value) return; // 🔒 拦截重复点击
+  isToggling.value = true;
+
   const originalValue = status.value.systemProxy;
   status.value.systemProxy = !originalValue; // 🚀 乐观更新：立即切换状态，消除操作停顿感
   try {
@@ -144,10 +150,15 @@ const toggleSysProxy = async () => {
   } catch (err) {
     status.value.systemProxy = originalValue; // 失败则回滚
     await showAlert("操作系统代理失败: " + err, '错误');
+  } finally {
+    isToggling.value = false; // 🔓 执行完毕，解锁
   }
 };
 
 const toggleTun = async () => {
+  if (isToggling.value) return; // 🔒 拦截重复点击
+  isToggling.value = true;
+
   const originalValue = status.value.tun;
   status.value.tun = !originalValue; // 🚀 乐观更新：点击即切换，后台慢慢处理
   try {
@@ -157,6 +168,8 @@ const toggleTun = async () => {
   } catch (err) {
     status.value.tun = originalValue; // 失败则回滚
     await showAlert("操作虚拟网卡失败: " + err, '错误');
+  } finally {
+    isToggling.value = false; // 🔓 执行完毕，解锁
   }
 };
 
@@ -167,6 +180,26 @@ const handleModeChange = (val: string) => {
 
 onMounted(() => {
   refreshData();
+
+  // 👇 新增：监听后端(如托盘菜单)触发的状态同步事件
+  EventsOn("app-state-sync", (state: any) => {
+    // 1. 同步出站路由模式
+    if (state.mode) {
+      currentMode.value = state.mode;
+    }
+
+    // 2. 静默拉取最新的系统代理和 TUN 状态，并更新 UI
+    API.GetProxyStatus().then((res: any) => {
+      status.value = res;
+      // 可选：触发一个全局自定义事件，如果有其他组件需要也可以接上
+      window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: status.value }));
+    });
+  });
+});
+
+// 👇 新增：当页面被销毁时注销监听，防止事件重复绑定和内存泄漏
+onUnmounted(() => {
+  EventsOff("app-state-sync");
 });
 </script>
 
@@ -280,6 +313,11 @@ onMounted(() => {
 }
 .action-card:hover { background: var(--surface-hover); }
 .action-card.on { background: var(--accent); }
+
+.action-card.is-disabled {
+  pointer-events: none;
+  opacity: 0.7;
+}
 
 .icon-ring { 
   width: 40px; height: 40px; border-radius: 12px; background: var(--surface-hover);

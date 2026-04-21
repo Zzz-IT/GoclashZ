@@ -43,10 +43,18 @@ type App struct {
 	mSysProxy *systray.MenuItem
 	mTun      *systray.MenuItem
 
+	// 👇 新增：用来控制出站路由托盘打勾状态的指针
+	mModeRule   *systray.MenuItem
+	mModeGlobal *systray.MenuItem
+	mModeDirect *systray.MenuItem
+
 	// 👈 新增：专用于应用行为配置的内存缓存及读写锁
 	behaviorCache AppBehavior
 	behaviorMu    sync.RWMutex
 	updateMu      sync.Mutex // 👈 新增：全局统一的组件更新锁，防止任何更新互相冲突
+
+	// 👇 新增：内核启停锁，防止并发操作导致端口抢占
+	coreLifecycleMu sync.Mutex
 }
 
 // AppBehavior 定义应用行为设置
@@ -391,6 +399,9 @@ func (a *App) GetProxyStatus() ProxyStatus {
 
 // ToggleSystemProxy 开关 1：系统代理
 func (a *App) ToggleSystemProxy(enable bool) error {
+	a.coreLifecycleMu.Lock()         // 🔒 加锁
+	defer a.coreLifecycleMu.Unlock() // 🔓 退出时自动解锁
+
 	a.mu.Lock()
 	a.sysProxyActive = enable
 	needCore := a.sysProxyActive || a.tunActive
@@ -434,6 +445,9 @@ func (a *App) ToggleSystemProxy(enable bool) error {
 
 // ToggleTunMode 开关 2：虚拟网卡 (TUN)
 func (a *App) ToggleTunMode(enable bool) error {
+	a.coreLifecycleMu.Lock()         // 🔒 加锁
+	defer a.coreLifecycleMu.Unlock() // 🔓 退出时自动解锁
+
 	if enable {
 		if !sys.IsWintunInstalled() {
 			return fmt.Errorf("缺失 Wintun 驱动，请先在设置中安装")
@@ -1435,6 +1449,24 @@ func (a *App) SyncState() {
 			a.mTun.Uncheck()
 		}
 	}
+
+	// 👇 新增：同步出站路由的托盘单选状态
+	if a.mModeRule != nil {
+		// 先全部取消勾选
+		a.mModeRule.Uncheck()
+		a.mModeGlobal.Uncheck()
+		a.mModeDirect.Uncheck()
+
+		// 再根据当前真实状态单独勾选
+		switch state.Mode {
+		case "rule":
+			a.mModeRule.Check()
+		case "global":
+			a.mModeGlobal.Check()
+		case "direct":
+			a.mModeDirect.Check()
+		}
+	}
 }
 
 // ==========================================
@@ -1460,6 +1492,14 @@ func (a *App) onTrayReady() {
 	mShow := systray.AddMenuItem("显示主界面", "打开 GoclashZ 面板")
 	systray.AddSeparator() // ----------------------
 
+	// 👇 新增：创建出站路由的子菜单
+	mModeMenu := systray.AddMenuItem("出站路由", "切换流量分流模式")
+	a.mModeRule = mModeMenu.AddSubMenuItemCheckbox("规则分流 (Rule)", "", false)
+	a.mModeGlobal = mModeMenu.AddSubMenuItemCheckbox("全局代理 (Global)", "", false)
+	a.mModeDirect = mModeMenu.AddSubMenuItemCheckbox("直接连接 (Direct)", "", false)
+
+	systray.AddSeparator() // ----------------------
+
 	a.mSysProxy = systray.AddMenuItemCheckbox("系统代理", "全局接管 Windows 流量", false)
 	a.mTun = systray.AddMenuItemCheckbox("虚拟网卡", "虚拟网卡底层接管", false)
 
@@ -1477,12 +1517,23 @@ func (a *App) onTrayReady() {
 	}
 	a.mu.RUnlock()
 
+	// ⚡ 调用同步方法，给当前的模式打勾
+	a.SyncState()
+
 	// ⚡ 核心：开启常驻监听协程，绝不能阻塞当前函数
 	go func() {
 		for {
 			select {
 			case <-mShow.ClickedCh:
 				runtime.WindowShow(a.ctx)
+
+			// 👇 新增：监听三个路由模式的点击事件
+			case <-a.mModeRule.ClickedCh:
+				_ = a.UpdateClashMode("rule")
+			case <-a.mModeGlobal.ClickedCh:
+				_ = a.UpdateClashMode("global")
+			case <-a.mModeDirect.ClickedCh:
+				_ = a.UpdateClashMode("direct")
 
 			case <-a.mSysProxy.ClickedCh:
 				// 获取当前状态的反转值
