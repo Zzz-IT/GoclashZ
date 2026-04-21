@@ -59,9 +59,10 @@ func initDirs() {
 		dataDir = filepath.Join(configDir, "GoclashZ")
 	}
 
-	// 确保最终决定的数据目录存在
+	// 确保基础目录存在
 	os.MkdirAll(dataDir, 0755)
-	os.MkdirAll(filepath.Join(dataDir, "profiles"), 0755) // 用于存放各种节点配置文件
+	os.MkdirAll(filepath.Join(dataDir, "profiles"), 0755)
+	os.MkdirAll(filepath.Join(dataDir, "core", "bin"), 0755) // 提前建好内核目录
 }
 
 // isDirWritable 测试目标目录是否可写 (通过静默创建和删除测试文件)
@@ -82,8 +83,9 @@ func GetAppDir() string {
 }
 
 // GetCoreBinDir 返回 clash.exe 所在目录 (只读)
+// 🎯 核心修复：内核存放目录转移到 DataDir
 func GetCoreBinDir() string {
-	return filepath.Join(appDir, "core", "bin")
+	return filepath.Join(dataDir, "core", "bin")
 }
 
 // GetDataDir 返回全局用户数据目录 (动态决定)

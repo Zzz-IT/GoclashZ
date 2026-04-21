@@ -9,6 +9,8 @@ import (
 	"strconv" // 👈 新增导入
 	"strings"
 	"time"
+
+	"goclashz/core/utils" // 引入全局路径包
 )
 
 // SubInfo 👈 新增结构体
@@ -48,11 +50,6 @@ func ParseSubInfo(header string) *SubInfo {
 // UpdateSubscription 下载 YAML 订阅
 // 如果 targetName 为空，则自动根据 URL 生成文件名
 func UpdateSubscription(subURL string, targetName string, userAgent string) (string, *SubInfo, error) {
-	pwd, err := os.Getwd()
-	if err != nil {
-		return "", nil, err
-	}
-
 	// 1. 决定文件名
 	fileName := targetName
 	if fileName == "" {
@@ -63,7 +60,7 @@ func UpdateSubscription(subURL string, targetName string, userAgent string) (str
 		fileName += ".yaml"
 	}
 
-	configPath := filepath.Join(pwd, "core", "bin", fileName)
+	configPath := filepath.Join(utils.GetProfilesDir(), fileName)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", subURL, nil)
@@ -93,12 +90,13 @@ func UpdateSubscription(subURL string, targetName string, userAgent string) (str
 
 	out, err := os.Create(configPath)
 	if err != nil {
-		return "", nil, err
+		return "", nil, fmt.Errorf("无法创建配置文件(权限不足或目录不存在): %v", err)
 	}
 
 	_, err = io.Copy(out, resp.Body)
 	out.Close()
 	if err != nil {
+		os.Remove(configPath) // 写入失败时清理残缺文件
 		return "", nil, err
 	}
 

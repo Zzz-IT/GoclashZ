@@ -73,8 +73,8 @@ func Start(ctx context.Context) error {
 		os.Remove(pidFile)
 	}
 
-	// 传入 config 路径
-	if err := PrepareEnv(binDir, exePath, runtimeConfig); err != nil {
+	// 准备环境 (检查内核与基础配置)
+	if err := PrepareEnv(); err != nil {
 		return err
 	}
 
