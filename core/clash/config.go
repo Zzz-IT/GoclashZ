@@ -39,6 +39,7 @@ type NetworkConfig struct {
 	TCPKeepAlive         bool   `yaml:"tcp-keep-alive" json:"tcpKeepAlive"`
 	TCPKeepAliveInterval int    `yaml:"tcp-keep-alive-interval" json:"tcpKeepAliveInterval"`
 	TestURL              string `yaml:"test-url" json:"testUrl"` // 👈 新增
+	Hosts                string `yaml:"-" json:"hosts"`         // 👈 新增：作为字符串传递给前端
 }
 
 // OfflineGroup 专供前端在“未启动”状态下展示的节点组结构
@@ -443,6 +444,13 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 		conf.TestURL = v
 	}
 
+	// 👈 新增：读取 hosts 字段并转换为 YAML 字符串
+	if v, ok := root["hosts"]; ok {
+		if hostsData, err := yaml.Marshal(v); err == nil {
+			conf.Hosts = string(hostsData)
+		}
+	}
+
 	return conf, nil
 }
 
@@ -475,6 +483,16 @@ func UpdateNetworkConfig(newCfg *NetworkConfig) error {
 	root["tcp-keep-alive"] = newCfg.TCPKeepAlive
 	root["tcp-keep-alive-interval"] = newCfg.TCPKeepAliveInterval
 	root["test-url"] = newCfg.TestURL // 👈 保存到 root 以便下次读取
+
+	// 👈 新增：解析并保存 hosts
+	if newCfg.Hosts != "" {
+		var hostsMap map[string]interface{}
+		if err := yaml.Unmarshal([]byte(newCfg.Hosts), &hostsMap); err == nil {
+			root["hosts"] = hostsMap
+		}
+	} else {
+		delete(root, "hosts")
+	}
 
 	out, err := yaml.Marshal(root)
 	if err != nil {
@@ -524,6 +542,14 @@ func BuildRuntimeConfig(profileName string, mode string) error {
 		root["tcp-concurrent"] = userNet.TCPConcurrent
 		root["tcp-keep-alive"] = userNet.TCPKeepAlive
 		root["tcp-keep-alive-interval"] = userNet.TCPKeepAliveInterval
+
+		// 👈 新增：注入自定义 Hosts 映射
+		if userNet.Hosts != "" {
+			var hostsMap map[string]interface{}
+			if err := yaml.Unmarshal([]byte(userNet.Hosts), &hostsMap); err == nil {
+				root["hosts"] = hostsMap
+			}
+		}
 	}
 
 	// 注入 TUN 配置

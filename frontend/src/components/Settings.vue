@@ -441,6 +441,23 @@
             placeholder="http://www.gstatic.com/generate_204" 
           />
         </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item col-item">
+          <div class="info">
+            <h4>本地 Hosts 映射 (Hosts)</h4>
+            <p>手动指定域名与 IP 的映射关系。对接 DNS 设置中的「使用 Hosts」选项。</p>
+          </div>
+          <textarea 
+            class="modern-textarea" 
+            v-model="netConfig.hosts" 
+            @blur="saveNet" 
+            rows="6" 
+            placeholder="'example.com': 127.0.0.1 (请遵循 YAML 键值对格式)"
+            style="margin-top: 10px; font-family: var(--font-mono); font-size: 0.85rem;"
+          ></textarea>
+        </div>
       </div>
     </div>
 
@@ -658,7 +675,8 @@ const netConfig = ref({
   tcpConcurrent: true,
   tcpKeepAlive: true,
   tcpKeepAliveInterval: 15,
-  testUrl: 'http://www.gstatic.com/generate_204'
+  testUrl: 'http://www.gstatic.com/generate_204',
+  hosts: ''
 });
 
 const behavior = ref({

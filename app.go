@@ -940,10 +940,63 @@ func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 	return err
 }
 
-// 3. 提供给前端：安装驱动
+// 3. 提供给前端：安装驱动 (加入安全回滚与防占用机制)
 func (a *App) InstallTunDriver(force bool) (string, error) {
-	// 直接调用重构后的方法，它已内部集成了专属的 ZIP 解析逻辑
-	return sys.InstallWintun(force)
+	binDir := utils.GetCoreBinDir()
+	dllPath := filepath.Join(binDir, "wintun.dll")
+	backupPath := filepath.Join(binDir, "wintun_backup.dll")
+
+	// 🎯 核心修复：如果是检查更新模式且已存在，直接返回，不触发备份逻辑
+	if !force && sys.IsWintunInstalled() {
+		return "ALREADY_LATEST", nil
+	}
+
+	// 1. 如果当前正在使用 TUN 模式，必须先关闭，否则 Windows 会锁死 DLL 导致重命名/覆盖失败
+	a.mu.RLock()
+	wasTunActive := a.tunActive
+	a.mu.RUnlock()
+
+	if wasTunActive {
+		_ = a.ToggleTunMode(false)
+		time.Sleep(300 * time.Millisecond) // 等待系统解除对 DLL 的文件锁定
+	}
+
+	// 2. 如果存在旧驱动，先将其重命名为备份文件
+	hasOldDll := false
+	if _, err := os.Stat(dllPath); err == nil {
+		os.Remove(backupPath) // 确保备份档无残留
+		if err := os.Rename(dllPath, backupPath); err == nil {
+			hasOldDll = true
+		}
+	}
+
+	// 3. 执行真正的底层下载/解压安装逻辑 (此时 force 必然为 true 或者文件原本就不存在)
+	status, err := sys.InstallWintun(force)
+
+	// 4. 灾难恢复与回滚
+	if err != nil {
+		// 安装失败 -> 摧毁可能损坏的残留文件 -> 还原备份
+		os.Remove(dllPath)
+		if hasOldDll {
+			_ = os.Rename(backupPath, dllPath)
+		}
+		
+		// 恢复原有的 TUN 运行状态
+		if wasTunActive {
+			_ = a.ToggleTunMode(true)
+		}
+		return "", fmt.Errorf("Wintun 驱动安装失败，已安全还原旧版本: %v", err)
+	}
+
+	// 5. 更新彻底成功，过河拆桥销毁备份
+	os.Remove(backupPath)
+	
+	// 如果用户更新前开着 TUN，更新完帮他自动无缝切回去
+	if wasTunActive {
+		_ = a.ToggleTunMode(true)
+	}
+
+	return status, nil
 }
 func (a *App) GetDNSConfig() (*clash.DNSConfig, error) {
 	return clash.GetDNSConfig()
@@ -1511,7 +1564,7 @@ func normalizeVersion(v string) string {
 	return strings.TrimPrefix(strings.TrimSpace(v), "v")
 }
 
-// UpdateCoreComponent 触发安全更新机制
+// UpdateCoreComponent 触发安全更新机制：无缝下载，原子替换
 func (a *App) UpdateCoreComponent() (string, error) {
 	binDir := utils.GetCoreBinDir()
 	exePath := filepath.Join(binDir, "clash.exe")
@@ -1519,63 +1572,88 @@ func (a *App) UpdateCoreComponent() (string, error) {
 	// 1. 获取本地版本
 	localVersion := getLocalCoreVersion(exePath)
 
-	// 2. 获取线上最新版本和下载链接
+	// 2. 走 API 获取最新版本和下载链接
 	directURL, latestVersion, err := getLatestMihomoAssetURL("windows", "amd64", ".zip")
 	if err != nil {
 		return "", err
 	}
 
-	// 3. 版本比对，如果相同则直接打断
+	// 3. 拦截：如果已经是最新，直接返回
 	if localVersion != "" && latestVersion != "" && normalizeVersion(localVersion) == normalizeVersion(latestVersion) {
 		return "ALREADY_LATEST", nil
 	}
 
-	// --- 4. 开始更新：安全停机 ---
+	// ==========================================
+	// ⚡ 以下是无感下载阶段 (此时代理仍在正常运行！)
+	// ==========================================
+	tempZip := filepath.Join(binDir, "core_temp.zip")
+	newExePath := filepath.Join(binDir, "clash_new.exe")
+	
+	// 4. 下载到临时压缩包
+	err = downloadFileWithRetry(tempZip, directURL)
+	if err != nil {
+		return "", fmt.Errorf("下载新内核失败: %v", err)
+	}
+	
+	// 5. 提取新 .exe 到一旁备用
+	err = clash.ExtractKernel(tempZip, newExePath)
+	os.Remove(tempZip) // 解压完直接把 zip 删了
+	if err != nil {
+		os.Remove(newExePath)
+		return "", fmt.Errorf("解压内核失败，已清理残留: %v", err)
+	}
+
+	// ==========================================
+	// ⚡ 以下是原子替换阶段 (仅在此刻产生百毫秒级的断流)
+	// ==========================================
+	
 	a.mu.RLock()
 	wasActive := a.sysProxyActive || a.tunActive
 	a.mu.RUnlock()
 
+	// 停机准备换核
 	a.stopCoreService()
-	time.Sleep(500 * time.Millisecond) // 等待文件句柄释放
+	time.Sleep(300 * time.Millisecond) // 等待 Windows 彻底释放旧文件占用锁
 
-	// 5. 备份旧版本
 	backupPath := filepath.Join(binDir, "clash_backup.exe")
-	_ = os.Rename(exePath, backupPath)
-
-	// 6. 优先使用国内镜像下载新版本压缩包
-	tempZip := filepath.Join(binDir, "core_temp.zip")
-	err = downloadFileWithRetry(tempZip, directURL)
+	os.Remove(backupPath) // 确保历史备份档为空
+	
+	// 6. 重命名：旧版 -> 备份
+	renameErr := os.Rename(exePath, backupPath)
+	if renameErr != nil && !os.IsNotExist(renameErr) {
+		// 锁定旧文件失败(极低概率)，立刻取消操作，恢复运行
+		os.Remove(newExePath)
+		if wasActive { a.ensureCoreRunning() }
+		return "", fmt.Errorf("内核文件被锁定无法替换: %v", renameErr)
+	}
+	
+	// 7. 重命名：新版 -> 正式服
+	err = os.Rename(newExePath, exePath)
 	if err != nil {
-		// 下载失败 -> 还原备份 -> 拉起进程 -> 报错
+		// 灾难恢复：新版更名失败，立刻把老版换回来！
+		os.Remove(newExePath)
 		_ = os.Rename(backupPath, exePath)
 		if wasActive { a.ensureCoreRunning() }
-		return "", fmt.Errorf("下载内核失败，已无损还原旧版本: %v", err)
+		return "", fmt.Errorf("部署新内核失败，已安全回滚: %v", err)
 	}
 
-	// 7. 解压缩
-	err = clash.ExtractKernel(tempZip, exePath)
-	if err != nil {
-		// 解压失败 -> 删除残次品 -> 还原备份 -> 拉起进程 -> 报错
-		os.Remove(tempZip)
-		os.Remove(exePath)
-		_ = os.Rename(backupPath, exePath)
-		if wasActive { a.ensureCoreRunning() }
-		return "", fmt.Errorf("解压缩内核失败，已无损还原旧版本: %v", err)
-	}
-
-	// 8. 更新成功，清理临时文件和备份旧文件
-	os.Remove(tempZip)
-	os.Remove(backupPath)
-
-	// 9. 重新拉起新内核代理服务
+	// 8. 拉起新内核进行可用性验证
 	if wasActive {
 		if startErr := a.ensureCoreRunning(); startErr != nil {
+			// ⚠️ 灾难恢复：新内核架构不对或启动报错，立即执行最终回滚！
+			a.stopCoreService()
+			os.Remove(exePath)                 // 摧毁损坏的新内核
+			_ = os.Rename(backupPath, exePath) // 复活老内核
+			a.ensureCoreRunning()              // 重新启动
 			a.SyncState()
-			return "", fmt.Errorf("新内核已就绪，但由于某些原因启动失败: %v", startErr)
+			return "", fmt.Errorf("新内核损坏或不兼容，已自动回滚至稳定版: %v", startErr)
 		}
 	}
 
+	// 9. 更新彻底成功，过河拆桥销毁备份
+	os.Remove(backupPath)
 	a.SyncState()
+	
 	return "SUCCESS", nil
 }
 

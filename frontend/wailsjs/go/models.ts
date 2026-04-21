@@ -90,6 +90,7 @@ export namespace clash {
 	    tcpKeepAlive: boolean;
 	    tcpKeepAliveInterval: number;
 	    testUrl: string;
+	    hosts: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new NetworkConfig(source);
@@ -105,6 +106,7 @@ export namespace clash {
 	        this.tcpKeepAlive = source["tcpKeepAlive"];
 	        this.tcpKeepAliveInterval = source["tcpKeepAliveInterval"];
 	        this.testUrl = source["testUrl"];
+	        this.hosts = source["hosts"];
 	    }
 	}
 	export class RuleInfo {

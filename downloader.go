@@ -64,65 +64,58 @@ func getLatestMihomoAssetURL(platform, arch, fileExt string) (string, string, er
 
 // downloadFileWithRetry 带重试机制和多源 fallback 的下载器
 func downloadFileWithRetry(targetPath string, directURL string) error {
+	// 👉 核心修复 1：严格遵循 国内镜像优先 -> GitHub 兜底 的策略
 	urlsToTry := []string{
-		directURL,
-		"https://ghproxy.net/" + directURL,
 		"https://ghfast.top/" + directURL,
+		"https://ghproxy.net/" + directURL,
+		directURL,
 	}
 
-	maxRetries := 3 
 	os.MkdirAll(filepath.Dir(targetPath), 0755)
+	var finalErr error
 
 	for _, url := range urlsToTry {
-		for attempt := 1; attempt <= maxRetries; attempt++ {
-			if attempt > 1 {
-				time.Sleep(time.Duration(attempt*2) * time.Second) 
-			}
+		// 👉 核心修复 2：精细化超时控制，摒弃全局超时
+		client := &http.Client{
+			Transport: &http.Transport{
+				// 仅限制握手和响应头等待时间。5秒内连不上直接拉闸，换下一个源！
+				ResponseHeaderTimeout: 5 * time.Second, 
+				IdleConnTimeout:       10 * time.Second,
+			},
+		}
 
-			// ⚠️ 修复：优化 HttpClient 配置，避免 60 秒硬超时截断大文件
-			client := &http.Client{
-				// Timeout: 60 * time.Second, // 删掉全局超时
-				Transport: &http.Transport{
-					ResponseHeaderTimeout: 15 * time.Second, // 仅对等待服务器响应头设置超时
-					IdleConnTimeout:       30 * time.Second,
-				},
-			}
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) goclashz")
 
-			req, _ := http.NewRequest("GET", url, nil)
-			req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) goclashz")
+		resp, err := client.Do(req)
+		if err != nil {
+			finalErr = err
+			continue // 发生错误（如连接超时），光速切换下一个源
+		}
 
-			resp, err := client.Do(req)
+		if resp.StatusCode == http.StatusOK {
+			out, err := os.Create(targetPath)
 			if err != nil {
-				continue 
+				resp.Body.Close()
+				return err
 			}
 
-			if resp.StatusCode == http.StatusNotFound {
-				resp.Body.Close()
-				break 
+			// 缓冲流拷贝，控制内存并在断流时抛出 err
+			buf := make([]byte, 32*1024)
+			_, err = io.CopyBuffer(out, resp.Body, buf)
+			
+			resp.Body.Close()
+			out.Close()
+
+			if err == nil {
+				return nil // ✅ 只要完整下载成功一个，直接结束
 			}
-
-			if resp.StatusCode == http.StatusOK {
-				out, err := os.Create(targetPath)
-				if err != nil {
-					resp.Body.Close()
-					return err
-				}
-
-				// ⚠️ 修复：使用 io.CopyBuffer 控制内存并提供更稳定的流式写入
-				buf := make([]byte, 32*1024) // 32KB 缓冲
-				_, err = io.CopyBuffer(out, resp.Body, buf)
-				
-				resp.Body.Close()
-				out.Close()
-
-				if err == nil {
-					return nil 
-				}
-			} else {
-				resp.Body.Close()
-			}
+			finalErr = err // 下载中途断开，记录错误并继续循环
+		} else {
+			resp.Body.Close()
+			finalErr = fmt.Errorf("源返回非200状态码: %d", resp.StatusCode)
 		}
 	}
 
-	return fmt.Errorf("所有下载源与重试均告失败")
+	return fmt.Errorf("所有下载源均失败: %v", finalErr)
 }
