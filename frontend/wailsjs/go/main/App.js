@@ -174,6 +174,10 @@ export function SelectProxy(arg1, arg2) {
   return window['go']['main']['App']['SelectProxy'](arg1, arg2);
 }
 
+export function SetupSystray() {
+  return window['go']['main']['App']['SetupSystray']();
+}
+
 export function StartConnectionMonitor() {
   return window['go']['main']['App']['StartConnectionMonitor']();
 }

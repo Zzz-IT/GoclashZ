@@ -39,6 +39,10 @@ type App struct {
 	sysProxyActive bool
 	tunActive      bool
 
+	// 👇 新增：用来控制托盘打勾状态的指针
+	mSysProxy *systray.MenuItem
+	mTun      *systray.MenuItem
+
 	// 👈 新增：专用于应用行为配置的内存缓存及读写锁
 	behaviorCache AppBehavior
 	behaviorMu    sync.RWMutex
@@ -493,7 +497,6 @@ func (a *App) RestartCore() error {
 	return nil
 }
 
-
 func NewApp() *App {
 	return &App{
 		offlineNodes:   make(map[string]string),
@@ -524,8 +527,12 @@ func (a *App) startup(ctx context.Context) {
 	// 启动后台守护任务 (Goroutine)
 	go a.startDaemonTasks()
 
-	// 👈 新增：在后台协程中启动系统托盘
-	go a.setupTray()
+	// 不要在这里直接执行 systray.Run
+	// 利用 Goroutine 和极短的延迟，避开 WebView2 最消耗资源的初始化瞬间
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		a.SetupSystray()
+	}()
 }
 
 func (a *App) startDaemonTasks() {
@@ -994,7 +1001,7 @@ func (a *App) InstallTunDriver(force bool) (string, error) {
 		if hasOldDll {
 			_ = os.Rename(backupPath, dllPath)
 		}
-		
+
 		// 恢复原有的 TUN 运行状态
 		if wasTunActive {
 			_ = a.ToggleTunMode(true)
@@ -1004,7 +1011,7 @@ func (a *App) InstallTunDriver(force bool) (string, error) {
 
 	// 5. 更新彻底成功，过河拆桥销毁备份
 	os.Remove(backupPath)
-	
+
 	// 如果用户更新前开着 TUN，更新完帮他自动无缝切回去
 	if wasTunActive {
 		_ = a.ToggleTunMode(true)
@@ -1412,49 +1419,107 @@ func (a *App) SyncState() {
 		HideLogs:  behavior.HideLogs,
 	}
 	runtime.EventsEmit(a.ctx, "app-state-sync", state)
+
+	// 👇 追加：同步更新系统托盘的 UI 勾选状态
+	if a.mSysProxy != nil {
+		if a.sysProxyActive {
+			a.mSysProxy.Check()
+		} else {
+			a.mSysProxy.Uncheck()
+		}
+	}
+	if a.mTun != nil {
+		if a.tunActive {
+			a.mTun.Check()
+		} else {
+			a.mTun.Uncheck()
+		}
+	}
 }
 
 // ==========================================
 // --- 系统托盘功能 (新增) ---
 // ==========================================
 
-// setupTray 启动托盘
-func (a *App) setupTray() {
-	systray.Run(a.onReady, a.onExit)
+// 🎯 修复托盘消失 Bug：延迟初始化机制
+// 不要在 Wails 的 OnStartup 里直接拉起托盘，会和 WebView2 抢线程
+// 建议在 Wails 的 OnDomReady 钩子里调用此方法，或者在 OnStartup 里包一层 goroutine 并短暂休眠
+func (a *App) SetupSystray() {
+	// 使用独立的 Goroutine 隔离 Windows 事件循环
+	go systray.Run(a.onTrayReady, a.onTrayExit)
 }
 
-// onReady 配置托盘菜单与事件监听
-func (a *App) onReady() {
+func (a *App) onTrayReady() {
 	// 设置托盘图标和悬浮提示
 	systray.SetIcon(iconData)
 	systray.SetTitle("GoclashZ")
-	systray.SetTooltip("GoclashZ 正在后台运行")
+	systray.SetTooltip("GoclashZ 代理客户端")
 
-	// 创建右键菜单项
-	mShow := systray.AddMenuItem("显示主面板", "打开应用主窗口")
-	systray.AddSeparator() // 添加一条分割线
-	mQuit := systray.AddMenuItem("完全退出", "关闭内核并退出程序")
 
-	// 监听用户的菜单点击操作
+	// --- 严格按照图片的 UI 布局 ---
+	mShow := systray.AddMenuItem("显示主界面", "打开 GoclashZ 面板")
+	systray.AddSeparator() // ----------------------
+
+	a.mSysProxy = systray.AddMenuItemCheckbox("系统代理", "全局接管 Windows 流量", false)
+	a.mTun = systray.AddMenuItemCheckbox("虚拟网卡", "虚拟网卡底层接管", false)
+
+	systray.AddSeparator() // ----------------------
+	mRestart := systray.AddMenuItem("重启内核", "热重启 Mihomo 进程")
+	mQuit := systray.AddMenuItem("退出程序", "彻底退出客户端")
+
+	// 初始状态同步
+	a.mu.RLock()
+	if a.sysProxyActive {
+		a.mSysProxy.Check()
+	}
+	if a.tunActive {
+		a.mTun.Check()
+	}
+	a.mu.RUnlock()
+
+	// ⚡ 核心：开启常驻监听协程，绝不能阻塞当前函数
 	go func() {
 		for {
 			select {
 			case <-mShow.ClickedCh:
-				// 🚀 点击托盘呼出时，打开窗口且触发任务栏闪烁
 				runtime.WindowShow(a.ctx)
-				a.FlashWindow()
+
+			case <-a.mSysProxy.ClickedCh:
+				// 获取当前状态的反转值
+				targetState := !a.mSysProxy.Checked()
+				err := a.ToggleSystemProxy(targetState)
+				if err == nil {
+					a.SyncState() // 会通知前端
+				} else {
+					fmt.Printf("托盘切换系统代理失败: %v\n", err)
+				}
+
+			case <-a.mTun.ClickedCh:
+				targetState := !a.mTun.Checked()
+				err := a.ToggleTunMode(targetState)
+				if err == nil {
+					a.SyncState() // 会通知前端
+				} else {
+					fmt.Printf("托盘切换 TUN 失败: %v\n", err)
+				}
+
+			case <-mRestart.ClickedCh:
+				// 调用你之前写好的安全重启逻辑
+				_, _ = a.UpdateCoreComponent()
+
 			case <-mQuit.ClickedCh:
-				// 退出托盘图标
+				// 先停内核，再退托盘，最后杀进程
+				a.stopCoreService()
 				systray.Quit()
-				// 调用 Wails 的 Quit，这会自动触发你写的 a.shutdown 进行网络清理，然后退出进程
 				runtime.Quit(a.ctx)
+				return // 退出这个监听死循环
 			}
 		}
 	}()
 }
 
-func (a *App) onExit() {
-	// 托盘结束时的收尾工作（一般留空即可）
+func (a *App) onTrayExit() {
+	// Windows 下的托盘清理逻辑
 }
 
 // ==========================================
@@ -1558,7 +1623,7 @@ func getLocalCoreVersion(exePath string) string {
 	if err != nil {
 		return ""
 	}
-	
+
 	str := string(out)
 	parts := strings.Fields(str)
 	for _, p := range parts {
@@ -1602,13 +1667,13 @@ func (a *App) UpdateCoreComponent() (string, error) {
 	// ==========================================
 	tempZip := filepath.Join(binDir, "core_temp.zip")
 	newExePath := filepath.Join(binDir, "clash_new.exe")
-	
+
 	// 4. 下载到临时压缩包
 	err = downloadFileWithRetry(tempZip, directURL)
 	if err != nil {
 		return "", fmt.Errorf("下载新内核失败: %v", err)
 	}
-	
+
 	// 5. 提取新 .exe 到一旁备用
 	err = clash.ExtractKernel(tempZip, newExePath)
 	os.Remove(tempZip) // 解压完直接把 zip 删了
@@ -1622,7 +1687,7 @@ func (a *App) UpdateCoreComponent() (string, error) {
 	// ==========================================
 	a.updateMu.Lock()         // 👈 加上全局组件更新锁
 	defer a.updateMu.Unlock() // 👈 加上全局组件更新锁
-	
+
 	a.mu.RLock()
 	wasActive := a.sysProxyActive || a.tunActive
 	a.mu.RUnlock()
@@ -1633,23 +1698,27 @@ func (a *App) UpdateCoreComponent() (string, error) {
 
 	backupPath := filepath.Join(binDir, "clash_backup.exe")
 	os.Remove(backupPath) // 确保历史备份档为空
-	
+
 	// 6. 重命名：旧版 -> 备份
 	renameErr := os.Rename(exePath, backupPath)
 	if renameErr != nil && !os.IsNotExist(renameErr) {
 		// 锁定旧文件失败(极低概率)，立刻取消操作，恢复运行
 		os.Remove(newExePath)
-		if wasActive { a.ensureCoreRunning() }
+		if wasActive {
+			a.ensureCoreRunning()
+		}
 		return "", fmt.Errorf("内核文件被锁定无法替换: %v", renameErr)
 	}
-	
+
 	// 7. 重命名：新版 -> 正式服
 	err = os.Rename(newExePath, exePath)
 	if err != nil {
 		// 灾难恢复：新版更名失败，立刻把老版换回来！
 		os.Remove(newExePath)
 		_ = os.Rename(backupPath, exePath)
-		if wasActive { a.ensureCoreRunning() }
+		if wasActive {
+			a.ensureCoreRunning()
+		}
 		return "", fmt.Errorf("部署新内核失败，已安全回滚: %v", err)
 	}
 
@@ -1669,7 +1738,7 @@ func (a *App) UpdateCoreComponent() (string, error) {
 	// 9. 更新彻底成功，过河拆桥销毁备份
 	os.Remove(backupPath)
 	a.SyncState()
-	
+
 	return "SUCCESS", nil
 }
 
@@ -1865,7 +1934,7 @@ func (a *App) GetGeoDatabaseInfo() map[string]GeoFileInfo {
 
 	for key, name := range files {
 		path := filepath.Join(binDir, name)
-		
+
 		// 针对 GeoIP 可能的 .dat 后缀做兼容检查
 		if key == "geoip" {
 			if _, err := os.Stat(path); os.IsNotExist(err) {
