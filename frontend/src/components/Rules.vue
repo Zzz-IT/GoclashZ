@@ -138,7 +138,7 @@ const handleAdd = async () => {
 };
 
 const handleDeleteRequest = async (idx: number) => {
-  const ok = await showConfirm('确定要永久删除这条规则吗？此操作不可撤销。', '删除规则');
+  const ok = await showConfirm('确定要永久删除这条规则吗？此操作不可撤销。', '删除规则', true);
   if (ok) {
     try {
       await API.DeleteRule(idx);

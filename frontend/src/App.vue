@@ -59,7 +59,7 @@
       <div v-if="globalState.modal.show" class="modal-overlay" @click.self="handleModalCancel">
         <div class="custom-modal-card" @click.stop>
           <div class="modal-header">
-            <h3 :class="{ 'danger-text': globalState.modal.type === 'confirm' }">
+            <h3 :class="{ 'danger-text': globalState.modal.isDanger }">
               {{ globalState.modal.title }}
             </h3>
           </div>
@@ -70,7 +70,7 @@
             <div class="modal-footer">
               <template v-if="globalState.modal.type === 'confirm'">
                 <button class="action-btn flex-1" @click="handleModalCancel">取消</button>
-                <button class="primary-btn accent-btn red-text-btn flex-1" @click="handleModalConfirm">确定</button>
+                <button class="primary-btn accent-btn flex-1" :class="{ 'red-text-btn': globalState.modal.isDanger }" @click="handleModalConfirm">确定</button>
               </template>
               
               <template v-else>

@@ -161,7 +161,7 @@ const closeDetail = () => {
 };
 
 const closeAll = async () => {
-  const ok = await showConfirm('确定要强行切断当前所有的网络连接吗？', '强行断开全部');
+  const ok = await showConfirm('确定要强行切断当前所有的网络连接吗？', '强行断开全部', true);
   if (ok) {
     try {
       await (API as any).CloseAllConnections();
@@ -173,7 +173,7 @@ const closeAll = async () => {
 };
 
 const closeSingleConnection = async (id: string) => {
-  const ok = await showConfirm(`确定要强行断开连接吗？`, '断开连接');
+  const ok = await showConfirm(`确定要强行断开连接吗？`, '断开连接', true);
   if (!ok) return;
   
   try {
@@ -217,41 +217,46 @@ const closeSingleConnection = async (id: string) => {
 .conn-footer { 
   display: flex; 
   justify-content: space-between; 
-  align-items: flex-end; 
-  font-size: 0.8rem; 
-  color: var(--text-muted); 
-  margin-top: 4px; 
+  align-items: center; 
+  font-size: 0.85rem; 
+  color: var(--text-sub); 
+  margin-top: 10px; 
 }
 
 .time-info { 
   display: flex; 
   align-items: center; 
-  gap: 4px;
+  gap: 6px;
+  font-weight: 500;
 }
 
 .traffic-info { 
   display: flex; 
-  gap: 6px; 
+  gap: 8px; 
 }
 
 .transfer { 
   display: flex; 
   align-items: center; 
-  gap: 4px;
+  gap: 5px;
   background: var(--surface-hover); 
-  padding: 4px 8px; 
+  padding: 4px 10px; 
   border-radius: 6px; 
+  font-weight: 600;
+  font-size: 0.8rem;
 }
 
-/* 上下行颜色区分 - 取消彩色，使用统一的次要文本色 */
-.up { color: inherit; }
-.down { color: inherit; }
+/* 统一字色，保持纯净感 */
+.up, .down { color: var(--text-main); }
 
 .icon-svg { 
   display: flex; 
   align-items: center; 
   justify-content: center; 
+  opacity: 0.8;
 }
+.icon-svg :deep(svg) { width: 12px; height: 12px; }
+.icon-svg :deep(svg) { width: 12px; height: 12px; }
 
 .empty-state { height: 200px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-style: italic; }
 

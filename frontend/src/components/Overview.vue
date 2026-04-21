@@ -117,6 +117,7 @@ const handleRestartCore = async () => {
   try {
     await (API as any).RestartCore();
     await refreshData();
+    await showAlert("内核服务已成功重启", '成功');
   } catch (e) {
     await showAlert("重启失败: " + e, '错误');
   } finally {
@@ -234,12 +235,12 @@ onMounted(() => {
 /* 交互逻辑 2：请求后端加载时，刷新图标持续旋转 */
 .refresh-icon.spin { 
   opacity: 1; 
-  transform: translate(-50%, -50%) rotate(-90deg); 
+  animation: spin-centered 1.2s linear infinite; 
 }
 .refresh-icon.spin .scanner-bar {
   stroke: var(--accent);
   stroke-dasharray: 62.8;
-  animation: scan-dash 1.2s infinite ease-in-out, spin-centered 1.2s linear infinite;
+  animation: scan-dash 1.2s infinite ease-in-out;
 }
 
 @keyframes spin-centered { 

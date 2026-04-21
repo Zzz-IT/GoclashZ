@@ -16,6 +16,7 @@ export const globalState = reactive({
     type: 'alert' as 'alert' | 'confirm',
     title: '',
     message: '',
+    isDanger: false,
     onConfirm: null as Function | null,
     onCancel: null as Function | null,
   }
@@ -27,6 +28,7 @@ export function showAlert(message: string, title: string = '提示'): Promise<vo
     globalState.modal.type = 'alert';
     globalState.modal.title = title;
     globalState.modal.message = message;
+    globalState.modal.isDanger = false;
     globalState.modal.onConfirm = () => resolve();
     globalState.modal.onCancel = () => resolve(); // Alert 模式下点击遮罩层取消也视为 resolve
     globalState.modal.show = true;
@@ -34,11 +36,12 @@ export function showAlert(message: string, title: string = '提示'): Promise<vo
 }
 
 // 全局 Confirm 确认框 (替代原生 confirm)
-export function showConfirm(message: string, title: string = '操作确认'): Promise<boolean> {
+export function showConfirm(message: string, title: string = '操作确认', isDanger: boolean = false): Promise<boolean> {
   return new Promise((resolve) => {
     globalState.modal.type = 'confirm';
     globalState.modal.title = title;
     globalState.modal.message = message;
+    globalState.modal.isDanger = isDanger;
     globalState.modal.onConfirm = () => resolve(true);
     globalState.modal.onCancel = () => resolve(false);
     globalState.modal.show = true;

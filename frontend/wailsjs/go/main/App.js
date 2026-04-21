@@ -114,6 +114,10 @@ export function RenameConfig(arg1, arg2) {
   return window['go']['main']['App']['RenameConfig'](arg1, arg2);
 }
 
+export function RestartCore() {
+  return window['go']['main']['App']['RestartCore']();
+}
+
 export function RunProxy() {
   return window['go']['main']['App']['RunProxy']();
 }

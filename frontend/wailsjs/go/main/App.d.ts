@@ -61,6 +61,8 @@ export function OpenConfigFile(arg1:string):Promise<void>;
 
 export function RenameConfig(arg1:string,arg2:string):Promise<void>;
 
+export function RestartCore():Promise<void>;
+
 export function RunProxy():Promise<void>;
 
 export function SaveAppBehavior(arg1:main.AppBehavior):Promise<void>;

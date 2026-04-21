@@ -456,6 +456,33 @@ func (a *App) ToggleTunMode(enable bool) error {
 	return nil
 }
 
+// RestartCore 供前端调用：安全地重启底层代理内核
+func (a *App) RestartCore() error {
+	// 1. 停止当前运行的内核与流量监控
+	a.stopCoreService()
+
+	// 2. 短暂等待，确保底层的端口释放、TUN 虚拟网卡卸载干净
+	time.Sleep(300 * time.Millisecond)
+
+	// 3. 读取当前应用的接管状态
+	a.mu.RLock()
+	needCore := a.sysProxyActive || a.tunActive
+	a.mu.RUnlock()
+
+	// 4. 如果系统代理或 TUN 至少开了一个，则重新启动内核
+	if needCore {
+		if err := a.ensureCoreRunning(); err != nil {
+			a.SyncState() // 即使失败也要推一次状态
+			return fmt.Errorf("内核重启失败: %v", err)
+		}
+	}
+
+	// 5. 同步最新状态给前端
+	a.SyncState()
+	return nil
+}
+
+
 func NewApp() *App {
 	return &App{
 		offlineNodes:   make(map[string]string),
