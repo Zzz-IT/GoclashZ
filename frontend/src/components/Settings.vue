@@ -1074,10 +1074,53 @@ p {
   gap: 8px;
 }
 
-.modern-input, .modern-select, .modern-textarea { background: var(--surface-hover); border: none; color: var(--text-main); padding: 8px 12px; border-radius: 8px; outline: none; }
+.modern-input, .modern-textarea { background: var(--surface-hover); border: none; color: var(--text-main); padding: 8px 12px; border-radius: 8px; outline: none; }
+
+/* 专属的极简黑白风 Select 样式 */
+.modern-select {
+  background-color: var(--surface-hover);
+  border: 1px solid transparent;
+  color: var(--text-main);
+  /* 右侧 padding 设置为 32px，专门给箭头腾出位置，防止文字被遮挡 */
+  padding: 8px 32px 8px 12px; 
+  border-radius: 8px;
+  outline: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* 🗡️ 核心杀招：扒掉系统的原生默认皮肤与灰色方块箭头 */
+  appearance: none;
+  -webkit-appearance: none;
+  
+  /* 🎨 注入自定义极简纯色 SVG 箭头 (自适应你主题的深灰色) */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23777777' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px;
+}
+
+/* 鼠标悬停交互反馈 */
+.modern-select:hover:not(:disabled) {
+  background-color: var(--surface-panel);
+}
+
+/* 点击展开下拉框时的边框反馈，适配黑白高对比度 */
+.modern-select:focus {
+  border: 1px solid var(--text-sub);
+  background-color: var(--surface);
+}
+
+/* 禁用状态 */
+.modern-select:disabled { 
+  opacity: 0.5; 
+  cursor: not-allowed; 
+}
+
 .modern-input { text-align: right; }
 .modern-textarea { resize: vertical; font-family: monospace; font-size: 0.85rem; line-height: 1.5; text-align: left; }
-.modern-input:disabled, .modern-select:disabled, .modern-textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+.modern-input:disabled, .modern-textarea:disabled { opacity: 0.5; cursor: not-allowed; }
 .num-input { width: 80px; }
 
 .modern-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
@@ -1334,15 +1377,6 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 /* 针对 UWP 专属的返回图标额外修正 */
 .back-icon-svg :deep(svg) {
   width: 18px;
-  height: 18px;
-}
-
-/* 针对新链接和小字 */
-.link-text { font-family: monospace; font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
-
-/* 悬浮弹窗基础覆盖 */
-.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
-</style> 18px;
   height: 18px;
 }
 
