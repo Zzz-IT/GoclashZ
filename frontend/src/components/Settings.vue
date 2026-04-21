@@ -44,6 +44,14 @@
           </div>
           <span class="arrow">➔</span>
         </div>
+
+        <div class="setting-item clickable" @click="showUpdateModal = true">
+          <div class="info">
+            <h4>内核与驱动更新 (Update Center)</h4>
+            <p>检测并更新 Mihomo 内核及 Wintun 驱动文件。</p>
+          </div>
+          <span class="btn-icon chevron" v-html="ICONS.chevronRight"></span>
+        </div>
       </div>
     </div>
 
@@ -523,6 +531,44 @@
       </div>
     </div>
 
+    <!-- 组件更新弹窗 -->
+    <Transition name="pop">
+      <div v-if="showUpdateModal" class="modal-overlay" @click="showUpdateModal = false">
+        <div class="custom-modal-card update-card" @click.stop>
+          <div class="modal-header">
+            <h3>组件更新中心</h3>
+            <button class="close-btn" @click="showUpdateModal = false">×</button>
+          </div>
+          
+          <div class="modal-body">
+            <div class="update-item">
+              <div class="comp-info">
+                <strong>Mihomo 内核</strong>
+                <span>当前版本: v1.18.3</span>
+              </div>
+              <button class="primary-btn mini" @click="handleUpdate('core')" :disabled="updating">
+                {{ updating ? '正在下载...' : '检查更新' }}
+              </button>
+            </div>
+
+            <div class="update-item">
+              <div class="comp-info">
+                <strong>Wintun 驱动 (DLL)</strong>
+                <span>当前版本: 0.14.1</span>
+              </div>
+              <button class="action-btn mini" @click="handleUpdate('wintun')" :disabled="updating">
+                重新安装
+              </button>
+            </div>
+          </div>
+          
+          <div class="modal-footer">
+            <span class="hint-text">更新内核会短暂断开代理连接</span>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
   </div>
 </template>
 
@@ -543,6 +589,25 @@ const view = ref(props.initialView);
 watch(() => props.initialView, (newVal) => { view.value = newVal; });
 
 const isInstalling = ref(false);
+const showUpdateModal = ref(false);
+const updating = ref(false);
+
+const handleUpdate = async (type: string) => {
+  updating.value = true;
+  try {
+    if (type === 'core') {
+      await (API as any).UpdateCoreComponent();
+      await showAlert("内核更新成功！", "通知");
+    } else if (type === 'wintun') {
+      await installDriver(); // 复用原有的驱动安装逻辑
+      await showAlert("驱动准备就绪", "通知");
+    }
+  } catch (e) {
+    await showAlert("更新失败: " + e, "错误");
+  } finally {
+    updating.value = false;
+  }
+};
 const tunStatus = ref<Record<string, boolean>>({ hasWintun: false, isAdmin: false });
 
 const tunConfig = ref({
@@ -1071,5 +1136,27 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 .back-icon-svg :deep(svg) {
   width: 18px;
   height: 18px;
+}
+
+/* 更新中心弹窗样式 */
+.update-card { max-width: 400px; width: 90%; }
+.update-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  background: var(--surface-hover);
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+.comp-info { display: flex; flex-direction: column; gap: 4px; text-align: left; }
+.comp-info strong { font-size: 0.95rem; color: var(--text-main); }
+.comp-info span { font-size: 0.8rem; color: var(--text-sub); }
+.hint-text { font-size: 0.75rem; color: var(--text-muted); font-style: italic; width: 100%; text-align: center; }
+
+.chevron :deep(svg) {
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
 }
 </style>

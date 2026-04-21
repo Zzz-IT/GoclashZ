@@ -6,6 +6,10 @@ export function AddRule(arg1) {
   return window['go']['main']['App']['AddRule'](arg1);
 }
 
+export function CheckComponentUpdate() {
+  return window['go']['main']['App']['CheckComponentUpdate']();
+}
+
 export function CheckTunEnv() {
   return window['go']['main']['App']['CheckTunEnv']();
 }
@@ -200,6 +204,10 @@ export function UpdateAllSubs() {
 
 export function UpdateClashMode(arg1) {
   return window['go']['main']['App']['UpdateClashMode'](arg1);
+}
+
+export function UpdateCoreComponent() {
+  return window['go']['main']['App']['UpdateCoreComponent']();
 }
 
 export function UpdateSingleSub(arg1) {

@@ -7,6 +7,8 @@ import {sys} from '../models';
 
 export function AddRule(arg1:string):Promise<void>;
 
+export function CheckComponentUpdate():Promise<Record<string, string>>;
+
 export function CheckTunEnv():Promise<Record<string, boolean>>;
 
 export function ClearBaseConfig():Promise<void>;
@@ -104,6 +106,8 @@ export function ToggleTunMode(arg1:boolean):Promise<void>;
 export function UpdateAllSubs():Promise<void>;
 
 export function UpdateClashMode(arg1:string):Promise<void>;
+
+export function UpdateCoreComponent():Promise<void>;
 
 export function UpdateSingleSub(arg1:string):Promise<void>;
 

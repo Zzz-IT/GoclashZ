@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"goclashz/core/utils"
 )
 
 const (
@@ -18,14 +20,15 @@ const (
 
 // getWintunPath 获取驱动应该存放的绝对路径 (与 clash.exe 同级)
 func GetWintunPath() string {
-	exePath, _ := os.Executable()
-	return filepath.Join(filepath.Dir(exePath), "core", "bin", "wintun.dll")
+	return filepath.Join(utils.GetCoreBinDir(), "wintun.dll")
 }
 
 // IsWintunInstalled 检查驱动是否存在
 func IsWintunInstalled() bool {
+	// 🎯 核心逻辑：检查 DataDir/core/bin 下是否存在 wintun.dll
+	// 因为只有放在这里的 DLL 才能被我们的内核直接加载
 	_, err := os.Stat(GetWintunPath())
-	return err == nil || !os.IsNotExist(err)
+	return err == nil
 }
 
 // InstallWintun 安装驱动（不再依赖外部下载器，直接处理 ZIP 解压）

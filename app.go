@@ -1412,7 +1412,32 @@ func (a *App) GetAllRules(keyword string) (PagedRules, error) {
 func (a *App) GetUwpApps() ([]sys.UwpApp, error) {
 	return sys.GetUwpAppList()
 }
+// --- 软件更新 (新增) ---
 
+// CheckComponentUpdate 模拟检查更新 (未来可对接 GitHub API)
+func (a *App) CheckComponentUpdate() map[string]string {
+	return map[string]string{
+		"core":   "v1.18.3",
+		"wintun": "0.14.1",
+	}
+}
+
+// UpdateCoreComponent 触发重新下载内核
+func (a *App) UpdateCoreComponent() error {
+	// 1. 停止当前内核防止文件占用
+	a.stopCoreService()
+	time.Sleep(500 * time.Millisecond)
+
+	// 2. 调用 setup.go 里的下载逻辑
+	binDir := utils.GetCoreBinDir()
+	exePath := filepath.Join(binDir, "clash.exe")
+	
+	// 强制删除旧文件以便重新下载
+	os.Remove(exePath)
+	
+	// 重新触发下载和环境准备
+	return clash.PrepareEnv()
+}
 // SaveUwpExemptions 供前端批量保存选中的 SID 列表
 func (a *App) SaveUwpExemptions(sids []string) error {
 	if !sys.CheckAdmin() {

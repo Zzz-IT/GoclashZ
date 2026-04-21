@@ -104,5 +104,38 @@ log-level: info
 		os.WriteFile(configPath, []byte(baseConfig), 0644)
 	}
 
+	// 5. 检查并下载 wintun.dll
+	wintunPath := filepath.Join(binDir, "wintun.dll")
+	if _, err := os.Stat(wintunPath); os.IsNotExist(err) {
+		fmt.Println("👉 未检测到 wintun.dll，正在下载以支持 TUN 模式...")
+		if err := downloadWintun(binDir); err != nil {
+			fmt.Printf("⚠️ wintun.dll 下载失败 (TUN 模式将不可用): %v\n", err)
+		} else {
+			fmt.Println("✅ wintun.dll 准备就绪")
+		}
+	}
+
 	return nil
+}
+
+func downloadWintun(destDir string) error {
+	wintunURL := "https://ghproxy.net/https://github.com/Zzz-IT/GoclashZ/releases/download/v0.0.1/wintun.dll"
+	resp, err := http.Get(wintunURL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	out, err := os.Create(filepath.Join(destDir, "wintun.dll"))
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
 }
