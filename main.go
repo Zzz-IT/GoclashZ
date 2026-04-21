@@ -12,27 +12,95 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	"goclashz/core/utils"
 	syswin "golang.org/x/sys/windows" // 👈 引入 windows 底层包并起别名，避免与 Wails 的 windows 冲突
+	"unsafe"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// 引入 User32.dll 用于唤醒窗口
+var (
+	user32                  = syswin.NewLazySystemDLL("user32.dll")
+	procFindWindow          = user32.NewProc("FindWindowW")
+	procShowWindow          = user32.NewProc("ShowWindow")
+	procGetForegroundWindow = user32.NewProc("GetForegroundWindow") // 👈 新增：用于获取当前系统的焦点窗口
+	procFlashWindowEx       = user32.NewProc("FlashWindowEx")
+)
+
+// FLASHWINFO 结构体，用于配置闪烁行为
+type FLASHWINFO struct {
+	CbSize    uint32
+	Hwnd      syswin.Handle
+	DwFlags   uint32
+	UCount    uint32
+	DwTimeout uint32
+}
+
+const (
+	FLASHW_ALL       = 0x00000003 // 同时闪烁标题栏和任务栏按钮
+	FLASHW_TIMERNOFG = 0x0000000C // 持续闪烁直到窗口被移到前台
+)
+
 func main() {
-	// 🎯 核心修复：Windows 单例锁 (Single Instance Lock)
-	// 防止用户多次双击打开多个后台，导致内核端口被抢占和托盘堆积
-	mutexName, _ := syswin.UTF16PtrFromString("Global\\GoclashZ_Single_Instance_Mutex")
-	mutexHandle, err := syswin.CreateMutex(nil, false, mutexName)
-	if err != nil {
-		fmt.Println("创建互斥锁失败:", err)
+	// 1. 判断是否为 Wails 开发模式 (模仿 Stelliberty 放行 Debug)
+	// 在 Wails Dev 模式下，通常可执行文件路径包含临时目录或 wails-dev
+	exePath, _ := os.Executable()
+	isDebugMode := false
+	if filepath.Base(exePath) == "GoclashZ-dev.exe" || len(os.Getenv("WAILS_DEV_SERVER")) > 0 {
+		isDebugMode = true
+		fmt.Println("👉 Wails 开发模式，跳过单实例检查")
 	}
-	// 如果错误码是 ERROR_ALREADY_EXISTS，说明程序已经在后台运行
-	if syswin.GetLastError() == syswin.ERROR_ALREADY_EXISTS {
-		fmt.Println("GoclashZ 已经在运行中，退出重复进程！")
-		os.Exit(0) 
-	}
-	// 确保程序正常退出时释放锁
-	if mutexHandle != 0 {
-		defer syswin.CloseHandle(mutexHandle)
+
+	// 2. 单实例锁逻辑
+	if !isDebugMode {
+		mutexName, _ := syswin.UTF16PtrFromString("Global\\GoclashZ_Single_Instance_Mutex")
+		mutexHandle, err := syswin.CreateMutex(nil, false, mutexName)
+		
+		// ✅ 核心修复：直接通过系统调用返回的 err 判断，切勿使用 GetLastError()
+		if err != nil {
+			if err == syswin.ERROR_ALREADY_EXISTS {
+				fmt.Println("⚠️ GoclashZ 已经在后台运行！")
+				
+				// 🎯 模仿 Stelliberty 的 UX：试图唤醒已经隐藏的窗口
+				// 这里的 "GoclashZ" 必须与 wails.Run 里的 Title 完全一致
+				windowName, _ := syswin.UTF16PtrFromString("GoclashZ")
+				hwnd, _, _ := procFindWindow.Call(0, uintptr(unsafe.Pointer(windowName)))
+				
+				if hwnd != 0 {
+					// 1. 获取当前系统的焦点窗口
+					fgHwnd, _, _ := procGetForegroundWindow.Call()
+					
+					// 2. 如果 GoclashZ 不是当前的焦点窗口，才执行闪烁
+					if hwnd != fgHwnd {
+						fmt.Println("👉 正在唤醒已有窗口 (闪烁提示)...")
+
+						// 3. 核心：以“不抢占焦点”的方式确保窗口在任务栏可见
+						// SW_SHOWNA = 8 (显示当前状态，但不激活)。
+						procShowWindow.Call(hwnd, 8) 
+						
+						// 4. 执行智能闪烁
+						finfo := FLASHWINFO{
+							CbSize:    uint32(unsafe.Sizeof(FLASHWINFO{})),
+							Hwnd:      syswin.Handle(hwnd),
+							DwFlags:   FLASHW_ALL | FLASHW_TIMERNOFG, // 闪烁直到用户点击它
+							UCount:    0,                             // 0 代表一直闪
+							DwTimeout: 0,                             // 默认闪烁频率
+						}
+						procFlashWindowEx.Call(uintptr(unsafe.Pointer(&finfo)))
+					}
+				}
+				
+				// 唤醒后立即退出当前这个多余的进程
+				os.Exit(0)
+			} else {
+				fmt.Printf("创建互斥锁发生异常: %v\n", err)
+			}
+		}
+
+		// 确保当前程序真的退出时（而不是假死）再释放锁
+		if mutexHandle != 0 {
+			defer syswin.CloseHandle(mutexHandle)
+		}
 	}
 
 	app := NewApp()
