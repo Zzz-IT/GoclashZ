@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -10,12 +11,30 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	"goclashz/core/utils"
+	syswin "golang.org/x/sys/windows" // 👈 引入 windows 底层包并起别名，避免与 Wails 的 windows 冲突
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
 func main() {
+	// 🎯 核心修复：Windows 单例锁 (Single Instance Lock)
+	// 防止用户多次双击打开多个后台，导致内核端口被抢占和托盘堆积
+	mutexName, _ := syswin.UTF16PtrFromString("Global\\GoclashZ_Single_Instance_Mutex")
+	mutexHandle, err := syswin.CreateMutex(nil, false, mutexName)
+	if err != nil {
+		fmt.Println("创建互斥锁失败:", err)
+	}
+	// 如果错误码是 ERROR_ALREADY_EXISTS，说明程序已经在后台运行
+	if syswin.GetLastError() == syswin.ERROR_ALREADY_EXISTS {
+		fmt.Println("GoclashZ 已经在运行中，退出重复进程！")
+		os.Exit(0) 
+	}
+	// 确保程序正常退出时释放锁
+	if mutexHandle != 0 {
+		defer syswin.CloseHandle(mutexHandle)
+	}
+
 	app := NewApp()
 
 	// 1. 👈 动态读取上一次保存的主题

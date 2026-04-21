@@ -231,9 +231,14 @@ const fetchConfigs = async () => {
     const list = await (API as any).GetLocalConfigs();
     localConfigs.value = (list || []).filter((name: string) => !name.endsWith('config.yaml'));
     const data: any = await API.GetInitialData();
-    if (data && data.activeConfig) {
+    
+    // 🎯 核心修复：原本写的是 if (data && data.activeConfig)。
+    // 当所有配置被清空，activeConfig 变成空字符串 "" 时，在 JS 里被视作 false，导致状态无法刷新！
+    // 必须使用 !== undefined 来确保空字符串也能触发状态更新。
+    if (data && data.activeConfig !== undefined) {
       currentPath.value = data.activeConfig;
     }
+    
     subRecords.value = await (API as any).GetSubRecords() || {};
   } catch (e) {
     console.error("同步状态失败:", e);

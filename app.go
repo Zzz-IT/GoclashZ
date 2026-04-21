@@ -577,14 +577,14 @@ func (a *App) StopProxy() error {
 // --- 配置与测速 ---
 
 func (a *App) GetInitialData() (map[string]interface{}, error) {
-	// 👈 核心修复：通过安全方法获取准确的上下文
 	activeConfig := a.getActiveConfig()
 	mode := a.getActiveMode()
 
 	if !clash.IsRunning() {
 		data, err := clash.GetOfflineData(activeConfig)
 		if err != nil {
-			return map[string]interface{}{"mode": mode, "groups": make(map[string]interface{})}, nil
+			// 🎯 核心修复 1：即使离线获取失败（如文件损坏），也必须把 activeConfig 传给前端，防止前端丢失“当前选中”的记忆
+			return map[string]interface{}{"mode": mode, "groups": make(map[string]interface{}), "activeConfig": activeConfig, "isOffline": true}, nil
 		}
 		
 		a.mergeOfflineNodes(data) 
@@ -597,19 +597,18 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 
 	data, err := clash.GetInitialData()
 	if err != nil {
-		// API 宕机/未就绪时触发降级
 		fallbackData, _ := clash.GetOfflineData(activeConfig)
 		if fallbackData != nil {
 			a.mergeOfflineNodes(fallbackData)
 			fallbackData["activeConfig"] = activeConfig
 			fallbackData["isOffline"] = true
-			fallbackData["mode"] = mode // ✅ 使用准确的模式
+			fallbackData["mode"] = mode
 			return fallbackData, nil
 		}
-		return map[string]interface{}{"mode": "rule", "groups": make(map[string]interface{})}, nil
+		// 🎯 核心修复 2：即使 API 失败且降级也失败，依然要将 activeConfig 传出
+		return map[string]interface{}{"mode": mode, "groups": make(map[string]interface{}), "activeConfig": activeConfig, "isOffline": true}, nil
 	}
 
-	// ✅ 核心修复：直接使用准确的局部变量，不要再用可能为空的 a.activeConfig
 	data["activeConfig"] = activeConfig
 	data["mode"] = mode
 	data["isOffline"] = false
