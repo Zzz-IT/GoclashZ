@@ -40,7 +40,7 @@
             <h3>新增分流规则</h3>
           </div>
           <div class="modal-body">
-            <p class="hint">格式: 类型,目标,策略 (例如: DOMAIN-SUFFIX,google.com,Proxy)</p>
+            <p class="global-modal-msg">格式: 类型,目标,策略 (例如: DOMAIN,google.com,Proxy)</p>
             <input v-model="newRuleStr" class="modal-input" placeholder="DOMAIN,example.com,DIRECT" @keyup.enter="handleAdd" />
             <div class="modal-footer">
               <button class="action-btn flex-1" @click="showAddModal = false">取消</button>

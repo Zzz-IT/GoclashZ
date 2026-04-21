@@ -100,20 +100,15 @@
             <h3>导入配置文件</h3>
           </div>
           <div class="modal-body">
-            <div class="section">
-              <label>订阅链接</label>
-              <div class="input-row">
-                <input v-model="url" placeholder="https://..." class="modern-input" />
-                <button class="primary-btn mini" @click="handleDownload" :disabled="!url || loading">下载</button>
-              </div>
+            <p class="global-modal-msg">通过订阅链接下载：</p>
+            <div style="display: flex; gap: 8px;">
+              <input v-model="url" placeholder="https://..." class="modal-input" style="flex: 1;" />
+              <button class="primary-btn mini" style="height: 44px;" @click="handleDownload" :disabled="!url || loading">下载</button>
             </div>
             <div class="divider-text">或者</div>
-            <div class="section">
-              <label>本地导入</label>
-              <button class="action-btn w-full-btn" @click="handleImportLocal">
-                <span class="btn-icon" v-html="ICONS.folder"></span> 浏览本地 YAML 文件
-              </button>
-            </div>
+            <button class="action-btn w-full-btn" @click="handleImportLocal">
+              <span class="btn-icon" v-html="ICONS.folder"></span> 浏览本地 YAML 文件
+            </button>
           </div>
         </div>
 
@@ -123,10 +118,8 @@
             <h3>重命名配置文件</h3>
           </div>
           <div class="modal-body">
-            <div class="section">
-              <label>新名称</label>
-              <input v-model="renameValue" class="modern-input full-width-input" placeholder="输入新文件名" @keyup.enter="confirmRename" />
-            </div>
+            <p class="global-modal-msg">请输入新的文件名称：</p>
+            <input v-model="renameValue" class="modal-input" placeholder="例如: MyConfig.yaml" @keyup.enter="confirmRename" />
             <div class="modal-footer">
               <button class="action-btn flex-1" @click="closeAllModals">取消</button>
               <button class="primary-btn accent-btn flex-1" @click="confirmRename" :disabled="!renameValue || loading">确定</button>
@@ -548,11 +541,6 @@ onUnmounted(() => {
 .icon-btn :deep(svg) { width: 14px !important; height: 14px !important; }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
-.modal-body { display: flex; flex-direction: column; gap: 20px; }
-.section label { display: block; font-size: 0.85rem; color: var(--text-sub); margin-bottom: 8px; font-weight: 600; }
-.input-row { display: flex; gap: 8px; background: var(--surface-hover); padding: 4px 4px 4px 12px; border-radius: 10px; align-items: center; }
-.modern-input { flex: 1; background: transparent; border: none; color: inherit; outline: none; padding: 8px 0; font-size: 0.9rem; }
-.full-width-input { width: 100%; padding: 12px !important; background: var(--surface-hover) !important; border-radius: 10px; }
 .mini { padding: 8px 16px; font-size: 0.85rem; }
 .divider-text { text-align: center; margin: 10px 0; color: var(--text-muted); font-size: 0.75rem; position: relative; }
 .divider-text::before, .divider-text::after { content: ""; position: absolute; top: 50%; width: 40%; height: 1px; background: var(--surface-hover); }

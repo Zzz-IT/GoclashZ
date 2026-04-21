@@ -2,16 +2,20 @@
   <div class="overview-layout">
     <section class="hero-panel card-panel">
       <div class="status-core">
-        <div class="restart-trigger" @click="handleRestartCore" title="重启内核">
-          <div class="orb-visual">
+        <div class="restart-trigger" :class="{ 'is-loading': isRestarting }" @click="handleRestartCore" title="重启内核">
+          <div class="orb-visual" v-show="!isRestarting">
             <div class="orb" :class="{ 'active': isRunning }"></div>
             <div class="orb-glow" v-if="isRunning"></div>
           </div>
-          <span class="refresh-icon" v-html="ICONS.refresh"></span>
+          <!-- 替换为类似测延迟的扫描圈 -->
+          <svg class="refresh-icon scanner-svg" :class="{ 'spin': isRestarting }" viewBox="0 0 24 24">
+            <circle class="scanner-track" cx="12" cy="12" r="10"></circle>
+            <circle class="scanner-bar" cx="12" cy="12" r="10"></circle>
+          </svg>
         </div>
         <div class="status-meta">
           <span class="micro-title">引擎状态</span>
-          <h2 class="status-heading">{{ isRunning ? '接管中' : '服务停止' }}</h2>
+          <h2 class="status-heading">{{ isRestarting ? '内核重启中...' : (isRunning ? '接管中' : '服务停止') }}</h2>
           <span class="version-tag">{{ clashVersion || 'Mihomo Core' }}</span>
         </div>
       </div>
@@ -81,7 +85,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { showAlert } from '../store';
+import { showAlert, showConfirm } from '../store';
 import { ICONS } from '../utils/icons';
 
 defineProps<{
@@ -101,15 +105,22 @@ const modes = [
 const isRunning = computed(() => status.value.systemProxy || status.value.tun);
 const sliderStyle = computed(() => ({ transform: `translateX(${modes.findIndex(m => m.val === currentMode.value) * 100}%)` }));
 
+const isRestarting = ref(false);
+
 const handleRestartCore = async () => {
-  const ok = await (window as any).go.main.App.ShowConfirm("确定要重新启动内核服务吗？这可能会导致短暂的网络中断。", "重启内核");
-  if (ok) {
-    try {
-      await (API as any).RestartCore();
-      await refreshData();
-    } catch (e) {
-      await showAlert("重启失败: " + e, '错误');
-    }
+  if (isRestarting.value) return;
+
+  const ok = await showConfirm("确定要重新启动内核服务吗？这可能会导致短暂的网络中断。", "重启内核");
+  if (!ok) return;
+
+  isRestarting.value = true;
+  try {
+    await (API as any).RestartCore();
+    await refreshData();
+  } catch (e) {
+    await showAlert("重启失败: " + e, '错误');
+  } finally {
+    isRestarting.value = false;
   }
 };
 
@@ -178,24 +189,69 @@ onMounted(() => {
 }
 
 .status-core { display: flex; align-items: center; gap: 20px; }
+
+/* ⬇️ 重置的呼吸灯交互区域 ⬇️ */
 .restart-trigger { 
-  position: relative; width: 44px; height: 44px; 
+  position: relative; width: 56px; height: 56px; /* 进一步加大 */
   display: flex; align-items: center; justify-content: center; 
   cursor: pointer; border-radius: 50%; transition: 0.3s;
 }
 .restart-trigger:hover { background: var(--surface-hover); }
-.orb-visual { position: relative; width: 10px; height: 10px; z-index: 1; }
+.restart-trigger.is-loading { cursor: not-allowed; pointer-events: none; }
+
+.orb-visual { position: relative; width: 10px; height: 10px; z-index: 2; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 .orb { width: 100%; height: 100%; border-radius: 50%; background: var(--text-muted); transition: 0.4s; }
 .orb.active { background: var(--text-main); box-shadow: 0 0 10px var(--text-main); }
 .orb-glow { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 50%; background: var(--text-main); animation: pulse 2s infinite; }
 
+/* 刷新图标：使用扫面圈样式 */
 .refresh-icon { 
-  position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-  display: flex; align-items: center; justify-content: center; 
-  color: var(--text-muted); opacity: 0; transition: 0.3s; transform: scale(0.8);
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%) rotate(-90deg);
+  width: 44px; height: 44px; /* 加大图标尺寸 */
+  opacity: 0.6; /* 默认半透明 */
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.restart-trigger:hover .refresh-icon { opacity: 0.4; transform: scale(1) rotate(90deg); }
-.restart-trigger:hover .orb-visual { opacity: 0.3; }
+
+.scanner-track { fill: none; stroke: var(--surface-hover); stroke-width: 2.5; }
+.scanner-bar {
+  fill: none; stroke: var(--text-muted); stroke-width: 2.5;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  stroke-dasharray: 62.8; 
+  stroke-dashoffset: 62.8; /* 默认不显示 */
+}
+
+/* 交互逻辑 1：普通悬停时，显示部分圆环并旋转 */
+.restart-trigger:hover:not(.is-loading) .refresh-icon { 
+  opacity: 1; 
+  transform: translate(-50%, -50%) rotate(90deg); 
+}
+.restart-trigger:hover:not(.is-loading) .scanner-bar {
+  stroke: var(--text-main);
+  stroke-dashoffset: 20; /* 显示一部分圆环 */
+}
+
+/* 交互逻辑 2：请求后端加载时，刷新图标持续旋转 */
+.refresh-icon.spin { 
+  opacity: 1; 
+  transform: translate(-50%, -50%) rotate(-90deg); 
+}
+.refresh-icon.spin .scanner-bar {
+  stroke: var(--accent);
+  stroke-dasharray: 62.8;
+  animation: scan-dash 1.2s infinite ease-in-out, spin-centered 1.2s linear infinite;
+}
+
+@keyframes spin-centered { 
+  0% { transform: translate(-50%, -50%) rotate(-90deg); }
+  100% { transform: translate(-50%, -50%) rotate(270deg); } 
+}
+@keyframes scan-dash {
+  0% { stroke-dashoffset: 60; }
+  50% { stroke-dashoffset: 15; }
+  100% { stroke-dashoffset: 60; }
+}
+/* ⬆️ 呼吸灯交互样式结束 ⬆️ */
 
 .status-heading { font-size: 1.6rem; font-weight: 600; margin: 4px 0; color: var(--text-main); }
 .version-tag { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-sub); opacity: 0.8; }

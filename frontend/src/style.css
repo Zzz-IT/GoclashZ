@@ -43,6 +43,8 @@
     box-sizing: border-box;
     margin: 0; padding: 0;
     font-family: var(--font-sans) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
 }
 
 html, body, #app {
@@ -69,15 +71,16 @@ html, body, #app {
 /* --- 全局通用 UI 规范 (按钮、弹窗、动画) --- */
 
 /* 1. 基础布局类 */
-.flex-1 { flex: 1; justify-content: center; }
+.flex-1 { flex: 1; }
 
 /* ================================== */
 /* 全局弹窗样式 (统一整合) */
 /* ================================== */
 .modal-overlay {
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex; align-items: center; justify-content: center; z-index: 9999;
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.6); /* 调深阴影，适应黑白高对比 */
+    display: flex; align-items: center; justify-content: center; 
+    z-index: 9999;
 }
 
 .custom-modal-card { 
@@ -95,16 +98,52 @@ html, body, #app {
 .modal-body { display: flex; flex-direction: column; gap: 20px; }
 .global-modal-msg { margin: 0; font-size: 0.9rem; color: var(--text-sub); line-height: 1.6; white-space: pre-wrap; }
 
+.modal-input {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--surface-hover);
+    background: var(--surface);
+    color: var(--text-main);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    outline: none;
+    transition: all 0.2s ease;
+}
+.modal-input:focus {
+    border-color: var(--text-sub);
+    background: var(--surface-panel);
+}
+
 .modal-footer { display: flex; gap: 12px; width: 100%; margin-top: 10px; }
 .danger-text { color: #ff4d4f !important; }
 
-/* 统一缩放动画 */
-.pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1); }
-.pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.95); }
+/* ================================== */
+/* 动画规范 */
+/* ================================== */
+.pop-enter-active { transition: opacity 0.2s ease-out; }
+.pop-leave-active { transition: opacity 0.15s ease-in; }
+.pop-enter-from, .pop-leave-to { opacity: 0; }
+
+.pop-enter-active .custom-modal-card {
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.pop-leave-active .custom-modal-card {
+    transition: transform 0.15s ease-in;
+}
+.pop-enter-from .custom-modal-card {
+    transform: scale(0.9) translateY(10px);
+}
+.pop-leave-to .custom-modal-card {
+    transform: scale(0.95);
+}
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulse { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(2.5); opacity: 0; } }
 
 /* 3. 按钮体系 (按照 Subscriptions 重命名按钮对齐) */
 .primary-btn { 
-    display: flex; align-items: center; gap: 8px; padding: 10px 20px; 
+    display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 20px; 
     border-radius: 8px; border: none; background: var(--text-main); 
     color: var(--accent-fg); font-weight: 600; cursor: pointer; transition: 0.2s; 
 }
@@ -112,7 +151,7 @@ html, body, #app {
 .primary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .action-btn { 
-    display: flex; align-items: center; gap: 8px; padding: 10px 20px; 
+    display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 20px; 
     border-radius: 8px; border: none; background: var(--surface); 
     color: var(--text-main); cursor: pointer; font-weight: 500; transition: 0.2s; 
 }
@@ -122,7 +161,6 @@ html, body, #app {
 .accent-btn {
     background: var(--accent) !important;
     color: var(--accent-fg) !important;
-    justify-content: center;
 }
 
 /* 危险操作红字 */

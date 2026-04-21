@@ -20,7 +20,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/getlantern/systray"         // 👈 2. 新增：引入托盘库
+	"github.com/getlantern/systray" // 👈 2. 新增：引入托盘库
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -28,33 +28,32 @@ import (
 var iconData []byte // 👈 3. 新增：将图标编译进二进制文件中给托盘使用
 
 type App struct {
-	ctx           context.Context
-	cancelTraffic context.CancelFunc
-	cancelLogs    context.CancelFunc
-	logRunning    bool
-	mu            sync.RWMutex      
-	activeConfig  string
-	activeMode    string            
-	offlineNodes  map[string]string 
-	sysProxyActive bool             
-	tunActive      bool             
+	ctx            context.Context
+	cancelTraffic  context.CancelFunc
+	cancelLogs     context.CancelFunc
+	logRunning     bool
+	mu             sync.RWMutex
+	activeConfig   string
+	activeMode     string
+	offlineNodes   map[string]string
+	sysProxyActive bool
+	tunActive      bool
 
 	// 👈 新增：专用于应用行为配置的内存缓存及读写锁
-	behaviorCache  AppBehavior
-	behaviorMu     sync.RWMutex
+	behaviorCache AppBehavior
+	behaviorMu    sync.RWMutex
 }
-
 
 // AppBehavior 定义应用行为设置
 type AppBehavior struct {
-	SilentStart   bool   `json:"silentStart"`   // 静默启动 (不弹窗，直接进托盘)
-	CloseToTray   bool   `json:"closeToTray"`   // 点击关闭时隐藏到托盘
-	LogLevel      string `json:"logLevel"`      // 日志等级
-	HideLogs      bool   `json:"hideLogs"`      
-	SubUA         string `json:"subUA"`         // 订阅更新 User-Agent
+	SilentStart bool   `json:"silentStart"` // 静默启动 (不弹窗，直接进托盘)
+	CloseToTray bool   `json:"closeToTray"` // 点击关闭时隐藏到托盘
+	LogLevel    string `json:"logLevel"`    // 日志等级
+	HideLogs    bool   `json:"hideLogs"`
+	SubUA       string `json:"subUA"` // 订阅更新 User-Agent
 	// 新增：统持久化字段
-	ActiveConfig  string `json:"activeConfig"`
-	ActiveMode    string `json:"activeMode"`
+	ActiveConfig string `json:"activeConfig"`
+	ActiveMode   string `json:"activeMode"`
 }
 
 // 获取配置文件的存放路径
@@ -65,9 +64,9 @@ func (a *App) getAppBehaviorPath() string {
 // 内部初始化缓存的方法，在 startup 中调用
 func (a *App) initBehaviorCache() {
 	defaultConfig := AppBehavior{
-		SilentStart: false, 
-		CloseToTray: true, 
-		LogLevel:    "info", 
+		SilentStart: false,
+		CloseToTray: true,
+		LogLevel:    "info",
 		HideLogs:    false,
 	}
 
@@ -77,7 +76,7 @@ func (a *App) initBehaviorCache() {
 			fmt.Println("行为配置解析失败，使用默认值")
 		}
 	}
-	
+
 	if defaultConfig.LogLevel == "" {
 		defaultConfig.LogLevel = "info"
 	}
@@ -94,20 +93,19 @@ func (a *App) GetAppBehavior() AppBehavior {
 	return a.behaviorCache
 }
 
-
 // 修改保存逻辑，写盘的同时更新缓存
 func (a *App) SaveAppBehavior(config AppBehavior) error {
 	// 1. 写入磁盘
 	data, _ := json.MarshalIndent(config, "", "  ")
 	err := os.WriteFile(a.getAppBehaviorPath(), data, 0644)
-	
+
 	// 2. 更新内存缓存
 	if err == nil {
 		a.behaviorMu.Lock()
 		a.behaviorCache = config
 		a.behaviorMu.Unlock()
 	}
-	
+
 	// 3. 广播与同步
 	runtime.EventsEmit(a.ctx, "behavior-changed", config)
 
@@ -122,7 +120,6 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 	a.SyncState()
 	return err
 }
-
 
 // SubRecord 用于记录文件名与订阅链接的映射
 type SubRecord struct {
@@ -231,41 +228,40 @@ func (a *App) mergeOfflineNodes(data map[string]interface{}) {
 
 // 1. 在 app.go 任意位置新增一个获取程序真实绝对路径的辅助方法
 
-
 // 记录当前选中的配置文件名到本地
 func (a *App) saveActiveConfig(fileName string) {
-    behavior := a.GetAppBehavior()
-    behavior.ActiveConfig = fileName
-    data, _ := json.MarshalIndent(behavior, "", "  ")
-    os.WriteFile(a.getAppBehaviorPath(), data, 0644)
+	behavior := a.GetAppBehavior()
+	behavior.ActiveConfig = fileName
+	data, _ := json.MarshalIndent(behavior, "", "  ")
+	os.WriteFile(a.getAppBehaviorPath(), data, 0644)
 }
 
 // 启动时读取上次选中的配置文件名
 func (a *App) loadActiveConfig() string {
-    return a.GetAppBehavior().ActiveConfig
+	return a.GetAppBehavior().ActiveConfig
 }
 
 // 记录当前选中的模式到本地
 func (a *App) saveActiveMode(mode string) {
-    behavior := a.GetAppBehavior()
-    behavior.ActiveMode = mode
-    data, _ := json.MarshalIndent(behavior, "", "  ")
-    os.WriteFile(a.getAppBehaviorPath(), data, 0644)
+	behavior := a.GetAppBehavior()
+	behavior.ActiveMode = mode
+	data, _ := json.MarshalIndent(behavior, "", "  ")
+	os.WriteFile(a.getAppBehaviorPath(), data, 0644)
 }
 
 // 启动时读取上次选中的模式
 func (a *App) loadActiveMode() string {
-    mode := a.GetAppBehavior().ActiveMode
-    if mode == "" {
-        return "rule"
-    }
-    return mode
+	mode := a.GetAppBehavior().ActiveMode
+	if mode == "" {
+		return "rule"
+	}
+	return mode
 }
 
 // --- 状态获取辅助方法（新增） ---
 
 func (a *App) getActiveConfig() string {
-	a.mu.RLock() 
+	a.mu.RLock()
 	cfg := a.activeConfig
 	a.mu.RUnlock()
 
@@ -315,7 +311,7 @@ func (a *App) ensureCoreRunning() error {
 		}
 	}
 
-	// 启动内核 
+	// 启动内核
 	if err := clash.Start(a.ctx); err != nil {
 		return err
 	}
@@ -366,18 +362,17 @@ func (a *App) stopCoreService() {
 
 // GetProxyStatus 获取当前双轨状态
 func (a *App) GetProxyStatus() ProxyStatus {
-	a.mu.RLock() 
+	a.mu.RLock()
 	sysProxy := a.sysProxyActive
 	// ✅ 优化：不再调用 clash.GetTunConfig() 去读文件，直接读取内存中的 tunActive 状态
 	realTun := a.tunActive && clash.IsRunning()
 	a.mu.RUnlock()
-	
+
 	return ProxyStatus{
 		SystemProxy: sysProxy,
 		Tun:         realTun,
 	}
 }
-
 
 // ToggleSystemProxy 开关 1：系统代理
 func (a *App) ToggleSystemProxy(enable bool) error {
@@ -449,8 +444,8 @@ func (a *App) ToggleTunMode(enable bool) error {
 	a.mu.Unlock()
 
 	// TUN 模式的改变必须重启内核才能生效
-	a.stopCoreService() 
-	
+	a.stopCoreService()
+
 	if needCore {
 		time.Sleep(150 * time.Millisecond) // 等待旧端口释放
 		err := a.ensureCoreRunning()
@@ -463,8 +458,8 @@ func (a *App) ToggleTunMode(enable bool) error {
 
 func NewApp() *App {
 	return &App{
-		offlineNodes: make(map[string]string),
-		activeMode:   "", // 留空，待 loadActiveMode 加载
+		offlineNodes:   make(map[string]string),
+		activeMode:     "", // 留空，待 loadActiveMode 加载
 		sysProxyActive: false,
 		tunActive:      false,
 	}
@@ -473,10 +468,9 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.initBehaviorCache() // 👈 新增：初始化配置缓存
-	
+
 	// 读取行为配置
 	config := a.GetAppBehavior()
-
 
 	// 判断是否静默启动
 	if !config.SilentStart {
@@ -500,7 +494,7 @@ func (a *App) startDaemonTasks() {
 	// 设定定时器：比如每 12 小时更新订阅，每 30 分钟测速
 	subTicker := time.NewTicker(12 * time.Hour)
 	speedTicker := time.NewTicker(30 * time.Minute)
-	
+
 	defer func() {
 		subTicker.Stop()
 		speedTicker.Stop()
@@ -511,7 +505,7 @@ func (a *App) startDaemonTasks() {
 		case <-subTicker.C:
 			// 增加安全锁：每次后台静默更新，最多允许执行 2 分钟，防止 HTTP 卡死
 			updateCtx, cancel := context.WithTimeout(a.ctx, 2*time.Minute)
-			
+
 			// 开启一个 Goroutine 执行，并配合 Context
 			go func(ctx context.Context) {
 				defer cancel()
@@ -524,9 +518,9 @@ func (a *App) startDaemonTasks() {
 
 		case <-speedTicker.C:
 			// 预留后台测速占位
-			
+
 		case <-a.ctx.Done(): // 收到软件完全退出信号
-			return       // 立刻退出守护协程，绝不拖泥带水
+			return // 立刻退出守护协程，绝不拖泥带水
 		}
 	}
 }
@@ -536,7 +530,7 @@ func (a *App) shutdown(ctx context.Context) {
 	fmt.Println("正在关闭 GoclashZ，正在清理网络代理设置...")
 
 	_ = a.ToggleSystemProxy(false) // 关闭系统代理
-	_ = a.ToggleTunMode(false)    // 关闭虚拟网卡
+	_ = a.ToggleTunMode(false)     // 关闭虚拟网卡
 }
 
 // --- 代理核心控制 ---
@@ -567,7 +561,7 @@ func (a *App) StopProxy() error {
 	a.mu.Unlock()
 	sys.DisableSystemProxy()
 	a.stopCoreService()
-	
+
 	a.SyncState() // 👈 关键：同步状态
 	return nil
 }
@@ -588,8 +582,8 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 			// 🎯 核心修复 1：即使离线获取失败（如文件损坏），也必须把 activeConfig 传给前端，防止前端丢失“当前选中”的记忆
 			return map[string]interface{}{"mode": mode, "groups": make(map[string]interface{}), "activeConfig": activeConfig, "isOffline": true}, nil
 		}
-		
-		a.mergeOfflineNodes(data) 
+
+		a.mergeOfflineNodes(data)
 
 		data["activeConfig"] = activeConfig
 		data["mode"] = mode
@@ -631,7 +625,7 @@ func (a *App) TestAllProxies(nodeNames []string) {
 	if !clash.IsRunning() {
 		if err := clash.Start(a.ctx); err != nil {
 			runtime.EventsEmit(a.ctx, "proxy-test-finished", "内核启动失败，无法测速")
-			return 
+			return
 		}
 		time.Sleep(1 * time.Second)
 	}
@@ -640,28 +634,28 @@ func (a *App) TestAllProxies(nodeNames []string) {
 		concurrency := 16 // 稍微提高并发
 		semaphore := make(chan struct{}, concurrency)
 		var wg sync.WaitGroup
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 
 		for _, name := range nodeNames {
 			// 1. 立即发射“开始测速”事件，告诉前端这个节点开始转圈了
 			runtime.EventsEmit(a.ctx, "proxy-test-start", name)
-			
+
 			wg.Add(1)
 			go func(nName string) {
 				defer wg.Done()
-				
+
 				select {
 				case semaphore <- struct{}{}:
 				case <-ctx.Done():
-					return 
+					return
 				}
 				defer func() { <-semaphore }()
 
 				// 2. 向 Clash 内核请求真实测速
 				delay, err := clash.GetProxyDelay(nName)
-				
+
 				// 3. 发射结果
 				if err != nil || delay <= 0 {
 					runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
@@ -688,7 +682,7 @@ func (a *App) UpdateClashMode(mode string) error {
 	a.mu.Lock()
 	a.activeMode = mode
 	isRunning := clash.IsRunning() // 提取内核运行状态
-	a.mu.Unlock() // ✅ 立即释放锁
+	a.mu.Unlock()                  // ✅ 立即释放锁
 
 	// 耗时的磁盘 I/O 放在锁外执行
 	a.saveActiveMode(mode)
@@ -697,7 +691,7 @@ func (a *App) UpdateClashMode(mode string) error {
 		return clash.UpdateMode(mode)
 	}
 
-	activeCfg := a.getActiveConfig() 
+	activeCfg := a.getActiveConfig()
 	if activeCfg != "" {
 		err := clash.BuildRuntimeConfig(activeCfg, mode)
 		a.SyncState()
@@ -706,7 +700,6 @@ func (a *App) UpdateClashMode(mode string) error {
 	a.SyncState()
 	return nil
 }
-
 
 func (a *App) SelectProxy(groupName, nodeName string) error {
 	// ⚠️ 核心修复 1：无论内核是否运行，都将用户的选择同步记录到离线缓存中
@@ -814,7 +807,7 @@ func (a *App) StartTrafficStream() {
 		traffic.StreamTraffic(ctx, func(up, down string) {
 			runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": up, "down": down})
 		})
-		
+
 		// 如果流异常断开，自动清理上下文以便后续可重新启动
 		a.mu.Lock()
 		if a.cancelTraffic != nil {
@@ -912,14 +905,13 @@ func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 	isActive := a.sysProxyActive || a.tunActive
 	a.mu.Unlock()
 
-	if err == nil && isActive { 
+	if err == nil && isActive {
 		a.stopCoreService()
 		time.Sleep(200 * time.Millisecond)
 		a.ensureCoreRunning()
 	}
 	return err
 }
-
 
 // 3. 提供给前端：安装驱动
 func (a *App) InstallTunDriver() error {
@@ -938,14 +930,13 @@ func (a *App) SaveDNSConfig(cfg *clash.DNSConfig) error {
 	isActive := a.sysProxyActive || a.tunActive
 	a.mu.Unlock()
 
-	if err == nil && isActive { 
+	if err == nil && isActive {
 		a.stopCoreService()
 		time.Sleep(200 * time.Millisecond)
 		a.ensureCoreRunning()
 	}
 	return err
 }
-
 
 // 获取基础网络设置
 func (a *App) GetNetworkConfig() (*clash.NetworkConfig, error) {
@@ -1090,7 +1081,7 @@ func (a *App) RenameConfig(oldName, newName string) error {
 	isActiveConfig := (a.activeConfig == oldName)
 	mode := a.activeMode // 提前取出 mode
 	a.mu.Unlock()
-	
+
 	if isActiveConfig && clash.IsRunning() {
 		clash.Stop()
 		time.Sleep(200 * time.Millisecond) // 等待文件句柄释放
@@ -1099,7 +1090,9 @@ func (a *App) RenameConfig(oldName, newName string) error {
 	renameFunc := func() error {
 		if strings.EqualFold(oldName, newName) && oldName != newName {
 			tempPath := newPath + ".tmp"
-			if err := os.Rename(oldPath, tempPath); err != nil { return err }
+			if err := os.Rename(oldPath, tempPath); err != nil {
+				return err
+			}
 			return os.Rename(tempPath, newPath)
 		}
 		return os.Rename(oldPath, newPath)
@@ -1123,8 +1116,8 @@ func (a *App) RenameConfig(oldName, newName string) error {
 			a.mu.Unlock() // 尽早释放锁
 
 			// 耗时的磁盘操作放在锁外
-			a.saveActiveConfig(newName) 
-			
+			a.saveActiveConfig(newName)
+
 			clash.BuildRuntimeConfig(newName, mode)
 			a.ensureCoreRunning()
 		} else {
@@ -1134,7 +1127,6 @@ func (a *App) RenameConfig(oldName, newName string) error {
 
 	return err
 }
-
 
 // OpenConfigFile 使用系统默认应用打开配置文件
 func (a *App) OpenConfigFile(fileName string) error {
@@ -1166,10 +1158,10 @@ func (a *App) ClearBaseConfig() error {
 	a.mu.Lock()
 	a.activeConfig = ""
 	a.saveActiveConfig("") // 清空本地记忆
-	
+
 	// ⚠️ 核心修复 4：所有配置清空时，将离线选择一并清除
-	a.offlineNodes = make(map[string]string) 
-	
+	a.offlineNodes = make(map[string]string)
+
 	a.mu.Unlock()
 
 	// ✅ 改写到安全的数据目录
@@ -1188,12 +1180,12 @@ func (a *App) SelectLocalConfig(fileName string) error {
 	a.activeConfig = fileName
 	mode := a.activeMode // 顺便把 mode 一起取出来，后面不用再加锁
 	wasActive := a.sysProxyActive || a.tunActive
-	a.offlineNodes = make(map[string]string) 
+	a.offlineNodes = make(map[string]string)
 	a.mu.Unlock() // ✅ 立即释放锁
 
 	// 耗时的磁盘 I/O 放在锁外执行
 	a.saveActiveConfig(fileName)
-	
+
 	a.stopCoreService()
 	sys.DisableSystemProxy()
 
@@ -1229,7 +1221,6 @@ func (a *App) SelectLocalConfig(fileName string) error {
 	runtime.EventsEmit(a.ctx, "config-changed", fileName)
 	return nil
 }
-
 
 // --- 规则管理 (新增) ---
 
@@ -1415,6 +1406,7 @@ func (a *App) GetAllRules(keyword string) (PagedRules, error) {
 func (a *App) GetUwpApps() ([]sys.UwpApp, error) {
 	return sys.GetUwpAppList()
 }
+
 // --- 软件更新 (新增) ---
 
 // CheckComponentUpdate 模拟检查更新 (未来可对接 GitHub API)
@@ -1434,13 +1426,14 @@ func (a *App) UpdateCoreComponent() error {
 	// 2. 调用 setup.go 里的下载逻辑
 	binDir := utils.GetCoreBinDir()
 	exePath := filepath.Join(binDir, "clash.exe")
-	
+
 	// 强制删除旧文件以便重新下载
 	os.Remove(exePath)
-	
+
 	// 重新触发下载和环境准备
 	return clash.PrepareEnv()
 }
+
 // SaveUwpExemptions 供前端批量保存选中的 SID 列表
 func (a *App) SaveUwpExemptions(sids []string) error {
 	if !sys.CheckAdmin() {
