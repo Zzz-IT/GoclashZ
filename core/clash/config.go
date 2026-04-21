@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"gopkg.in/yaml.v3"
 	"sync"
+	"goclashz/core/utils"
 )
 
 // 👈 新增：定义一个全局互斥锁，专门保护 config.yaml 的并发 RMW (读-改-写) 操作
@@ -19,11 +20,7 @@ var configMu sync.Mutex
 
 // GetConfigPath 获取 config.yaml 的绝对路径（导出供 app.go 使用，确保路径一致）
 func GetConfigPath() string {
-	exePath, err := os.Executable()
-	if err != nil {
-		return filepath.Join("core", "bin", "config.yaml")
-	}
-	return filepath.Join(filepath.Dir(exePath), "core", "bin", "config.yaml")
+	return filepath.Join(utils.GetDataDir(), "config.yaml")
 }
 
 // ClashConfig 映射完整的 YAML 结构
@@ -63,19 +60,21 @@ type ProxyGroupSchema struct {
 
 // GetOfflineData 核心方法：模拟内核 API 返回的格式，从本地文件中提取数据
 func GetOfflineData(fileName string) (map[string]interface{}, error) {
-	// 1. 获取路径
-	exePath, _ := os.Executable()
-	baseDir := filepath.Dir(exePath)
-
 	// 如果传入了空或者 config.yaml，直接指向主配置
 	if fileName == "" || fileName == "config.yaml" {
 		fileName = "config.yaml"
 	}
-	configPath := filepath.Join(baseDir, "core", "bin", fileName)
+
+	var configPath string
+	if fileName == "config.yaml" {
+		configPath = GetConfigPath()
+	} else {
+		configPath = filepath.Join(utils.GetProfilesDir(), fileName)
+	}
 
 	// 如果文件不存在，回退到主 config.yaml
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		configPath = filepath.Join(baseDir, "core", "bin", "config.yaml")
+		configPath = GetConfigPath()
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -493,8 +492,7 @@ func BuildRuntimeConfig(profileName string, mode string) error {
 	configMu.Lock()         // ✅ 加锁
 	defer configMu.Unlock() // ✅ 保证最终释放
 
-	configPath := GetConfigPath() // 目标: core/bin/config.yaml
-	baseDir := filepath.Dir(configPath)
+	configPath := GetConfigPath() // 目标: DataDir/config.yaml
 
 	// 1. 提取当前界面的全局设置 (避免被覆盖丢失)
 	userDns, _ := GetDNSConfig()
@@ -502,7 +500,7 @@ func BuildRuntimeConfig(profileName string, mode string) error {
 	userNet, _ := GetNetworkConfig()
 
 	// 2. 读取选中的订阅文件作为 "Base Config" (只读模板)
-	profilePath := filepath.Join(baseDir, profileName)
+	profilePath := filepath.Join(utils.GetProfilesDir(), profileName)
 	baseData, err := os.ReadFile(profilePath)
 	if err != nil {
 		return fmt.Errorf("读取基础配置失败: %v", err)
@@ -638,10 +636,10 @@ func GetRules(profileName string) (RuleInfo, error) {
 	// 如果 profileName 为空或者是运行时的 config.yaml，通常属于订阅源或合并后的产物，设为只读
 	isEditable := profileName != "" && profileName != "config.yaml"
 
-	path := GetConfigPath() // 默认指向 core/bin/config.yaml
+	path := GetConfigPath() // 默认指向 DataDir/config.yaml
 	if isEditable {
 		// 指向用户选择的具体本地/订阅配置文件
-		path = filepath.Join(filepath.Dir(path), profileName)
+		path = filepath.Join(utils.GetProfilesDir(), profileName)
 	}
 
 	data, err := os.ReadFile(path)
@@ -675,8 +673,7 @@ func SaveRules(profileName string, newRules []string) error {
 		return fmt.Errorf("当前配置不可直接修改，请在本地配置文件中操作")
 	}
 
-	baseDir := filepath.Dir(GetConfigPath())
-	sourcePath := filepath.Join(baseDir, profileName)
+	sourcePath := filepath.Join(utils.GetProfilesDir(), profileName)
 
 	// 1. 读取并修改原始导入文件 (保留其他配置不变)
 	data, err := os.ReadFile(sourcePath)
@@ -702,9 +699,7 @@ func SaveRules(profileName string, newRules []string) error {
 
 // getAppBehaviorLogLevel 在文件底部新增此辅助方法
 func getAppBehaviorLogLevel() string {
-	configDir, err := os.UserConfigDir()
-	if err != nil { return "info" }
-	path := filepath.Join(configDir, "GoclashZ", "app_behavior.json")
+	path := filepath.Join(utils.GetDataDir(), "app_behavior.json")
 	data, err := os.ReadFile(path)
 	if err != nil { return "info" }
 	var config struct {

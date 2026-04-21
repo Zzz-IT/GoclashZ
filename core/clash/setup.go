@@ -11,16 +11,16 @@ import (
 	"time"
 )
 
-func PrepareEnv(dirPath string, exePath string) error {
+func PrepareEnv(binDir string, exePath string, configPath string) error {
 	// 1. 创建目录
-	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-		os.MkdirAll(dirPath, 0755)
+	if _, err := os.Stat(binDir); os.IsNotExist(err) {
+		os.MkdirAll(binDir, 0755)
 	}
 
 	// 2. 检查 clash.exe (缺失则下载内核)
 	if _, err := os.Stat(exePath); os.IsNotExist(err) {
 		fmt.Println("👉 未检测到内核，正在自动下载...")
-		if err := downloadAndExtractKernel(dirPath, exePath); err != nil {
+		if err := downloadAndExtractKernel(binDir, exePath); err != nil {
 			return err
 		}
 	}
@@ -28,7 +28,6 @@ func PrepareEnv(dirPath string, exePath string) error {
 	// 3. 移除强制下载 wintun.dll 的逻辑，取消启动时对 TUN 的干预。
 
 	// 4. 检查配置文件
-	configPath := filepath.Join(dirPath, "config.yaml")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		fmt.Println("👉 未检测到配置文件，正在生成默认极简配置...")
 		baseConfig := `mixed-port: 7890

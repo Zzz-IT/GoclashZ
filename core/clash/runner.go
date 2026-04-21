@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"unsafe"
 
+	"goclashz/core/utils"
+
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/sys/windows"
 )
@@ -45,14 +47,6 @@ func assignProcessToJobObject(proc *os.Process) error {
 	return windows.AssignProcessToJobObject(job, windows.Handle(proc.Pid))
 }
 
-func getExeDir() string {
-	exePath, err := os.Executable()
-	if err != nil {
-		return "."
-	}
-	return filepath.Dir(exePath)
-}
-
 func Start(ctx context.Context) error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -61,10 +55,16 @@ func Start(ctx context.Context) error {
 		return nil
 	}
 
-	dirPath := filepath.Join(getExeDir(), "core", "bin")
-	exePath := filepath.Join(dirPath, "clash.exe")
-	pidFile := filepath.Join(dirPath, "clash.pid")
+	// ✅ 程序文件路径 (只读)
+	binDir := utils.GetCoreBinDir()
+	exePath := filepath.Join(binDir, "clash.exe")
+	
+	// ✅ 运行时数据路径 (可写，自定义模式或安全模式)
+	dataDir := utils.GetDataDir()
+	pidFile := filepath.Join(dataDir, "clash.pid")
+	runtimeConfig := filepath.Join(dataDir, "config.yaml") // 运行时最终生成的配置
 
+	// 先清理旧 PID
 	if pidData, err := os.ReadFile(pidFile); err == nil {
 		pidStr := string(pidData)
 		killCmd := exec.Command("taskkill", "/F", "/FI", "IMAGENAME eq clash.exe", "/PID", pidStr)
@@ -73,12 +73,16 @@ func Start(ctx context.Context) error {
 		os.Remove(pidFile)
 	}
 
-	if err := PrepareEnv(dirPath, exePath); err != nil {
+	// 传入 config 路径
+	if err := PrepareEnv(binDir, exePath, runtimeConfig); err != nil {
 		return err
 	}
 
-	cmd := exec.Command(exePath, "-d", dirPath)
-	cmd.Dir = dirPath
+	// 🎯 核心分离：
+	// -d 设定内核的 Home 目录，它会去这里找 GeoSite.dat / mmdb (因为是只读的，放 AppDir 没问题)
+	// -f 设定内核强制读取的 yaml 配置，指向我们的 DataDir
+	cmd := exec.Command(exePath, "-d", binDir, "-f", runtimeConfig)
+	cmd.Dir = binDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
 		CreationFlags: windows.CREATE_BREAKAWAY_FROM_JOB,

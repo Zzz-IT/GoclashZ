@@ -9,6 +9,7 @@ import (
 	"goclashz/core/logger"
 	"goclashz/core/sys"
 	"goclashz/core/traffic"
+	"goclashz/core/utils"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,10 +58,7 @@ type AppBehavior struct {
 
 // 获取配置文件的存放路径
 func (a *App) getAppBehaviorPath() string {
-	configDir, _ := os.UserConfigDir()
-	path := filepath.Join(configDir, "GoclashZ", "app_behavior.json")
-	os.MkdirAll(filepath.Dir(path), 0755)
-	return path
+	return filepath.Join(utils.GetDataDir(), "app_behavior.json")
 }
 
 // 内部初始化缓存的方法，在 startup 中调用
@@ -136,10 +134,7 @@ type SubRecord struct {
 
 // 获取订阅信息存储路径
 func (a *App) getSubsRecordPath() string {
-	configDir, _ := os.UserConfigDir()
-	path := filepath.Join(configDir, "GoclashZ", "subs_history.json")
-	os.MkdirAll(filepath.Dir(path), 0755)
-	return path
+	return filepath.Join(utils.GetDataDir(), "subs_history.json")
 }
 
 // 读取所有订阅记录
@@ -184,10 +179,7 @@ func (a *App) GetSubRecords() map[string]SubRecord {
 
 // 1. 获取配置排序记忆文件的路径
 func (a *App) getSubsOrderPath() string {
-	configDir, _ := os.UserConfigDir()
-	path := filepath.Join(configDir, "GoclashZ", "subs_order.json")
-	os.MkdirAll(filepath.Dir(path), 0755)
-	return path
+	return filepath.Join(utils.GetDataDir(), "subs_order.json")
 }
 
 // 2. 供前端调用的保存顺序 API (Wails 绑定方法)
@@ -237,20 +229,7 @@ func (a *App) mergeOfflineNodes(data map[string]interface{}) {
 }
 
 // 1. 在 app.go 任意位置新增一个获取程序真实绝对路径的辅助方法
-func getBaseDir() string {
-	exePath, err := os.Executable()
-	if err != nil {
-		return "."
-	}
-	// ⚠️ 核心修复：识别 Go / Wails 的开发模式临时目录，强制回退到当前工作目录
-	if strings.Contains(exePath, "go-build") || strings.Contains(os.TempDir(), filepath.Dir(exePath)) || strings.Contains(exePath, "wails-dev") {
-		wd, err := os.Getwd()
-		if err == nil {
-			return wd
-		}
-	}
-	return filepath.Dir(exePath)
-}
+
 
 // 记录当前选中的配置文件名到本地
 func (a *App) saveActiveConfig(fileName string) {
@@ -636,10 +615,9 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	data["isOffline"] = false
 
 	// 注入节点组原始排序
-	baseDir := getBaseDir()
-	configPath := filepath.Join(baseDir, "core", "bin", activeConfig)
+	configPath := filepath.Join(utils.GetProfilesDir(), activeConfig)
 	if activeConfig == "" || activeConfig == "config.yaml" {
-		configPath = filepath.Join(baseDir, "core", "bin", "config.yaml")
+		configPath = filepath.Join(utils.GetDataDir(), "config.yaml")
 	}
 	if yamlData, err := os.ReadFile(configPath); err == nil {
 		data["groupOrder"] = clash.ExtractGroupOrder(yamlData)
@@ -1019,7 +997,7 @@ func (a *App) StopConnectionMonitor() {
 // ==========================================
 
 func (a *App) getProfilesDir() string {
-	return filepath.Join(getBaseDir(), "core", "bin")
+	return utils.GetProfilesDir()
 }
 
 // 修改 GetLocalConfigs，让它结合物理文件和用户的自定义排序
@@ -1193,8 +1171,8 @@ func (a *App) ClearBaseConfig() error {
 	
 	a.mu.Unlock()
 
-	baseDir := getBaseDir()
-	destPath := filepath.Join(baseDir, "core", "bin", "config.yaml")
+	// ✅ 改写到安全的数据目录
+	destPath := filepath.Join(utils.GetDataDir(), "config.yaml")
 
 	// 写入一个最基础的空结构，防止 Clash 内核解析时直接崩溃
 	emptyConfig := "mode: rule\nproxies: []\nproxy-groups: []\nrules: []\n"
@@ -1231,8 +1209,17 @@ func (a *App) SelectLocalConfig(fileName string) error {
 		sysProxy := a.sysProxyActive
 		a.mu.Unlock()
 		if sysProxy {
+			// ✅ 动态获取端口
+			proxyPort := 7890
+			if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil {
+				if netCfg.MixedPort != 0 {
+					proxyPort = netCfg.MixedPort
+				} else if netCfg.Port != 0 {
+					proxyPort = netCfg.Port
+				}
+			}
 			bypass := "localhost;127.*;10.*;172.16.*;192.168.*;<local>"
-			sys.EnableSystemProxy("127.0.0.1", 7890, bypass)
+			sys.EnableSystemProxy("127.0.0.1", proxyPort, bypass)
 		}
 	} else {
 		time.Sleep(200 * time.Millisecond)
@@ -1307,12 +1294,9 @@ func (a *App) DeleteRule(index int) error {
 	return nil
 }
 
-// 获取存储主题配置的路径
+// 获取主题配置路径
 func getThemeConfigPath() string {
-	configDir, _ := os.UserConfigDir()
-	appDir := filepath.Join(configDir, "GoclashZ")
-	os.MkdirAll(appDir, 0755)
-	return filepath.Join(appDir, "theme_setting.txt")
+	return filepath.Join(utils.GetDataDir(), "theme_setting.txt")
 }
 
 // SaveThemePreference 供前端调用，保存主题模式

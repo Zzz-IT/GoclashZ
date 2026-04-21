@@ -9,6 +9,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
+	"goclashz/core/utils"
 )
 
 //go:embed all:frontend/dist
@@ -19,13 +20,12 @@ func main() {
 
 	// 1. 👈 动态读取上一次保存的主题
 	var r, g, b uint8 = 242, 242, 242 // 默认日间底色 (#F2F2F2)
-	configDir, err := os.UserConfigDir()
-	if err == nil {
-		themeFile := filepath.Join(configDir, "GoclashZ", "theme_setting.txt")
-		content, err := os.ReadFile(themeFile)
-		if err == nil && string(content) == "dark" {
-			r, g, b = 17, 17, 17 // 匹配夜间模式底色 (#111111)
-		}
+	
+	// ✅ 使用统一的智能数据目录读取主题
+	themeFile := filepath.Join(utils.GetDataDir(), "theme_setting.txt")
+	content, err := os.ReadFile(themeFile)
+	if err == nil && string(content) == "dark" {
+		r, g, b = 17, 17, 17 // 匹配夜间模式底色 (#111111)
 	}
 
 	err = wails.Run(&options.App{
