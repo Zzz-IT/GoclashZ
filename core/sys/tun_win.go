@@ -26,19 +26,24 @@ func IsWintunInstalled() bool {
 	return err == nil
 }
 
-func InstallWintun() error {
-	if IsWintunInstalled() {
-		return nil
+func InstallWintun(force bool) (string, error) {
+	if !force && IsWintunInstalled() {
+		return "ALREADY_LATEST", nil
 	}
 
 	targetPath := GetWintunPath()
-	fmt.Println("👉 未检测到 Wintun 驱动，正在自动下载官方组件包...")
+	fmt.Printf("👉 正在%s Wintun 驱动...\n", func() string {
+		if force {
+			return "重新下载并覆盖"
+		}
+		return "自动下载官方"
+	}())
 
 	if err := downloadAndExtractWintun(targetPath); err != nil {
-		return fmt.Errorf("Wintun 驱动安装失败: %v", err)
+		return "", fmt.Errorf("Wintun 驱动安装失败: %v", err)
 	}
 
-	return nil
+	return "SUCCESS", nil
 }
 
 func downloadAndExtractWintun(finalDllPath string) error {

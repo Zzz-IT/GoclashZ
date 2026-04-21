@@ -941,9 +941,9 @@ func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 }
 
 // 3. 提供给前端：安装驱动
-func (a *App) InstallTunDriver() error {
+func (a *App) InstallTunDriver(force bool) (string, error) {
 	// 直接调用重构后的方法，它已内部集成了专属的 ZIP 解析逻辑
-	return sys.InstallWintun()
+	return sys.InstallWintun(force)
 }
 func (a *App) GetDNSConfig() (*clash.DNSConfig, error) {
 	return clash.GetDNSConfig()
@@ -1444,38 +1444,139 @@ func (a *App) CheckComponentUpdate() map[string]string {
 	}
 }
 
-// UpdateCoreComponent 触发重新下载内核
-func (a *App) UpdateCoreComponent() error {
-	// 记录更新前的运行状态，以便更新后恢复
+// GetCoreVersion 供前端获取当前本地的内核版本
+func (a *App) GetCoreVersion() string {
+	binDir := utils.GetCoreBinDir()
+	exePath := filepath.Join(binDir, "clash.exe")
+	v := getLocalCoreVersion(exePath)
+	if v == "" {
+		return "未知"
+	}
+	return v
+}
+
+// GetWintunVersion 供前端获取当前 Wintun 驱动的版本
+func (a *App) GetWintunVersion() string {
+	dllPath := sys.GetWintunPath()
+	v := getWintunVersion(dllPath)
+	if v == "" {
+		return "未安装"
+	}
+	return v
+}
+
+func getWintunVersion(dllPath string) string {
+	if _, err := os.Stat(dllPath); os.IsNotExist(err) {
+		return ""
+	}
+	// 使用 PowerShell 获取文件版本号
+	cmd := exec.Command("powershell", "-Command", fmt.Sprintf("(Get-Item '%s').VersionInfo.FileVersion", dllPath))
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := cmd.Output()
+	if err != nil {
+		return "未知"
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// 获取本地内核版本号
+func getLocalCoreVersion(exePath string) string {
+	if _, err := os.Stat(exePath); os.IsNotExist(err) {
+		return ""
+	}
+	// 执行 clash.exe -v 获取版本 (使用 CombinedOutput 捕获所有输出)
+	cmd := exec.Command(exePath, "-v")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	
+	str := string(out)
+	parts := strings.Fields(str)
+	for _, p := range parts {
+		// 寻找以 v 开头的版本号，或者形如 alpha-xxx 的字符串
+		if strings.HasPrefix(p, "v") && len(p) > 1 {
+			return p
+		}
+		if strings.HasPrefix(p, "alpha-") || strings.HasPrefix(p, "beta-") {
+			return p
+		}
+	}
+	return ""
+}
+
+// 辅助函数：归一化版本号（移除 v 前缀和空白符）
+func normalizeVersion(v string) string {
+	return strings.TrimPrefix(strings.TrimSpace(v), "v")
+}
+
+// UpdateCoreComponent 触发安全更新机制
+func (a *App) UpdateCoreComponent() (string, error) {
+	binDir := utils.GetCoreBinDir()
+	exePath := filepath.Join(binDir, "clash.exe")
+
+	// 1. 获取本地版本
+	localVersion := getLocalCoreVersion(exePath)
+
+	// 2. 获取线上最新版本和下载链接
+	directURL, latestVersion, err := getLatestMihomoAssetURL("windows", "amd64", ".zip")
+	if err != nil {
+		return "", err
+	}
+
+	// 3. 版本比对，如果相同则直接打断
+	if localVersion != "" && latestVersion != "" && normalizeVersion(localVersion) == normalizeVersion(latestVersion) {
+		return "ALREADY_LATEST", nil
+	}
+
+	// --- 4. 开始更新：安全停机 ---
 	a.mu.RLock()
 	wasActive := a.sysProxyActive || a.tunActive
 	a.mu.RUnlock()
 
-	// 1. 停止当前内核防止文件占用
 	a.stopCoreService()
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond) // 等待文件句柄释放
 
-	// 2. 调用 setup.go 里的下载逻辑
-	binDir := utils.GetCoreBinDir()
-	exePath := filepath.Join(binDir, "clash.exe")
+	// 5. 备份旧版本
+	backupPath := filepath.Join(binDir, "clash_backup.exe")
+	_ = os.Rename(exePath, backupPath)
 
-	// 强制删除旧文件以便重新下载
-	_ = os.Remove(exePath)
+	// 6. 优先使用国内镜像下载新版本压缩包
+	tempZip := filepath.Join(binDir, "core_temp.zip")
+	err = downloadFileWithRetry(tempZip, directURL)
+	if err != nil {
+		// 下载失败 -> 还原备份 -> 拉起进程 -> 报错
+		_ = os.Rename(backupPath, exePath)
+		if wasActive { a.ensureCoreRunning() }
+		return "", fmt.Errorf("下载内核失败，已无损还原旧版本: %v", err)
+	}
 
-	// 重新触发下载和环境准备
-	err := clash.PrepareEnv()
+	// 7. 解压缩
+	err = clash.ExtractKernel(tempZip, exePath)
+	if err != nil {
+		// 解压失败 -> 删除残次品 -> 还原备份 -> 拉起进程 -> 报错
+		os.Remove(tempZip)
+		os.Remove(exePath)
+		_ = os.Rename(backupPath, exePath)
+		if wasActive { a.ensureCoreRunning() }
+		return "", fmt.Errorf("解压缩内核失败，已无损还原旧版本: %v", err)
+	}
 
-	// 3. 如果原本处于运行状态，且更新成功，自动拉起新内核
-	if err == nil && wasActive {
+	// 8. 更新成功，清理临时文件和备份旧文件
+	os.Remove(tempZip)
+	os.Remove(backupPath)
+
+	// 9. 重新拉起新内核代理服务
+	if wasActive {
 		if startErr := a.ensureCoreRunning(); startErr != nil {
 			a.SyncState()
-			return fmt.Errorf("内核更新成功，但拉起失败: %v", startErr)
+			return "", fmt.Errorf("新内核已就绪，但由于某些原因启动失败: %v", startErr)
 		}
 	}
 
-	// 4. 同步最新状态给前端
 	a.SyncState()
-	return err
+	return "SUCCESS", nil
 }
 
 // SaveUwpExemptions 供前端批量保存选中的 SID 列表

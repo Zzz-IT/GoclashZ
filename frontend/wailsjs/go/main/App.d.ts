@@ -33,6 +33,8 @@ export function GetAppBehavior():Promise<main.AppBehavior>;
 
 export function GetConnections():Promise<Record<string, any>>;
 
+export function GetCoreVersion():Promise<string>;
+
 export function GetDNSConfig():Promise<clash.DNSConfig>;
 
 export function GetInitialData():Promise<Record<string, any>>;
@@ -53,9 +55,11 @@ export function GetTunConfig():Promise<clash.TunConfig>;
 
 export function GetUwpApps():Promise<Array<sys.UwpApp>>;
 
+export function GetWintunVersion():Promise<string>;
+
 export function ImportLocalConfig():Promise<void>;
 
-export function InstallTunDriver():Promise<void>;
+export function InstallTunDriver(arg1:boolean):Promise<string>;
 
 export function OpenConfigFile(arg1:string):Promise<void>;
 
@@ -111,7 +115,7 @@ export function UpdateAllSubs():Promise<void>;
 
 export function UpdateClashMode(arg1:string):Promise<void>;
 
-export function UpdateCoreComponent():Promise<void>;
+export function UpdateCoreComponent():Promise<string>;
 
 export function UpdateSingleSub(arg1:string):Promise<void>;
 

@@ -12,7 +12,7 @@ import (
 )
 
 // getLatestMihomoAssetURL 动态获取最新的 GitHub Release Asset URL
-func getLatestMihomoAssetURL(platform, arch, fileExt string) (string, error) {
+func getLatestMihomoAssetURL(platform, arch, fileExt string) (string, string, error) {
 	apiURL := "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
 	
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -22,7 +22,7 @@ func getLatestMihomoAssetURL(platform, arch, fileExt string) (string, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 
@@ -31,12 +31,12 @@ func getLatestMihomoAssetURL(platform, arch, fileExt string) (string, error) {
 		remain := resp.Header.Get("X-RateLimit-Remaining")
 		if remain == "0" {
 			resetTime := resp.Header.Get("X-RateLimit-Reset")
-			return "", fmt.Errorf("触发 GitHub API 请求频率限制，请尝试切换代理节点或稍后重试（重置时间戳：%s）", resetTime)
+			return "", "", fmt.Errorf("触发 GitHub API 请求频率限制，请尝试切换代理节点或稍后重试（重置时间戳：%s）", resetTime)
 		}
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub API 请求失败，状态码: %d", resp.StatusCode)
+		return "", "", fmt.Errorf("GitHub API 请求失败，状态码: %d", resp.StatusCode)
 	}
 
 	var result struct {
@@ -48,17 +48,18 @@ func getLatestMihomoAssetURL(platform, arch, fileExt string) (string, error) {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	keyword := fmt.Sprintf("%s-%s", platform, arch)
 	for _, asset := range result.Assets {
 		if strings.Contains(asset.Name, keyword) && strings.HasSuffix(asset.Name, fileExt) {
-			return asset.BrowserDownloadUrl, nil
+			// 👈 修改点：同时返回下载链接和版本号 (result.TagName)
+			return asset.BrowserDownloadUrl, result.TagName, nil
 		}
 	}
 
-	return "", fmt.Errorf("未在版本 %s 中找到适配 %s 架构的文件", result.TagName, keyword)
+	return "", "", fmt.Errorf("未在版本 %s 中找到适配 %s 架构的文件", result.TagName, keyword)
 }
 
 // downloadFileWithRetry 带重试机制和多源 fallback 的下载器

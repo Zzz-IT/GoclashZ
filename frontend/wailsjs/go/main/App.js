@@ -58,6 +58,10 @@ export function GetConnections() {
   return window['go']['main']['App']['GetConnections']();
 }
 
+export function GetCoreVersion() {
+  return window['go']['main']['App']['GetCoreVersion']();
+}
+
 export function GetDNSConfig() {
   return window['go']['main']['App']['GetDNSConfig']();
 }
@@ -98,12 +102,16 @@ export function GetUwpApps() {
   return window['go']['main']['App']['GetUwpApps']();
 }
 
+export function GetWintunVersion() {
+  return window['go']['main']['App']['GetWintunVersion']();
+}
+
 export function ImportLocalConfig() {
   return window['go']['main']['App']['ImportLocalConfig']();
 }
 
-export function InstallTunDriver() {
-  return window['go']['main']['App']['InstallTunDriver']();
+export function InstallTunDriver(arg1) {
+  return window['go']['main']['App']['InstallTunDriver'](arg1);
 }
 
 export function OpenConfigFile(arg1) {

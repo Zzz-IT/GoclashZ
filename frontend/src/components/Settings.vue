@@ -71,7 +71,7 @@
         <div class="setting-item">
           <div class="info">
             <h4>Mihomo 内核</h4>
-            <p>当前版本: v1.18.3</p>
+            <p>当前版本: {{ coreVersion }}</p>
           </div>
           <button class="action-btn" @click="handleUpdateCore" :disabled="updatingCore">
             {{ updatingCore ? '正在处理...' : '检查更新' }}
@@ -83,11 +83,16 @@
         <div class="setting-item">
           <div class="info">
             <h4>Wintun 驱动 (DLL)</h4>
-            <p>当前版本: 0.14.1</p>
+            <p>当前版本: {{ wintunVersion }}</p>
           </div>
-          <button class="action-btn" @click="installDriver" :disabled="isInstalling">
-            {{ isInstalling ? '正在处理...' : '重新安装' }}
-          </button>
+          <div class="btn-group">
+            <button class="action-btn" @click="installDriver(true)" :disabled="isInstalling">
+              {{ isReinstallingDriver ? '处理中...' : '重新安装' }}
+            </button>
+            <button class="action-btn" @click="installDriver(false)" :disabled="isInstalling">
+              {{ isCheckingUpdate ? '处理中...' : '检查更新' }}
+            </button>
+          </div>
         </div>
         
         <div class="divider"></div>
@@ -122,7 +127,7 @@
               检测状态: <span :class="tunStatus.hasWintun ? 'green-text' : 'red-text'">{{ tunStatus.hasWintun ? 'wintun 已就绪' : '缺失驱动文件' }}</span>
             </p>
           </div>
-          <button class="action-btn" @click="installDriver" :disabled="isInstalling || tunStatus.hasWintun">
+          <button class="action-btn" @click="installDriver(false)" :disabled="isInstalling || tunStatus.hasWintun">
             {{ isInstalling ? '处理中...' : (tunStatus.hasWintun ? '已安装' : '安装驱动') }}
           </button>
         </div>
@@ -590,16 +595,27 @@ const props = defineProps({
 const view = ref(props.initialView as 'main' | 'uwp' | 'tun' | 'dns' | 'network' | 'behavior' | 'update');
 watch(() => props.initialView, (newVal) => { view.value = newVal as any; });
 
-const isInstalling = ref(false);
+const coreVersion = ref('读取中...');
+const wintunVersion = ref('读取中...');
+const isCheckingUpdate = ref(false);
+const isReinstallingDriver = ref(false);
+const isInstalling = computed(() => isCheckingUpdate.value || isReinstallingDriver.value);
 const updatingCore = ref(false);
 
 const handleUpdateCore = async () => {
   updatingCore.value = true;
   try {
-    await (API as any).UpdateCoreComponent();
-    await showAlert("内核更新成功！", "通知");
+    const res = await (API as any).UpdateCoreComponent();
+    // 拦截“已经是最新”的状态码
+    if (res === "ALREADY_LATEST") {
+      await showAlert(`当前内核 (${coreVersion.value}) 已是最新版本，无需更新！`, "通知");
+    } else {
+      await showAlert("内核跨版本更新成功！", "通知");
+      // 更新成功后刷新显示的版本号
+      coreVersion.value = await (API as any).GetCoreVersion();
+    }
   } catch (e) {
-    await showAlert("更新失败: " + e, "错误");
+    await showAlert("更新异常: " + e, "错误");
   } finally {
     updatingCore.value = false;
   }
@@ -700,6 +716,13 @@ const saveUwpChanges = async () => {
 
 const loadData = async () => {
   try {
+    // 动态拉取实际版本号
+    const cv = await (API as any).GetCoreVersion();
+    if (cv) coreVersion.value = cv;
+
+    const wv = await (API as any).GetWintunVersion();
+    if (wv) wintunVersion.value = wv;
+
     const status = await API.CheckTunEnv();
     tunStatus.value = status;
     const tunConf = await API.GetTunConfig();
@@ -752,20 +775,29 @@ const handleTunToggle = async (e: Event) => {
 };
 
 
-const installDriver = async () => {
-  isInstalling.value = true;
+const installDriver = async (force: boolean = false) => {
+  if (force) isReinstallingDriver.value = true;
+  else isCheckingUpdate.value = true;
+
   try {
-    await API.InstallTunDriver();
+    const res = await (API as any).InstallTunDriver(force);
     await loadData();
-    if (tunStatus.value.hasWintun) {
-       await showAlert('驱动安装成功，现在可以开启 TUN 模式了！', '安装成功');
+    
+    // 刷新版本号显示
+    const wv = await (API as any).GetWintunVersion();
+    if (wv) wintunVersion.value = wv;
+
+    if (res === "ALREADY_LATEST") {
+       await showAlert(`当前 Wintun 驱动 (${wintunVersion.value}) 已是最新版本！`, '通知');
     } else {
-       await showAlert('系统仍未检测到 wintun.dll。请确认网络或以管理员运行。', '安装失败');
+       const msg = force ? "驱动已强制重新安装并覆盖成功！" : `Wintun 驱动 (${wintunVersion.value}) 安装成功，现在可以开启 TUN 模式了！`;
+       await showAlert(msg, '安装成功');
     }
   } catch (e) {
     await showAlert('安装提示: ' + e, '发生错误');
   } finally {
-    isInstalling.value = false;
+    isReinstallingDriver.value = false;
+    isCheckingUpdate.value = false;
   }
 };
 
@@ -870,6 +902,11 @@ p {
 
 .arrow { color: var(--text-sub); font-size: 1.2rem; }
 .divider { height: 1px; background: var(--glass-border); opacity: 0.5; margin: 0; }
+
+.btn-group {
+  display: flex;
+  gap: 8px;
+}
 
 .modern-input, .modern-select, .modern-textarea { background: var(--surface-hover); border: none; color: var(--text-main); padding: 8px 12px; border-radius: 8px; outline: none; }
 .modern-input { text-align: right; }

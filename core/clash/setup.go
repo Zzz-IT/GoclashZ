@@ -160,3 +160,35 @@ func downloadWintun(destDir string) error {
 	_, err = io.Copy(out, resp.Body)
 	return err
 }
+
+// ExtractKernel 纯粹的辅助函数：从 ZIP 中抽取内核 .exe 并保存
+func ExtractKernel(zipPath, destExePath string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	buf := make([]byte, 32*1024)
+	for _, f := range r.File {
+		if strings.HasSuffix(strings.ToLower(f.Name), ".exe") {
+			rc, err := f.Open()
+			if err != nil {
+				return err
+			}
+
+			outFile, err := os.Create(destExePath)
+			if err != nil {
+				rc.Close()
+				return err
+			}
+
+			_, err = io.CopyBuffer(outFile, rc, buf)
+			outFile.Close()
+			rc.Close()
+
+			return err
+		}
+	}
+	return fmt.Errorf("未在压缩包中找到 .exe 文件")
+}
