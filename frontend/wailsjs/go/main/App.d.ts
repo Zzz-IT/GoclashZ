@@ -113,6 +113,8 @@ export function ToggleSystemProxy(arg1:boolean):Promise<void>;
 
 export function ToggleTunMode(arg1:boolean):Promise<void>;
 
+export function UpdateAllGeoDatabases(arg1:Array<string>):Promise<void>;
+
 export function UpdateAllSubs():Promise<void>;
 
 export function UpdateClashMode(arg1:string):Promise<void>;

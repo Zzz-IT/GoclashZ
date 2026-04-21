@@ -68,6 +68,11 @@
       </div>
 
       <div class="glass-card setting-group scrollable">
+        <div class="setting-item col-item" style="padding-bottom: 0; align-items: flex-start;">
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">内核与驱动</h3>
+        </div>
+        <div class="divider" style="margin-top: 10px;"></div>
+
         <div class="setting-item">
           <div class="info">
             <h4>Mihomo 内核 <span style="color: var(--accent); margin-left: 8px; font-style: italic; font-size: 0.8rem; font-weight: normal;">(更新会短暂断开代理)</span></h4>
@@ -97,6 +102,16 @@
         
         <div class="divider"></div>
 
+        <div class="setting-item col-item" style="flex-direction: row; justify-content: space-between; align-items: center; padding-bottom: 0; margin-top: 10px;">
+          <div class="info">
+             <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">路由规则数据库</h3>
+          </div>
+          <button class="action-btn primary-btn accent-btn" @click="handleUpdateAllDbs" :disabled="isUpdatingAnyDb">
+            {{ updatingAllDbs ? '并发处理中...' : '一键更新全部' }}
+          </button>
+        </div>
+        <div class="divider" style="margin-top: 14px;"></div>
+
         <template v-for="(db, idx) in dbList" :key="db.key">
           <div class="setting-item">
             <div class="info" style="overflow: hidden;">
@@ -110,8 +125,8 @@
               <p v-else style="font-size: 0.75rem; color: var(--red-text); margin-top: 2px;">文件不存在，请点击更新同步</p>
             </div>
             <div class="btn-group" style="flex-shrink: 0;">
-              <button class="action-btn" @click="openDbEditModal(db.key, behavior[db.behaviorKey])" :disabled="updatingDbs[db.key]">编辑链接</button>
-              <button class="action-btn" @click="handleUpdateDb(db.key)" :disabled="updatingDbs[db.key]">
+              <button class="action-btn" @click="openDbEditModal(db.key, behavior[db.behaviorKey])" :disabled="isUpdatingAnyDb">编辑链接</button>
+              <button class="action-btn" @click="handleUpdateDb(db.key)" :disabled="isUpdatingAnyDb">
                  {{ updatingDbs[db.key] ? '同步中...' : '更新同步' }}
               </button>
             </div>
@@ -669,6 +684,9 @@ const editingDb = ref({ type: '', link: '' });
 const updatingDbs = ref<Record<string, boolean>>({});
 const dbFileInfo = ref<Record<string, any>>({});
 
+const updatingAllDbs = ref(false);
+const isUpdatingAnyDb = computed(() => Object.keys(updatingDbs.value).length > 0 || updatingAllDbs.value);
+
 const formatSize = (bytes: number) => {
   if (!bytes) return '0 B';
   const k = 1024;
@@ -946,7 +964,7 @@ const saveDbLink = async () => {
 };
 
 const handleUpdateDb = async (type: string) => {
-  if (updatingDbs.value[type]) return; // 防止重复点击同一个
+  if (updatingDbs.value[type] || updatingAllDbs.value) return; // 防止重复点击
   
   updatingDbs.value[type] = true;
   try {
@@ -959,6 +977,23 @@ const handleUpdateDb = async (type: string) => {
     await showAlert(`同步异常: ${e}`, "错误");
   } finally {
     delete updatingDbs.value[type];
+  }
+};
+
+// 终极的一键并发更新方法
+const handleUpdateAllDbs = async () => {
+  updatingAllDbs.value = true;
+  try {
+    // 传空数组，代表告诉后端并发更新全部 4 个
+    await (API as any).UpdateAllGeoDatabases([]);
+    await showAlert("所有规则数据库已极速并发同步至最新！", "完成");
+    // 刷新显示的时间和大小
+    const dbInfo = await (API as any).GetGeoDatabaseInfo();
+    if (dbInfo) dbFileInfo.value = dbInfo;
+  } catch (e) {
+    await showAlert(`一键同步发生异常:\n${e}`, "错误");
+  } finally {
+    updatingAllDbs.value = false;
   }
 };
 
@@ -1299,6 +1334,15 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 /* 针对 UWP 专属的返回图标额外修正 */
 .back-icon-svg :deep(svg) {
   width: 18px;
+  height: 18px;
+}
+
+/* 针对新链接和小字 */
+.link-text { font-family: monospace; font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+
+/* 悬浮弹窗基础覆盖 */
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+</style> 18px;
   height: 18px;
 }
 

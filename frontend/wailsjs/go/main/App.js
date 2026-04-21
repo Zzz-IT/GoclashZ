@@ -218,6 +218,10 @@ export function ToggleTunMode(arg1) {
   return window['go']['main']['App']['ToggleTunMode'](arg1);
 }
 
+export function UpdateAllGeoDatabases(arg1) {
+  return window['go']['main']['App']['UpdateAllGeoDatabases'](arg1);
+}
+
 export function UpdateAllSubs() {
   return window['go']['main']['App']['UpdateAllSubs']();
 }

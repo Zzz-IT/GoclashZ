@@ -42,6 +42,7 @@ type App struct {
 	// 👈 新增：专用于应用行为配置的内存缓存及读写锁
 	behaviorCache AppBehavior
 	behaviorMu    sync.RWMutex
+	updateMu      sync.Mutex // 👈 新增：全局统一的组件更新锁，防止任何更新互相冲突
 }
 
 // AppBehavior 定义应用行为设置
@@ -961,7 +962,10 @@ func (a *App) InstallTunDriver(force bool) (string, error) {
 		return "ALREADY_LATEST", nil
 	}
 
-	// 1. 如果当前正在使用 TUN 模式，必须先关闭，否则 Windows 会锁死 DLL 导致重命名/覆盖失败
+	// 1. 如果当前正在使用 TUN 模式，必须先关闭...
+	a.updateMu.Lock()         // 👈 加上全局组件更新锁
+	defer a.updateMu.Unlock() // 👈 加上全局组件更新锁
+
 	a.mu.RLock()
 	wasTunActive := a.tunActive
 	a.mu.RUnlock()
@@ -1616,6 +1620,8 @@ func (a *App) UpdateCoreComponent() (string, error) {
 	// ==========================================
 	// ⚡ 以下是原子替换阶段 (仅在此刻产生百毫秒级的断流)
 	// ==========================================
+	a.updateMu.Lock()         // 👈 加上全局组件更新锁
+	defer a.updateMu.Unlock() // 👈 加上全局组件更新锁
 	
 	a.mu.RLock()
 	wasActive := a.sysProxyActive || a.tunActive
@@ -1702,90 +1708,139 @@ func (a *App) FlashWindow() {
 	}
 }
 
-var dbUpdateMu sync.Mutex // ✅ 全局数据库更新锁，防止并发操作文件冲突
-
-// UpdateGeoDatabase 安全更新路由规则数据库文件 (带原子级回滚)
+// UpdateGeoDatabase 安全更新单一规则数据库文件
 func (a *App) UpdateGeoDatabase(dbType string) error {
-	behavior := a.GetAppBehavior()
-	var downloadURL string
-	var fileName string
+	// 逻辑合并到并发更新中去执行，复用代码
+	return a.UpdateAllGeoDatabases([]string{dbType})
+}
 
-	switch dbType {
-	case "geoip":
-		downloadURL = behavior.GeoIpLink
-		fileName = "geoip.metadb"
-		if strings.HasSuffix(downloadURL, ".dat") {
-			fileName = "geoip.dat"
-		}
-	case "geosite":
-		downloadURL = behavior.GeoSiteLink
-		fileName = "GeoSite.dat"
-	case "mmdb":
-		downloadURL = behavior.MmdbLink
-		fileName = "Country.mmdb"
-	case "asn":
-		downloadURL = behavior.AsnLink
-		fileName = "GeoLite2-ASN.mmdb"
-	default:
-		return fmt.Errorf("未知的数据库类型: %s", dbType)
+// UpdateAllGeoDatabases 一键并发更新所有数据库，利用 Go 协程极速下载，且仅停机一次内核
+func (a *App) UpdateAllGeoDatabases(types []string) error {
+	behavior := a.GetAppBehavior()
+
+	type dbTask struct {
+		key  string
+		url  string
+		file string
 	}
 
-	if downloadURL == "" {
-		return fmt.Errorf("下载链接为空")
+	var tasks []dbTask
+	allTypes := map[string]dbTask{
+		"geoip":   {"geoip", behavior.GeoIpLink, "geoip.metadb"},
+		"geosite": {"geosite", behavior.GeoSiteLink, "GeoSite.dat"},
+		"mmdb":    {"mmdb", behavior.MmdbLink, "Country.mmdb"},
+		"asn":     {"asn", behavior.AsnLink, "GeoLite2-ASN.mmdb"},
+	}
+
+	// 筛选需要更新的任务（若传入空数组，则默认更新全部4个）
+	if len(types) == 0 {
+		types = []string{"geoip", "geosite", "mmdb", "asn"}
+	}
+
+	// 针对 GeoIP 后缀做特殊兼容处理
+	if behavior.GeoIpLink != "" {
+		if strings.HasSuffix(behavior.GeoIpLink, ".dat") {
+			allTypes["geoip"] = dbTask{"geoip", behavior.GeoIpLink, "geoip.dat"}
+		}
+	}
+
+	for _, t := range types {
+		if task, ok := allTypes[t]; ok && task.url != "" {
+			tasks = append(tasks, task)
+		}
+	}
+
+	if len(tasks) == 0 {
+		return fmt.Errorf("没有找到有效的下载链接配置")
 	}
 
 	binDir := utils.GetCoreBinDir()
-	targetPath := filepath.Join(binDir, fileName)
-	tempPath := filepath.Join(binDir, fileName+".temp")
-	backupPath := filepath.Join(binDir, fileName+".backup")
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(tasks))
 
-	// 1. 无感并行下载 (不加锁，利用 Go 并发优势)
-	if err := downloadFileWithRetry(tempPath, downloadURL); err != nil {
-		return fmt.Errorf("网络下载失败: %v", err)
+	// 1. ⚡ 开启多协程，并发无感下载所有文件
+	for _, t := range tasks {
+		wg.Add(1)
+		go func(task dbTask) {
+			defer wg.Done()
+			tempPath := filepath.Join(binDir, task.file+".temp")
+			if err := downloadFileWithRetry(tempPath, task.url); err != nil {
+				errChan <- fmt.Errorf("[%s] 下载失败: %v", task.key, err)
+			}
+		}(t)
 	}
 
-	// 2. 原子替换阶段 (加锁，确保同一时间只有一个文件在执行替换/重启逻辑)
-	dbUpdateMu.Lock()
-	defer dbUpdateMu.Unlock()
+	wg.Wait()
+	close(errChan)
+
+	var errs []string
+	for err := range errChan {
+		errs = append(errs, err.Error())
+	}
+
+	// 如果所有文件都下载失败，直接打断，不需要停机
+	if len(errs) == len(tasks) {
+		return fmt.Errorf("网络异常，文件下载均失败:\n%s", strings.Join(errs, "\n"))
+	}
+
+	// 2. 🔒 获取全局组件更新锁，开始原子替换
+	a.updateMu.Lock()
+	defer a.updateMu.Unlock()
 
 	a.mu.RLock()
 	wasActive := a.sysProxyActive || a.tunActive
 	a.mu.RUnlock()
 
+	// 无论更新1个还是4个文件，内核只停机 1 次！
 	a.stopCoreService()
-	time.Sleep(200 * time.Millisecond) // 等待文件锁释放
+	time.Sleep(200 * time.Millisecond)
 
-	os.Remove(backupPath)
-	hasOldFile := false
-	if _, err := os.Stat(targetPath); err == nil {
-		hasOldFile = true
-		if err := os.Rename(targetPath, backupPath); err != nil {
+	for _, task := range tasks {
+		tempPath := filepath.Join(binDir, task.file+".temp")
+		targetPath := filepath.Join(binDir, task.file)
+		backupPath := filepath.Join(binDir, task.file+".backup")
+
+		// 跳过那些下载失败的文件
+		if _, err := os.Stat(tempPath); os.IsNotExist(err) {
+			continue
+		}
+
+		// 🎯 核心修复：清理 GeoIP 切换后缀时的残留僵尸文件
+		if task.key == "geoip" {
+			if task.file == "geoip.metadb" {
+				os.Remove(filepath.Join(binDir, "geoip.dat"))
+			} else {
+				os.Remove(filepath.Join(binDir, "geoip.metadb"))
+			}
+		}
+
+		os.Remove(backupPath)
+		if _, err := os.Stat(targetPath); err == nil {
+			_ = os.Rename(targetPath, backupPath)
+		}
+
+		if err := os.Rename(tempPath, targetPath); err != nil {
 			os.Remove(tempPath)
-			if wasActive { a.ensureCoreRunning() }
-			return fmt.Errorf("无法备份旧文件: %v", err)
+			_ = os.Rename(backupPath, targetPath) // 失败则秒级回滚
+			errs = append(errs, fmt.Sprintf("[%s] 部署失败: %v", task.key, err))
+		} else {
+			os.Remove(backupPath) // 成功则过河拆桥
 		}
 	}
 
-	if err := os.Rename(tempPath, targetPath); err != nil {
-		os.Remove(tempPath)
-		if hasOldFile { _ = os.Rename(backupPath, targetPath) }
-		if wasActive { a.ensureCoreRunning() }
-		return fmt.Errorf("部署新文件失败: %v", err)
-	}
-
+	// 3. 🚀 统一重新拉起内核
 	if wasActive {
 		if startErr := a.ensureCoreRunning(); startErr != nil {
-			a.stopCoreService()
-			os.Remove(targetPath)
-			if hasOldFile { _ = os.Rename(backupPath, targetPath) }
-			a.ensureCoreRunning()
 			a.SyncState()
-			return fmt.Errorf("文件校验失败，已自动回滚: %v", startErr)
+			return fmt.Errorf("文件更新成功，但内核重启引发异常: %v", startErr)
 		}
 	}
 
-	os.Remove(backupPath)
 	a.SyncState()
+
+	if len(errs) > 0 {
+		return fmt.Errorf("部分文件处理出现警告:\n%s", strings.Join(errs, "\n"))
+	}
 	return nil
 }
 
