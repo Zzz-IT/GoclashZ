@@ -66,6 +66,10 @@ export function GetDNSConfig() {
   return window['go']['main']['App']['GetDNSConfig']();
 }
 
+export function GetGeoDatabaseInfo() {
+  return window['go']['main']['App']['GetGeoDatabaseInfo']();
+}
+
 export function GetInitialData() {
   return window['go']['main']['App']['GetInitialData']();
 }
@@ -224,6 +228,10 @@ export function UpdateClashMode(arg1) {
 
 export function UpdateCoreComponent() {
   return window['go']['main']['App']['UpdateCoreComponent']();
+}
+
+export function UpdateGeoDatabase(arg1) {
+  return window['go']['main']['App']['UpdateGeoDatabase'](arg1);
 }
 
 export function UpdateSingleSub(arg1) {

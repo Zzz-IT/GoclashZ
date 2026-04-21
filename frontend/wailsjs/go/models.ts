@@ -183,6 +183,10 @@ export namespace main {
 	    subUA: string;
 	    activeConfig: string;
 	    activeMode: string;
+	    geoIpLink: string;
+	    geoSiteLink: string;
+	    mmdbLink: string;
+	    asnLink: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppBehavior(source);
@@ -197,6 +201,10 @@ export namespace main {
 	        this.subUA = source["subUA"];
 	        this.activeConfig = source["activeConfig"];
 	        this.activeMode = source["activeMode"];
+	        this.geoIpLink = source["geoIpLink"];
+	        this.geoSiteLink = source["geoSiteLink"];
+	        this.mmdbLink = source["mmdbLink"];
+	        this.asnLink = source["asnLink"];
 	    }
 	}
 	export class RuleItem {

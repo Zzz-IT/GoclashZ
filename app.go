@@ -54,6 +54,11 @@ type AppBehavior struct {
 	// 新增：统持久化字段
 	ActiveConfig string `json:"activeConfig"`
 	ActiveMode   string `json:"activeMode"`
+	// 👇 新增：规则数据库的下载链接持久化
+	GeoIpLink   string `json:"geoIpLink"`
+	GeoSiteLink string `json:"geoSiteLink"`
+	MmdbLink    string `json:"mmdbLink"`
+	AsnLink     string `json:"asnLink"`
 }
 
 // 获取配置文件的存放路径
@@ -68,6 +73,11 @@ func (a *App) initBehaviorCache() {
 		CloseToTray: true,
 		LogLevel:    "info",
 		HideLogs:    false,
+		// 预设好权威且带加速的默认链接
+		GeoIpLink:   "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
+		GeoSiteLink: "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
+		MmdbLink:    "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
+		AsnLink:     "https://ghproxy.net/https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
 	}
 
 	data, err := os.ReadFile(a.getAppBehaviorPath())
@@ -1690,4 +1700,136 @@ func (a *App) FlashWindow() {
 		}
 		procFlashWindowEx.Call(uintptr(unsafe.Pointer(&finfo)))
 	}
+}
+
+var dbUpdateMu sync.Mutex // ✅ 全局数据库更新锁，防止并发操作文件冲突
+
+// UpdateGeoDatabase 安全更新路由规则数据库文件 (带原子级回滚)
+func (a *App) UpdateGeoDatabase(dbType string) error {
+	behavior := a.GetAppBehavior()
+	var downloadURL string
+	var fileName string
+
+	switch dbType {
+	case "geoip":
+		downloadURL = behavior.GeoIpLink
+		fileName = "geoip.metadb"
+		if strings.HasSuffix(downloadURL, ".dat") {
+			fileName = "geoip.dat"
+		}
+	case "geosite":
+		downloadURL = behavior.GeoSiteLink
+		fileName = "GeoSite.dat"
+	case "mmdb":
+		downloadURL = behavior.MmdbLink
+		fileName = "Country.mmdb"
+	case "asn":
+		downloadURL = behavior.AsnLink
+		fileName = "GeoLite2-ASN.mmdb"
+	default:
+		return fmt.Errorf("未知的数据库类型: %s", dbType)
+	}
+
+	if downloadURL == "" {
+		return fmt.Errorf("下载链接为空")
+	}
+
+	binDir := utils.GetCoreBinDir()
+	targetPath := filepath.Join(binDir, fileName)
+	tempPath := filepath.Join(binDir, fileName+".temp")
+	backupPath := filepath.Join(binDir, fileName+".backup")
+
+	// 1. 无感并行下载 (不加锁，利用 Go 并发优势)
+	if err := downloadFileWithRetry(tempPath, downloadURL); err != nil {
+		return fmt.Errorf("网络下载失败: %v", err)
+	}
+
+	// 2. 原子替换阶段 (加锁，确保同一时间只有一个文件在执行替换/重启逻辑)
+	dbUpdateMu.Lock()
+	defer dbUpdateMu.Unlock()
+
+	a.mu.RLock()
+	wasActive := a.sysProxyActive || a.tunActive
+	a.mu.RUnlock()
+
+	a.stopCoreService()
+	time.Sleep(200 * time.Millisecond) // 等待文件锁释放
+
+	os.Remove(backupPath)
+	hasOldFile := false
+	if _, err := os.Stat(targetPath); err == nil {
+		hasOldFile = true
+		if err := os.Rename(targetPath, backupPath); err != nil {
+			os.Remove(tempPath)
+			if wasActive { a.ensureCoreRunning() }
+			return fmt.Errorf("无法备份旧文件: %v", err)
+		}
+	}
+
+	if err := os.Rename(tempPath, targetPath); err != nil {
+		os.Remove(tempPath)
+		if hasOldFile { _ = os.Rename(backupPath, targetPath) }
+		if wasActive { a.ensureCoreRunning() }
+		return fmt.Errorf("部署新文件失败: %v", err)
+	}
+
+	if wasActive {
+		if startErr := a.ensureCoreRunning(); startErr != nil {
+			a.stopCoreService()
+			os.Remove(targetPath)
+			if hasOldFile { _ = os.Rename(backupPath, targetPath) }
+			a.ensureCoreRunning()
+			a.SyncState()
+			return fmt.Errorf("文件校验失败，已自动回滚: %v", startErr)
+		}
+	}
+
+	os.Remove(backupPath)
+	a.SyncState()
+	return nil
+}
+
+// GeoFileInfo 描述数据库文件的物理信息
+type GeoFileInfo struct {
+	Size    int64 `json:"size"`
+	ModTime int64 `json:"modTime"` // Unix 时间戳
+	Exists  bool  `json:"exists"`
+}
+
+// GetGeoDatabaseInfo 获取所有规则数据库的物理文件状态
+func (a *App) GetGeoDatabaseInfo() map[string]GeoFileInfo {
+	binDir := utils.GetCoreBinDir()
+	results := make(map[string]GeoFileInfo)
+
+	files := map[string]string{
+		"geoip":   "geoip.metadb",
+		"geosite": "GeoSite.dat",
+		"mmdb":    "Country.mmdb",
+		"asn":     "GeoLite2-ASN.mmdb",
+	}
+
+	for key, name := range files {
+		path := filepath.Join(binDir, name)
+		
+		// 针对 GeoIP 可能的 .dat 后缀做兼容检查
+		if key == "geoip" {
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				path = filepath.Join(binDir, "geoip.dat")
+			}
+		}
+
+		info, err := os.Stat(path)
+		if err != nil {
+			results[key] = GeoFileInfo{Exists: false}
+			continue
+		}
+
+		results[key] = GeoFileInfo{
+			Size:    info.Size(),
+			ModTime: info.ModTime().Unix(),
+			Exists:  true,
+		}
+	}
+
+	return results
 }

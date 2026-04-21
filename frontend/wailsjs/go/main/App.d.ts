@@ -37,6 +37,8 @@ export function GetCoreVersion():Promise<string>;
 
 export function GetDNSConfig():Promise<clash.DNSConfig>;
 
+export function GetGeoDatabaseInfo():Promise<Record<string, main.GeoFileInfo>>;
+
 export function GetInitialData():Promise<Record<string, any>>;
 
 export function GetLocalConfigs():Promise<Array<string>>;
@@ -116,6 +118,8 @@ export function UpdateAllSubs():Promise<void>;
 export function UpdateClashMode(arg1:string):Promise<void>;
 
 export function UpdateCoreComponent():Promise<string>;
+
+export function UpdateGeoDatabase(arg1:string):Promise<void>;
 
 export function UpdateSingleSub(arg1:string):Promise<void>;
 

@@ -62,7 +62,7 @@
     <div v-else-if="view === 'update'" class="settings-page slide-in">
       <div class="sub-header">
         <button class="back-btn" @click="view = 'main'">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+          <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>
         </button>
         <h3>组件更新中心</h3>
       </div>
@@ -70,7 +70,7 @@
       <div class="glass-card setting-group scrollable">
         <div class="setting-item">
           <div class="info">
-            <h4>Mihomo 内核</h4>
+            <h4>Mihomo 内核 <span style="color: var(--accent); margin-left: 8px; font-style: italic; font-size: 0.8rem; font-weight: normal;">(更新会短暂断开代理)</span></h4>
             <p>当前版本: {{ coreVersion }}</p>
           </div>
           <button class="action-btn" @click="handleUpdateCore" :disabled="updatingCore">
@@ -83,7 +83,7 @@
         <div class="setting-item">
           <div class="info">
             <h4>Wintun 驱动 (DLL)</h4>
-            <p>当前版本: {{ wintunVersion }}</p>
+            <p>当前版本: {{ wintunVersion || '获取中...' }}</p>
           </div>
           <div class="btn-group">
             <button class="action-btn" @click="installDriver(true)" :disabled="isInstalling">
@@ -96,7 +96,43 @@
         </div>
         
         <div class="divider"></div>
-        <p style="margin-top: 16px; text-align: center; color: var(--text-muted); font-style: italic;">更新内核会短暂断开代理连接</p>
+
+        <template v-for="(db, idx) in dbList" :key="db.key">
+          <div class="setting-item">
+            <div class="info" style="overflow: hidden;">
+              <h4>{{ db.title }} 文件</h4>
+              <p class="link-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                {{ behavior[db.behaviorKey] || '未配置下载链接' }}
+              </p>
+              <p v-if="dbFileInfo[db.key]?.exists" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">
+                大小: {{ formatSize(dbFileInfo[db.key].size) }} | 更新于: {{ formatRelativeTime(dbFileInfo[db.key].modTime) }}
+              </p>
+              <p v-else style="font-size: 0.75rem; color: var(--red-text); margin-top: 2px;">文件不存在，请点击更新同步</p>
+            </div>
+            <div class="btn-group" style="flex-shrink: 0;">
+              <button class="action-btn" @click="openDbEditModal(db.key, behavior[db.behaviorKey])" :disabled="updatingDbs[db.key]">编辑链接</button>
+              <button class="action-btn" @click="handleUpdateDb(db.key)" :disabled="updatingDbs[db.key]">
+                 {{ updatingDbs[db.key] ? '同步中...' : '更新同步' }}
+              </button>
+            </div>
+          </div>
+          <div class="divider" v-if="idx < dbList.length - 1"></div>
+        </template>
+      </div>
+    </div>
+
+    <div class="modal-overlay" v-if="showDbModal">
+      <div class="custom-modal-card">
+        <div class="modal-header">
+          <h3>编辑 {{ dbTitles[editingDb.type] }} 下载链接</h3>
+        </div>
+        <div class="modal-body">
+          <input type="text" class="modal-input" v-model="editingDb.link" style="text-align: left;" @keyup.enter="saveDbLink" />
+          <div class="modal-footer">
+            <button class="action-btn flex-1" @click="showDbModal = false">取消</button>
+            <button class="primary-btn accent-btn flex-1" @click="saveDbLink">保存更改</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -619,6 +655,40 @@ const isReinstallingDriver = ref(false);
 const isInstalling = computed(() => isCheckingUpdate.value || isReinstallingDriver.value);
 const updatingCore = ref(false);
 
+// 新增数据库更新所需要的变量
+const dbList = [
+  { key: 'geoip', title: 'GeoIP', behaviorKey: 'geoIpLink' },
+  { key: 'geosite', title: 'GeoSite', behaviorKey: 'geoSiteLink' },
+  { key: 'mmdb', title: 'MMDB', behaviorKey: 'mmdbLink' },
+  { key: 'asn', title: 'ASN', behaviorKey: 'asnLink' },
+];
+const dbTitles: Record<string, string> = { geoip: 'GeoIP', geosite: 'GeoSite', mmdb: 'MMDB', asn: 'ASN' };
+
+const showDbModal = ref(false);
+const editingDb = ref({ type: '', link: '' });
+const updatingDbs = ref<Record<string, boolean>>({});
+const dbFileInfo = ref<Record<string, any>>({});
+
+const formatSize = (bytes: number) => {
+  if (!bytes) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
+const formatRelativeTime = (timestamp: number) => {
+  if (!timestamp) return '未知';
+  const now = Math.floor(Date.now() / 1000);
+  const diff = now - timestamp;
+
+  if (diff < 60) return '刚刚';
+  if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
+  if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
+  if (diff < 2592000) return Math.floor(diff / 86400) + ' 天前';
+  return new Date(timestamp * 1000).toLocaleDateString();
+};
+
 const handleUpdateCore = async () => {
   updatingCore.value = true;
   try {
@@ -679,14 +749,18 @@ const netConfig = ref({
   hosts: ''
 });
 
-const behavior = ref({
+const behavior = ref<any>({
   silentStart: false,
   closeToTray: true,
   logLevel: 'info',
   hideLogs: false,
   subUA: '',
   activeConfig: '',
-  activeMode: ''
+  activeMode: '',
+  geoIpLink: '',
+  geoSiteLink: '',
+  mmdbLink: '',
+  asnLink: ''
 });
 
 
@@ -759,6 +833,10 @@ const loadData = async () => {
 
     const behaviorConf = await (API.GetAppBehavior as any)();
     if (behaviorConf) behavior.value = behaviorConf;
+
+    // 获取数据库文件信息
+    const dbInfo = await (API as any).GetGeoDatabaseInfo();
+    if (dbInfo) dbFileInfo.value = dbInfo;
   } catch (e) {
     console.error('加载配置失败', e);
   }
@@ -846,6 +924,41 @@ const saveBehavior = async () => {
     await API.SaveAppBehavior(behavior.value);
   } catch (e) {
     console.error('应用行为保存失败', e);
+  }
+};
+
+// ------------------------------
+// 新增操作函数
+// ------------------------------
+const openDbEditModal = (type: string, currentLink: string) => {
+  editingDb.value = { type, link: currentLink };
+  showDbModal.value = true;
+};
+
+const saveDbLink = async () => {
+  const t = editingDb.value.type;
+  const match = dbList.find(d => d.key === t);
+  if (match) {
+    behavior.value[match.behaviorKey] = editingDb.value.link;
+  }
+  showDbModal.value = false;
+  await saveBehavior();
+};
+
+const handleUpdateDb = async (type: string) => {
+  if (updatingDbs.value[type]) return; // 防止重复点击同一个
+  
+  updatingDbs.value[type] = true;
+  try {
+    await (API as any).UpdateGeoDatabase(type);
+    await showAlert(`${dbTitles[type]} 文件同步成功！`, "完成");
+    // 刷新文件信息
+    const dbInfo = await (API as any).GetGeoDatabaseInfo();
+    if (dbInfo) dbFileInfo.value = dbInfo;
+  } catch (e) {
+    await showAlert(`同步异常: ${e}`, "错误");
+  } finally {
+    delete updatingDbs.value[type];
   }
 };
 
@@ -1188,4 +1301,10 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   width: 18px;
   height: 18px;
 }
+
+/* 针对新链接和小字 */
+.link-text { font-family: monospace; font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+
+/* 悬浮弹窗基础覆盖 */
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
 </style>

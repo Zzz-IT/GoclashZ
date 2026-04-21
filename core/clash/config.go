@@ -484,12 +484,13 @@ func UpdateNetworkConfig(newCfg *NetworkConfig) error {
 	root["tcp-keep-alive-interval"] = newCfg.TCPKeepAliveInterval
 	root["test-url"] = newCfg.TestURL // 👈 保存到 root 以便下次读取
 
-	// 👈 新增：解析并保存 hosts
+	// 👈 修复：增加严格的 YAML 语法检查，失败时将错误抛给前端
 	if newCfg.Hosts != "" {
 		var hostsMap map[string]interface{}
-		if err := yaml.Unmarshal([]byte(newCfg.Hosts), &hostsMap); err == nil {
-			root["hosts"] = hostsMap
+		if err := yaml.Unmarshal([]byte(newCfg.Hosts), &hostsMap); err != nil {
+			return fmt.Errorf("Hosts 语法错误，必须符合 YAML 键值对格式: %v", err)
 		}
+		root["hosts"] = hostsMap
 	} else {
 		delete(root, "hosts")
 	}
