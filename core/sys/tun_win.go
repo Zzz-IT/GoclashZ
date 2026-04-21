@@ -14,24 +14,18 @@ import (
 )
 
 const (
-	// 使用 Wintun 官方稳定的 release 压缩包
 	WintunDownloadURL = "https://www.wintun.net/builds/wintun-0.14.1.zip"
 )
 
-// getWintunPath 获取驱动应该存放的绝对路径 (与 clash.exe 同级)
 func GetWintunPath() string {
 	return filepath.Join(utils.GetCoreBinDir(), "wintun.dll")
 }
 
-// IsWintunInstalled 检查驱动是否存在
 func IsWintunInstalled() bool {
-	// 🎯 核心逻辑：检查 DataDir/core/bin 下是否存在 wintun.dll
-	// 因为只有放在这里的 DLL 才能被我们的内核直接加载
 	_, err := os.Stat(GetWintunPath())
 	return err == nil
 }
 
-// InstallWintun 安装驱动（不再依赖外部下载器，直接处理 ZIP 解压）
 func InstallWintun() error {
 	if IsWintunInstalled() {
 		return nil
@@ -47,13 +41,12 @@ func InstallWintun() error {
 	return nil
 }
 
-// 核心功能：下载官方 ZIP 并提取对应的 dll 文件
 func downloadAndExtractWintun(finalDllPath string) error {
 	destDir := filepath.Dir(finalDllPath)
 	os.MkdirAll(destDir, 0755)
 	zipPath := filepath.Join(destDir, "wintun_temp.zip")
 
-	// 1. 下载 ZIP
+	// 1. 下载 ZIP (优化请求与接收流)
 	client := &http.Client{Timeout: 60 * time.Second}
 	req, err := http.NewRequest("GET", WintunDownloadURL, nil)
 	if err != nil {
@@ -75,7 +68,9 @@ func downloadAndExtractWintun(finalDllPath string) error {
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(out, resp.Body)
+	// 使用缓冲拷贝提高磁盘写入速度
+	buf := make([]byte, 32*1024)
+	_, err = io.CopyBuffer(out, resp.Body, buf)
 	out.Close()
 
 	if err != nil {
@@ -83,33 +78,35 @@ func downloadAndExtractWintun(finalDllPath string) error {
 		return fmt.Errorf("数据流接收异常中断: %v", err)
 	}
 
-	// 2. 解压并寻找 amd64 架构的 wintun.dll
+	// 2. 解压并提取 (修复解除文件锁定逻辑)
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
 		os.Remove(zipPath)
 		return fmt.Errorf("解压失败: %v", err)
 	}
-	defer r.Close()
+	// ⚠️ 取消 defer r.Close() 防止 os.Remove 失败
 
 	found := false
 	for _, f := range r.File {
-		// 官方压缩包内包含多种架构，我们要精确提取 amd64 版本
-		// 路径格式通常为 wintun/bin/amd64/wintun.dll
 		if strings.HasSuffix(strings.ToLower(f.Name), "amd64/wintun.dll") {
 			rc, err := f.Open()
 			if err != nil {
+				r.Close()
 				return err
 			}
 			outFile, err := os.Create(finalDllPath)
 			if err != nil {
 				rc.Close()
+				r.Close()
 				return err
 			}
-			_, err = io.Copy(outFile, rc)
+			// 再次使用缓冲提升解压释放速度
+			_, err = io.CopyBuffer(outFile, rc, buf)
 			outFile.Close()
 			rc.Close()
 			
 			if err != nil {
+				r.Close()
 				return err
 			}
 			found = true
@@ -117,7 +114,8 @@ func downloadAndExtractWintun(finalDllPath string) error {
 		}
 	}
 	
-	// 3. 清理临时压缩包
+	// 3. 安全清理临时压缩包 (必须先释放 Reader)
+	r.Close()
 	os.Remove(zipPath)
 
 	if !found {

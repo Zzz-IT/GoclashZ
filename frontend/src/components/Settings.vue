@@ -3,20 +3,12 @@
 
     <div v-if="view === 'main'" class="settings-page">
       <div class="glass-card setting-group">
-        <h3>系统与网络</h3>
+        <h3>网络设置</h3>
 
-        <div class="setting-item clickable" @click="enterUwpManager">
+        <div class="setting-item clickable" @click="view = 'network'">
           <div class="info">
-            <h4>UWP 环回免除工具</h4>
-            <p>管理 Windows UWP 应用（如 Microsoft Store）的代理访问权限。</p>
-          </div>
-          <span class="arrow">➔</span>
-        </div>
-
-        <div class="setting-item clickable" @click="view = 'tun'">
-          <div class="info">
-            <h4>虚拟网卡设置 (TUN 模式)</h4>
-            <p>配置底层驱动并接管系统全量流量，适合不支持代理的游戏或软件。</p>
+            <h4>基础 network 设置</h4>
+            <p>配置内核底层的 TCP 并发、超时以及连接测速逻辑。</p>
           </div>
           <span class="arrow">➔</span>
         </div>
@@ -24,34 +16,82 @@
         <div class="setting-item clickable" @click="view = 'dns'">
           <div class="info">
             <h4>DNS 服务器配置 (DNS Config)</h4>
-            <p>配置防污染解析、Fake-IP 以及策略路由所用的名称服务器。</p>
+            <p>管理防污染解析、Fake-IP 策略以及分流专用的 DNS 群组。</p>
           </div>
           <span class="arrow">➔</span>
         </div>
-        
-        <div class="setting-item clickable" @click="view = 'network'">
+
+        <div class="setting-item clickable" @click="view = 'tun'">
           <div class="info">
-            <h4>基础 network 设置</h4>
-            <p>管理内核底层的连接行为、IPv6 栈以及测速逻辑。</p>
+            <h4>虚拟网卡设置 (TUN 模式)</h4>
+            <p>管理 Wintun 驱动并开启全局透明代理，接管所有软件流量。</p>
           </div>
           <span class="arrow">➔</span>
         </div>
+      </div>
+
+      <div class="glass-card setting-group">
+        <h3>应用设置</h3>
 
         <div class="setting-item clickable" @click="view = 'behavior'">
           <div class="info">
             <h4>应用行为设置 (App Behavior)</h4>
-            <p>配置软件启动行为、关闭逻辑以及系统托盘相关设置。</p>
+            <p>定制软件启动模式、托盘图标逻辑及订阅请求 User-Agent。</p>
           </div>
           <span class="arrow">➔</span>
         </div>
 
-        <div class="setting-item clickable" @click="showUpdateModal = true">
+        <div class="setting-item clickable" @click="enterUwpManager">
+          <div class="info">
+            <h4>UWP 环回免除工具</h4>
+            <p>赋予 Windows UWP 应用（如微软商店、邮件）访问本地代理的权限。</p>
+          </div>
+          <span class="arrow">➔</span>
+        </div>
+
+        <div class="setting-item clickable" @click="view = 'update'">
           <div class="info">
             <h4>内核与驱动更新 (Update Center)</h4>
-            <p>检测并更新 Mihomo 内核及 Wintun 驱动文件。</p>
+            <p>检查并更新 Mihomo 内核二进制文件及 Wintun 驱动组件。</p>
           </div>
-          <span class="btn-icon chevron" v-html="ICONS.chevronRight"></span>
+          <span class="arrow">➔</span>
         </div>
+      </div>
+    </div>
+
+    <div v-else-if="view === 'update'" class="settings-page slide-in">
+      <div class="sub-header">
+        <button class="back-btn" @click="view = 'main'">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        </button>
+        <h3>组件更新中心</h3>
+      </div>
+
+      <div class="glass-card setting-group scrollable">
+        <div class="setting-item">
+          <div class="info">
+            <h4>Mihomo 内核</h4>
+            <p>当前版本: v1.18.3</p>
+          </div>
+          <button class="action-btn" @click="handleUpdate('core')" :disabled="updating">
+            {{ updating ? '正在处理...' : '检查更新' }}
+          </button>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="info">
+            <h4>Wintun 驱动 (DLL)</h4>
+            <p>当前版本: 0.14.1</p>
+          </div>
+          <button class="action-btn" @click="handleUpdate('wintun')" :disabled="updating">
+            重新安装
+          </button>
+        </div>
+        
+        <div class="divider"></div>
+        <p style="margin-top: 16px; text-align: center; color: var(--text-muted); font-style: italic;">更新内核会短暂断开代理连接</p>
       </div>
     </div>
 
@@ -531,44 +571,6 @@
       </div>
     </div>
 
-    <!-- 组件更新弹窗 -->
-    <Transition name="pop">
-      <div v-if="showUpdateModal" class="modal-overlay" @click="showUpdateModal = false">
-        <div class="custom-modal-card update-card" @click.stop>
-          <div class="modal-header">
-            <h3>组件更新中心</h3>
-            <button class="close-btn" @click="showUpdateModal = false">×</button>
-          </div>
-          
-          <div class="modal-body">
-            <div class="update-item">
-              <div class="comp-info">
-                <strong>Mihomo 内核</strong>
-                <span>当前版本: v1.18.3</span>
-              </div>
-              <button class="primary-btn mini" @click="handleUpdate('core')" :disabled="updating">
-                {{ updating ? '正在下载...' : '检查更新' }}
-              </button>
-            </div>
-
-            <div class="update-item">
-              <div class="comp-info">
-                <strong>Wintun 驱动 (DLL)</strong>
-                <span>当前版本: 0.14.1</span>
-              </div>
-              <button class="action-btn mini" @click="handleUpdate('wintun')" :disabled="updating">
-                重新安装
-              </button>
-            </div>
-          </div>
-          
-          <div class="modal-footer">
-            <span class="hint-text">更新内核会短暂断开代理连接</span>
-          </div>
-        </div>
-      </div>
-    </Transition>
-
   </div>
 </template>
 
@@ -585,11 +587,10 @@ const props = defineProps({
   }
 });
 
-const view = ref(props.initialView);
-watch(() => props.initialView, (newVal) => { view.value = newVal; });
+const view = ref(props.initialView as 'main' | 'uwp' | 'tun' | 'dns' | 'network' | 'behavior' | 'update');
+watch(() => props.initialView, (newVal) => { view.value = newVal as any; });
 
 const isInstalling = ref(false);
-const showUpdateModal = ref(false);
 const updating = ref(false);
 
 const handleUpdate = async (type: string) => {
@@ -851,11 +852,11 @@ const updateNameserverPolicy = (e: Event) => {
 
 <style scoped>
 .settings-container { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-.settings-page { display: flex; flex-direction: column; height: 100%; flex: 1; }
-.setting-group { padding: 20px 24px; margin-bottom: 20px; }
+.settings-page { display: flex; flex-direction: column; flex: 1; overflow-y: auto; padding-right: 4px; }
+.setting-group { padding: 20px 24px; margin-bottom: 12px; }
 .scrollable { overflow-y: auto; padding-right: 12px; padding-bottom: 20px; }
 
-h3 { margin: 0 0 20px 0; color: var(--text-main); font-size: 1.1rem; padding-bottom: 12px; }
+h3 { margin: 0 0 8px 0; color: var(--text-main); font-size: 1.25rem; padding-bottom: 4px; }
 h4 { margin: 0 0 6px 0; color: var(--text-main); font-size: 1rem;}
 p { 
   margin: 0; 
@@ -1136,27 +1137,5 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 .back-icon-svg :deep(svg) {
   width: 18px;
   height: 18px;
-}
-
-/* 更新中心弹窗样式 */
-.update-card { max-width: 400px; width: 90%; }
-.update-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px;
-  background: var(--surface-hover);
-  border-radius: 12px;
-  margin-bottom: 12px;
-}
-.comp-info { display: flex; flex-direction: column; gap: 4px; text-align: left; }
-.comp-info strong { font-size: 0.95rem; color: var(--text-main); }
-.comp-info span { font-size: 0.8rem; color: var(--text-sub); }
-.hint-text { font-size: 0.75rem; color: var(--text-muted); font-style: italic; width: 100%; text-align: center; }
-
-.chevron :deep(svg) {
-  width: 16px;
-  height: 16px;
-  color: var(--text-muted);
 }
 </style>

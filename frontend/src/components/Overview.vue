@@ -110,24 +110,26 @@ const refreshData = async () => {
 
 const toggleSysProxy = async () => {
   const originalValue = status.value.systemProxy;
+  status.value.systemProxy = !originalValue; // 🚀 乐观更新：立即切换状态，消除操作停顿感
   try {
     await API.ToggleSystemProxy(!originalValue);
     status.value = await API.GetProxyStatus() as any;
     window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: status.value }));
   } catch (err) {
-    status.value.systemProxy = originalValue;
+    status.value.systemProxy = originalValue; // 失败则回滚
     await showAlert("操作系统代理失败: " + err, '错误');
   }
 };
 
 const toggleTun = async () => {
   const originalValue = status.value.tun;
+  status.value.tun = !originalValue; // 🚀 乐观更新：点击即切换，后台慢慢处理
   try {
     await API.ToggleTunMode(!originalValue);
     status.value = await API.GetProxyStatus() as any;
     window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: status.value }));
   } catch (err) {
-    status.value.tun = originalValue;
+    status.value.tun = originalValue; // 失败则回滚
     await showAlert("操作虚拟网卡失败: " + err, '错误');
   }
 };

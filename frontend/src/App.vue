@@ -121,7 +121,7 @@ const menu = [
   { id: 'rules', label: '配置规则', icon: ICONS.rules },
   { id: 'connections', label: '当前连接', icon: ICONS.connections },
   { id: 'logs', label: '实时日志', icon: ICONS.logs },
-  { id: 'settings', label: '系统设置', icon: ICONS.settings }
+  { id: 'settings', label: '软件设置', icon: ICONS.settings }
 ];
 
 const modes = [
@@ -267,6 +267,16 @@ watch(currentTab, (newTab) => {
   line-height: 1.6; 
 }
 
+.l-time { color: var(--text-muted); margin-right: 12px; opacity: 0.8; }
+.l-type { margin-right: 12px; font-weight: 600; }
+
+.log-line.info .l-type { color: var(--text-main); }
+.log-line.warning .l-type { color: var(--text-sub); font-style: italic; }
+.log-line.error .l-type { color: var(--text-main); font-weight: 700; }
+.log-line.debug .l-type { color: var(--text-muted); }
+
+.view-settings { height: 100%; display: flex; flex-direction: column; }
+</style>
 .l-time { color: var(--text-muted); margin-right: 12px; opacity: 0.8; }
 .l-type { margin-right: 12px; font-weight: 600; }
 

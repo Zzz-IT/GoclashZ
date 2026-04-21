@@ -26,14 +26,14 @@
 
       <div class="theme-switch-row" @click="toggleTheme">
         <span class="icon-box" v-html="globalState.theme === 'dark' ? icons.moon : icons.sun"></span>
-        <span class="label">{{ globalState.theme === 'dark' ? '夜间模式' : '日间模式' }}</span>
+        <span class="label">{{ globalState.theme === 'dark' ? '黑色模式' : '白色模式' }}</span>
       </div>
 
       <div class="status-indicator">
         <div class="icon-box">
           <div :class="['dot', { online: globalState.isRunning }]"></div>
         </div>
-        <span class="status-text">{{ globalState.isRunning ? '内核已启动' : '服务未运行' }}</span>
+        <span :class="['status-text', { online: globalState.isRunning }]">{{ globalState.isRunning ? '内核已启动' : '服务未运行' }}</span>
       </div>
     </div>
   </aside>
@@ -67,10 +67,10 @@ const toggleTheme = () => {
 .nav-item { 
   display: flex; align-items: center; gap: 12px; padding: 10px 14px; 
   margin-bottom: 4px; border-radius: 8px; cursor: pointer; 
-  color: var(--text-sub); transition: all 0.2s ease; 
+  color: var(--text-main); transition: all 0.2s ease; 
 }
-.nav-item:hover { background: var(--surface); color: var(--text-main); }
-.nav-item.active { background: var(--surface-hover); color: var(--text-main); font-weight: 600; }
+.nav-item:hover { background: var(--surface); }
+.nav-item.active { background: var(--surface-hover); font-weight: 600; }
 
 .icon { width: 16px; height: 16px; display: flex; align-items: center; }
 .nav-label { font-size: 0.85rem; letter-spacing: 0.02em; }
@@ -80,13 +80,15 @@ const toggleTheme = () => {
 .icon-box { 
   width: 16px; height: 16px; display: flex; align-items: center; 
   justify-content: center; flex-shrink: 0; font-size: 12px; 
-  font-weight: bold; color: var(--text-muted); 
+  font-weight: bold; color: var(--text-main); 
 }
 .icon-box :deep(svg) { width: 14px; height: 14px; }
 
 .side-traffic { display: flex; flex-direction: column; gap: 8px; }
 .t-item, .theme-switch-row, .status-indicator { display: flex; align-items: center; gap: 12px; height: 20px; }
-.t-label, .theme-switch-row .label, .status-text { font-size: 0.8rem; color: var(--text-sub); white-space: nowrap; }
+.t-label, .theme-switch-row .label { font-size: 0.8rem; color: var(--text-main); white-space: nowrap; }
+.status-text { font-size: 0.8rem; color: var(--text-sub); transition: 0.3s; }
+.status-text.online { color: var(--text-main); font-weight: 600; }
 .t-val { margin-left: auto; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-main); opacity: 0.9; }
 
 .theme-switch-row { cursor: pointer; transition: opacity 0.2s; }

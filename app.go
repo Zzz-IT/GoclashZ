@@ -18,6 +18,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/getlantern/systray"         // 👈 2. 新增：引入托盘库
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -319,21 +320,22 @@ func (a *App) ensureCoreRunning() error {
 		return err
 	}
 
-	// ⚠️ 核心修复 2：将异步改为同步阻塞，等待内核 HTTP API 真正就绪
+	// ⚠️ 核心修复 2：优化探针逻辑，先检查再等待
 	apiReady := false
 	for i := 0; i < 20; i++ { // 最长等待 2 秒
-		time.Sleep(100 * time.Millisecond)
-
-		// 关键：检查内核进程是否还在运行
-		if !clash.IsRunning() {
-			return fmt.Errorf("内核启动后意外停止。请检查端口(7890/9090)是否被占用，或查看日志以获取详细配置错误。")
-		}
-
-		// 探针：尝试请求一次数据，如果成功说明 API 已就绪
+		// 1. 探针：尝试请求一次数据，如果成功说明 API 已就绪
 		if _, err := clash.GetInitialData(); err == nil {
 			apiReady = true
 			break
 		}
+
+		// 2. 关键：检查内核进程是否还在运行
+		if !clash.IsRunning() {
+			return fmt.Errorf("内核启动后意外停止。请检查端口(7890/9090)是否被占用，或查看日志以获取详细配置错误。")
+		}
+
+		// 3. 只有失败了才等待
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	// API 就绪后，立刻下发离线选择的节点
@@ -450,7 +452,7 @@ func (a *App) ToggleTunMode(enable bool) error {
 	a.stopCoreService() 
 	
 	if needCore {
-		time.Sleep(300 * time.Millisecond) // 等待旧端口释放
+		time.Sleep(150 * time.Millisecond) // 等待旧端口释放
 		err := a.ensureCoreRunning()
 		a.SyncState()
 		return err
@@ -1353,8 +1355,9 @@ func (a *App) onReady() {
 		for {
 			select {
 			case <-mShow.ClickedCh:
-				// 点击“显示”，呼出隐藏的 Wails 窗口
+				// 🚀 点击托盘呼出时，打开窗口且触发任务栏闪烁
 				runtime.WindowShow(a.ctx)
+				a.FlashWindow()
 			case <-mQuit.ClickedCh:
 				// 退出托盘图标
 				systray.Quit()
@@ -1444,4 +1447,31 @@ func (a *App) SaveUwpExemptions(sids []string) error {
 		return fmt.Errorf("此操作需要管理员权限")
 	}
 	return sys.SaveUwpExemptions(sids)
+}
+
+// FlashWindow 底层闪烁窗口独立方法
+func (a *App) FlashWindow() {
+	windowName, _ := syscall.UTF16PtrFromString("GoclashZ")
+	user32 := syscall.NewLazyDLL("user32.dll")
+	procFindWindow := user32.NewProc("FindWindowW")
+	procFlashWindowEx := user32.NewProc("FlashWindowEx")
+
+	hwnd, _, _ := procFindWindow.Call(0, uintptr(unsafe.Pointer(windowName)))
+	if hwnd != 0 {
+		type FLASHWINFO struct {
+			CbSize    uint32
+			Hwnd      uintptr
+			DwFlags   uint32
+			UCount    uint32
+			DwTimeout uint32
+		}
+		finfo := FLASHWINFO{
+			CbSize:    uint32(unsafe.Sizeof(FLASHWINFO{})),
+			Hwnd:      hwnd,
+			DwFlags:   0x00000003 | 0x0000000C, // 闪烁标题和任务栏
+			UCount:    0,
+			DwTimeout: 0,
+		}
+		procFlashWindowEx.Call(uintptr(unsafe.Pointer(&finfo)))
+	}
 }

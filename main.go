@@ -24,6 +24,8 @@ var (
 	procFindWindow          = user32.NewProc("FindWindowW")
 	procShowWindow          = user32.NewProc("ShowWindow")
 	procGetForegroundWindow = user32.NewProc("GetForegroundWindow") // 👈 新增：用于获取当前系统的焦点窗口
+	procIsWindowVisible     = user32.NewProc("IsWindowVisible")
+	procIsIconic            = user32.NewProc("IsIconic")
 	procFlashWindowEx       = user32.NewProc("FlashWindowEx")
 )
 
@@ -67,26 +69,39 @@ func main() {
 				hwnd, _, _ := procFindWindow.Call(0, uintptr(unsafe.Pointer(windowName)))
 				
 				if hwnd != 0 {
-					// 1. 获取当前系统的焦点窗口
+					// 1. 检查已有窗口的状态
+					isVisible, _, _ := procIsWindowVisible.Call(hwnd)
+					isMinimized, _, _ := procIsIconic.Call(hwnd)
 					fgHwnd, _, _ := procGetForegroundWindow.Call()
-					
-					// 2. 如果 GoclashZ 不是当前的焦点窗口，才执行闪烁
-					if hwnd != fgHwnd {
-						fmt.Println("👉 正在唤醒已有窗口 (闪烁提示)...")
 
-						// 3. 核心：以“不抢占焦点”的方式确保窗口在任务栏可见
-						// SW_SHOWNA = 8 (显示当前状态，但不激活)。
-						procShowWindow.Call(hwnd, 8) 
+					// 2. 如果窗口不可见（在托盘）或已最小化
+					if isVisible == 0 || isMinimized != 0 {
+						fmt.Println("👉 已有窗口在后台/最小化，正在恢复显示并执行固定闪烁...")
+						procShowWindow.Call(hwnd, 9) // SW_RESTORE (9): 恢复并显示
 						
-						// 4. 执行智能闪烁
+						// 🚀 核心修复：针对恢复场景，使用极速单次闪烁 (1次)
+						// 配合短超时，实现瞬间“晃一下”的效果，不拖泥带水
 						finfo := FLASHWINFO{
 							CbSize:    uint32(unsafe.Sizeof(FLASHWINFO{})),
 							Hwnd:      syswin.Handle(hwnd),
-							DwFlags:   FLASHW_ALL | FLASHW_TIMERNOFG, // 闪烁直到用户点击它
-							UCount:    0,                             // 0 代表一直闪
-							DwTimeout: 0,                             // 默认闪烁频率
+							DwFlags:   FLASHW_ALL, 
+							UCount:    1,
+							DwTimeout: 75,
 						}
 						procFlashWindowEx.Call(uintptr(unsafe.Pointer(&finfo)))
+					} else {
+						// 3. 如果窗口已经在桌面上显示，但不是焦点，则执行持续闪烁提醒
+						if hwnd != fgHwnd {
+							fmt.Println("👉 窗口已在桌面，执行持续闪烁提醒...")
+							finfo := FLASHWINFO{
+								CbSize:    uint32(unsafe.Sizeof(FLASHWINFO{})),
+								Hwnd:      syswin.Handle(hwnd),
+								DwFlags:   FLASHW_ALL | FLASHW_TIMERNOFG, // 持续闪烁直到点击
+								UCount:    0,
+								DwTimeout: 0,
+							}
+							procFlashWindowEx.Call(uintptr(unsafe.Pointer(&finfo)))
+						}
 					}
 				}
 				

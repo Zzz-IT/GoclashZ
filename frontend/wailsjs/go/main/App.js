@@ -42,6 +42,10 @@ export function FixUWPNetwork() {
   return window['go']['main']['App']['FixUWPNetwork']();
 }
 
+export function FlashWindow() {
+  return window['go']['main']['App']['FlashWindow']();
+}
+
 export function GetAllRules(arg1) {
   return window['go']['main']['App']['GetAllRules'](arg1);
 }
