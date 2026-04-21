@@ -424,7 +424,11 @@ onUnmounted(() => {
 .sub-card:not(.is-sorting):hover { background: var(--surface-hover); }
 .sub-card.is-sorting { cursor: default; }
 
-.active-card { background: var(--accent) !important; color: var(--accent-fg) !important; border: none !important; }
+.active-card { 
+  background: var(--accent) !important; 
+  color: var(--accent-fg) !important; 
+  border-color: var(--accent) !important; /* 👈 让边框融入背景，不改变物理尺寸 */
+}
 .active-card .sub-path, .active-card .sub-hint, .active-card .icon-btn { color: var(--accent-fg) !important; opacity: 0.8; }
 .sub-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
 .sub-info { display: flex; align-items: center; gap: 16px; }
@@ -432,22 +436,10 @@ onUnmounted(() => {
 .sub-path { font-size: 0.7rem; color: var(--text-muted); }
 
 /* ================================== */
-/* 列表过渡动画 */
+/* 列表过渡动画（彻底移除入场渐显，仅保留排序位移） */
 /* ================================== */
-.list-move,
-.list-enter-active,
-.list-leave-active {
-  transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
-}
-.list-enter-from,
-.list-leave-to {
-  opacity: 0;
-  transform: translateY(15px) scale(0.98);
-}
-.list-leave-active {
-  position: absolute;
-  right: 8px;
-  left: 0;
+.list-move {
+  transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 /* 1. 统一头部按钮的基础样式，锁定高度防止内容变化导致抖动 */

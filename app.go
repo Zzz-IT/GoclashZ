@@ -487,6 +487,10 @@ func (a *App) ToggleTunMode(enable bool) error {
 
 // RestartCore 供前端调用：安全地重启底层代理内核
 func (a *App) RestartCore() error {
+	// 🔒 加锁：防止在重启过程中，用户又点击了托盘或界面的其他开关
+	a.coreLifecycleMu.Lock()
+	defer a.coreLifecycleMu.Unlock()
+
 	// 1. 停止当前运行的内核与流量监控
 	a.stopCoreService()
 
@@ -747,7 +751,9 @@ func (a *App) UpdateClashMode(mode string) error {
 	a.saveActiveMode(mode)
 
 	if isRunning {
-		return clash.UpdateMode(mode)
+		err := clash.UpdateMode(mode)
+		a.SyncState() // 👈 修复：补上这行！通知托盘和前端更新 UI
+		return err
 	}
 
 	activeCfg := a.getActiveConfig()
@@ -1555,8 +1561,11 @@ func (a *App) onTrayReady() {
 				}
 
 			case <-mRestart.ClickedCh:
-				// 调用你之前写好的安全重启逻辑
-				_, _ = a.UpdateCoreComponent()
+				// 🎯 核心修复 1：调用 RestartCore 而不是 UpdateCoreComponent
+				// 🎯 核心修复 2：使用 goroutine 异步执行，防止阻塞托盘主事件循环
+				go func() {
+					_ = a.RestartCore()
+				}()
 
 			case <-mQuit.ClickedCh:
 				// 先停内核，再退托盘，最后杀进程

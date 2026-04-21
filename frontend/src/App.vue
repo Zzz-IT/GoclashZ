@@ -27,29 +27,33 @@
         </header>
 
         <div class="view-scroller">
-          <Overview v-if="currentTab === 'home'" :traffic="traffic" />
+          <Transition name="page-fade" mode="out-in">
+            <div :key="currentTab" class="view-transition-wrapper">
+              <Overview v-if="currentTab === 'home'" :traffic="traffic" />
 
-          <Subscriptions v-if="currentTab === 'subs'" />
+              <Subscriptions v-if="currentTab === 'subs'" />
 
-          <Proxies v-if="currentTab === 'proxies'" />
+              <Proxies v-if="currentTab === 'proxies'" />
 
-          <Rules v-if="currentTab === 'rules'" />
+              <Rules v-if="currentTab === 'rules'" />
 
-          <Connections v-show="currentTab === 'connections'" />
+              <Connections v-if="currentTab === 'connections'" />
 
-          <div v-show="currentTab === 'logs'" class="view-logs">
-            <div class="terminal-box" ref="logBox">
-              <div v-for="(log, i) in logLines" :key="i" :class="['log-line', log.type]">
-                <span class="l-time">{{ log.time }}</span>
-                <span class="l-type">[{{ log.type.toUpperCase() }}]</span>
-                <span class="l-msg">{{ log.payload }}</span>
+              <div v-if="currentTab === 'logs'" class="view-logs">
+                <div class="terminal-box" ref="logBox">
+                  <div v-for="(log, i) in logLines" :key="i" :class="['log-line', log.type]">
+                    <span class="l-time">{{ log.time }}</span>
+                    <span class="l-type">[{{ log.type.toUpperCase() }}]</span>
+                    <span class="l-msg">{{ log.payload }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="currentTab === 'settings'" class="view-settings">
+                <Settings :initialView="targetSettingsView" />
               </div>
             </div>
-          </div>
-
-          <div v-if="currentTab === 'settings'" class="view-settings">
-            <Settings :initialView="targetSettingsView" />
-          </div>
+          </Transition>
         </div>
       </main>
     </div>
@@ -187,6 +191,10 @@ onMounted(async () => {
   (window as any).runtime.EventsOn("app-state-sync", (state: any) => {
     globalState.isRunning = state.isRunning;
     globalState.mode = state.mode;
+    // 核心修复：同步黑白模式状态
+    if (state.theme) {
+      globalState.theme = state.theme;
+    }
   });
 
   try {
@@ -324,7 +332,12 @@ watch(currentTab, (newTab) => {
 
 .content { flex: 1; display: flex; flex-direction: column; padding: 32px 40px; overflow: hidden; }
 .content-header h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 32px; }
-.view-scroller { flex: 1; overflow-y: auto; padding-right: 12px; }
+.view-scroller { 
+  flex: 1; 
+  overflow-y: auto; 
+  padding-right: 12px; 
+  scrollbar-gutter: stable; /* 核心修复：预留滚动条占位，防止切换时挤压页面 */
+}
 
 .terminal-box { 
   background: var(--surface);
@@ -348,4 +361,32 @@ watch(currentTab, (newTab) => {
 .log-line.debug .l-type { color: var(--text-muted); }
 
 .view-settings { height: 100%; display: flex; flex-direction: column; }
+
+/* 页面切换动画：淡入并向上微移 8px */
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  overflow: hidden !important; /* 核心修复：过渡期间强制隐藏溢出，防止滚动条闪现 */
+}
+
+.page-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px); /* 进入时从下方浮现 */
+}
+
+.page-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px); /* 离开时向上方消失 */
+}
+
+.view-transition-wrapper {
+  height: 100%;
+  width: 100%;
+}
+
+/* 🚀 终极修复：当内部正在执行页面切换动画时，锁死父容器的滚动条 */
+.view-scroller:has(.page-fade-enter-active),
+.view-scroller:has(.page-fade-leave-active) {
+  overflow-y: hidden !important;
+}
 </style>

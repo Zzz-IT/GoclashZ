@@ -59,7 +59,7 @@
       </div>
     </div>
 
-    <div v-else-if="view === 'update'" class="settings-page slide-in">
+    <div v-else-if="view === 'update'" class="settings-page">
       <div class="sub-header">
         <button class="back-btn" @click="view = 'main'">
           <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>
@@ -151,7 +151,7 @@
       </div>
     </div>
 
-    <div v-else-if="view === 'tun'" class="settings-page slide-in">
+    <div v-else-if="view === 'tun'" class="settings-page">
       <div class="sub-header">
         <button class="back-btn" @click="view = 'main'">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
@@ -246,7 +246,7 @@
       </div>
     </div>
 
-    <div v-else-if="view === 'dns'" class="settings-page slide-in">
+    <div v-else-if="view === 'dns'" class="settings-page">
       <div class="sub-header">
         <button class="back-btn" @click="view = 'main'">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
@@ -410,7 +410,7 @@
       </div>
     </div>
 
-    <div v-else-if="view === 'network'" class="settings-page slide-in">
+    <div v-else-if="view === 'network'" class="settings-page">
       <div class="sub-header">
         <button class="back-btn" @click="view = 'main'">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
@@ -519,7 +519,7 @@
       </div>
     </div>
 
-    <div v-else-if="view === 'behavior'" class="settings-page slide-in">
+    <div v-else-if="view === 'behavior'" class="settings-page">
       <div class="sub-header">
         <button class="back-btn" @click="view = 'main'">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
@@ -595,7 +595,7 @@
       </div>
     </div>
 
-    <div v-else-if="view === 'uwp'" class="settings-page slide-in">
+    <div v-else-if="view === 'uwp'" class="settings-page">
       <div class="sub-header">
         <button class="back-btn" @click="view = 'main'">
           <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>

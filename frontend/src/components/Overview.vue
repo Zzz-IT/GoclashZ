@@ -39,7 +39,7 @@
     </section>
 
     <section class="switch-row">
-      <div class="action-card" :class="{ 'on': status.systemProxy, 'is-disabled': isToggling }" @click="toggleSysProxy">
+      <div class="action-card" :class="{ 'on': status.systemProxy }" @click="toggleSysProxy">
         <div class="card-content">
           <div class="icon-ring" v-html="ICONS.sysProxy"></div>
           <div class="text-group">
@@ -50,7 +50,7 @@
         <div class="status-node"></div>
       </div>
 
-      <div class="action-card" :class="{ 'on': status.tun, 'is-disabled': isToggling }" @click="toggleTun">
+      <div class="action-card" :class="{ 'on': status.tun }" @click="toggleTun">
         <div class="card-content">
           <div class="icon-ring" v-html="ICONS.tun"></div>
           <div class="text-group">
@@ -97,7 +97,10 @@ defineProps<{
 const status = ref({ systemProxy: false, tun: false });
 const currentMode = ref('rule');
 const clashVersion = ref('');
-const isToggling = ref(false); // 👈 新增：全局开关锁
+
+// 状态调和队列：分离 UI 的"目标状态"与后台的"实际状态"
+const sysProxyQueue = { isProcessing: false, target: false, actual: false };
+const tunQueue = { isProcessing: false, target: false, actual: false };
 
 const modes = [
   { label: '规则分流', val: 'rule' },
@@ -133,44 +136,77 @@ const refreshData = async () => {
     const data: any = await API.GetInitialData();
     if (data?.mode) currentMode.value = data.mode;
     if (data?.version) clashVersion.value = data.version;
-    status.value = await API.GetProxyStatus() as any;
+    const st: any = await API.GetProxyStatus();
+    status.value = st;
+
+    // 初始化对齐
+    sysProxyQueue.actual = st.systemProxy;
+    sysProxyQueue.target = st.systemProxy;
+    tunQueue.actual = st.tun;
+    tunQueue.target = st.tun;
   } catch (e) { console.error(e); }
 };
 
-const toggleSysProxy = async () => {
-  if (isToggling.value) return; // 🔒 拦截重复点击
-  isToggling.value = true;
-
-  const originalValue = status.value.systemProxy;
-  status.value.systemProxy = !originalValue; // 🚀 乐观更新：立即切换状态，消除操作停顿感
-  try {
-    await API.ToggleSystemProxy(!originalValue);
-    status.value = await API.GetProxyStatus() as any;
-    window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: status.value }));
-  } catch (err) {
-    status.value.systemProxy = originalValue; // 失败则回滚
-    await showAlert("操作系统代理失败: " + err, '错误');
-  } finally {
-    isToggling.value = false; // 🔓 执行完毕，解锁
-  }
+const toggleSysProxy = () => {
+  // 🚀 极致乐观 UI：无视后台，开关瞬间响应用户点击
+  status.value.systemProxy = !status.value.systemProxy;
+  sysProxyQueue.target = status.value.systemProxy;
+  processSysProxy();
 };
 
-const toggleTun = async () => {
-  if (isToggling.value) return; // 🔒 拦截重复点击
-  isToggling.value = true;
+const processSysProxy = async () => {
+  if (sysProxyQueue.isProcessing) return; // 后台正在处理，直接返回
+  sysProxyQueue.isProcessing = true;
 
-  const originalValue = status.value.tun;
-  status.value.tun = !originalValue; // 🚀 乐观更新：点击即切换，后台慢慢处理
-  try {
-    await API.ToggleTunMode(!originalValue);
-    status.value = await API.GetProxyStatus() as any;
-    window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: status.value }));
-  } catch (err) {
-    status.value.tun = originalValue; // 失败则回滚
-    await showAlert("操作虚拟网卡失败: " + err, '错误');
-  } finally {
-    isToggling.value = false; // 🔓 执行完毕，解锁
+  // 只要真实状态还没追上目标状态，就继续干活
+  while (sysProxyQueue.actual !== sysProxyQueue.target) {
+    const nextState = sysProxyQueue.target; // 锁定此时的目标
+    try {
+      await API.ToggleSystemProxy(nextState);
+      sysProxyQueue.actual = nextState; // 成功到达！
+    } catch (err) {
+      // 灾难回滚：把 UI 和目标重置为崩溃前的真实状态
+      sysProxyQueue.target = sysProxyQueue.actual;
+      status.value.systemProxy = sysProxyQueue.actual;
+      await showAlert("操作系统代理失败: " + err, '错误');
+      break;
+    }
   }
+
+  // 队列清空，推送一次全局同步
+  const finalStatus = await API.GetProxyStatus() as any;
+  status.value = finalStatus;
+  window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: finalStatus }));
+  sysProxyQueue.isProcessing = false;
+};
+
+const toggleTun = () => {
+  status.value.tun = !status.value.tun;
+  tunQueue.target = status.value.tun;
+  processTun();
+};
+
+const processTun = async () => {
+  if (tunQueue.isProcessing) return;
+  tunQueue.isProcessing = true;
+
+  while (tunQueue.actual !== tunQueue.target) {
+    const nextState = tunQueue.target;
+    try {
+      await API.ToggleTunMode(nextState);
+      tunQueue.actual = nextState;
+    } catch (err) {
+      tunQueue.target = tunQueue.actual;
+      status.value.tun = tunQueue.actual;
+      await showAlert("操作虚拟网卡失败: " + err, '错误');
+      break;
+    }
+  }
+
+  const finalStatus = await API.GetProxyStatus() as any;
+  status.value = finalStatus;
+  window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: finalStatus }));
+  tunQueue.isProcessing = false;
 };
 
 const handleModeChange = (val: string) => {
@@ -188,12 +224,16 @@ onMounted(() => {
       currentMode.value = state.mode;
     }
 
-    // 2. 静默拉取最新的系统代理和 TUN 状态，并更新 UI
-    API.GetProxyStatus().then((res: any) => {
-      status.value = res;
-      // 可选：触发一个全局自定义事件，如果有其他组件需要也可以接上
-      window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: status.value }));
-    });
+    // 👈 核心：如果在狂点处理中，忽略后端的全局广播，防止 UI 被扯回过去
+    if (!sysProxyQueue.isProcessing && !tunQueue.isProcessing) {
+      API.GetProxyStatus().then((res: any) => {
+        status.value = res;
+        sysProxyQueue.actual = res.systemProxy;
+        sysProxyQueue.target = res.systemProxy;
+        tunQueue.actual = res.tun;
+        tunQueue.target = res.tun;
+      });
+    }
   });
 });
 
@@ -208,7 +248,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  animation: fadeIn 0.4s ease-out;
 }
 
 /* 顶部面板 */
@@ -314,11 +353,6 @@ onUnmounted(() => {
 .action-card:hover { background: var(--surface-hover); }
 .action-card.on { background: var(--accent); }
 
-.action-card.is-disabled {
-  pointer-events: none;
-  opacity: 0.7;
-}
-
 .icon-ring { 
   width: 40px; height: 40px; border-radius: 12px; background: var(--surface-hover);
   display: flex; align-items: center; justify-content: center; color: var(--text-sub);
@@ -356,7 +390,6 @@ onUnmounted(() => {
 }
 
 @keyframes pulse { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(2.5); opacity: 0; } }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
 .micro-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; color: var(--text-muted); }
 .section-heading { font-size: 1.1rem; font-weight: 600; color: var(--text-main); margin: 0 0 12px 4px; }
