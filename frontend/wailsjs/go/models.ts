@@ -207,6 +207,24 @@ export namespace main {
 	        this.asnLink = source["asnLink"];
 	    }
 	}
+	export class AppState {
+	    isRunning: boolean;
+	    mode: string;
+	    theme: string;
+	    hideLogs: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AppState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.isRunning = source["isRunning"];
+	        this.mode = source["mode"];
+	        this.theme = source["theme"];
+	        this.hideLogs = source["hideLogs"];
+	    }
+	}
 	export class RuleItem {
 	    index: number;
 	    text: string;

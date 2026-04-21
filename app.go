@@ -79,6 +79,34 @@ func (a *App) getAppBehaviorPath() string {
 	return filepath.Join(utils.GetDataDir(), "app_behavior.json")
 }
 
+// 1. 获取离线节点记忆文件的路径
+func (a *App) getOfflineNodesPath() string {
+	return filepath.Join(utils.GetDataDir(), "offline_nodes.json")
+}
+
+// 2. 将内存中的节点选择持久化到磁盘
+func (a *App) saveOfflineNodes() {
+	a.mu.RLock()
+	data, err := json.MarshalIndent(a.offlineNodes, "", "  ")
+	a.mu.RUnlock()
+	if err == nil {
+		os.WriteFile(a.getOfflineNodesPath(), data, 0644)
+	}
+}
+
+// 3. 启动时从磁盘读取记忆
+func (a *App) loadOfflineNodes() {
+	data, err := os.ReadFile(a.getOfflineNodesPath())
+	if err == nil {
+		a.mu.Lock()
+		if a.offlineNodes == nil {
+			a.offlineNodes = make(map[string]string)
+		}
+		json.Unmarshal(data, &a.offlineNodes)
+		a.mu.Unlock()
+	}
+}
+
 // 内部初始化缓存的方法，在 startup 中调用
 func (a *App) initBehaviorCache() {
 	defaultConfig := AppBehavior{
@@ -375,6 +403,29 @@ func (a *App) ensureCoreRunning() error {
 
 // --- 底层：停止内核 ---
 func (a *App) stopCoreService() {
+	// 👇 核心修复 3：在彻底停机前，反向抓取内核中真实的节点状态存入离线缓存
+	if clash.IsRunning() {
+		if data, err := clash.GetInitialData(); err == nil {
+			if groups, ok := data["groups"].([]interface{}); ok { // 👈 注意：clash.GetInitialData 返回的 groups 是切片
+				a.mu.Lock()
+				if a.offlineNodes == nil {
+					a.offlineNodes = make(map[string]string)
+				}
+				for _, g := range groups {
+					if gMap, ok2 := g.(map[string]interface{}); ok2 {
+						gName, _ := gMap["name"].(string)
+						now, _ := gMap["now"].(string)
+						if gName != "" && now != "" {
+							a.offlineNodes[gName] = now
+						}
+					}
+				}
+				a.mu.Unlock()
+				a.saveOfflineNodes() // 存入磁盘
+			}
+		}
+	}
+
 	clash.Stop()
 	a.StopTrafficStream()
 }
@@ -516,12 +567,14 @@ func (a *App) RestartCore() error {
 }
 
 func NewApp() *App {
-	return &App{
+	app := &App{
 		offlineNodes:   make(map[string]string),
 		activeMode:     "", // 留空，待 loadActiveMode 加载
 		sysProxyActive: false,
 		tunActive:      false,
 	}
+	app.loadOfflineNodes() // 👈 新增：启动时加载离线选择记录
+	return app
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -767,8 +820,6 @@ func (a *App) UpdateClashMode(mode string) error {
 }
 
 func (a *App) SelectProxy(groupName, nodeName string) error {
-	// ⚠️ 核心修复 1：无论内核是否运行，都将用户的选择同步记录到离线缓存中
-	// 防止在线时切换了节点，重启内核后又被还原为老节点
 	a.mu.Lock()
 	if a.offlineNodes == nil {
 		a.offlineNodes = make(map[string]string)
@@ -776,10 +827,21 @@ func (a *App) SelectProxy(groupName, nodeName string) error {
 	a.offlineNodes[groupName] = nodeName
 	a.mu.Unlock()
 
+	a.saveOfflineNodes() // 👈 核心修复 1：立刻将选择写入硬盘
+
 	if !clash.IsRunning() {
 		return nil
 	}
-	return clash.SwitchProxy(groupName, nodeName)
+
+	err := clash.SwitchProxy(groupName, nodeName)
+	if err != nil {
+		// 👈 核心修复 2：如果底层抛出拒绝连接的错误(假在线)，直接忽略它
+		// 这样前端就不会弹报错，等到真在线时，确保机制会自动应用离线选择
+		fmt.Printf("API切换节点失败(已作为离线记录保存): %v\n", err)
+		return nil
+	}
+	a.SyncState() // 👈 补回：确保前端和托盘状态同步更新
+	return nil
 }
 
 func (a *App) UpdateSub(url string) error {
@@ -1284,6 +1346,7 @@ func (a *App) ClearBaseConfig() error {
 	a.offlineNodes = make(map[string]string)
 
 	a.mu.Unlock()
+	a.saveOfflineNodes()
 
 	// ✅ 改写到安全的数据目录
 	destPath := filepath.Join(utils.GetDataDir(), "config.yaml")
@@ -1303,6 +1366,7 @@ func (a *App) SelectLocalConfig(fileName string) error {
 	wasActive := a.sysProxyActive || a.tunActive
 	a.offlineNodes = make(map[string]string)
 	a.mu.Unlock() // ✅ 立即释放锁
+	a.saveOfflineNodes()
 
 	// 耗时的磁盘 I/O 放在锁外执行
 	a.saveActiveConfig(fileName)
@@ -1423,13 +1487,29 @@ func (a *App) SaveThemePreference(isDark bool) {
 	a.SyncState()
 }
 
+// GetAppState 供前端初始化时主动拉取应用状态
+func (a *App) GetAppState() AppState {
+	behavior := a.GetAppBehavior()
+	theme := "light"
+	data, err := os.ReadFile(getThemeConfigPath())
+	if err == nil {
+		theme = strings.TrimSpace(string(data))
+	}
+	return AppState{
+		IsRunning: clash.IsRunning(),
+		Mode:      a.getActiveMode(),
+		Theme:     theme,
+		HideLogs:  behavior.HideLogs,
+	}
+}
+
 // SyncState 统一推送当前应用状态给前端
 func (a *App) SyncState() {
 	behavior := a.GetAppBehavior()
 	theme := "light"
 	data, err := os.ReadFile(getThemeConfigPath())
 	if err == nil {
-		theme = string(data)
+		theme = strings.TrimSpace(string(data))
 	}
 
 	state := AppState{
@@ -1492,7 +1572,6 @@ func (a *App) onTrayReady() {
 	systray.SetIcon(iconData)
 	systray.SetTitle("GoclashZ")
 	systray.SetTooltip("GoclashZ 代理客户端")
-
 
 	// --- 严格按照图片的 UI 布局 ---
 	mShow := systray.AddMenuItem("显示主界面", "打开 GoclashZ 面板")

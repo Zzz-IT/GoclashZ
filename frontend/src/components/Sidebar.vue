@@ -56,6 +56,9 @@ const emit = defineEmits(['update:activeId']);
 
 const toggleTheme = () => {
   const newTheme = globalState.theme === 'dark' ? 'light' : 'dark';
+  // 🚀 核心修复：乐观 UI 更新
+  // 在向后端发送请求前，先修改本地状态，确保 UI 响应瞬间完成，不被后端执行阻塞
+  globalState.theme = newTheme;
   API.SaveThemePreference(newTheme === 'dark');
 };
 </script>

@@ -197,7 +197,9 @@ const getDelayColorClass = (delay: number | null) => {
 onMounted(async () => {
   // 接收到“开始”信号，节点开始转圈
   EventsOn("proxy-test-start", (nodeName: string) => {
+    if (!localGroups.value) return;
     localGroups.value.forEach(g => {
+      if (!g.proxies) return;
       const node = g.proxies.find((n: any) => n.name === nodeName);
       if (node) {
         node.testing = true;
@@ -208,7 +210,9 @@ onMounted(async () => {
 
   // 接收到“结果”信号，节点停转并显示真实数字
   EventsOn("proxy-delay-update", (data: any) => {
+    if (!localGroups.value || !data) return;
     localGroups.value.forEach(g => {
+      if (!g.proxies) return;
       const node = g.proxies.find((n: any) => n.name === data.name);
       if (node) {
         node.testing = false;

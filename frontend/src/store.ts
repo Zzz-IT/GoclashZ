@@ -49,14 +49,8 @@ export function showConfirm(message: string, title: string = '操作确认', isD
 }
 
 export function initStore() {
+  // 保持事件监听，但不再处理主题 DOM，统一交给 App.vue 的 watch 处理
   EventsOn("app-state-sync", (newState: any) => {
     Object.assign(globalState, newState);
-    
-    // 处理主题原生的跟随逻辑
-    if (globalState.theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
   });
 }

@@ -54,6 +54,10 @@ export function GetAppBehavior() {
   return window['go']['main']['App']['GetAppBehavior']();
 }
 
+export function GetAppState() {
+  return window['go']['main']['App']['GetAppState']();
+}
+
 export function GetConnections() {
   return window['go']['main']['App']['GetConnections']();
 }

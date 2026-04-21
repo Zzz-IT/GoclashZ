@@ -183,12 +183,15 @@ watch(() => globalState.theme, (val) => {
 }, { immediate: true });
 
 onMounted(async () => {
-  const state = await (API as any).SyncState();
+  // 👈 核心修复：调用新增的且具有返回值的 GetAppState
+  const state = await (API as any).GetAppState(); 
   if (state) {
     globalState.isRunning = state.isRunning;
+    globalState.mode = state.mode;
+    globalState.theme = state.theme; // 确保开机时立刻应用黑白主题
   }
 
-  (window as any).runtime.EventsOn("app-state-sync", (state: any) => {
+  EventsOn("app-state-sync", (state: any) => {
     globalState.isRunning = state.isRunning;
     globalState.mode = state.mode;
     // 核心修复：同步黑白模式状态

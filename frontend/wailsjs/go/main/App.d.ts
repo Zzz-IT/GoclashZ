@@ -31,6 +31,8 @@ export function GetAllRules(arg1:string):Promise<main.PagedRules>;
 
 export function GetAppBehavior():Promise<main.AppBehavior>;
 
+export function GetAppState():Promise<main.AppState>;
+
 export function GetConnections():Promise<Record<string, any>>;
 
 export function GetCoreVersion():Promise<string>;
