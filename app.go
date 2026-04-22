@@ -421,6 +421,9 @@ func (a *App) ensureCoreRunning() error {
 	if err := clash.Start(a.ctx); err != nil {
 		return err
 	}
+	
+	// 🚀 新增：内核一经启动（即使 API 还没就绪），立刻同步状态，让前端的“接管中”秒级点亮！
+	a.SyncState()
 
 	// ⚠️ 核心修复 2：优化探针逻辑，先检查再等待
 	apiReady := false
@@ -475,7 +478,10 @@ func (a *App) stopCoreService() {
 	}
 
 	clash.Stop()
-	a.StopTrafficStream()
+	a.StopTrafficStream() // 👈 上一步修改的函数，这里会自动触发流量归零
+	
+	// 🚀 新增：内核一经停止，立刻同步状态，消除前端“服务停止”状态的延迟感！
+	a.SyncState()
 }
 
 // ==========================================
@@ -1043,6 +1049,11 @@ func (a *App) StopTrafficStream() {
 		a.cancelTraffic = nil
 	}
 	a.mu.Unlock()
+
+	// 🚀 新增：彻底停止流的同时，立刻向前端发射归零数据，防止前端数值卡死在最后一秒
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": "0 B", "down": "0 B"})
+	}
 }
 
 func (a *App) StartStreamingLogs() {
