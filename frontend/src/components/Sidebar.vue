@@ -65,7 +65,15 @@ const toggleTheme = () => {
 
 <style scoped>
 /* 从 App.vue 迁移并优化的样式 */
-.sidebar { width: 220px; display: flex; flex-direction: column; padding: 12px; }
+.sidebar { 
+  /* 👇 使用我们在 App.vue 根节点定义的变量 (提供 220px 作为降级兜底) */
+  width: var(--sidebar-width, 220px); 
+  display: flex; 
+  flex-direction: column; 
+  padding: 12px; 
+  flex-shrink: 0; /* 强制防止在极小窗口下被右侧内容挤压变形 */
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* 为未来做"折叠侧边栏"铺垫动画 */
+}
 .nav-list { flex: 1; }
 .nav-item { 
   display: flex; align-items: center; gap: 12px; padding: 10px 14px; 

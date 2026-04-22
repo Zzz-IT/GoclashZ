@@ -325,7 +325,16 @@ watch(currentTab, (newTab) => {
   color: #FFFFFF !important; 
 }
 
-.app-shell { display: flex; flex-direction: column; height: 100vh; color: var(--text-main); }
+.app-shell { 
+  /* 👇 1. 定义全局布局变量，统管所有间距与宽度 */
+  --sidebar-width: 220px;
+  --layout-padding: 20px; /* 软件边缘最外层留白 */
+  --layout-gap: 16px;     /* 侧边栏与主面板的间距 */
+  --content-px: 40px;     /* 右侧面板内部的【左右边距】 */
+  --content-py: 32px;     /* 右侧面板内部的【上下边距】 */
+
+  display: flex; flex-direction: column; height: 100vh; color: var(--text-main); 
+}
 .drag-bar { height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 24px; }
 .brand { font-weight: 600; font-size: 0.85rem; letter-spacing: 0.5px; }
 
@@ -335,15 +344,34 @@ watch(currentTab, (newTab) => {
 .icon-btn:hover { color: var(--text-main); }
 .icon-btn :deep(svg) { width: 14px; height: 14px; }
 
-.main-layout { display: flex; flex: 1; padding: 0 16px 16px 16px; gap: 16px; overflow: hidden; }
+.main-layout { 
+  display: flex; flex: 1; 
+  /* 👇 2. 应用变量：统一主容器的外边距 */
+  padding: 0 var(--layout-padding) var(--layout-padding) var(--layout-padding); 
+  gap: var(--layout-gap); 
+  overflow: hidden; 
+}
 
-.content { flex: 1; display: flex; flex-direction: column; padding: 32px 40px; overflow: hidden; }
+.content { 
+  flex: 1; display: flex; flex-direction: column; 
+  /* 👇 3. 剥夺 content 的左右/下边距，只留顶部边距 */
+  padding: var(--content-py) 0 0 0; 
+  overflow: hidden; 
+}
+
+.content-header {
+  /* 👇 单独给标题栏加上严格的左右边距 */
+  padding: 0 var(--content-px);
+}
 .content-header h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 32px; }
+
 .view-scroller { 
   flex: 1; 
   overflow-y: auto; 
-  padding-right: 4px; /* 🚀 修复：减小右侧多余空隙 */
-  scrollbar-gutter: stable; /* 核心修复：预留滚动条占位，防止切换时挤压页面 */
+  scrollbar-gutter: stable; /* 保留占位，防止滚动条闪烁挤压内容 */
+  /* 👇 4. 核心修正：右侧边距 = 期望边距(40px) - 滚动条宽度(约14px) */
+  /* 这样无论有没有滚动条，视觉上内容距离右侧边框永远是精准的 40px，达到完美居中对称！ */
+  padding: 0 calc(var(--content-px) - 14px) var(--content-py) var(--content-px); 
 }
 
 .terminal-box { 
