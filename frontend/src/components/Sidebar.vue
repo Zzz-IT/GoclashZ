@@ -1,5 +1,6 @@
 <template>
   <aside class="sidebar">
+    <div class="sidebar-brand">GoclashZ</div>
     <nav class="nav-list">
       <div v-for="item in menu" :key="item.id"
            v-show="item.id !== 'logs' || !globalState.hideLogs"
@@ -74,18 +75,45 @@ const toggleTheme = () => {
   flex-shrink: 0; /* 强制防止在极小窗口下被右侧内容挤压变形 */
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* 为未来做"折叠侧边栏"铺垫动画 */
 }
+
+.sidebar-brand {
+  font-weight: 800;
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+  text-align: center;
+  padding: 24px 0 36px 0;
+}
+
 .nav-list { flex: 1; }
 .nav-item { 
-  position: relative;
-  display: flex; align-items: center; justify-content: center; padding: 10px 14px; 
-  margin-bottom: 4px; border-radius: 8px; cursor: pointer; 
-  color: var(--text-main); transition: all 0.2s ease; 
+  display: flex; 
+  align-items: center; 
+  gap: 12px;           /* 🚀 修复2：用固定间距分隔图标和文字 */
+  padding: 10px 16px;  /* 稍微增加一点左右内边距，让整个块看起来更稳 */
+  margin-bottom: 4px; 
+  border-radius: 8px; 
+  cursor: pointer; 
+  color: var(--text-main); 
+  transition: all 0.2s ease; 
 }
 .nav-item:hover { background: var(--surface); }
 .nav-item.active { background: var(--surface-hover); font-weight: 600; }
 
-.icon { position: absolute; left: 16px; width: 16px; height: 16px; display: flex; align-items: center; }
-.nav-label { font-size: 0.85rem; letter-spacing: 0.02em; text-align: center; }
+.icon { 
+  /* 🚀 修复3：彻底删掉 position: absolute 和 left: 16px */
+  width: 16px; 
+  height: 16px; 
+  display: flex; 
+  align-items: center; 
+  flex-shrink: 0; 
+}
+
+.nav-label { 
+  font-size: 0.85rem; 
+  letter-spacing: 0.02em; 
+  /* 🚀 修复4：删掉 text-align: center */
+}
 
 .sidebar-footer { padding: 16px; display: flex; flex-direction: column; gap: 12px; margin-top: auto; }
 

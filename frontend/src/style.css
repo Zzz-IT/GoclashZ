@@ -1,4 +1,67 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/webfonts/JetBrainsMono-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/webfonts/JetBrainsMono-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/webfonts/JetBrainsMono-Bold.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/webfonts/JetBrainsMono-ExtraBold.woff2') format('woff2');
+    font-weight: 800;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* MiSans 本地中文字体 (仅选用 Regular 和 Semibold 以节省体积) */
+@font-face {
+    font-family: 'MiSans';
+    src: url('/webfonts/MiSans-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'MiSans';
+    src: url('/webfonts/MiSans-Semibold.woff2') format('woff2');
+    font-weight: 500; /* 500 也指向 Semibold 保证清晰度 */
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'MiSans';
+    src: url('/webfonts/MiSans-Semibold.woff2') format('woff2');
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'MiSans';
+    src: url('/webfonts/MiSans-Semibold.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
 
 /* 彻底清除所有元素的默认获取焦点轮廓线 */
 *, *::before, *::after {
@@ -12,8 +75,8 @@
 }
 
 :root {
-    --font-sans: 'Inter', -apple-system, sans-serif;
-    --font-mono: 'JetBrains Mono', monospace;
+    --font-sans: 'JetBrains Mono', 'MiSans', 'Microsoft YaHei', sans-serif;
+    --font-mono: 'JetBrains Mono', 'MiSans', monospace;
 
     /* 👇 新增：全局布局变量，统管整个软件骨架 */
     --sidebar-width: 180px; /* 缩小侧边栏，原为 220px */

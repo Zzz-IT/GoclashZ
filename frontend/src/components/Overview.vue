@@ -121,22 +121,92 @@ const handleRestartCore = async () => {
   }
 };
 
-// 👈 2. 彻底删除 sysProxyQueue 循环逻辑，回归极简 API 调用
-const toggleSysProxy = async () => {
+// ==========================================
+// 状态截断法 (解决快速连点且防崩溃)
+// ==========================================
+
+// 后台工作状态与暂存队列
+let sysProxyWorkerActive = false;
+let pendingSysProxyTarget: boolean | null = null;
+
+let tunWorkerActive = false;
+let pendingTunTarget: boolean | null = null;
+
+// 👉 瞬间响应的 UI 开关
+const toggleSysProxy = () => {
+  // 1. 极致乐观 UI：瞬间改状态，0 延迟变色！
+  globalState.systemProxy = !globalState.systemProxy;
+  const target = globalState.systemProxy;
+
+  // 2. 如果后台还在干上一个活，只需把“最新目标”贴在门外，直接不管了！
+  if (sysProxyWorkerActive) {
+    pendingSysProxyTarget = target;
+    return;
+  }
+
+  // 3. 后台空闲，去干活
+  runSysProxyWorker(target);
+};
+
+// 👉 后台实际执行的苦力
+const runSysProxyWorker = async (target: boolean) => {
+  sysProxyWorkerActive = true;
+  
   try {
-    // 告诉后端我们要切换到相反的状态
-    await API.ToggleSystemProxy(!globalState.systemProxy); 
-    // 💡 重点：这里不需要手动改 local status，后端执行完会自动广播最新的 systemProxy 状态！
+    await API.ToggleSystemProxy(target);
   } catch (err) {
-    showAlert("操作系统代理失败: " + err, '错误');
+    // 💥 灾难回滚：只有在底层真报错时，才把 UI 掰回来
+    globalState.systemProxy = !target;
+    console.error("系统代理失败: ", err);
+  }
+
+  // 4. 关键点：活干完了，看看这段时间里，用户有没有又狂点了按钮？
+  if (pendingSysProxyTarget !== null && pendingSysProxyTarget !== target) {
+    // 取出最新的目标，清空暂存
+    const nextTarget = pendingSysProxyTarget;
+    pendingSysProxyTarget = null;
+    
+    // 直接拿着最新目标再跑一次，完美跳过了中间所有的无效点击！
+    await runSysProxyWorker(nextTarget);
+  } else {
+    // 没有新目标，彻底休息
+    pendingSysProxyTarget = null;
+    sysProxyWorkerActive = false;
   }
 };
 
-const toggleTun = async () => {
+
+// ==========================================
+// 虚拟网卡的同理实现
+// ==========================================
+const toggleTun = () => {
+  globalState.tun = !globalState.tun;
+  const target = globalState.tun;
+
+  if (tunWorkerActive) {
+    pendingTunTarget = target;
+    return;
+  }
+  runTunWorker(target);
+};
+
+const runTunWorker = async (target: boolean) => {
+  tunWorkerActive = true;
+  
   try {
-    await API.ToggleTunMode(!globalState.tun);
+    await API.ToggleTunMode(target);
   } catch (err) {
-    showAlert("操作虚拟网卡失败: " + err, '错误');
+    globalState.tun = !target;
+    console.error("虚拟网卡失败: ", err);
+  }
+
+  if (pendingTunTarget !== null && pendingTunTarget !== target) {
+    const nextTarget = pendingTunTarget;
+    pendingTunTarget = null;
+    await runTunWorker(nextTarget);
+  } else {
+    pendingTunTarget = null;
+    tunWorkerActive = false;
   }
 };
 

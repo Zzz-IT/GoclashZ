@@ -1,8 +1,6 @@
 <template>
   <div class="app-shell" :class="{ dark: globalState.theme === 'dark' }">
     <div class="drag-bar" style="--wails-draggable:drag">
-      <div class="brand">GoclashZ</div>
-
       <div class="top-actions" style="--wails-draggable:none">
         <div class="window-controls">
           <button @click="WindowMinimise" class="ctrl-btn" title="最小化" v-html="ICONS.min"></button>
@@ -329,10 +327,7 @@ watch(currentTab, (newTab) => {
   /* ❌ 删除了这里的变量，因为已经移交给了全局 style.css */
   display: flex; flex-direction: column; height: 100vh; color: var(--text-main); 
 }
-.drag-bar { height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 24px; }
-.brand { font-weight: 600; font-size: 0.85rem; letter-spacing: 0.5px; }
-
-.top-actions { display: flex; align-items: center; }
+.drag-bar { height: 42px; display: flex; align-items: center; justify-content: flex-end; padding: 0 8px; }
 
 .icon-btn { background: none; border: none; cursor: pointer; color: var(--text-sub); width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; transition: color 0.2s; }
 .icon-btn:hover { color: var(--text-main); }
@@ -360,9 +355,8 @@ watch(currentTab, (newTab) => {
 .view-scroller { 
   flex: 1; 
   overflow-y: auto; 
-  /* 🚀 核心修复：彻底删除 scrollbar-gutter 占位，并使用绝对对称的 padding */
-  /* 因为你在 style.css 中把滚动条改成了 4px 的极细条，它直接贴在最右侧几乎不占视觉体积 */
-  padding: 0 var(--content-px) var(--content-py) var(--content-px); 
+  /* 🚀 修复：右侧 padding 减去滚动条的 4px 宽度，实现绝对像素级对称 */
+  padding: 0 calc(var(--content-px) - 4px) var(--content-py) var(--content-px); 
 }
 
 .terminal-box { 
