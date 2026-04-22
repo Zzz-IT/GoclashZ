@@ -33,8 +33,12 @@ func RequestAdmin() error {
 	exe, _ := os.Executable()
 	cwd, _ := os.Getwd()
 	
-	// 继承启动参数
-	args := strings.Join(os.Args[1:], " ")
+	// 🚀 修复：使用 syscall.EscapeArg 安全转义所有参数，防止注入
+	var safeArgs []string
+	for _, arg := range os.Args[1:] {
+		safeArgs = append(safeArgs, syscall.EscapeArg(arg))
+	}
+	args := strings.Join(safeArgs, " ")
 
 	verbPtr, _ := syscall.UTF16PtrFromString(verb)
 	exePtr, _ := syscall.UTF16PtrFromString(exe)

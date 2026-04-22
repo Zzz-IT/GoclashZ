@@ -654,7 +654,7 @@ func (a *App) startup(ctx context.Context) {
 	if err == nil && len(themeData) > 0 {
 		a.themeCache = strings.TrimSpace(string(themeData))
 	} else {
-		a.themeCache = "light" // 兜底默认值
+		a.themeCache = "dark" // 🚀 默认黑色模式
 	}
 
 	// 读取行为配置
@@ -816,13 +816,18 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 }
 
 func (a *App) TestAllProxies(nodeNames []string) {
+	// 🚀 修复：加入内核生命周期锁，防止并发抢占
+	a.coreLifecycleMu.Lock()
 	if !clash.IsRunning() {
-		if err := clash.Start(a.ctx); err != nil {
+		// 使用封装好的安全启动方法，而不是底层的 clash.Start()
+		if err := a.ensureCoreRunning(); err != nil {
+			a.coreLifecycleMu.Unlock() // 失败时尽早释放锁
 			runtime.EventsEmit(a.ctx, "proxy-test-finished", "内核启动失败，无法测速")
 			return
 		}
 		time.Sleep(1 * time.Second)
 	}
+	a.coreLifecycleMu.Unlock() // 状态确认完毕，释放锁，不阻塞后续测速的并发协程
 
 	go func() {
 		concurrency := 16 // 稍微提高并发
@@ -1167,7 +1172,7 @@ func (a *App) SyncState() {
 	a.mu.RUnlock()
 
 	if theme == "" {
-		theme = "light"
+		theme = "dark"
 	}
 
 	// 统一组装当前真实状态
@@ -1723,7 +1728,7 @@ func (a *App) GetAppState() AppState {
 	a.mu.RUnlock()
 
 	if theme == "" {
-		theme = "light"
+		theme = "dark"
 	}
 
 	return AppState{
@@ -1943,6 +1948,24 @@ func normalizeVersion(v string) string {
 	return strings.TrimPrefix(strings.TrimSpace(v), "v")
 }
 
+// safeRename 提供带有重试机制的原子替换，对抗 Windows 下杀毒软件短暂锁文件的现象
+func safeRename(oldpath, newpath string) error {
+	var err error
+	// 尝试 5 次，每次间隔 200ms (最多等待 1 秒)
+	for i := 0; i < 5; i++ {
+		err = os.Rename(oldpath, newpath)
+		if err == nil {
+			return nil
+		}
+		// 如果是源文件不存在，属于硬错误，直接返回无需重试
+		if os.IsNotExist(err) {
+			return err
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("多次尝试重命名被拒绝(文件可能被锁定): %v", err)
+}
+
 // UpdateCoreComponent 触发安全更新机制：无缝下载，原子替换
 func (a *App) UpdateCoreComponent() (string, error) {
 	binDir := utils.GetCoreBinDir()
@@ -2000,7 +2023,7 @@ func (a *App) UpdateCoreComponent() (string, error) {
 	os.Remove(backupPath) // 确保历史备份档为空
 
 	// 6. 重命名：旧版 -> 备份
-	renameErr := os.Rename(exePath, backupPath)
+	renameErr := safeRename(exePath, backupPath) // 👈 替换这里
 	if renameErr != nil && !os.IsNotExist(renameErr) {
 		// 锁定旧文件失败(极低概率)，立刻取消操作，恢复运行
 		os.Remove(newExePath)
@@ -2011,11 +2034,11 @@ func (a *App) UpdateCoreComponent() (string, error) {
 	}
 
 	// 7. 重命名：新版 -> 正式服
-	err = os.Rename(newExePath, exePath)
+	err = safeRename(newExePath, exePath) // 👈 替换这里
 	if err != nil {
 		// 灾难恢复：新版更名失败，立刻把老版换回来！
 		os.Remove(newExePath)
-		_ = os.Rename(backupPath, exePath)
+		_ = safeRename(backupPath, exePath)
 		if wasActive {
 			a.ensureCoreRunning()
 		}
@@ -2028,7 +2051,7 @@ func (a *App) UpdateCoreComponent() (string, error) {
 			// ⚠️ 灾难恢复：新内核架构不对或启动报错，立即执行最终回滚！
 			a.stopCoreService()
 			os.Remove(exePath)                 // 摧毁损坏的新内核
-			_ = os.Rename(backupPath, exePath) // 复活老内核
+			_ = safeRename(backupPath, exePath) // 复活老内核
 			a.ensureCoreRunning()              // 重新启动
 			a.SyncState()
 			return "", fmt.Errorf("新内核损坏或不兼容，已自动回滚至稳定版: %v", startErr)
@@ -2185,15 +2208,15 @@ func (a *App) UpdateAllGeoDatabases(types []string) error {
 
 		os.Remove(backupPath)
 		if _, err := os.Stat(targetPath); err == nil {
-			_ = os.Rename(targetPath, backupPath)
+			_ = safeRename(targetPath, backupPath) // 👈 替换这里
 		}
 
-		if err := os.Rename(tempPath, targetPath); err != nil {
+		if err := safeRename(tempPath, targetPath); err != nil { // 👈 替换这里
 			os.Remove(tempPath)
-			_ = os.Rename(backupPath, targetPath) // 失败则秒级回滚
+			_ = safeRename(backupPath, targetPath) // 👈 失败回滚也使用安全替换
 			errs = append(errs, fmt.Sprintf("[%s] 部署失败: %v", task.key, err))
 		} else {
-			os.Remove(backupPath) // 成功则过河拆桥
+			os.Remove(backupPath) 
 		}
 	}
 

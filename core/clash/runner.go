@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -64,12 +66,23 @@ func Start(ctx context.Context) error {
 	pidFile := filepath.Join(dataDir, "clash.pid")
 	runtimeConfig := filepath.Join(dataDir, "config.yaml") // 运行时最终生成的配置
 
-	// 先清理旧 PID
+	// 🚀 修复：安全地清理旧进程
 	if pidData, err := os.ReadFile(pidFile); err == nil {
-		pidStr := string(pidData)
-		killCmd := exec.Command("taskkill", "/F", "/FI", "IMAGENAME eq clash.exe", "/PID", pidStr)
-		killCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		killCmd.Run()
+		pidStr := strings.TrimSpace(string(pidData))
+		// 1. 严格校验：必须能转换为正整数，杜绝任何命令注入可能
+		if pid, err := strconv.Atoi(pidStr); err == nil && pid > 0 {
+			// 2. 使用绝对路径调用系统自带的 taskkill，防止环境变量劫持
+			sysDir := os.Getenv("SystemRoot")
+			if sysDir == "" {
+				sysDir = "C:\\Windows"
+			}
+			taskkillPath := filepath.Join(sysDir, "System32", "taskkill.exe")
+			
+			// 3. /FI 校验进程名 + 严格安全的整数 PID
+			killCmd := exec.Command(taskkillPath, "/F", "/FI", "IMAGENAME eq clash.exe", "/PID", strconv.Itoa(pid))
+			killCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			_ = killCmd.Run()
+		}
 		os.Remove(pidFile)
 	}
 
