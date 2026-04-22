@@ -33,29 +33,35 @@ var streamClient = &http.Client{
 	Transport: noProxyTransport, // 日志流/长连接专用，无超时
 }
 
-// FetchLogs 获取实时日志流并执行回调
+// FetchLogs 获取实时日志流并执行回调（带自动重连）
 func FetchLogs(ctx context.Context, onLog func(data interface{})) {
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:9090/logs", nil)
-	if err != nil {
-		return
-	}
-
-	// 👇 核心修复：直接使用全局长连接客户端，绝不动态创建
-	resp, err := streamClient.Do(req)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-
-	decoder := json.NewDecoder(resp.Body)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:9090/logs", nil)
+		if err != nil {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// 👇 核心修复：直接使用全局长连接客户端，绝不动态创建
+		resp, err := streamClient.Do(req)
+		if err != nil {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		decoder := json.NewDecoder(resp.Body)
+		for {
 			var logData map[string]interface{}
 			if err := decoder.Decode(&logData); err != nil {
-				return
+				// 发生 EOF 断开，关闭当前流，准备重连
+				resp.Body.Close()
+				break
 			}
 			onLog(logData)
 		}

@@ -18,6 +18,10 @@ export function ClearBaseConfig() {
   return window['go']['main']['App']['ClearBaseConfig']();
 }
 
+export function ClearOfflineNodes() {
+  return window['go']['main']['App']['ClearOfflineNodes']();
+}
+
 export function CloseAllConnections() {
   return window['go']['main']['App']['CloseAllConnections']();
 }
@@ -116,6 +120,14 @@ export function ImportLocalConfig() {
 
 export function InstallTunDriver(arg1) {
   return window['go']['main']['App']['InstallTunDriver'](arg1);
+}
+
+export function IsNodeOffline(arg1) {
+  return window['go']['main']['App']['IsNodeOffline'](arg1);
+}
+
+export function MarkNodeOffline(arg1, arg2) {
+  return window['go']['main']['App']['MarkNodeOffline'](arg1, arg2);
 }
 
 export function OpenConfigFile(arg1) {

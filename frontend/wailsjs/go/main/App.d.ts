@@ -13,6 +13,8 @@ export function CheckTunEnv():Promise<Record<string, boolean>>;
 
 export function ClearBaseConfig():Promise<void>;
 
+export function ClearOfflineNodes():Promise<void>;
+
 export function CloseAllConnections():Promise<void>;
 
 export function CloseConnection(arg1:string):Promise<void>;
@@ -62,6 +64,10 @@ export function GetWintunVersion():Promise<string>;
 export function ImportLocalConfig():Promise<void>;
 
 export function InstallTunDriver(arg1:boolean):Promise<string>;
+
+export function IsNodeOffline(arg1:string):Promise<boolean|string>;
+
+export function MarkNodeOffline(arg1:string,arg2:string):Promise<void>;
 
 export function OpenConfigFile(arg1:string):Promise<void>;
 

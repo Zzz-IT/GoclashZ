@@ -37,6 +37,7 @@ type App struct {
 	activeConfig   string
 	activeMode     string
 	offlineNodes   map[string]string
+	offlineMu      sync.RWMutex // 🚀 新增：专门保护 offlineNodes 的读写锁
 	sysProxyActive bool
 	tunActive      bool
 
@@ -90,9 +91,9 @@ func (a *App) getOfflineNodesPath() string {
 
 // 2. 将内存中的节点选择持久化到磁盘
 func (a *App) saveOfflineNodes() {
-	a.mu.RLock()
+	a.offlineMu.RLock()
 	data, err := json.MarshalIndent(a.offlineNodes, "", "  ")
-	a.mu.RUnlock()
+	a.offlineMu.RUnlock()
 	if err == nil {
 		os.WriteFile(a.getOfflineNodesPath(), data, 0644)
 	}
@@ -102,13 +103,41 @@ func (a *App) saveOfflineNodes() {
 func (a *App) loadOfflineNodes() {
 	data, err := os.ReadFile(a.getOfflineNodesPath())
 	if err == nil {
-		a.mu.Lock()
+		a.offlineMu.Lock()
 		if a.offlineNodes == nil {
 			a.offlineNodes = make(map[string]string)
 		}
 		json.Unmarshal(data, &a.offlineNodes)
-		a.mu.Unlock()
+		a.offlineMu.Unlock()
 	}
+}
+
+// MarkNodeOffline 安全地标记节点（或离线选择状态）
+func (a *App) MarkNodeOffline(groupName string, nodeName string) {
+	a.offlineMu.Lock()
+	defer a.offlineMu.Unlock()
+	if a.offlineNodes == nil {
+		a.offlineNodes = make(map[string]string)
+	}
+	a.offlineNodes[groupName] = nodeName
+}
+
+// ClearOfflineNodes 安全地清空离线记录（切换配置时调用）
+func (a *App) ClearOfflineNodes() {
+	a.offlineMu.Lock()
+	defer a.offlineMu.Unlock()
+	a.offlineNodes = make(map[string]string)
+}
+
+// IsNodeOffline 安全地查询离线选择状态
+func (a *App) IsNodeOffline(groupName string) (bool, string) {
+	a.offlineMu.RLock()
+	defer a.offlineMu.RUnlock()
+	if a.offlineNodes == nil {
+		return false, ""
+	}
+	node, exists := a.offlineNodes[groupName]
+	return exists, node
 }
 
 // 内部初始化缓存的方法，在 startup 中调用
@@ -264,10 +293,8 @@ func (a *App) mergeOfflineNodes(data map[string]interface{}) {
 		for gName, groupData := range groups {
 			if gMap, ok2 := groupData.(map[string]interface{}); ok2 {
 				// 优先使用离线选择
-				if a.offlineNodes != nil {
-					if selNode, exists := a.offlineNodes[gName]; exists {
-						gMap["now"] = selNode
-					}
+				if exists, selNode := a.IsNodeOffline(gName); exists {
+					gMap["now"] = selNode
 				}
 				// 兜底：没有当前选中项，默认选中第一项
 				if gMap["now"] == "" {
@@ -435,20 +462,15 @@ func (a *App) stopCoreService() {
 	if clash.IsRunning() {
 		if data, err := clash.GetInitialData(); err == nil {
 			if groups, ok := data["groups"].([]interface{}); ok { // 👈 注意：clash.GetInitialData 返回的 groups 是切片
-				a.mu.Lock()
-				if a.offlineNodes == nil {
-					a.offlineNodes = make(map[string]string)
-				}
 				for _, g := range groups {
 					if gMap, ok2 := g.(map[string]interface{}); ok2 {
 						gName, _ := gMap["name"].(string)
 						now, _ := gMap["now"].(string)
 						if gName != "" && now != "" {
-							a.offlineNodes[gName] = now
+							a.MarkNodeOffline(gName, now)
 						}
 					}
 				}
-				a.mu.Unlock()
 				a.saveOfflineNodes() // 存入磁盘
 			}
 		}
@@ -522,7 +544,12 @@ func (a *App) ToggleTunMode(enable bool) error {
 			return fmt.Errorf("缺失 Wintun 驱动，请先在设置中安装")
 		}
 		if !sys.CheckAdmin() {
-			return fmt.Errorf("开启虚拟网卡需要管理员权限，请以管理员身份重启软件，或在设置中点击提权")
+			errContext := "TUN 模式必须以管理员身份运行。请右键 GoclashZ 图标，选择「以管理员身份运行」。"
+			// 1. 发送通知给前端弹出 Error Toast
+			runtime.EventsEmit(a.ctx, "notify-error", errContext)
+			// 2. 强制同步一次正确状态给前端
+			a.SyncState() 
+			return fmt.Errorf("permission denied")
 		}
 	}
 
@@ -887,12 +914,7 @@ func (a *App) UpdateClashMode(mode string) error {
 }
 
 func (a *App) SelectProxy(groupName, nodeName string) error {
-	a.mu.Lock()
-	if a.offlineNodes == nil {
-		a.offlineNodes = make(map[string]string)
-	}
-	a.offlineNodes[groupName] = nodeName
-	a.mu.Unlock()
+	a.MarkNodeOffline(groupName, nodeName)
 
 	a.saveOfflineNodes() // 👈 核心修复 1：立刻将选择写入硬盘
 
@@ -1529,9 +1551,7 @@ func (a *App) DeleteConfig(fileName string) error {
 		
 		a.saveActiveConfig("") // 清空本地记忆
 		// 清空离线记录，防止切到空配置时报错
-		a.mu.Lock()
-		a.offlineNodes = make(map[string]string)
-		a.mu.Unlock()
+		a.ClearOfflineNodes()
 		a.saveOfflineNodes()
 	} else {
 		a.mu.Unlock()
@@ -1546,9 +1566,7 @@ func (a *App) ClearBaseConfig() error {
 	a.activeConfig = ""
 	a.saveActiveConfig("") // 清空本地记忆
 
-	// ⚠️ 核心修复 4：所有配置清空时，将离线选择一并清除
-	a.offlineNodes = make(map[string]string)
-
+	a.ClearOfflineNodes()
 	a.mu.Unlock()
 	a.saveOfflineNodes()
 
@@ -1568,8 +1586,8 @@ func (a *App) SelectLocalConfig(fileName string) error {
 	a.activeConfig = fileName
 	mode := a.activeMode // 顺便把 mode 一起取出来，后面不用再加锁
 	wasActive := a.sysProxyActive || a.tunActive
-	a.offlineNodes = make(map[string]string)
 	a.mu.Unlock() // ✅ 立即释放锁
+	a.ClearOfflineNodes()
 	a.saveOfflineNodes()
 
 	// 耗时的磁盘 I/O 放在锁外执行

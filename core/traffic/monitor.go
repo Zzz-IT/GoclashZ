@@ -44,34 +44,42 @@ var trafficStreamClient = &http.Client{
 
 // StreamTraffic 建立一个长连接并持续监听内核推送的流量数据
 func StreamTraffic(ctx context.Context, callback func(up, down string)) {
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:9090/traffic", nil)
-	if err != nil {
-		return
-	}
-
-	// 👇 核心修复：复用客户端
-	resp, err := trafficStreamClient.Do(req)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-
-	decoder := json.NewDecoder(resp.Body)
+	// 🚀 核心修复：包裹重连状态机
 	for {
+		// 1. 检查 Wails 应用是否已退出
 		select {
 		case <-ctx.Done():
 			return
 		default:
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:9090/traffic", nil)
+		if err != nil {
+			time.Sleep(2 * time.Second) // 等待内核重启
+			continue
+		}
+
+		resp, err := trafficStreamClient.Do(req)
+		if err != nil {
+			time.Sleep(2 * time.Second) // 内核未就绪，2秒后重试
+			continue
+		}
+
+		decoder := json.NewDecoder(resp.Body)
+		
+		// 2. 内层循环：正常读取数据流
+		for {
 			var data struct {
 				Up   float64 `json:"up"`
 				Down float64 `json:"down"`
 			}
 			
-			// Decode 会阻塞直到接收到下一个 JSON 推送块
 			if err := decoder.Decode(&data); err != nil {
-				return
+				// 🚀 核心逻辑：一旦内核重启导致连接 EOF 断开，立刻关闭 Body，跳出内层循环，触发重新连接
+				resp.Body.Close()
+				break
 			}
-			
+
 			callback(formatBytes(int64(data.Up)), formatBytes(int64(data.Down)))
 		}
 	}
