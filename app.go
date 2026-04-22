@@ -804,28 +804,42 @@ func (a *App) TestAllProxies(nodeNames []string) {
 }
 
 func (a *App) UpdateClashMode(mode string) error {
-	defer a.SyncState() // 🚀 核心防御：无论成功失败，广播真实状态以纠正前端 UI
 	a.mu.Lock()
+	// 🚀 修复 2.1：防抖拦截。如果目标模式和当前模式一样，直接拦截，防止频繁写盘和发请求
+	if a.activeMode == mode {
+		a.mu.Unlock()
+		return nil
+	}
 	a.activeMode = mode
-	isRunning := clash.IsRunning() // 提取内核运行状态
-	a.mu.Unlock()                  // ✅ 立即释放锁
+	isRunning := clash.IsRunning()
+	a.mu.Unlock()
 
-	// 耗时的磁盘 I/O 放在锁外执行
-	a.saveActiveMode(mode)
-
-	if isRunning {
-		err := clash.UpdateMode(mode)
-		a.SyncState() // 👈 修复：补上这行！通知托盘和前端更新 UI
-		return err
-	}
-
-	activeCfg := a.getActiveConfig()
-	if activeCfg != "" {
-		err := clash.BuildRuntimeConfig(activeCfg, mode)
-		a.SyncState()
-		return err
-	}
+	// 🚀 修复 2.2：立即推送最新状态给前端和托盘，实现“即点即亮”，彻底消灭卡顿感
 	a.SyncState()
+
+	// 🚀 修复 2.3：将耗时的 I/O 操作放入独立的后台协程，绝不阻塞 Wails 主线程
+	go func() {
+		// 写磁盘保存记忆
+		a.saveActiveMode(mode)
+
+		if isRunning {
+			// 通知底层内核切换
+			err := clash.UpdateMode(mode)
+			if err != nil {
+				fmt.Printf("内核模式切换警告 (可能内核假死): %v\n", err)
+			}
+		} else {
+			// 如果内核没运行，只重写配置文件
+			activeCfg := a.getActiveConfig()
+			if activeCfg != "" {
+				clash.BuildRuntimeConfig(activeCfg, mode)
+			}
+		}
+		
+		// 无论底层成功与否，后台任务执行完后做最后一次状态对齐
+		a.SyncState()
+	}()
+
 	return nil
 }
 
@@ -1544,15 +1558,21 @@ func (a *App) SyncState() {
 		theme = strings.TrimSpace(string(data))
 	}
 
+	// 🚀 修复 1：必须加锁读取并发敏感的布尔值
+	a.mu.RLock()
+	sysProxy := a.sysProxyActive
+	tunActive := a.tunActive
+	a.mu.RUnlock()
+
 	// 统一组装当前真实状态
 	state := AppState{
 		IsRunning:   clash.IsRunning(),
-		Mode:        a.getActiveMode(),
+		Mode:        a.getActiveMode(), // 这个方法内部自带了安全锁，没问题
 		Theme:       theme,
 		HideLogs:    behavior.HideLogs,
-		SystemProxy: a.sysProxyActive,   // 👈 真实系统代理状态
-		Tun:         a.tunActive,        // 👈 真实虚拟网卡状态
-		Version:     a.GetCoreVersion(), // 👈 当前内核版本
+		SystemProxy: sysProxy,           // 使用安全读取的变量
+		Tun:         tunActive,          // 使用安全读取的变量
+		Version:     a.GetCoreVersion(),
 	}
 
 	// 推送给前端（唯一通道）
@@ -1560,14 +1580,14 @@ func (a *App) SyncState() {
 
 	// 👇 追加：同步更新系统托盘的 UI 勾选状态
 	if a.mSysProxy != nil {
-		if a.sysProxyActive {
+		if sysProxy {
 			a.mSysProxy.Check()
 		} else {
 			a.mSysProxy.Uncheck()
 		}
 	}
 	if a.mTun != nil {
-		if a.tunActive {
+		if tunActive {
 			a.mTun.Check()
 		} else {
 			a.mTun.Uncheck()

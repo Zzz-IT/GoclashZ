@@ -211,7 +211,11 @@ const runTunWorker = async (target: boolean) => {
 };
 
 const handleModeChange = (val: string) => {
-  API.UpdateClashMode(val); // 同样，只需通知后端
+  // 1. 极致乐观 UI：点击瞬间直接改全局状态，滑块和文字立刻变色，绝不等待后端
+  globalState.mode = val;
+  
+  // 2. 异步通知后端执行切换 (后台会处理写盘和内核 API，失败会自动回滚)
+  API.UpdateClashMode(val);
 };
 
 // 👈 3. 彻底删除了 onMounted 里的 EventsOn 和 onUnmounted 里的 EventsOff！
