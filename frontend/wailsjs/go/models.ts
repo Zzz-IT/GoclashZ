@@ -212,6 +212,9 @@ export namespace main {
 	    mode: string;
 	    theme: string;
 	    hideLogs: boolean;
+	    systemProxy: boolean;
+	    tun: boolean;
+	    version: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppState(source);
@@ -223,6 +226,9 @@ export namespace main {
 	        this.mode = source["mode"];
 	        this.theme = source["theme"];
 	        this.hideLogs = source["hideLogs"];
+	        this.systemProxy = source["systemProxy"];
+	        this.tun = source["tun"];
+	        this.version = source["version"];
 	    }
 	}
 	export class RuleItem {

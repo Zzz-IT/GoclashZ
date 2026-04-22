@@ -245,10 +245,14 @@ type ProxyStatus struct {
 
 // AppState 定义全局状态同步结构
 type AppState struct {
-	IsRunning bool   `json:"isRunning"`
-	Mode      string `json:"mode"`
-	Theme     string `json:"theme"`
-	HideLogs  bool   `json:"hideLogs"`
+	IsRunning   bool   `json:"isRunning"`
+	Mode        string `json:"mode"`
+	Theme       string `json:"theme"`
+	HideLogs    bool   `json:"hideLogs"`
+	// 👇 新增以下字段，统一接管 UI
+	SystemProxy bool   `json:"systemProxy"`
+	Tun         bool   `json:"tun"`
+	Version     string `json:"version"`
 }
 
 // 1. 在 app.go 任意位置新增这个辅助方法，用于将离线缓存合并到数据源
@@ -1496,10 +1500,13 @@ func (a *App) GetAppState() AppState {
 		theme = strings.TrimSpace(string(data))
 	}
 	return AppState{
-		IsRunning: clash.IsRunning(),
-		Mode:      a.getActiveMode(),
-		Theme:     theme,
-		HideLogs:  behavior.HideLogs,
+		IsRunning:   clash.IsRunning(),
+		Mode:        a.getActiveMode(),
+		Theme:       theme,
+		HideLogs:    behavior.HideLogs,
+		SystemProxy: a.sysProxyActive,   // 👈 真实系统代理状态
+		Tun:         a.tunActive,        // 👈 真实虚拟网卡状态
+		Version:     a.GetCoreVersion(), // 👈 当前内核版本
 	}
 }
 
@@ -1512,12 +1519,18 @@ func (a *App) SyncState() {
 		theme = strings.TrimSpace(string(data))
 	}
 
+	// 统一组装当前真实状态
 	state := AppState{
-		IsRunning: clash.IsRunning(),
-		Mode:      a.getActiveMode(),
-		Theme:     theme,
-		HideLogs:  behavior.HideLogs,
+		IsRunning:   clash.IsRunning(),
+		Mode:        a.getActiveMode(),
+		Theme:       theme,
+		HideLogs:    behavior.HideLogs,
+		SystemProxy: a.sysProxyActive,   // 👈 真实系统代理状态
+		Tun:         a.tunActive,        // 👈 真实虚拟网卡状态
+		Version:     a.GetCoreVersion(), // 👈 当前内核版本
 	}
+
+	// 推送给前端（唯一通道）
 	runtime.EventsEmit(a.ctx, "app-state-sync", state)
 
 	// 👇 追加：同步更新系统托盘的 UI 勾选状态

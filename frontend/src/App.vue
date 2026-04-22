@@ -183,22 +183,28 @@ watch(() => globalState.theme, (val) => {
 }, { immediate: true });
 
 onMounted(async () => {
-  // 👈 核心修复：调用新增的且具有返回值的 GetAppState
-  const state = await (API as any).GetAppState(); 
-  if (state) {
-    globalState.isRunning = state.isRunning;
-    globalState.mode = state.mode;
-    globalState.theme = state.theme; // 确保开机时立刻应用黑白主题
-  }
-
+  // 🎯 核心修复 2：先注册监听，再拉取快照，防止状态变化缝隙
   EventsOn("app-state-sync", (state: any) => {
-    globalState.isRunning = state.isRunning;
-    globalState.mode = state.mode;
-    // 核心修复：同步黑白模式状态
-    if (state.theme) {
-      globalState.theme = state.theme;
+    // 🚀 做兼容性处理，确保 100% 状态同步（兼容 PascalCase 和 camelCase）
+    globalState.isRunning = state.isRunning ?? state.IsRunning ?? false;
+    globalState.mode = state.mode ?? state.Mode ?? 'rule';
+    if (state.theme || state.Theme) {
+      globalState.theme = state.theme ?? state.Theme;
     }
   });
+
+  try {
+    // 🚀 核心修复：调用新增的且具有返回值的 GetAppState
+    const state = await (API as any).GetAppState(); 
+    if (state) {
+      // 🚀 核心修复：兼容 Wails Go 结构体直接返回时的大写字段名，防止初始状态变 undefined
+      globalState.isRunning = state.isRunning ?? state.IsRunning ?? false;
+      globalState.mode = state.mode ?? state.Mode ?? 'rule';
+      globalState.theme = state.theme ?? state.Theme ?? 'light'; 
+    }
+  } catch (e) {
+    console.error("获取初始状态失败:", e);
+  }
 
   try {
     const status = await API.CheckTunEnv();
@@ -331,14 +337,14 @@ watch(currentTab, (newTab) => {
 .icon-btn:hover { color: var(--text-main); }
 .icon-btn :deep(svg) { width: 14px; height: 14px; }
 
-.main-layout { display: flex; flex: 1; padding: 0 16px 16px 0; gap: 16px; overflow: hidden; }
+.main-layout { display: flex; flex: 1; padding: 0 16px 16px 16px; gap: 16px; overflow: hidden; }
 
 .content { flex: 1; display: flex; flex-direction: column; padding: 32px 40px; overflow: hidden; }
 .content-header h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 32px; }
 .view-scroller { 
   flex: 1; 
   overflow-y: auto; 
-  padding-right: 12px; 
+  padding-right: 4px; /* 🚀 修复：减小右侧多余空隙 */
   scrollbar-gutter: stable; /* 核心修复：预留滚动条占位，防止切换时挤压页面 */
 }
 

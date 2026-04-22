@@ -8,6 +8,10 @@ export const globalState = reactive({
   mode: 'rule',
   theme: 'light',
   hideLogs: false,
+  // 👇 新增这三个字段
+  systemProxy: false, 
+  tun: false,
+  version: '',
   tunStatus: { hasWintun: false, isAdmin: false },
 
   // 全局模态框状态
@@ -21,6 +25,33 @@ export const globalState = reactive({
     onCancel: null as Function | null,
   }
 });
+
+// 👇 新增清洗规则：打破数据格式强粘合，防止大小写污染
+function updateStateFromBackend(rawData: any) {
+  if (!rawData) return;
+  
+  if (rawData.isRunning !== undefined) globalState.isRunning = rawData.isRunning;
+  else if (rawData.IsRunning !== undefined) globalState.isRunning = rawData.IsRunning;
+
+  if (rawData.mode !== undefined) globalState.mode = rawData.mode;
+  else if (rawData.Mode !== undefined) globalState.mode = rawData.Mode;
+
+  if (rawData.theme !== undefined) globalState.theme = rawData.theme;
+  else if (rawData.Theme !== undefined) globalState.theme = rawData.Theme;
+
+  if (rawData.hideLogs !== undefined) globalState.hideLogs = rawData.hideLogs;
+  else if (rawData.HideLogs !== undefined) globalState.hideLogs = rawData.HideLogs;
+
+  // 👇 新增这三个字段的清洗逻辑
+  if (rawData.systemProxy !== undefined) globalState.systemProxy = rawData.systemProxy;
+  else if (rawData.SystemProxy !== undefined) globalState.systemProxy = rawData.SystemProxy;
+
+  if (rawData.tun !== undefined) globalState.tun = rawData.tun;
+  else if (rawData.Tun !== undefined) globalState.tun = rawData.Tun;
+
+  if (rawData.version !== undefined) globalState.version = rawData.version;
+  else if (rawData.Version !== undefined) globalState.version = rawData.Version;
+}
 
 // 全局 Alert 提示框 (替代原生 alert)
 export function showAlert(message: string, title: string = '提示'): Promise<void> {
@@ -51,6 +82,6 @@ export function showConfirm(message: string, title: string = '操作确认', isD
 export function initStore() {
   // 保持事件监听，但不再处理主题 DOM，统一交给 App.vue 的 watch 处理
   EventsOn("app-state-sync", (newState: any) => {
-    Object.assign(globalState, newState);
+    updateStateFromBackend(newState); // 👈 使用清洗逻辑
   });
 }

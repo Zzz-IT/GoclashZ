@@ -101,6 +101,7 @@ const isPaused = ref(false);
 const selectedConn = ref<any>(null);
 
 const isMonitoring = ref(false); // 增加一个状态锁，防止重复注册监听
+const isLoading = ref(true); // 🚀 新增：控制初始加载状态
 
 const startMonitor = async () => {
   if (isMonitoring.value) return;
@@ -122,9 +123,19 @@ const startMonitor = async () => {
   });
 
   try {
+    isLoading.value = true;
+    
+    // 🚀 核心修复：在建立监听后，立即主动请求一次连接快照，消除初始延迟
+    const initData = await (API as any).GetConnections();
+    if (initData && Array.isArray(initData.connections)) {
+      connections.value = initData.connections;
+      isLoading.value = false;
+    }
+
     await (API as any).StartConnectionMonitor();
   } catch (e) {
     console.error("启动连接监控失败:", e);
+    isLoading.value = false;
   }
 };
 

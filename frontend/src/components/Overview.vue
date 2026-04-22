@@ -4,8 +4,8 @@
       <div class="status-core">
         <div class="restart-trigger" :class="{ 'is-loading': isRestarting }" @click="handleRestartCore" title="重启内核">
           <div class="orb-visual" v-show="!isRestarting">
-            <div class="orb" :class="{ 'active': isRunning }"></div>
-            <div class="orb-glow" v-if="isRunning"></div>
+            <div class="orb" :class="{ 'active': globalState.isRunning }"></div>
+            <div class="orb-glow" v-if="globalState.isRunning"></div>
           </div>
           <!-- 替换为类似测延迟的扫描圈 -->
           <svg class="refresh-icon scanner-svg" :class="{ 'spin': isRestarting }" viewBox="0 0 24 24">
@@ -15,8 +15,8 @@
         </div>
         <div class="status-meta">
           <span class="micro-title">引擎状态</span>
-          <h2 class="status-heading">{{ isRestarting ? '内核重启中...' : (isRunning ? '接管中' : '服务停止') }}</h2>
-          <span class="version-tag">{{ clashVersion || 'Mihomo Core' }}</span>
+          <h2 class="status-heading">{{ isRestarting ? '内核重启中...' : (globalState.isRunning ? '接管中' : '服务停止') }}</h2>
+          <span class="version-tag">{{ globalState.version || 'Mihomo Core' }}</span>
         </div>
       </div>
 
@@ -39,23 +39,23 @@
     </section>
 
     <section class="switch-row">
-      <div class="action-card" :class="{ 'on': status.systemProxy }" @click="toggleSysProxy">
+      <div class="action-card" :class="{ 'on': globalState.systemProxy }" @click="toggleSysProxy">
         <div class="card-content">
           <div class="icon-ring" v-html="ICONS.sysProxy"></div>
           <div class="text-group">
             <span class="card-title">系统代理</span>
-            <span class="card-hint">{{ status.systemProxy ? '已修改系统网络层设置' : '未接管系统 HTTP 流量' }}</span>
+            <span class="card-hint">{{ globalState.systemProxy ? '已修改系统网络层设置' : '未接管系统 HTTP 流量' }}</span>
           </div>
         </div>
         <div class="status-node"></div>
       </div>
 
-      <div class="action-card" :class="{ 'on': status.tun }" @click="toggleTun">
+      <div class="action-card" :class="{ 'on': globalState.tun }" @click="toggleTun">
         <div class="card-content">
           <div class="icon-ring" v-html="ICONS.tun"></div>
           <div class="text-group">
             <span class="card-title">虚拟网卡 (TUN)</span>
-            <span class="card-hint">{{ status.tun ? '高优先级虚拟设备已挂载' : '透明代理驱动未加载' }}</span>
+            <span class="card-hint">{{ globalState.tun ? '高优先级虚拟设备已挂载' : '透明代理驱动未加载' }}</span>
           </div>
         </div>
         <div class="status-node"></div>
@@ -71,7 +71,7 @@
           v-for="m in modes" 
           :key="m.val" 
           class="seg-item"
-          :class="{ active: currentMode === m.val }"
+          :class="{ active: globalState.mode === m.val }"
           @click="handleModeChange(m.val)"
         >
           {{ m.label }}
@@ -83,24 +83,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-// 👇 新增：引入 Wails 运行时的事件监听机制
-import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
-import { showAlert, showConfirm } from '../store';
+import { globalState, showAlert, showConfirm } from '../store'; // 👈 直接引入唯一的真相来源 globalState
 import { ICONS } from '../utils/icons';
 
 defineProps<{
   traffic: { up: string; down: string; }
 }>();
-
-const status = ref({ systemProxy: false, tun: false });
-const currentMode = ref('rule');
-const clashVersion = ref('');
-
-// 状态调和队列：分离 UI 的"目标状态"与后台的"实际状态"
-const sysProxyQueue = { isProcessing: false, target: false, actual: false };
-const tunQueue = { isProcessing: false, target: false, actual: false };
 
 const modes = [
   { label: '规则分流', val: 'rule' },
@@ -108,21 +98,21 @@ const modes = [
   { label: '直接连接', val: 'direct' }
 ];
 
-const isRunning = computed(() => status.value.systemProxy || status.value.tun);
-const sliderStyle = computed(() => ({ transform: `translateX(${modes.findIndex(m => m.val === currentMode.value) * 100}%)` }));
+// 👈 1. 彻底删除本地的 status、currentMode、clashVersion 变量！
+// 直接使用 globalState 作为唯一真相源，计算属性自动响应
+const sliderStyle = computed(() => ({ transform: `translateX(${modes.findIndex(m => m.val === globalState.mode) * 100}%)` }));
 
 const isRestarting = ref(false);
 
 const handleRestartCore = async () => {
   if (isRestarting.value) return;
-
   const ok = await showConfirm("确定要重新启动内核服务吗？这可能会导致短暂的网络中断。", "重启内核");
   if (!ok) return;
 
   isRestarting.value = true;
   try {
     await (API as any).RestartCore();
-    await refreshData();
+    // 💡 重点：不需要手动 refreshData()，因为 RestartCore 成功后，后端会主动触发 SyncState，store.ts 会自动更新 UI！
     await showAlert("内核服务已成功重启", '成功');
   } catch (e) {
     await showAlert("重启失败: " + e, '错误');
@@ -131,116 +121,31 @@ const handleRestartCore = async () => {
   }
 };
 
-const refreshData = async () => {
+// 👈 2. 彻底删除 sysProxyQueue 循环逻辑，回归极简 API 调用
+const toggleSysProxy = async () => {
   try {
-    const data: any = await API.GetInitialData();
-    if (data?.mode) currentMode.value = data.mode;
-    if (data?.version) clashVersion.value = data.version;
-    const st: any = await API.GetProxyStatus();
-    status.value = st;
-
-    // 初始化对齐
-    sysProxyQueue.actual = st.systemProxy;
-    sysProxyQueue.target = st.systemProxy;
-    tunQueue.actual = st.tun;
-    tunQueue.target = st.tun;
-  } catch (e) { console.error(e); }
-};
-
-const toggleSysProxy = () => {
-  // 🚀 极致乐观 UI：无视后台，开关瞬间响应用户点击
-  status.value.systemProxy = !status.value.systemProxy;
-  sysProxyQueue.target = status.value.systemProxy;
-  processSysProxy();
-};
-
-const processSysProxy = async () => {
-  if (sysProxyQueue.isProcessing) return; // 后台正在处理，直接返回
-  sysProxyQueue.isProcessing = true;
-
-  // 只要真实状态还没追上目标状态，就继续干活
-  while (sysProxyQueue.actual !== sysProxyQueue.target) {
-    const nextState = sysProxyQueue.target; // 锁定此时的目标
-    try {
-      await API.ToggleSystemProxy(nextState);
-      sysProxyQueue.actual = nextState; // 成功到达！
-    } catch (err) {
-      // 灾难回滚：把 UI 和目标重置为崩溃前的真实状态
-      sysProxyQueue.target = sysProxyQueue.actual;
-      status.value.systemProxy = sysProxyQueue.actual;
-      await showAlert("操作系统代理失败: " + err, '错误');
-      break;
-    }
+    // 告诉后端我们要切换到相反的状态
+    await API.ToggleSystemProxy(!globalState.systemProxy); 
+    // 💡 重点：这里不需要手动改 local status，后端执行完会自动广播最新的 systemProxy 状态！
+  } catch (err) {
+    showAlert("操作系统代理失败: " + err, '错误');
   }
-
-  // 队列清空，推送一次全局同步
-  const finalStatus = await API.GetProxyStatus() as any;
-  status.value = finalStatus;
-  window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: finalStatus }));
-  sysProxyQueue.isProcessing = false;
 };
 
-const toggleTun = () => {
-  status.value.tun = !status.value.tun;
-  tunQueue.target = status.value.tun;
-  processTun();
-};
-
-const processTun = async () => {
-  if (tunQueue.isProcessing) return;
-  tunQueue.isProcessing = true;
-
-  while (tunQueue.actual !== tunQueue.target) {
-    const nextState = tunQueue.target;
-    try {
-      await API.ToggleTunMode(nextState);
-      tunQueue.actual = nextState;
-    } catch (err) {
-      tunQueue.target = tunQueue.actual;
-      status.value.tun = tunQueue.actual;
-      await showAlert("操作虚拟网卡失败: " + err, '错误');
-      break;
-    }
+const toggleTun = async () => {
+  try {
+    await API.ToggleTunMode(!globalState.tun);
+  } catch (err) {
+    showAlert("操作虚拟网卡失败: " + err, '错误');
   }
-
-  const finalStatus = await API.GetProxyStatus() as any;
-  status.value = finalStatus;
-  window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: finalStatus }));
-  tunQueue.isProcessing = false;
 };
 
 const handleModeChange = (val: string) => {
-  currentMode.value = val;
-  API.UpdateClashMode(val);
+  API.UpdateClashMode(val); // 同样，只需通知后端
 };
 
-onMounted(() => {
-  refreshData();
-
-  // 👇 新增：监听后端(如托盘菜单)触发的状态同步事件
-  EventsOn("app-state-sync", (state: any) => {
-    // 1. 同步出站路由模式
-    if (state.mode) {
-      currentMode.value = state.mode;
-    }
-
-    // 👈 核心：如果在狂点处理中，忽略后端的全局广播，防止 UI 被扯回过去
-    if (!sysProxyQueue.isProcessing && !tunQueue.isProcessing) {
-      API.GetProxyStatus().then((res: any) => {
-        status.value = res;
-        sysProxyQueue.actual = res.systemProxy;
-        sysProxyQueue.target = res.systemProxy;
-        tunQueue.actual = res.tun;
-        tunQueue.target = res.tun;
-      });
-    }
-  });
-});
-
-// 👇 新增：当页面被销毁时注销监听，防止事件重复绑定和内存泄漏
-onUnmounted(() => {
-  EventsOff("app-state-sync");
-});
+// 👈 3. 彻底删除了 onMounted 里的 EventsOn 和 onUnmounted 里的 EventsOff！
+// 监听权已全部上交给 store.ts
 </script>
 
 <style scoped>
