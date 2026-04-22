@@ -109,7 +109,7 @@ import {
   WindowHide,
   Quit
 } from '../wailsjs/runtime/runtime';
-import { globalState } from './store';
+import { globalState, initStore } from './store';
 
 const currentTab = ref('home');
 const targetSettingsView = ref('main');
@@ -183,24 +183,22 @@ watch(() => globalState.theme, (val) => {
 }, { immediate: true });
 
 onMounted(async () => {
-  // 🎯 核心修复 2：先注册监听，再拉取快照，防止状态变化缝隙
-  EventsOn("app-state-sync", (state: any) => {
-    // 🚀 做兼容性处理，确保 100% 状态同步（兼容 PascalCase 和 camelCase）
-    globalState.isRunning = state.isRunning ?? state.IsRunning ?? false;
-    globalState.mode = state.mode ?? state.Mode ?? 'rule';
-    if (state.theme || state.Theme) {
-      globalState.theme = state.theme ?? state.Theme;
-    }
-  });
+  // 🎯 核心修复 1：正式启动集中式状态管理，将唯一的监听权交给 store.ts
+  initStore();
+
+  // ❌ 核心修复 2：彻底删除了 App.vue 原本保留的 EventsOn("app-state-sync") 块！
 
   try {
-    // 🚀 核心修复：调用新增的且具有返回值的 GetAppState
+    // 🎯 核心修复 3：初始拉取时，也要把新增的三个字段带上
     const state = await (API as any).GetAppState(); 
     if (state) {
-      // 🚀 核心修复：兼容 Wails Go 结构体直接返回时的大写字段名，防止初始状态变 undefined
       globalState.isRunning = state.isRunning ?? state.IsRunning ?? false;
       globalState.mode = state.mode ?? state.Mode ?? 'rule';
       globalState.theme = state.theme ?? state.Theme ?? 'light'; 
+      // 👇 补上新字段的初始化，防止刚打开软件时界面状态错误
+      globalState.systemProxy = state.systemProxy ?? state.SystemProxy ?? false;
+      globalState.tun = state.tun ?? state.Tun ?? false;
+      globalState.version = state.version ?? state.Version ?? '';
     }
   } catch (e) {
     console.error("获取初始状态失败:", e);
