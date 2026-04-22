@@ -2,12 +2,16 @@
 import { reactive } from 'vue';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 
+// 1. 同步读取本地缓存（发生在 Vue 渲染前，绝对 0 延迟）
+const cachedHideLogs = localStorage.getItem('goclashz_hideLogs') === 'true';
+const cachedTheme = localStorage.getItem('goclashz_theme') || 'light';
+
 // 定义全局响应式状态
 export const globalState = reactive({
   isRunning: false,
   mode: 'rule',
-  theme: 'light',
-  hideLogs: false,
+  theme: cachedTheme,       // 👈 换成缓存初始化
+  hideLogs: cachedHideLogs, // 👈 换成缓存初始化
   // 👇 新增这三个字段
   systemProxy: false, 
   tun: false,
@@ -33,14 +37,17 @@ function updateStateFromBackend(rawData: any) {
   if (rawData.isRunning !== undefined) globalState.isRunning = rawData.isRunning;
   else if (rawData.IsRunning !== undefined) globalState.isRunning = rawData.IsRunning;
 
-  if (rawData.mode !== undefined) globalState.mode = rawData.mode;
-  else if (rawData.Mode !== undefined) globalState.mode = rawData.Mode;
+  const newTheme = rawData.theme ?? rawData.Theme;
+  if (newTheme !== undefined) {
+    globalState.theme = newTheme;
+    localStorage.setItem('goclashz_theme', newTheme); // 存入缓存
+  }
 
-  if (rawData.theme !== undefined) globalState.theme = rawData.theme;
-  else if (rawData.Theme !== undefined) globalState.theme = rawData.Theme;
-
-  if (rawData.hideLogs !== undefined) globalState.hideLogs = rawData.hideLogs;
-  else if (rawData.HideLogs !== undefined) globalState.hideLogs = rawData.HideLogs;
+  const newHideLogs = rawData.hideLogs ?? rawData.HideLogs;
+  if (newHideLogs !== undefined) {
+    globalState.hideLogs = newHideLogs;
+    localStorage.setItem('goclashz_hideLogs', String(newHideLogs)); // 存入缓存
+  }
 
   // 👇 新增这三个字段的清洗逻辑
   if (rawData.systemProxy !== undefined) globalState.systemProxy = rawData.systemProxy;

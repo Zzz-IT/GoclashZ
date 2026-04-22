@@ -79,13 +79,19 @@
           <span class="sub-hint">点击应用此配置</span>
           <div class="sub-actions">
             <button class="icon-btn" @click.stop="toggleMenu(config)" v-html="ICONS.more"></button>
-            <div v-if="activeMenu === config" class="dropdown-menu card-panel">
-              <button v-if="hasUrlRecord(config)" class="menu-item" @click.stop="handleUpdateSingle(config)">更新订阅</button>
-              <div v-if="hasUrlRecord(config)" class="menu-divider"></div>
-              <button class="menu-item" @click.stop="openRenameModal(config)">重命名</button>
-              <button class="menu-item" @click.stop="handleEditFile(config)">记事本编辑</button>
-              <button class="menu-item danger" @click.stop="openDeleteModal(config)">彻底删除</button>
-            </div>
+            
+            <!-- 👇 新增：全屏透明遮罩，点击页面任何地方均可关闭菜单 -->
+            <div v-if="activeMenu === config" class="menu-click-overlay" @click.stop="activeMenu = null"></div>
+
+            <Transition name="dropdown">
+              <div v-if="activeMenu === config" class="dropdown-menu card-panel">
+                <button v-if="hasUrlRecord(config)" class="menu-item" @click.stop="handleUpdateSingle(config)">更新订阅</button>
+                <div v-if="hasUrlRecord(config)" class="menu-divider"></div>
+                <button class="menu-item" @click.stop="openRenameModal(config)">重命名</button>
+                <button class="menu-item" @click.stop="handleEditFile(config)">记事本编辑</button>
+                <button class="menu-item danger" @click.stop="openDeleteModal(config)">彻底删除</button>
+              </div>
+            </Transition>
           </div>
         </div>
       </div>
@@ -532,6 +538,7 @@ onUnmounted(() => {
 }
 .icon-btn :deep(svg) { width: 14px !important; height: 14px !important; }
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
+.active-card .icon-btn:hover { background: transparent !important; } /* 👈 修复：选中状态下取消悬停背景 */
 
 .mini { padding: 8px 16px; font-size: 0.85rem; }
 .divider-text { text-align: center; margin: 10px 0; color: var(--text-muted); font-size: 0.75rem; position: relative; }
@@ -539,6 +546,15 @@ onUnmounted(() => {
 .divider-text::before { left: 0; } .divider-text::after { right: 0; }
 .w-full-btn { width: 100%; justify-content: center; padding: 14px; font-weight: 600; border-radius: 10px; border: none; background: var(--surface-hover); color: var(--text-main); cursor: pointer; }
 .warning-box { background: rgba(255, 77, 79, 0.1); padding: 12px; border-radius: 8px; color: #ff4d4f; font-size: 0.85rem; line-height: 1.4; border: 1px solid rgba(255, 77, 79, 0.2); }
+
+/* --- 菜单遮罩 --- */
+.menu-click-overlay {
+  position: fixed;
+  top: 0; left: 0; width: 100vw; height: 100vh;
+  z-index: 9;
+  background: transparent;
+}
+
 .dropdown-menu { 
   position: absolute; right: 0; top: 30px; width: 150px; border-radius: 8px; z-index: 10; overflow: hidden;
   background: var(--surface); border: 1px solid var(--surface-hover); box-shadow: 0 4px 12px rgba(0,0,0,0.1);
@@ -548,6 +564,18 @@ onUnmounted(() => {
 .menu-item.danger { color: #ff4d4f !important; font-weight: 600; }
 .menu-divider { height: 1px; margin: 4px 0; background: var(--surface-hover); }
 .empty-state { padding: 30px; text-align: center; color: var(--text-muted); border: none; border-radius: 10px; background: var(--surface); }
+/* --- 下拉菜单动画 --- */
+.dropdown-enter-active, .dropdown-leave-active {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.dropdown-enter-from, .dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.95);
+}
+.dropdown-enter-to, .dropdown-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
 
 /* ================================== */
 /* 顶部按钮图标与动画样式 */

@@ -323,7 +323,7 @@ onUnmounted(() => {
 .scroll-content { flex: 1; overflow-y: auto; padding-right: 8px; }
 
 .group-section { margin-bottom: 24px; }
-.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 
 .node-item {
   display: flex;

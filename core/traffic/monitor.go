@@ -93,17 +93,23 @@ func formatDuration(start time.Time) string {
 	return fmt.Sprintf("%02d:%02d", m, s)
 }
 
-// EmitConnections 处理并向前端推送格式化后的连接数据
-func EmitConnections(ctx context.Context, rawConnections []RawConnection) {
+// ProcessConnections 将原始连接数据转换为带有格式化字符串的视图对象
+func ProcessConnections(rawConnections []RawConnection) []ConnectionVO {
 	var vos []ConnectionVO
 	for _, conn := range rawConnections {
 		vos = append(vos, ConnectionVO{
-			RawConnection: conn, // 将解析到的原始数据原封不动塞入
+			RawConnection: conn,
 			UploadStr:     formatBytes(conn.Upload),
 			DownloadStr:   formatBytes(conn.Download),
 			DurationStr:   formatDuration(conn.Start),
 		})
 	}
+	return vos
+}
+
+// EmitConnections 处理并向前端推送格式化后的连接数据
+func EmitConnections(ctx context.Context, rawConnections []RawConnection) {
+	vos := ProcessConnections(rawConnections)
 	// 发送组装好的 VO 数组给前端
 	runtime.EventsEmit(ctx, "connections-update", map[string]interface{}{
 		"connections": vos,

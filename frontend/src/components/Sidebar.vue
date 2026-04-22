@@ -89,19 +89,41 @@ const toggleTheme = () => {
 .nav-item { 
   display: flex; 
   align-items: center; 
-  gap: 12px;           /* 🚀 修复2：用固定间距分隔图标和文字 */
-  padding: 10px 16px;  /* 稍微增加一点左右内边距，让整个块看起来更稳 */
+  /* 🚀 魔法 1：再次压缩。左边距微调至 16px，更紧凑 */
+  padding: 10px 12px 10px 16px;  
+  gap: 12px; 
   margin-bottom: 4px; 
   border-radius: 8px; 
   cursor: pointer; 
   color: var(--text-main); 
   transition: all 0.2s ease; 
+  position: relative; 
 }
-.nav-item:hover { background: var(--surface); }
-.nav-item.active { background: var(--surface-hover); font-weight: 600; }
+
+.nav-item:hover { 
+  background: var(--surface); 
+}
+
+.nav-item.active { 
+  background: var(--surface-hover); 
+  font-weight: 600; 
+}
+
+/* 🚀 魔法 2：无尾箭头锚点 (Chevron Indicator) */
+/* 使用精致的 45 度折角代替竖条，更具指向性与科技感 */
+.nav-item.active::after {
+  content: '';
+  position: absolute;
+  right: 14px;
+  width: 5px;
+  height: 5px;
+  border-top: 1.5px solid var(--text-main);
+  border-right: 1.5px solid var(--text-main);
+  transform: rotate(45deg);
+  opacity: 0.8;
+}
 
 .icon { 
-  /* 🚀 修复3：彻底删掉 position: absolute 和 left: 16px */
   width: 16px; 
   height: 16px; 
   display: flex; 
@@ -111,8 +133,7 @@ const toggleTheme = () => {
 
 .nav-label { 
   font-size: 0.85rem; 
-  letter-spacing: 0.02em; 
-  /* 🚀 修复4：删掉 text-align: center */
+  letter-spacing: 0.05em; 
 }
 
 .sidebar-footer { padding: 16px; display: flex; flex-direction: column; gap: 12px; margin-top: auto; }
@@ -125,11 +146,11 @@ const toggleTheme = () => {
 .icon-box :deep(svg) { width: 14px; height: 14px; }
 
 .side-traffic { display: flex; flex-direction: column; gap: 8px; }
-.t-item, .theme-switch-row, .status-indicator { display: flex; align-items: center; gap: 12px; height: 20px; }
-.t-label, .theme-switch-row .label { font-size: 0.8rem; color: var(--text-main); white-space: nowrap; }
-.status-text { font-size: 0.8rem; color: var(--text-sub); transition: 0.3s; }
+.t-item, .theme-switch-row, .status-indicator { display: flex; align-items: center; gap: 10px; height: 20px; }
+.t-label, .theme-switch-row .label { font-size: 0.8rem; color: var(--text-main); white-space: nowrap; flex-shrink: 0; }
+.status-text { font-size: 0.8rem; color: var(--text-sub); transition: 0.3s; white-space: nowrap; }
 .status-text.online { color: var(--text-main); font-weight: 600; }
-.t-val { margin-left: auto; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-main); opacity: 0.9; }
+.t-val { margin-left: auto; font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-main); opacity: 0.9; white-space: nowrap; flex-shrink: 0; }
 
 .theme-switch-row { cursor: pointer; transition: opacity 0.2s; }
 .theme-switch-row:hover { opacity: 0.7; }

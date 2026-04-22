@@ -543,6 +543,7 @@ func BuildRuntimeConfig(profileName string, mode string) error {
 		root["tcp-concurrent"] = userNet.TCPConcurrent
 		root["tcp-keep-alive"] = userNet.TCPKeepAlive
 		root["tcp-keep-alive-interval"] = userNet.TCPKeepAliveInterval
+		root["test-url"] = userNet.TestURL // 👈 核心修复：确保自定义测速地址在重启后不丢失
 
 		// 👈 新增：注入自定义 Hosts 映射
 		if userNet.Hosts != "" {

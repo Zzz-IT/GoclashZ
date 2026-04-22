@@ -307,9 +307,7 @@ const handleModeChange = (val: string) => {
 .traffic-meter { display: flex; gap: 32px; }
 .traffic-box { text-align: right; }
 .t-header { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-bottom: 4px; }
-.t-arrow { width: 12px; height: 12px; }
-.t-arrow.up { color: var(--text-sub); }
-.t-arrow.down { color: var(--text-main); }
+.t-arrow { width: 12px; height: 12px; color: var(--text-main); }
 .t-val { font-family: var(--font-mono); font-size: 1.15rem; font-weight: 500; color: var(--text-main); }
 
 /* 开关卡片 */

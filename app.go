@@ -651,6 +651,9 @@ func (a *App) shutdown(ctx context.Context) {
 
 	_ = a.ToggleSystemProxy(false) // 关闭系统代理
 	_ = a.ToggleTunMode(false)     // 关闭虚拟网卡
+
+	// 🚀 修复 1：彻底消灭 Wails 重启或退出时留下的“点不动的幽灵图标”
+	systray.Quit()
 }
 
 // --- 代理核心控制 ---
@@ -1150,7 +1153,26 @@ func (a *App) SaveNetworkConfig(cfg *clash.NetworkConfig) error {
 // --- 连接管理 (新增) ---
 
 func (a *App) GetConnections() (map[string]interface{}, error) {
-	return clash.GetConnections()
+	raw, err := clash.GetConnections()
+	if err != nil {
+		return nil, err
+	}
+
+	// 🚀 核心修复：手动处理初始快照，将其转换为带有格式化字符串的 VO 结构
+	// 这样前端在第一帧就能看到时间和流量，而不需要等 1 秒后的事件推送
+	var data struct {
+		Connections []traffic.RawConnection `json:"connections"`
+	}
+	
+	// 通过 JSON 转换将 map 转为结构体 (虽然损耗一点性能，但逻辑最稳)
+	temp, _ := json.Marshal(raw)
+	json.Unmarshal(temp, &data)
+
+	vos := traffic.ProcessConnections(data.Connections)
+
+	return map[string]interface{}{
+		"connections": vos,
+	}, nil
 }
 
 func (a *App) CloseConnection(id string) error {
@@ -1623,45 +1645,31 @@ func (a *App) onTrayReady() {
 		for {
 			select {
 			case <-mShow.ClickedCh:
+				// 🚀 修复 2：Windows 11 焦点破解连招
+				// 当 StartHidden: true 时，单靠 WindowShow 有时无法抢占系统前台焦点
 				runtime.WindowShow(a.ctx)
+				runtime.WindowUnminimise(a.ctx)
 
-			// 👇 新增：监听三个路由模式的点击事件
+			// 👇 修复 3：极其致命的修复！【必须】使用 go 关键字异步执行！
+			// 既然是状态机，托盘和 Vue 前端一样只负责"发送指令"，绝不阻塞自身
 			case <-a.mModeRule.ClickedCh:
-				_ = a.UpdateClashMode("rule")
+				go a.UpdateClashMode("rule")
 			case <-a.mModeGlobal.ClickedCh:
-				_ = a.UpdateClashMode("global")
+				go a.UpdateClashMode("global")
 			case <-a.mModeDirect.ClickedCh:
-				_ = a.UpdateClashMode("direct")
+				go a.UpdateClashMode("direct")
 
 			case <-a.mSysProxy.ClickedCh:
-				// 获取当前状态的反转值
-				targetState := !a.mSysProxy.Checked()
-				err := a.ToggleSystemProxy(targetState)
-				if err == nil {
-					a.SyncState() // 会通知前端
-				} else {
-					fmt.Printf("托盘切换系统代理失败: %v\n", err)
-				}
+				go a.ToggleSystemProxy(!a.sysProxyActive)
 
 			case <-a.mTun.ClickedCh:
-				targetState := !a.mTun.Checked()
-				err := a.ToggleTunMode(targetState)
-				if err == nil {
-					a.SyncState() // 会通知前端
-				} else {
-					fmt.Printf("托盘切换 TUN 失败: %v\n", err)
-				}
+				go a.ToggleTunMode(!a.tunActive)
 
 			case <-mRestart.ClickedCh:
-				// 🎯 核心修复 1：调用 RestartCore 而不是 UpdateCoreComponent
-				// 🎯 核心修复 2：使用 goroutine 异步执行，防止阻塞托盘主事件循环
-				go func() {
-					_ = a.RestartCore()
-				}()
+				go a.RestartCore()
 
 			case <-mQuit.ClickedCh:
-				// 先停内核，再退托盘，最后杀进程
-				a.stopCoreService()
+				// 安全退出的标准顺位：先卸载托盘，再通知 Wails 退出
 				systray.Quit()
 				runtime.Quit(a.ctx)
 				return // 退出这个监听死循环

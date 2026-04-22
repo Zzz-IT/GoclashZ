@@ -78,12 +78,13 @@
     --font-sans: 'JetBrains Mono', 'MiSans', 'Microsoft YaHei', sans-serif;
     --font-mono: 'JetBrains Mono', 'MiSans', monospace;
 
-    /* 👇 新增：全局布局变量，统管整个软件骨架 */
-    --sidebar-width: 180px; /* 缩小侧边栏，原为 220px */
-    --layout-padding: 12px; /* 软件边缘最外层留白，从 20px 减小到 12px */
-    --layout-gap: 16px;     /* 侧边栏与主面板的间距 */
-    --content-px: 36px;     /* 右侧面板内部的左右边距，微调得更精致 */
-    --content-py: 32px;     /* 右侧面板内部的上下边距 */
+    /* 将侧边栏宽度从 180px 进一步缩减到 160px */
+    --sidebar-width: 160px; 
+    
+    --layout-padding: 10px; /* 进一步收窄全局边距，提升视觉张力 */
+    --layout-gap: 16px;
+    --content-px: 36px;
+    --content-py: 32px;
 
     /* ☀️ 日间模式：纯净黑白灰，无色彩干扰 */
     --app-bg: #F2F2F2;
