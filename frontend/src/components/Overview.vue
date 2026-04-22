@@ -327,7 +327,7 @@ const handleModeChange = (val: string) => {
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.action-card:hover { background: var(--surface-hover); }
+/* .action-card:hover { background: var(--surface-hover); } */
 .action-card.on { background: var(--accent); }
 
 .icon-ring { 

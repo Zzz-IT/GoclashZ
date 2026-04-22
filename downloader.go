@@ -49,3 +49,26 @@ func DownloadFile(url string, destPath string) error {
 	// 下载完整后，瞬间覆盖原文件（操作系统级原子操作，绝对安全）
 	return os.Rename(tmpPath, destPath)
 }
+
+// UpdateCore 安全更新内核文件（绕过正在运行的文件锁）
+func UpdateCore(url string, destPath string) error {
+	// 1. 🚀 核心修复：将正在运行的内核重命名为 .old 
+	// Windows 允许重构正在运行的可执行文件，但不允许删除或修改内容。
+	oldPath := destPath + ".old"
+	_ = os.Remove(oldPath) // 先清理掉上一次可能残留的 .old 文件
+
+	// 尝试重命名。如果文件不存在（第一次安装），忽略错误
+	if err := os.Rename(destPath, oldPath); err != nil && !os.IsNotExist(err) {
+		return err // 如果重命名失败（可能权限不足），直接返回错误，保护原文件
+	}
+
+	// 2. 此时原位置 destPath 已经空出来了，安全下载新内核
+	err := DownloadFile(url, destPath) // 调用我们之前写好的带原子写入的 DownloadFile
+	if err != nil {
+		// 🚨 兜底机制：如果新内核下载失败或损坏，把旧内核的名字改回来，保证软件还能用
+		_ = os.Rename(oldPath, destPath)
+		return err
+	}
+
+	return nil
+}

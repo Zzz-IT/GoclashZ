@@ -218,7 +218,7 @@ onMounted(async () => {
   
   EventsOn("log-message", (log: any) => {
     logLines.value.push(log);
-    if (logLines.value.length > 1000) logLines.value.shift();
+    if (logLines.value.length > 500) logLines.value.shift();
     
     if (!scrollTimer) {
       scrollTimer = setTimeout(() => {

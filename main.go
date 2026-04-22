@@ -134,6 +134,8 @@ func main() {
 		Title:  "GoclashZ",
 		Width:  1024,
 		Height: 768,
+		MinWidth:  900, // 👈 核心修复：限制最小宽度，防止 UI 布局挤压
+		MinHeight: 600, // 👈 核心修复：限制最小高度
 		Frameless: true, // 保持无边框，自己渲染 UI
 		
 		HideWindowOnClose: true, // 👈 1. 新增：点击关闭按钮时，隐藏窗口而不是退出进程

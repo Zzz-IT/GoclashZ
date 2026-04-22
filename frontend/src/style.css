@@ -74,6 +74,18 @@
   box-shadow: none; /* 防止有些内核用 boxShadow 模拟边框 */
 }
 
+/* 🚀 极致细节：禁止一切非输入框文字的可选性，让 WebApp 更有 Native 质感 */
+html, body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 允许输入框、文本域以及自定义可编辑区域保留选择权 */
+input, textarea, .modern-input, [contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 :root {
     --font-sans: 'JetBrains Mono', 'MiSans', 'Microsoft YaHei', sans-serif;
     --font-mono: 'JetBrains Mono', 'MiSans', monospace;
@@ -87,10 +99,10 @@
     --content-py: 32px;
 
     /* ☀️ 日间模式：纯净黑白灰，无色彩干扰 */
-    --app-bg: #F2F2F2;
-    /* 底色：温暖的浅灰 */
-    --surface-panel: #FAFAFA;
-    /* 面板：近白，靠色差而非边框浮出 */
+    --app-bg: #F0F0F0;
+    /* 底色：极浅灰，微弱区分侧边栏 */
+    --surface-panel: #FFFFFF;
+    /* 面板：纯白，与背景形成强对比 */
 
     --text-main: #1A1A1A;
     /* 主文字：极深灰 */
@@ -105,7 +117,7 @@
 
     --surface: #EBEBEB;
     /* 输入框/按钮底色 */
-    --surface-hover: #E0E0E0;
+    --surface-hover: #E2E2E2;
 
     --status-online: #1A1A1A;
     /* 呼吸灯使用纯黑，通过动画而非颜色表达 */

@@ -71,7 +71,7 @@ const toggleTheme = () => {
   width: var(--sidebar-width, 220px); 
   display: flex; 
   flex-direction: column; 
-  padding: 12px; 
+  padding: 8px 12px 12px 12px; 
   flex-shrink: 0; /* 强制防止在极小窗口下被右侧内容挤压变形 */
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* 为未来做"折叠侧边栏"铺垫动画 */
 }
@@ -82,7 +82,7 @@ const toggleTheme = () => {
   letter-spacing: -0.02em;
   color: var(--text-main);
   text-align: center;
-  padding: 24px 0 36px 0;
+  padding: 8px 0 32px 0;
 }
 
 .nav-list { flex: 1; }

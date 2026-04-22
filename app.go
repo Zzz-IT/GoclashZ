@@ -625,6 +625,10 @@ func (a *App) cleanLegacyFiles() {
 	binDir := utils.GetCoreBinDir()
 	_ = os.Remove(filepath.Join(binDir, "active_config.txt"))
 	_ = os.Remove(filepath.Join(binDir, "active_mode.txt"))
+	
+	// 🚀 启动时静默清理上次内核更新产生的 .old 垃圾文件
+	_ = os.Remove(filepath.Join(binDir, "mihomo-windows-amd64.exe.old"))
+	_ = os.Remove(filepath.Join(binDir, "clash.exe.old")) 
 }
 
 func (a *App) startup(ctx context.Context) {

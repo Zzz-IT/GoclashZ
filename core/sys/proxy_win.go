@@ -95,8 +95,7 @@ func EnableSystemProxy(host string, port int, bypassDomains string) error {
 	setRasProxy(&list)
 
 	// 3. 全局广播，瞬间生效
-	procInternetSetOption.Call(0, uintptr(INTERNET_OPTION_SETTINGS_CHANGED), 0, 0)
-	procInternetSetOption.Call(0, uintptr(INTERNET_OPTION_REFRESH), 0, 0)
+	RefreshSystemProxy()
 
 	log.Printf("系统代理设置成功: %s", serverStr)
 
@@ -134,8 +133,7 @@ func DisableSystemProxy() error {
 
 	setRasProxy(&list)
 
-	procInternetSetOption.Call(0, uintptr(INTERNET_OPTION_SETTINGS_CHANGED), 0, 0)
-	procInternetSetOption.Call(0, uintptr(INTERNET_OPTION_REFRESH), 0, 0)
+	RefreshSystemProxy()
 
 	log.Println("系统代理已禁用")
 
@@ -149,6 +147,15 @@ func DisableSystemProxy() error {
 // ClearSystemProxy 是 DisableSystemProxy 的别名，用于启动清理
 func ClearSystemProxy() error {
 	return DisableSystemProxy()
+}
+
+// RefreshSystemProxy 向整个 Windows 系统广播代理状态变更
+// 通知 Chrome/Edge/IE 等浏览器立即拉取最新注册表设置
+func RefreshSystemProxy() {
+	// 39 = INTERNET_OPTION_SETTINGS_CHANGED
+	// 37 = INTERNET_OPTION_REFRESH
+	procInternetSetOption.Call(0, uintptr(INTERNET_OPTION_SETTINGS_CHANGED), 0, 0)
+	procInternetSetOption.Call(0, uintptr(INTERNET_OPTION_REFRESH), 0, 0)
 }
 
 func setRasProxy(list *INTERNET_PER_CONN_OPTION_LIST) {
