@@ -774,6 +774,12 @@ func (a *App) TestAllProxies(nodeNames []string) {
 				select {
 				case semaphore <- struct{}{}:
 				case <-ctx.Done():
+					// 🚀 核心修复：被 Context 强制取消的节点，必须通知前端停止转圈
+					runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
+						"name":   nName,
+						"delay":  0,
+						"status": "timeout", // 通知前端测速取消
+					})
 					return
 				}
 				defer func() { <-semaphore }()
@@ -1001,18 +1007,31 @@ func (a *App) StartStreamingLogs() {
 	a.mu.Unlock()
 
 	// 调用 api_client.go 中定义的 FetchLogs，传入受控的 logCtx 和回调
-	go clash.FetchLogs(logCtx, func(data interface{}) {
-		// 解析为 LogEntry 并存入 Buffer
-		if m, ok := data.(map[string]interface{}); ok {
-			entry := logger.LogEntry{
-				Type:    fmt.Sprintf("%v", m["type"]),
-				Payload: fmt.Sprintf("%v", m["payload"]),
-				Time:    time.Now().Format("15:04:05"),
+	go func() {
+		// 🚀 核心修复：确保即使 HTTP 长连接断开（内核重启），也能重置状态
+		defer func() {
+			a.mu.Lock()
+			a.logRunning = false
+			if a.cancelLogs != nil {
+				a.cancelLogs()
+				a.cancelLogs = nil
 			}
-			logger.AppLogs.Add(entry)
-			runtime.EventsEmit(a.ctx, "log-message", entry)
-		}
-	})
+			a.mu.Unlock()
+		}()
+
+		clash.FetchLogs(logCtx, func(data interface{}) {
+			// 解析为 LogEntry 并存入 Buffer
+			if m, ok := data.(map[string]interface{}); ok {
+				entry := logger.LogEntry{
+					Type:    fmt.Sprintf("%v", m["type"]),
+					Payload: fmt.Sprintf("%v", m["payload"]),
+					Time:    time.Now().Format("15:04:05"),
+				}
+				logger.AppLogs.Add(entry)
+				runtime.EventsEmit(a.ctx, "log-message", entry)
+			}
+		})
+	}()
 }
 
 func (a *App) StopStreamingLogs() {
@@ -1173,20 +1192,19 @@ func (a *App) SaveNetworkConfig(cfg *clash.NetworkConfig) error {
 // --- 连接管理 (新增) ---
 
 func (a *App) GetConnections() (map[string]interface{}, error) {
-	raw, err := clash.GetConnections()
+	rawBytes, err := clash.GetConnectionsRaw() // 👈 使用优化后的 Raw 方法
 	if err != nil {
 		return nil, err
 	}
 
-	// 🚀 核心修复：手动处理初始快照，将其转换为带有格式化字符串的 VO 结构
-	// 这样前端在第一帧就能看到时间和流量，而不需要等 1 秒后的事件推送
 	var data struct {
 		Connections []traffic.RawConnection `json:"connections"`
 	}
 	
-	// 通过 JSON 转换将 map 转为结构体 (虽然损耗一点性能，但逻辑最稳)
-	temp, _ := json.Marshal(raw)
-	json.Unmarshal(temp, &data)
+	// 🚀 直接从字节流解析，省去 map 中转和二次 Marshal 的损耗
+	if err := json.Unmarshal(rawBytes, &data); err != nil {
+		return nil, err
+	}
 
 	vos := traffic.ProcessConnections(data.Connections)
 
@@ -1379,6 +1397,23 @@ func (a *App) OpenConfigFile(fileName string) error {
 func (a *App) DeleteConfig(fileName string) error {
 	fileName = filepath.Base(fileName) // 👈 净化
 	path := filepath.Join(a.getProfilesDir(), fileName)
+
+	// 🚀 核心修复：如果删掉的是当前活动配置，必须重置环境
+	a.mu.Lock()
+	if a.activeConfig == fileName {
+		a.activeConfig = ""
+		a.mu.Unlock()
+		
+		a.saveActiveConfig("") // 清空本地记忆
+		// 清空离线记录，防止切到空配置时报错
+		a.mu.Lock()
+		a.offlineNodes = make(map[string]string)
+		a.mu.Unlock()
+		a.saveOfflineNodes()
+	} else {
+		a.mu.Unlock()
+	}
+
 	return os.Remove(path)
 }
 

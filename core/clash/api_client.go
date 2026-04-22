@@ -174,19 +174,17 @@ func SwitchProxy(groupName, nodeName string) error {
 }
 
 // GetConnections 获取当前所有活跃连接
-func GetConnections() (map[string]interface{}, error) {
-	// 使用 localAPIClient 替换 http.Get
+// GetConnectionsRaw 获取内核当前的实时连接原始字节流 (优化性能用)
+func GetConnectionsRaw() ([]byte, error) {
 	resp, err := localAPIClient.Get("http://127.0.0.1:9090/connections")
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	var data map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, err
-	}
-	return data, nil
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(resp.Body)
+	return buf.Bytes(), err
 }
 
 // CloseConnection 断开指定的单个连接
