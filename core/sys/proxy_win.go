@@ -146,6 +146,11 @@ func DisableSystemProxy() error {
 	return nil
 }
 
+// ClearSystemProxy 是 DisableSystemProxy 的别名，用于启动清理
+func ClearSystemProxy() error {
+	return DisableSystemProxy()
+}
+
 func setRasProxy(list *INTERNET_PER_CONN_OPTION_LIST) {
 	var cb uint32 = uint32(unsafe.Sizeof(RasEntryName{}))
 	var cEntries uint32 = 0

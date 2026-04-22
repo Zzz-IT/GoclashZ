@@ -11,66 +11,60 @@ type LogEntry struct {
 	Time    string `json:"time"`
 }
 
-const MaxLogLines = 1000 // 最大日志存储量
-
-// 优化：采用定长环形缓冲区 (Ring Buffer) 避免切片扩容和截断拷贝带来的 GC 压力
-type LogBuffer struct {
-	mu      sync.RWMutex
-	entries [MaxLogLines]LogEntry // 固定长度数组
-	head    int                   // 下一个插入位置的索引
-	count   int                   // 当前已存储的有效日志总数
+// RingBuffer 线程安全的环形日志缓冲区
+type RingBuffer struct {
+	mu   sync.RWMutex // 🚀 并发安全锁
+	data []LogEntry
+	max  int
 }
 
-var AppLogs = &LogBuffer{
-	// 数组已按定长自动初始化，无需 make
-}
-
-func (b *LogBuffer) Add(entry LogEntry) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	// 插入数据到 head 位置
-	b.entries[b.head] = entry
-	
-	// head 指针循环递增
-	b.head = (b.head + 1) % MaxLogLines
-	
-	// 维护最大条目数
-	if b.count < MaxLogLines {
-		b.count++
+func NewRingBuffer(max int) *RingBuffer {
+	return &RingBuffer{
+		data: make([]LogEntry, 0, max),
+		max:  max,
 	}
 }
 
-func (b *LogBuffer) GetAll() []LogEntry {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+// Add 追加日志（加写锁）
+func (r *RingBuffer) Add(entry LogEntry) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	res := make([]LogEntry, 0, b.count)
-	
-	// 按照时间先后顺序（最旧到最新）提取日志
-	for i := 0; i < b.count; i++ {
-		// 计算实际索引：从最老的数据位置开始
-		idx := (b.head - b.count + i + MaxLogLines) % MaxLogLines
-		res = append(res, b.entries[idx])
+	if len(r.data) >= r.max {
+		// 丢弃最老的一条，追加新数据
+		r.data = append(r.data[1:], entry)
+	} else {
+		r.data = append(r.data, entry)
 	}
-	
-	return res
 }
 
-func (b *LogBuffer) Search(keyword string) []LogEntry {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+// GetAll 获取全部日志（加读锁）
+func (r *RingBuffer) GetAll() []LogEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
-	var res []LogEntry
-	lowerKw := strings.ToLower(keyword)
+	// 🚀 核心修复：必须深拷贝返回。
+	// 如果直接 return r.data，Wails 在序列化为 JSON 时，底层仍在 append，会直接触发 fatal error。
+	result := make([]LogEntry, len(r.data))
+	copy(result, r.data)
+	return result
+}
+
+// Search 供前端搜索日志 (加读锁)
+func (r *RingBuffer) Search(keyword string) []LogEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	
-	// 按时间顺序搜索
-	for i := 0; i < b.count; i++ {
-		idx := (b.head - b.count + i + MaxLogLines) % MaxLogLines
-		entry := b.entries[idx]
-		if strings.Contains(strings.ToLower(entry.Payload), lowerKw) {
-			res = append(res, entry)
+	var result []LogEntry
+	lowerKey := strings.ToLower(keyword)
+	for _, entry := range r.data {
+		if strings.Contains(strings.ToLower(entry.Payload), lowerKey) || 
+		   strings.Contains(strings.ToLower(entry.Type), lowerKey) {
+			result = append(result, entry)
 		}
 	}
-	return res
+	return result
 }
+
+// 全局单例，限制 500 条防止内存溢出
+var AppLogs = NewRingBuffer(500)

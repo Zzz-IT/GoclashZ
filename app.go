@@ -22,6 +22,7 @@ import (
 
 	"github.com/getlantern/systray" // 👈 2. 新增：引入托盘库
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"net/http"
 )
 
 //go:embed build/windows/icon.ico
@@ -601,6 +602,12 @@ func (a *App) cleanLegacyFiles() {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
+	// 🚀 核心修复：静默兜底清理
+	// 专门对付上次应用意外崩溃、蓝屏、被强制结束，导致注册表代理未关闭而断网的极端情况
+	go func() {
+		_ = sys.ClearSystemProxy()
+	}()
+
 	a.cleanLegacyFiles()  // 🚀 新增：静默扫除历史垃圾文件
 	a.initBehaviorCache() // 👈 新增：初始化配置缓存
 
@@ -673,11 +680,14 @@ func (a *App) startDaemonTasks() {
 }
 
 func (a *App) shutdown(ctx context.Context) {
-	// ⚠️ 核心逻辑：退出时强制恢复网络环境
-	fmt.Println("正在关闭 GoclashZ，正在清理网络代理设置...")
+	// 1. 关闭系统代理 (优雅退出，还网于民)
+	_ = sys.ClearSystemProxy()
 
-	_ = a.ToggleSystemProxy(false) // 关闭系统代理
-	_ = a.ToggleTunMode(false)     // 关闭虚拟网卡
+	// 2. 停止内核
+	clash.Stop()
+
+	// 3. 停止流量监控
+	a.StopTrafficStream()
 
 	// 🚀 修复 1：彻底消灭 Wails 重启或退出时留下的“点不动的幽灵图标”
 	systray.Quit()
@@ -2212,4 +2222,54 @@ func (a *App) GetGeoDatabaseInfo() map[string]GeoFileInfo {
 	}
 
 	return results
+}
+
+// getLatestMihomoAssetURL 走 GitHub API 获取最新内核版本与下载直链
+func getLatestMihomoAssetURL(osName, arch, suffix string) (string, string, error) {
+	// ⚡ 使用本地定义的超时 Client，防止 GitHub API 卡死整个应用
+	client := &http.Client{Timeout: 10 * time.Second}
+	
+	url := "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	var release struct {
+		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return "", "", err
+	}
+
+	for _, asset := range release.Assets {
+		name := strings.ToLower(asset.Name)
+		// 匹配逻辑：windows + amd64 + .zip
+		if strings.Contains(name, osName) && strings.Contains(name, arch) && strings.HasSuffix(name, suffix) {
+			return asset.BrowserDownloadURL, release.TagName, nil
+		}
+	}
+
+	return "", "", fmt.Errorf("未找到匹配的资产文件: %s-%s%s", osName, arch, suffix)
+}
+
+// downloadFileWithRetry 带有重试机制的文件下载封装
+func downloadFileWithRetry(destPath, url string) error {
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		// 🚀 调用 downloader.go 中的核心下载逻辑
+		lastErr = DownloadFile(url, destPath)
+		if lastErr == nil {
+			return nil
+		}
+		// 失败后等待 2 秒再重试，给网络恢复留出时间
+		time.Sleep(2 * time.Second)
+	}
+	return fmt.Errorf("三次尝试均失败: %v", lastErr)
 }
