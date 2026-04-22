@@ -282,22 +282,26 @@ func (a *App) mergeOfflineNodes(data map[string]interface{}) {
 	}
 }
 
-// 记录当前选中的配置文件名到本地（修复缓存脱节）
+// saveActiveConfig 记录当前选中的配置文件名到本地
 func (a *App) saveActiveConfig(fileName string) {
-	behavior := a.GetAppBehavior()
-
-	// ⚡ 防抖：如果没变，直接拦截，拒绝多余的写盘
-	if behavior.ActiveConfig == fileName {
+	// 🚀 1. 将读取、判断、修改全部放入锁闭环，杜绝 Read-Modify-Write 竞态漏洞
+	a.behaviorMu.Lock()
+	
+	// ⚡ 防抖：如果没变，直接释放锁并返回
+	if a.behaviorCache.ActiveConfig == fileName {
+		a.behaviorMu.Unlock()
 		return
 	}
-	behavior.ActiveConfig = fileName
-
-	// 🚀 核心修复：必须同时更新内存中的 behaviorCache
-	a.behaviorMu.Lock()
-	a.behaviorCache = behavior
+	
+	a.behaviorCache.ActiveConfig = fileName
+	// 🚀 2. 深拷贝一份结构体用于写盘
+	behaviorToSave := a.behaviorCache
+	
+	// 🚀 3. 立即释放锁，不要让缓慢的磁盘 IO 阻塞其他协程
 	a.behaviorMu.Unlock()
 
-	data, _ := json.MarshalIndent(behavior, "", "  ")
+	// 4. 将安全隔离的数据写入磁盘
+	data, _ := json.MarshalIndent(behaviorToSave, "", "  ")
 	os.WriteFile(a.getAppBehaviorPath(), data, 0644)
 }
 
@@ -306,22 +310,21 @@ func (a *App) loadActiveConfig() string {
 	return a.GetAppBehavior().ActiveConfig
 }
 
-// 记录当前选中的模式到本地（修复缓存脱节）
+// saveActiveMode 记录当前选中的模式到本地
 func (a *App) saveActiveMode(mode string) {
-	behavior := a.GetAppBehavior()
-
-	// ⚡ 防抖：如果没变，直接拦截
-	if behavior.ActiveMode == mode {
+	a.behaviorMu.Lock()
+	
+	if a.behaviorCache.ActiveMode == mode {
+		a.behaviorMu.Unlock()
 		return
 	}
-	behavior.ActiveMode = mode
-
-	// 🚀 核心修复：必须同时更新内存中的 behaviorCache
-	a.behaviorMu.Lock()
-	a.behaviorCache = behavior
+	
+	a.behaviorCache.ActiveMode = mode
+	behaviorToSave := a.behaviorCache
+	
 	a.behaviorMu.Unlock()
 
-	data, _ := json.MarshalIndent(behavior, "", "  ")
+	data, _ := json.MarshalIndent(behaviorToSave, "", "  ")
 	os.WriteFile(a.getAppBehaviorPath(), data, 0644)
 }
 
@@ -415,7 +418,7 @@ func (a *App) ensureCoreRunning() error {
 		a.mu.Lock()
 		if len(a.offlineNodes) > 0 {
 			for g, n := range a.offlineNodes {
-				clash.SwitchProxy(g, n)
+				_ = clash.SelectProxy(g, n)
 			}
 		}
 		a.mu.Unlock()
@@ -897,7 +900,7 @@ func (a *App) SelectProxy(groupName, nodeName string) error {
 		return nil
 	}
 
-	err := clash.SwitchProxy(groupName, nodeName)
+	err := clash.SelectProxy(groupName, nodeName)
 	if err != nil {
 		// 👈 核心修复 2：如果底层抛出拒绝连接的错误(假在线)，直接忽略它
 		// 这样前端就不会弹报错，等到真在线时，确保机制会自动应用离线选择

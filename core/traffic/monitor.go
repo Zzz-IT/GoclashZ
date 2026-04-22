@@ -37,6 +37,11 @@ type ConnectionVO struct {
 	DurationStr string `json:"durationStr"`
 }
 
+// 🚀 核心修复：创建独立的全局流量长连接客户端
+var trafficStreamClient = &http.Client{
+	Transport: &http.Transport{Proxy: nil}, 
+}
+
 // StreamTraffic 建立一个长连接并持续监听内核推送的流量数据
 func StreamTraffic(ctx context.Context, callback func(up, down string)) {
 	req, err := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:9090/traffic", nil)
@@ -44,12 +49,8 @@ func StreamTraffic(ctx context.Context, callback func(up, down string)) {
 		return
 	}
 
-	// 流式接口不能有 Timeout，且需禁用代理
-	client := &http.Client{
-		Transport: &http.Transport{Proxy: nil},
-	}
-
-	resp, err := client.Do(req)
+	// 👇 核心修复：复用客户端
+	resp, err := trafficStreamClient.Do(req)
 	if err != nil {
 		return
 	}
@@ -57,17 +58,22 @@ func StreamTraffic(ctx context.Context, callback func(up, down string)) {
 
 	decoder := json.NewDecoder(resp.Body)
 	for {
-		var data struct {
-			Up   int64 `json:"up"`
-			Down int64 `json:"down"`
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			var data struct {
+				Up   float64 `json:"up"`
+				Down float64 `json:"down"`
+			}
+			
+			// Decode 会阻塞直到接收到下一个 JSON 推送块
+			if err := decoder.Decode(&data); err != nil {
+				return
+			}
+			
+			callback(formatBytes(int64(data.Up)), formatBytes(int64(data.Down)))
 		}
-		
-		// Decode 会阻塞直到接收到下一个 JSON 推送块，如果内核关闭流则返回 err
-		if err := decoder.Decode(&data); err != nil {
-			break 
-		}
-		
-		callback(formatBytes(data.Up), formatBytes(data.Down))
 	}
 }
 

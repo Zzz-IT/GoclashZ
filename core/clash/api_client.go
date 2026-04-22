@@ -1,7 +1,6 @@
 package clash
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,41 +10,59 @@ import (
 	"time"
 )
 
-// 关键修复：创建一个全局的、强制不走系统代理的 HTTP 客户端
-var localAPIClient = &http.Client{
-	Transport: &http.Transport{
-		Proxy: nil, // 强制禁用代理，防止本地 9090 请求被 7890 系统代理劫持
-	},
-	Timeout: 2 * time.Second, // 🚀 强制设定超时！如果内核装死，2秒后直接报错，绝不永久阻塞！
+// 🚀 1. 定义全局共享的无代理 Transport，完美复用 TCP 底层连接
+var noProxyTransport = &http.Transport{
+	Proxy:               nil,
+	MaxIdleConns:        100,              // 最大空闲连接数
+	IdleConnTimeout:     90 * time.Second, // 空闲超时时间
+	TLSHandshakeTimeout: 10 * time.Second,
 }
 
-// FetchLogs 从内核获取实时日志流并执行回调
+// 🚀 2. 声明各场景的全局单例 Client
+var localAPIClient = &http.Client{
+	Transport: noProxyTransport,
+	Timeout:   2 * time.Second,
+}
+
+var speedTestClient = &http.Client{
+	Transport: noProxyTransport,
+	Timeout:   6 * time.Second, // 测速专用超时
+}
+
+var streamClient = &http.Client{
+	Transport: noProxyTransport, // 日志流/长连接专用，无超时
+}
+
+// FetchLogs 获取实时日志流并执行回调
 func FetchLogs(ctx context.Context, onLog func(data interface{})) {
 	req, err := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:9090/logs", nil)
 	if err != nil {
 		return
 	}
 
-	// 单独的 client 也需要禁用代理，并且不要设置超时以保持长连接
-	client := &http.Client{
-		Transport: &http.Transport{Proxy: nil}, 
-	}
-	resp, err := client.Do(req)
+	// 👇 核心修复：直接使用全局长连接客户端，绝不动态创建
+	resp, err := streamClient.Do(req)
 	if err != nil {
 		return
 	}
 	defer resp.Body.Close()
 
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		var logData interface{}
-		if err := json.Unmarshal(scanner.Bytes(), &logData); err == nil {
+	decoder := json.NewDecoder(resp.Body)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			var logData map[string]interface{}
+			if err := decoder.Decode(&logData); err != nil {
+				return
+			}
 			onLog(logData)
 		}
 	}
 }
 
-// GetProxyDelay 调用内核 API 测试真实延迟
+// GetProxyDelay 调用内核 API 测试节点延迟
 func GetProxyDelay(proxyName string) (int, error) {
 	encodedName := url.PathEscape(proxyName)
 	testUrl := "http://www.gstatic.com/generate_204"
@@ -54,39 +71,32 @@ func GetProxyDelay(proxyName string) (int, error) {
 	apiURL := fmt.Sprintf("http://127.0.0.1:9090/proxies/%s/delay?timeout=%d&url=%s",
 		encodedName, timeout, url.QueryEscape(testUrl))
 
-	// 测速 client 必须禁用代理
-	client := &http.Client{
-		Transport: &http.Transport{Proxy: nil},
-		Timeout:   6 * time.Second,
-	}
-
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return -1, err
 	}
 
-	resp, err := client.Do(req)
+	// 👇 核心修复：使用全局测速客户端，消除批量测速引发的 Goroutine 风暴
+	resp, err := speedTestClient.Do(req)
 	if err != nil {
 		return -1, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return -1, fmt.Errorf("测速请求失败，状态码: %d", resp.StatusCode)
+		return -1, fmt.Errorf("http error: %d", resp.StatusCode)
 	}
 
-	var result struct {
-		Delay int `json:"delay"`
-	}
+	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return -1, err
 	}
 
-	if result.Delay == 0 {
-		return -1, nil
+	if delay, ok := result["delay"].(float64); ok {
+		return int(delay), nil
 	}
 
-	return result.Delay, nil
+	return -1, fmt.Errorf("invalid delay format")
 }
 
 // GetInitialData 获取模式和代理组信息
@@ -98,83 +108,67 @@ func GetInitialData() (map[string]interface{}, error) {
 	}
 	defer respConfig.Body.Close()
 
-	var config map[string]interface{}
-	if err := json.NewDecoder(respConfig.Body).Decode(&config); err != nil {
+	var configData map[string]interface{}
+	if err := json.NewDecoder(respConfig.Body).Decode(&configData); err != nil {
 		return nil, err
 	}
 
-	// 使用 localAPIClient 替换 http.Get
 	respProxies, err := localAPIClient.Get("http://127.0.0.1:9090/proxies")
 	if err != nil {
 		return nil, err
 	}
 	defer respProxies.Body.Close()
 
-	var proxies map[string]interface{}
-	if err := json.NewDecoder(respProxies.Body).Decode(&proxies); err != nil {
+	var proxiesData map[string]interface{}
+	if err := json.NewDecoder(respProxies.Body).Decode(&proxiesData); err != nil {
 		return nil, err
 	}
 
 	return map[string]interface{}{
-		"mode":   config["mode"],
-		"groups": proxies["proxies"],
+		"mode":   configData["mode"],
+		"groups": proxiesData["proxies"],
 	}, nil
 }
 
-// UpdateMode 切换 Clash 路由模式 (rule, global, direct)
+// UpdateMode 切换代理模式
 func UpdateMode(mode string) error {
-	body := map[string]string{"mode": mode}
-	jsonBody, _ := json.Marshal(body)
-
-	req, err := http.NewRequest(http.MethodPatch, "http://127.0.0.1:9090/configs", bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequest("PATCH", "http://127.0.0.1:9090/configs", bytes.NewBuffer([]byte(`{"mode":"`+mode+`"}`)))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	// 使用 localAPIClient
+	
 	resp, err := localAPIClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("内核返回异常状态码: %d", resp.StatusCode)
-	}
-
 	return nil
 }
 
-// SwitchProxy 切换特定策略组的节点
-func SwitchProxy(groupName, nodeName string) error {
-	body := map[string]string{"name": nodeName}
+// SelectProxy 切换代理节点
+func SelectProxy(groupName, proxyName string) error {
+	encodedGroup := url.PathEscape(groupName)
+	body := map[string]string{"name": proxyName}
 	jsonBody, _ := json.Marshal(body)
 
-	apiURL := fmt.Sprintf("http://127.0.0.1:9090/proxies/%s", url.PathEscape(groupName))
-
-	req, err := http.NewRequest(http.MethodPut, apiURL, bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequest("PUT", "http://127.0.0.1:9090/proxies/"+encodedGroup, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// 使用 localAPIClient
 	resp, err := localAPIClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("内核切换节点失败: %d", resp.StatusCode)
-	}
-
 	return nil
 }
 
-// GetConnections 获取当前所有活跃连接
-// GetConnectionsRaw 获取内核当前的实时连接原始字节流 (优化性能用)
+
+
+// GetConnectionsRaw 获取实时连接原始数据
 func GetConnectionsRaw() ([]byte, error) {
 	resp, err := localAPIClient.Get("http://127.0.0.1:9090/connections")
 	if err != nil {
@@ -193,7 +187,6 @@ func CloseConnection(id string) error {
 	if err != nil {
 		return err
 	}
-	// 使用 localAPIClient
 	resp, err := localAPIClient.Do(req)
 	if err != nil {
 		return err
@@ -208,7 +201,6 @@ func CloseAllConnections() error {
 	if err != nil {
 		return err
 	}
-	// 使用 localAPIClient
 	resp, err := localAPIClient.Do(req)
 	if err != nil {
 		return err
@@ -216,6 +208,7 @@ func CloseAllConnections() error {
 	defer resp.Body.Close()
 	return nil
 }
+
 // GetVersion 获取内核版本号
 func GetVersion() string {
 	resp, err := localAPIClient.Get("http://127.0.0.1:9090/version")
