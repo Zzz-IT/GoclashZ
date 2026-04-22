@@ -216,3 +216,17 @@ func CloseAllConnections() error {
 	defer resp.Body.Close()
 	return nil
 }
+// GetVersion 获取内核版本号
+func GetVersion() string {
+	resp, err := localAPIClient.Get("http://127.0.0.1:9090/version")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	var data map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return ""
+	}
+	return data["version"]
+}

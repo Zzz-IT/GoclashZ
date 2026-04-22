@@ -55,6 +55,9 @@ type App struct {
 
 	// 👇 新增：内核启停锁，防止并发操作导致端口抢占
 	coreLifecycleMu sync.Mutex
+
+	// 🚀 新增：主题缓存，终结高频 I/O
+	themeCache string
 }
 
 // AppBehavior 定义应用行为设置
@@ -238,10 +241,7 @@ func (a *App) SaveConfigsOrder(order []string) error {
 }
 
 // ProxyStatus 新增给前端返回的双重状态结构
-type ProxyStatus struct {
-	SystemProxy bool `json:"systemProxy"`
-	Tun         bool `json:"tun"`
-}
+
 
 // AppState 定义全局状态同步结构
 type AppState struct {
@@ -281,12 +281,21 @@ func (a *App) mergeOfflineNodes(data map[string]interface{}) {
 	}
 }
 
-// 1. 在 app.go 任意位置新增一个获取程序真实绝对路径的辅助方法
-
-// 记录当前选中的配置文件名到本地
+// 记录当前选中的配置文件名到本地（修复缓存脱节）
 func (a *App) saveActiveConfig(fileName string) {
 	behavior := a.GetAppBehavior()
+
+	// ⚡ 防抖：如果没变，直接拦截，拒绝多余的写盘
+	if behavior.ActiveConfig == fileName {
+		return
+	}
 	behavior.ActiveConfig = fileName
+
+	// 🚀 核心修复：必须同时更新内存中的 behaviorCache
+	a.behaviorMu.Lock()
+	a.behaviorCache = behavior
+	a.behaviorMu.Unlock()
+
 	data, _ := json.MarshalIndent(behavior, "", "  ")
 	os.WriteFile(a.getAppBehaviorPath(), data, 0644)
 }
@@ -296,10 +305,21 @@ func (a *App) loadActiveConfig() string {
 	return a.GetAppBehavior().ActiveConfig
 }
 
-// 记录当前选中的模式到本地
+// 记录当前选中的模式到本地（修复缓存脱节）
 func (a *App) saveActiveMode(mode string) {
 	behavior := a.GetAppBehavior()
+
+	// ⚡ 防抖：如果没变，直接拦截
+	if behavior.ActiveMode == mode {
+		return
+	}
 	behavior.ActiveMode = mode
+
+	// 🚀 核心修复：必须同时更新内存中的 behaviorCache
+	a.behaviorMu.Lock()
+	a.behaviorCache = behavior
+	a.behaviorMu.Unlock()
+
 	data, _ := json.MarshalIndent(behavior, "", "  ")
 	os.WriteFile(a.getAppBehaviorPath(), data, 0644)
 }
@@ -438,19 +458,7 @@ func (a *App) stopCoreService() {
 // --- 暴露给前端的 API ---
 // ==========================================
 
-// GetProxyStatus 获取当前双轨状态
-func (a *App) GetProxyStatus() ProxyStatus {
-	a.mu.RLock()
-	sysProxy := a.sysProxyActive
-	// ✅ 优化：不再调用 clash.GetTunConfig() 去读文件，直接读取内存中的 tunActive 状态
-	realTun := a.tunActive && clash.IsRunning()
-	a.mu.RUnlock()
 
-	return ProxyStatus{
-		SystemProxy: sysProxy,
-		Tun:         realTun,
-	}
-}
 
 // ToggleSystemProxy 开关 1：系统代理
 func (a *App) ToggleSystemProxy(enable bool) error {
@@ -583,9 +591,26 @@ func NewApp() *App {
 	return app
 }
 
+// 清理早期版本遗留的废弃配置文件
+func (a *App) cleanLegacyFiles() {
+	binDir := utils.GetCoreBinDir()
+	_ = os.Remove(filepath.Join(binDir, "active_config.txt"))
+	_ = os.Remove(filepath.Join(binDir, "active_mode.txt"))
+}
+
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	a.cleanLegacyFiles()  // 🚀 新增：静默扫除历史垃圾文件
 	a.initBehaviorCache() // 👈 新增：初始化配置缓存
+
+	// 🚀 初始化主题缓存
+	themeData, err := os.ReadFile(getThemeConfigPath())
+	if err == nil && len(themeData) > 0 {
+		a.themeCache = strings.TrimSpace(string(themeData))
+	} else {
+		a.themeCache = "light" // 兜底默认值
+	}
 
 	// 读取行为配置
 	config := a.GetAppBehavior()
@@ -690,10 +715,6 @@ func (a *App) StopProxy() error {
 	a.SyncState() // 👈 关键：同步状态
 	return nil
 }
-
-// 注意：此方法名与新 GetProxyStatus 冲突，我已在上方实现了返回 ProxyStatus 结构体的新方法。
-// 为了兼容 App.vue 的布尔值判断，我们保留一个简单的 IsCoreRunning 逻辑或者让前端适配。
-// 这里我们将旧的 GetProxyStatus 逻辑合并到 New API 中。
 
 // --- 配置与测速 ---
 
@@ -1064,7 +1085,96 @@ func (a *App) FixUWPNetwork() error {
 	return sys.ExemptAllUWP()
 }
 
-// 在 app.go 底部添加以下方法
+// SaveThemePreference 供前端调用，保存主题模式
+func (a *App) SaveThemePreference(isDark bool) {
+	theme := "light"
+	if isDark {
+		theme = "dark"
+	}
+
+	a.mu.Lock()
+	if a.themeCache == theme {
+		a.mu.Unlock()
+		return // 状态一致，防抖拦截
+	}
+	a.themeCache = theme
+	a.mu.Unlock()
+
+	// 🚀 异步写盘，绝不阻塞 UI 和后续代码
+	go os.WriteFile(getThemeConfigPath(), []byte(theme), 0644)
+
+	// 触发全局同步
+	a.SyncState()
+}
+
+// SyncState 统一推送当前应用状态给前端
+func (a *App) SyncState() {
+	behavior := a.GetAppBehavior()
+
+	// 🚀 核心修复：从内存缓存直接提取所有状态，移除一切 os.ReadFile
+	a.mu.RLock()
+	sysProxy := a.sysProxyActive
+	tunActive := a.tunActive
+	theme := a.themeCache
+	a.mu.RUnlock()
+
+	if theme == "" {
+		theme = "light"
+	}
+
+	// 统一组装当前真实状态
+	state := AppState{
+		IsRunning:   clash.IsRunning(),
+		Mode:        a.getActiveMode(), // 这个方法内部自带了安全锁，没问题
+		Theme:       theme,
+		HideLogs:    behavior.HideLogs,
+		SystemProxy: sysProxy,
+		Tun:         tunActive,
+		Version:     a.GetCoreVersion(),
+	}
+
+	// 推送给前端（唯一通道）
+	runtime.EventsEmit(a.ctx, "app-state-sync", state)
+
+	// 👇 追加：同步更新系统托盘的 UI 勾选状态
+	if a.mSysProxy != nil {
+		if sysProxy {
+			a.mSysProxy.Check()
+		} else {
+			a.mSysProxy.Uncheck()
+		}
+	}
+	if a.mTun != nil {
+		if tunActive {
+			a.mTun.Check()
+		} else {
+			a.mTun.Uncheck()
+		}
+	}
+
+	// 👇 新增：同步出站路由的托盘单选状态
+	if a.mModeRule != nil {
+		// 先全部取消勾选
+		a.mModeRule.Uncheck()
+		a.mModeGlobal.Uncheck()
+		a.mModeDirect.Uncheck()
+
+		// 再根据当前真实状态单独勾选
+		switch state.Mode {
+		case "rule":
+			a.mModeRule.Check()
+		case "global":
+			a.mModeGlobal.Check()
+		case "direct":
+			a.mModeDirect.Check()
+		}
+	}
+}
+
+// GetCoreVersion 占位，返回内核版本
+func (a *App) GetCoreVersion() string {
+	return clash.GetVersion()
+}
 
 func (a *App) GetTunConfig() (*clash.TunConfig, error) {
 	return clash.GetTunConfig()
@@ -1557,99 +1667,33 @@ func getThemeConfigPath() string {
 	return filepath.Join(utils.GetDataDir(), "theme_setting.txt")
 }
 
-// SaveThemePreference 供前端调用，保存主题模式
-func (a *App) SaveThemePreference(isDark bool) {
-	theme := "light"
-	if isDark {
-		theme = "dark"
-	}
-	_ = os.WriteFile(getThemeConfigPath(), []byte(theme), 0644)
-	// 触发全局同步
-	a.SyncState()
-}
+
 
 // GetAppState 供前端初始化时主动拉取应用状态
 func (a *App) GetAppState() AppState {
 	behavior := a.GetAppBehavior()
-	theme := "light"
-	data, err := os.ReadFile(getThemeConfigPath())
-	if err == nil {
-		theme = strings.TrimSpace(string(data))
+	a.mu.RLock()
+	sysProxy := a.sysProxyActive
+	tunActive := a.tunActive
+	theme := a.themeCache
+	a.mu.RUnlock()
+
+	if theme == "" {
+		theme = "light"
 	}
+
 	return AppState{
 		IsRunning:   clash.IsRunning(),
 		Mode:        a.getActiveMode(),
 		Theme:       theme,
 		HideLogs:    behavior.HideLogs,
-		SystemProxy: a.sysProxyActive,   // 👈 真实系统代理状态
-		Tun:         a.tunActive,        // 👈 真实虚拟网卡状态
-		Version:     a.GetCoreVersion(), // 👈 当前内核版本
-	}
-}
-
-// SyncState 统一推送当前应用状态给前端
-func (a *App) SyncState() {
-	behavior := a.GetAppBehavior()
-	theme := "light"
-	data, err := os.ReadFile(getThemeConfigPath())
-	if err == nil {
-		theme = strings.TrimSpace(string(data))
-	}
-
-	// 🚀 修复 1：必须加锁读取并发敏感的布尔值
-	a.mu.RLock()
-	sysProxy := a.sysProxyActive
-	tunActive := a.tunActive
-	a.mu.RUnlock()
-
-	// 统一组装当前真实状态
-	state := AppState{
-		IsRunning:   clash.IsRunning(),
-		Mode:        a.getActiveMode(), // 这个方法内部自带了安全锁，没问题
-		Theme:       theme,
-		HideLogs:    behavior.HideLogs,
-		SystemProxy: sysProxy,           // 使用安全读取的变量
-		Tun:         tunActive,          // 使用安全读取的变量
+		SystemProxy: sysProxy,
+		Tun:         tunActive,
 		Version:     a.GetCoreVersion(),
 	}
-
-	// 推送给前端（唯一通道）
-	runtime.EventsEmit(a.ctx, "app-state-sync", state)
-
-	// 👇 追加：同步更新系统托盘的 UI 勾选状态
-	if a.mSysProxy != nil {
-		if sysProxy {
-			a.mSysProxy.Check()
-		} else {
-			a.mSysProxy.Uncheck()
-		}
-	}
-	if a.mTun != nil {
-		if tunActive {
-			a.mTun.Check()
-		} else {
-			a.mTun.Uncheck()
-		}
-	}
-
-	// 👇 新增：同步出站路由的托盘单选状态
-	if a.mModeRule != nil {
-		// 先全部取消勾选
-		a.mModeRule.Uncheck()
-		a.mModeGlobal.Uncheck()
-		a.mModeDirect.Uncheck()
-
-		// 再根据当前真实状态单独勾选
-		switch state.Mode {
-		case "rule":
-			a.mModeRule.Check()
-		case "global":
-			a.mModeGlobal.Check()
-		case "direct":
-			a.mModeDirect.Check()
-		}
-	}
 }
+
+
 
 // ==========================================
 // --- 系统托盘功能 (新增) ---
@@ -1797,16 +1841,7 @@ func (a *App) CheckComponentUpdate() map[string]string {
 	}
 }
 
-// GetCoreVersion 供前端获取当前本地的内核版本
-func (a *App) GetCoreVersion() string {
-	binDir := utils.GetCoreBinDir()
-	exePath := filepath.Join(binDir, "clash.exe")
-	v := getLocalCoreVersion(exePath)
-	if v == "" {
-		return "未知"
-	}
-	return v
-}
+
 
 // GetWintunVersion 供前端获取当前 Wintun 驱动的版本
 func (a *App) GetWintunVersion() string {

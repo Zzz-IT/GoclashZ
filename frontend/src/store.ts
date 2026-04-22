@@ -90,9 +90,18 @@ export function showConfirm(message: string, title: string = '操作确认', isD
   });
 }
 
-export function initStore() {
-  // 保持事件监听，但不再处理主题 DOM，统一交给 App.vue 的 watch 处理
+export async function initStore() {
+  // 1. 初始化时进行一次真理同步，获取后端当前所有真实状态
+  try {
+    const { GetAppState } = await import('../wailsjs/go/main/App');
+    const initialState = await GetAppState();
+    updateStateFromBackend(initialState);
+  } catch (err) {
+    console.error("初始化应用状态失败:", err);
+  }
+
+  // 2. 保持事件监听，响应来自 Go (托盘或后台) 的实时更新
   EventsOn("app-state-sync", (newState: any) => {
-    updateStateFromBackend(newState); // 👈 使用清洗逻辑
+    updateStateFromBackend(newState); 
   });
 }

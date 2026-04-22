@@ -279,20 +279,6 @@ export namespace main {
 		    return a;
 		}
 	}
-	export class ProxyStatus {
-	    systemProxy: boolean;
-	    tun: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ProxyStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.systemProxy = source["systemProxy"];
-	        this.tun = source["tun"];
-	    }
-	}
 
 }
 

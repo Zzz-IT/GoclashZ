@@ -659,7 +659,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { showAlert } from '../store';
+import { showAlert, globalState } from '../store';
 import { ICONS } from '../utils/icons';
 import ModernSelect from './ModernSelect.vue';
 import ModernNumberInput from './ModernNumberInput.vue';
@@ -870,10 +870,8 @@ const loadData = async () => {
     const tunConf = await API.GetTunConfig();
     if (tunConf) tunConfig.value = tunConf;
 
-    const realStatus: any = await API.GetProxyStatus();
-    if (realStatus) {
-      tunConfig.value.enable = realStatus.tun;
-    }
+    // 🚀 核心优化：直接信任全局状态，不再发起冗余的 GetProxyStatus 请求
+    tunConfig.value.enable = globalState.tun;
 
     const dnsConf = await (API.GetDNSConfig as any)();
     if (dnsConf) dnsConfig.value = dnsConf;
@@ -911,8 +909,8 @@ const handleTunToggle = async (e: Event) => {
     await saveTun();
 
     // 同步刷新全局状态
-    const newStatus = await API.GetProxyStatus();
-    window.dispatchEvent(new CustomEvent('proxy-status-sync', { detail: newStatus }));
+    // 🚀 核心优化：后端 Toggle 函数已自带 SyncState 推送，前端无需再次拉取
+    // 状态会自动通过 store.ts 中的 EventsOn 流入 globalState
   } catch (err) {
     // 3. 核心修复：发生错误时回滚 UI 状态
     tunConfig.value.enable = originalValue; 

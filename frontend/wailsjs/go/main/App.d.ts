@@ -47,8 +47,6 @@ export function GetLocalConfigs():Promise<Array<string>>;
 
 export function GetNetworkConfig():Promise<clash.NetworkConfig>;
 
-export function GetProxyStatus():Promise<main.ProxyStatus>;
-
 export function GetRecentLogs():Promise<Array<logger.LogEntry>>;
 
 export function GetRules():Promise<clash.RuleInfo>;

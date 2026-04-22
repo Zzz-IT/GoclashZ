@@ -86,10 +86,6 @@ export function GetNetworkConfig() {
   return window['go']['main']['App']['GetNetworkConfig']();
 }
 
-export function GetProxyStatus() {
-  return window['go']['main']['App']['GetProxyStatus']();
-}
-
 export function GetRecentLogs() {
   return window['go']['main']['App']['GetRecentLogs']();
 }
