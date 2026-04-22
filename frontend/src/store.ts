@@ -37,6 +37,10 @@ function updateStateFromBackend(rawData: any) {
   if (rawData.isRunning !== undefined) globalState.isRunning = rawData.isRunning;
   else if (rawData.IsRunning !== undefined) globalState.isRunning = rawData.IsRunning;
 
+  // 🚀 核心修复：增加对 mode (路由模式) 的实时接收，打通从托盘到 UI 的数据流
+  if (rawData.mode !== undefined) globalState.mode = rawData.mode;
+  else if (rawData.Mode !== undefined) globalState.mode = rawData.Mode;
+
   const newTheme = rawData.theme ?? rawData.Theme;
   if (newTheme !== undefined) {
     globalState.theme = newTheme;

@@ -803,42 +803,45 @@ func (a *App) TestAllProxies(nodeNames []string) {
 	}()
 }
 
+// UpdateClashMode 切换 Clash 路由模式并全自动同步 UI
 func (a *App) UpdateClashMode(mode string) error {
 	a.mu.Lock()
-	// 🚀 修复 2.1：防抖拦截。如果目标模式和当前模式一样，直接拦截，防止频繁写盘和发请求
+	// ⚡ 防抖机制：如果意图切换的模式与当前一致，直接拦截，拒绝冗余通信
 	if a.activeMode == mode {
 		a.mu.Unlock()
 		return nil
 	}
+	// 1. 修改内存的绝对真实状态
 	a.activeMode = mode
 	isRunning := clash.IsRunning()
 	a.mu.Unlock()
 
-	// 🚀 修复 2.2：立即推送最新状态给前端和托盘，实现“即点即亮”，彻底消灭卡顿感
+	// 2. 🚀 关键：立刻推送状态！
+	// 此时底层网络还没切过去，但内存已经变了。我们先让前端和托盘瞬间打上勾，消除用户的 UI 延迟感。
 	a.SyncState()
 
-	// 🚀 修复 2.3：将耗时的 I/O 操作放入独立的后台协程，绝不阻塞 Wails 主线程
-	go func() {
+	// 3. 将耗时的磁盘 IO 和 HTTP 通信放入独立协程
+	go func(targetMode string, coreRunning bool) {
 		// 写磁盘保存记忆
-		a.saveActiveMode(mode)
+		a.saveActiveMode(targetMode)
 
-		if isRunning {
-			// 通知底层内核切换
-			err := clash.UpdateMode(mode)
+		// 通知内核切换
+		if coreRunning {
+			err := clash.UpdateMode(targetMode)
 			if err != nil {
-				fmt.Printf("内核模式切换警告 (可能内核假死): %v\n", err)
+				fmt.Printf("警告: 内核模式切换失败 (可能内核已断开): %v\n", err)
 			}
 		} else {
-			// 如果内核没运行，只重写配置文件
+			// 内核未运行时，只去修改底层的 Yaml 预备配置
 			activeCfg := a.getActiveConfig()
 			if activeCfg != "" {
-				clash.BuildRuntimeConfig(activeCfg, mode)
+				clash.BuildRuntimeConfig(activeCfg, targetMode)
 			}
 		}
 		
-		// 无论底层成功与否，后台任务执行完后做最后一次状态对齐
+		// 最后做一次对齐
 		a.SyncState()
-	}()
+	}(mode, isRunning)
 
 	return nil
 }

@@ -29,10 +29,10 @@
             
             <div class="conn-body">
               <div class="tags">
-                <span :class="['tag', isDirect(conn) ? 'tag-direct' : 'tag-proxy']">
+                <span v-if="getProxyName(conn)" :class="['tag', isDirect(conn) ? 'tag-direct' : 'tag-proxy']">
                   {{ getProxyName(conn) }}
                 </span>
-                <span class="tag tag-rule">{{ conn.rule }}</span>
+                <span v-if="conn.rule" class="tag tag-rule">{{ conn.rule }}</span>
               </div>
             </div>
             
