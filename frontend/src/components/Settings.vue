@@ -1,140 +1,643 @@
 <template>
   <div class="settings-container">
 
-    <div v-if="view === 'main'" class="settings-page">
-      <div class="glass-card setting-group">
-        <h3>网络设置</h3>
+    <Transition name="slide-fade" mode="out-in">
+      <div :key="view" class="settings-view-wrapper">
 
-        <div class="setting-item clickable" @click="view = 'network'">
-          <div class="info">
-            <h4>基础网络设置</h4>
-            <p>配置内核底层的 TCP 并发、超时以及连接测速逻辑。</p>
-          </div>
-          <span class="arrow">➔</span>
-        </div>
+        <div v-if="view === 'main'" class="settings-page">
+          <div class="glass-card setting-group">
+            <h3>网络设置</h3>
 
-        <div class="setting-item clickable" @click="view = 'dns'">
-          <div class="info">
-            <h4>DNS 服务器配置</h4>
-            <p>管理防污染解析、Fake-IP 策略以及分流专用的 DNS 群组。</p>
-          </div>
-          <span class="arrow">➔</span>
-        </div>
-
-        <div class="setting-item clickable" @click="view = 'tun'">
-          <div class="info">
-            <h4>虚拟网卡设置 (TUN 模式)</h4>
-            <p>管理 Wintun 驱动并开启全局透明代理，接管所有软件流量。</p>
-          </div>
-          <span class="arrow">➔</span>
-        </div>
-      </div>
-
-      <div class="glass-card setting-group">
-        <h3>应用设置</h3>
-
-        <div class="setting-item clickable" @click="view = 'behavior'">
-          <div class="info">
-            <h4>应用行为设置</h4>
-            <p>定制软件启动模式、托盘图标逻辑及订阅请求 User-Agent。</p>
-          </div>
-          <span class="arrow">➔</span>
-        </div>
-
-        <div class="setting-item clickable" @click="enterUwpManager">
-          <div class="info">
-            <h4>UWP 环回免除工具</h4>
-            <p>赋予 Windows UWP 应用（如微软商店、邮件）访问本地代理的权限。</p>
-          </div>
-          <span class="arrow">➔</span>
-        </div>
-
-        <div class="setting-item clickable" @click="view = 'update'">
-          <div class="info">
-            <h4>组件与库更新</h4>
-            <p>检查并更新 Mihomo 内核二进制文件及 Wintun 驱动组件。</p>
-          </div>
-          <span class="arrow">➔</span>
-        </div>
-      </div>
-    </div>
-
-    <div v-else-if="view === 'update'" class="settings-page">
-      <div class="sub-header">
-        <button class="back-btn" @click="view = 'main'">
-          <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>
-        </button>
-        <h3>组件与库更新</h3>
-      </div>
-
-      <div class="glass-card setting-group scrollable">
-        <div class="setting-item col-item" style="padding-bottom: 0; align-items: flex-start;">
-          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">内核与驱动</h3>
-        </div>
-        <div class="divider" style="margin-top: 10px;"></div>
-
-        <div class="setting-item">
-          <div class="info">
-            <h4>Mihomo 内核 <span style="color: var(--accent); margin-left: 8px; font-style: italic; font-size: 0.8rem; font-weight: normal;">(更新会短暂断开代理)</span></h4>
-            <p>当前版本: {{ coreVersion }}</p>
-          </div>
-          <button class="action-btn" @click="handleUpdateCore" :disabled="updatingCore">
-            {{ updatingCore ? '正在处理...' : '检查更新' }}
-          </button>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info">
-            <h4>Wintun 驱动 (DLL)</h4>
-            <p>当前版本: {{ wintunVersion || '获取中...' }}</p>
-          </div>
-          <div class="btn-group">
-            <button class="action-btn" @click="installDriver(true)" :disabled="isInstalling">
-              {{ isReinstallingDriver ? '处理中...' : '重新安装' }}
-            </button>
-            <button class="action-btn" @click="installDriver(false)" :disabled="isInstalling">
-              {{ isCheckingUpdate ? '处理中...' : '检查更新' }}
-            </button>
-          </div>
-        </div>
-        
-        <div class="divider"></div>
-
-        <div class="setting-item col-item" style="flex-direction: row; justify-content: space-between; align-items: center; padding-bottom: 0; margin-top: 10px;">
-          <div class="info">
-             <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">路由规则数据库</h3>
-          </div>
-          <button class="action-btn primary-btn accent-btn" @click="handleUpdateAllDbs" :disabled="isUpdatingAnyDb">
-            {{ updatingAllDbs ? '并发处理中...' : '一键更新全部' }}
-          </button>
-        </div>
-        <div class="divider" style="margin-top: 14px;"></div>
-
-        <template v-for="(db, idx) in dbList" :key="db.key">
-          <div class="setting-item">
-            <div class="info" style="overflow: hidden;">
-              <h4>{{ db.title }} 文件</h4>
-              <p class="link-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                {{ behavior[db.behaviorKey] || '未配置下载链接' }}
-              </p>
-              <p v-if="dbFileInfo[db.key]?.exists" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">
-                大小: {{ formatSize(dbFileInfo[db.key].size) }} | 更新于: {{ formatRelativeTime(dbFileInfo[db.key].modTime) }}
-              </p>
-              <p v-else style="font-size: 0.75rem; color: var(--red-text); margin-top: 2px;">文件不存在，请点击更新同步</p>
+            <div class="setting-item clickable" @click="view = 'network'">
+              <div class="info">
+                <h4>基础网络设置</h4>
+                <p>配置内核底层的 TCP 并发、超时以及连接测速逻辑。</p>
+              </div>
+              <span class="arrow">➔</span>
             </div>
-            <div class="btn-group" style="flex-shrink: 0;">
-              <button class="action-btn" @click="openDbEditModal(db.key, behavior[db.behaviorKey])" :disabled="isUpdatingAnyDb">编辑链接</button>
-              <button class="action-btn" @click="handleUpdateDb(db.key)" :disabled="isUpdatingAnyDb">
-                 {{ updatingDbs[db.key] ? '同步中...' : '更新同步' }}
+
+            <div class="setting-item clickable" @click="view = 'dns'">
+              <div class="info">
+                <h4>DNS 服务器配置</h4>
+                <p>管理防污染解析、Fake-IP 策略以及分流专用的 DNS 群组。</p>
+              </div>
+              <span class="arrow">➔</span>
+            </div>
+
+            <div class="setting-item clickable" @click="view = 'tun'">
+              <div class="info">
+                <h4>虚拟网卡设置 (TUN 模式)</h4>
+                <p>管理 Wintun 驱动并开启全局透明代理，接管所有软件流量。</p>
+              </div>
+              <span class="arrow">➔</span>
+            </div>
+          </div>
+
+          <div class="glass-card setting-group">
+            <h3>应用设置</h3>
+
+            <div class="setting-item clickable" @click="view = 'behavior'">
+              <div class="info">
+                <h4>应用行为设置</h4>
+                <p>定制软件启动模式、托盘图标逻辑及订阅请求 User-Agent。</p>
+              </div>
+              <span class="arrow">➔</span>
+            </div>
+
+            <div class="setting-item clickable" @click="enterUwpManager">
+              <div class="info">
+                <h4>UWP 环回免除工具</h4>
+                <p>赋予 Windows UWP 应用（如微软商店、邮件）访问本地代理的权限。</p>
+              </div>
+              <span class="arrow">➔</span>
+            </div>
+
+            <div class="setting-item clickable" @click="view = 'update'">
+              <div class="info">
+                <h4>组件与库更新</h4>
+                <p>检查并更新 Mihomo 内核二进制文件及 Wintun 驱动组件。</p>
+              </div>
+              <span class="arrow">➔</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-else-if="view === 'update'" class="settings-page">
+          <div class="sub-header">
+            <button class="back-btn" @click="view = 'main'">
+              <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>
+            </button>
+            <h3>组件与库更新</h3>
+          </div>
+
+          <div class="glass-card setting-group scrollable">
+            <div class="setting-item col-item" style="padding-bottom: 0; align-items: flex-start;">
+              <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">内核与驱动</h3>
+            </div>
+            <div class="divider" style="margin-top: 10px;"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>Mihomo 内核 <span style="color: var(--accent); margin-left: 8px; font-style: italic; font-size: 0.8rem; font-weight: normal;">(更新会短暂断开代理)</span></h4>
+                <p>当前版本: {{ coreVersion }}</p>
+              </div>
+              <button class="action-btn" @click="handleUpdateCore" :disabled="updatingCore">
+                {{ updatingCore ? '正在处理...' : '检查更新' }}
               </button>
             </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>Wintun 驱动 (DLL)</h4>
+                <p>当前版本: {{ wintunVersion || '获取中...' }}</p>
+              </div>
+              <div class="btn-group">
+                <button class="action-btn" @click="installDriver(true)" :disabled="isInstalling">
+                  {{ isReinstallingDriver ? '处理中...' : '重新安装' }}
+                </button>
+                <button class="action-btn" @click="installDriver(false)" :disabled="isInstalling">
+                  {{ isCheckingUpdate ? '处理中...' : '检查更新' }}
+                </button>
+              </div>
+            </div>
+            
+            <div class="divider"></div>
+
+            <div class="setting-item col-item" style="flex-direction: row; justify-content: space-between; align-items: center; padding-bottom: 0; margin-top: 10px;">
+              <div class="info">
+                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">路由规则数据库</h3>
+              </div>
+              <button class="action-btn primary-btn accent-btn" @click="handleUpdateAllDbs" :disabled="isUpdatingAnyDb">
+                {{ updatingAllDbs ? '并发处理中...' : '一键更新全部' }}
+              </button>
+            </div>
+            <div class="divider" style="margin-top: 14px;"></div>
+
+            <template v-for="(db, idx) in dbList" :key="db.key">
+              <div class="setting-item">
+                <div class="info" style="overflow: hidden;">
+                  <h4>{{ db.title }} 文件</h4>
+                  <p class="link-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    {{ behavior[db.behaviorKey] || '未配置下载链接' }}
+                  </p>
+                  <p v-if="dbFileInfo[db.key]?.exists" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">
+                    大小: {{ formatSize(dbFileInfo[db.key].size) }} | 更新于: {{ formatRelativeTime(dbFileInfo[db.key].modTime) }}
+                  </p>
+                  <p v-else style="font-size: 0.75rem; color: var(--red-text); margin-top: 2px;">文件不存在，请点击更新同步</p>
+                </div>
+                <div class="btn-group" style="flex-shrink: 0;">
+                  <button class="action-btn" @click="openDbEditModal(db.key, behavior[db.behaviorKey])" :disabled="isUpdatingAnyDb">编辑链接</button>
+                  <button class="action-btn" @click="handleUpdateDb(db.key)" :disabled="isUpdatingAnyDb">
+                    {{ updatingDbs[db.key] ? '同步中...' : '更新同步' }}
+                  </button>
+                </div>
+              </div>
+              <div class="divider" v-if="idx < dbList.length - 1"></div>
+            </template>
           </div>
-          <div class="divider" v-if="idx < dbList.length - 1"></div>
-        </template>
+        </div>
+
+        <div v-else-if="view === 'tun'" class="settings-page">
+          <div class="sub-header">
+            <button class="back-btn" @click="view = 'main'">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            </button>
+            <h3>虚拟网卡配置</h3>
+          </div>
+
+          <div class="glass-card setting-group scrollable">
+
+            <div class="setting-item">
+              <div class="info"><h4>开启 TUN 模式</h4></div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="tunConfig.enable" @change="handleTunToggle">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>网卡驱动安装</h4>
+                <p class="status-msg">
+                  检测状态: <span :class="tunStatus.hasWintun ? 'green-text' : 'red-text'">{{ tunStatus.hasWintun ? 'wintun 已就绪' : '缺失驱动文件' }}</span>
+                </p>
+              </div>
+              <button class="action-btn" @click="installDriver(false)" :disabled="isInstalling || tunStatus.hasWintun">
+                {{ isInstalling ? '处理中...' : (tunStatus.hasWintun ? '已安装' : '安装驱动') }}
+              </button>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>堆栈 (Stack)</h4></div>
+              <ModernSelect 
+                v-model="tunConfig.stack" 
+                :options="stackOptions" 
+                @change="saveTun" 
+                :disabled="!tunStatus.hasWintun" 
+              />
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>指定网卡名称 (Device)</h4></div>
+              <input type="text" class="modern-input" v-model="tunConfig.device" placeholder="留空则自动" @blur="saveTun" :disabled="!tunStatus.hasWintun" />
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>自动设置路由 (Auto Route)</h4></div>
+              <label class="modern-switch"><input type="checkbox" v-model="tunConfig.autoRoute" @change="saveTun" :disabled="!tunStatus.hasWintun"><span class="slider"></span></label>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>自动包含接口 (Auto Detect Interface)</h4></div>
+              <label class="modern-switch"><input type="checkbox" v-model="tunConfig.autoDetect" @change="saveTun" :disabled="!tunStatus.hasWintun"><span class="slider"></span></label>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>DNS 劫持 (DNS Hijack)</h4></div>
+              <input type="text" class="modern-input" :value="tunConfig.dnsHijack.join(', ')" @blur="updateTunDnsHijack" placeholder="如 any:53" :disabled="!tunStatus.hasWintun" />
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>严格路由 (Strict Route)</h4></div>
+              <label class="modern-switch"><input type="checkbox" v-model="tunConfig.strictRoute" @change="saveTun" :disabled="!tunStatus.hasWintun"><span class="slider"></span></label>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>最大传输单元 (MTU)</h4></div>
+              <ModernNumberInput 
+                v-model="tunConfig.mtu" 
+                :min="576" 
+                :max="1500" 
+                @change="saveTun" 
+                :disabled="!tunStatus.hasWintun" 
+              />
+            </div>
+
+          </div>
+        </div>
+
+        <div v-else-if="view === 'dns'" class="settings-page">
+          <div class="sub-header">
+            <button class="back-btn" @click="view = 'main'">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            </button>
+            <h3>DNS 服务器配置</h3>
+          </div>
+
+          <div class="glass-card setting-group scrollable">
+
+            <div class="setting-item">
+              <div class="info"><h4>启用 DNS 解析 (Enable DNS)</h4></div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="dnsConfig.enable" @change="saveDns">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>DNS 监听端口 (Listen)</h4></div>
+              <input type="text" class="modern-input" v-model="dnsConfig.listen" @blur="saveDns" :disabled="!dnsConfig.enable" placeholder="如 0.0.0.0:1053" />
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>开启 IPv6 解析 (IPv6 Resolution)</h4></div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="dnsConfig.ipv6" @change="saveDns" :disabled="!dnsConfig.enable">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>偏好 HTTP/3 (Prefer HTTP/3)</h4>
+                <p>支持 DoH3 的服务器优先使用 HTTP/3 连接</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="dnsConfig.preferH3" @change="saveDns" :disabled="!dnsConfig.enable">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>增强模式 (Enhanced Mode)</h4></div>
+              <ModernSelect 
+                v-model="dnsConfig.enhancedMode" 
+                :options="enhancedModeOptions" 
+                @change="saveDns" 
+                :disabled="!dnsConfig.enable" 
+              />
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>遵守规则 (Respect Rules)</h4>
+                <p>Fake-IP 模式下，匹配路由规则以决定是否返回真实 IP</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="dnsConfig.respectRules" @change="saveDns" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip'">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>Fake-IP 范围 (Fake-IP Range)</h4></div>
+              <input type="text" class="modern-input" v-model="dnsConfig.fakeIpRange" @blur="saveDns" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip'" />
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item col-item">
+              <div class="info"><h4>Fake-IP 缓存过滤器 (Fake-IP Filter)</h4></div>
+              <textarea class="modern-textarea" :value="(dnsConfig.fakeIpFilter || []).join('\n')" @blur="updateDnsArray($event, 'fakeIpFilter')" rows="3" placeholder="如 *.lan" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip'"></textarea>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>使用系统 Hosts (Use System Hosts)</h4></div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="dnsConfig.useSystemHosts" @change="saveDns" :disabled="!dnsConfig.enable">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>使用 Hosts (Use Hosts)</h4></div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="dnsConfig.useHosts" @change="saveDns" :disabled="!dnsConfig.enable">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item col-item">
+              <div class="info"><h4>默认名称服务器 (Default Nameservers)</h4></div>
+              <textarea class="modern-textarea" :value="(dnsConfig.defaultNameserver || []).join('\n')" @blur="updateDnsArray($event, 'defaultNameserver')" rows="2" placeholder="纯IP服务器，如 114.114.114.114" :disabled="!dnsConfig.enable"></textarea>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item col-item">
+              <div class="info"><h4>主名称服务器 (Nameservers)</h4></div>
+              <textarea class="modern-textarea" :value="(dnsConfig.nameserver || []).join('\n')" @blur="updateDnsArray($event, 'nameserver')" rows="3" placeholder="推荐使用 DoH / DoT" :disabled="!dnsConfig.enable"></textarea>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item col-item">
+              <div class="info"><h4>备用名称服务器 (Fallback)</h4></div>
+              <textarea class="modern-textarea" :value="(dnsConfig.fallback || []).join('\n')" @blur="updateDnsArray($event, 'fallback')" rows="3" placeholder="用于解析境外域名" :disabled="!dnsConfig.enable"></textarea>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item col-item">
+              <div class="info"><h4>直连名称服务器 (Direct Nameservers)</h4></div>
+              <textarea class="modern-textarea" :value="(dnsConfig.directNameserver || []).join('\n')" @blur="updateDnsArray($event, 'directNameserver')" rows="2" placeholder="专用于直连规则的 DNS" :disabled="!dnsConfig.enable"></textarea>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item col-item">
+              <div class="info"><h4>代理节点解析服务器 (Proxy Server Nameserver)</h4></div>
+              <textarea class="modern-textarea" :value="(dnsConfig.proxyServerNameserver || []).join('\n')" @blur="updateDnsArray($event, 'proxyServerNameserver')" rows="2" placeholder="用于解析代理节点的域名" :disabled="!dnsConfig.enable"></textarea>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item col-item">
+              <div class="info"><h4>指定域名解析服务器 (Nameserver Policy)</h4></div>
+              <textarea class="modern-textarea" :value="formatNameserverPolicy(dnsConfig.nameserverPolicy)" @blur="updateNameserverPolicy" rows="4" placeholder="geosite:cn: https://doh.pub/dns-query" :disabled="!dnsConfig.enable"></textarea>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>启用 GeoIP 回退 (Fallback Filter GeoIP)</h4></div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="dnsConfig.fallbackFilter.geoip" @change="saveDns" :disabled="!dnsConfig.enable">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info"><h4>GeoIP 代码 (GeoIP Code)</h4></div>
+              <input type="text" class="modern-input" v-model="dnsConfig.fallbackFilter.geoipCode" @blur="saveDns" :disabled="!dnsConfig.enable || !dnsConfig.fallbackFilter.geoip" placeholder="默认 CN" />
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item col-item">
+              <div class="info"><h4>IPCIDR 过滤 (Fallback Filter IPCIDR)</h4></div>
+              <textarea class="modern-textarea" :value="(dnsConfig.fallbackFilter.ipcidr || []).join('\n')" @blur="updateFallbackFilterIpcidr" rows="3" placeholder="如 240.0.0.0/4" :disabled="!dnsConfig.enable"></textarea>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item col-item">
+              <div class="info"><h4>域名过滤 (Fallback Filter Domain)</h4></div>
+              <textarea class="modern-textarea" :value="(dnsConfig.fallbackFilter.domain || []).join('\n')" @blur="updateFallbackFilterDomain" rows="3" placeholder="匹配的域名将强制走 Fallback" :disabled="!dnsConfig.enable"></textarea>
+            </div>
+
+          </div>
+        </div>
+
+        <div v-else-if="view === 'network'" class="settings-page">
+          <div class="sub-header">
+            <button class="back-btn" @click="view = 'main'">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            </button>
+            <h3>基础网络配置</h3>
+          </div>
+
+          <div class="glass-card setting-group scrollable">
+            <div class="setting-item">
+              <div class="info">
+                <h4>IPv6 支持</h4>
+                <p>开启后内核将解析并接管 IPv6 流量。若网络环境不支持可能导致卡顿。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="netConfig.ipv6" @change="saveNet">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>统一延迟测试 (Unified Delay)</h4>
+                <p>开启后将去除握手损耗，显示更真实的节点响应延迟。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="netConfig.unifiedDelay" @change="saveNet">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>TCP 并发连接</h4>
+                <p>同时向所有解析出的 IP 发起连接，取最快响应者。大幅提升首屏加载速度。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="netConfig.tcpConcurrent" @change="saveNet">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>TCP 保持活动 (Keep Alive)</h4>
+                <p>降低在某些防火墙下的断连概率，保持长连接存活。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="netConfig.tcpKeepAlive" @change="saveNet">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-item sub-item" :class="{ 'disabled-fade': !netConfig.tcpKeepAlive }">
+              <div class="info">
+                <h4 class="sub-label">发送时间间隔 (Interval)</h4>
+                <p>单位为秒，建议值 15-30s</p>
+              </div>
+              <div class="input-with-unit">
+                <ModernNumberInput 
+                  v-model="netConfig.tcpKeepAliveInterval" 
+                  :min="1" 
+                  :max="3600" 
+                  @change="saveNet" 
+                  :disabled="!netConfig.tcpKeepAlive" 
+                />
+                <span class="unit">s</span>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item col-item">
+              <div class="info">
+                <h4>延迟测试网址 (Delay Test URL)</h4>
+                <p>内核进行连接可用性测试时使用的 URL。建议使用 Google 或 Cloudflare 的测速地址。</p>
+              </div>
+              <input 
+                type="text" 
+                class="modern-input" 
+                style="text-align: left; width: 100%; margin-top: 12px; font-size: 0.95rem; padding: 12px 16px;" 
+                v-model="netConfig.testUrl" 
+                @blur="saveNet" 
+                placeholder="http://www.gstatic.com/generate_204" 
+              />
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item col-item">
+              <div class="info">
+                <h4>本地 Hosts 映射 (Hosts)</h4>
+                <p>手动指定域名与 IP 的映射关系。对接 DNS 设置中的「使用 Hosts」选项。</p>
+              </div>
+              <textarea 
+                class="modern-textarea" 
+                v-model="netConfig.hosts" 
+                @blur="saveNet" 
+                rows="6" 
+                placeholder="'example.com': 127.0.0.1 (请遵循 YAML 键值对格式)"
+                style="margin-top: 10px; font-family: var(--font-mono); font-size: 0.85rem;"
+              ></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div v-else-if="view === 'behavior'" class="settings-page">
+          <div class="sub-header">
+            <button class="back-btn" @click="view = 'main'">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            </button>
+            <h3>应用行为设置</h3>
+          </div>
+
+          <div class="glass-card setting-group scrollable">
+            <div class="setting-item">
+              <div class="info">
+                <h4>静默启动</h4>
+                <p>启动时直接进入系统托盘，不自动显示主界面。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="behavior.silentStart" @change="saveBehavior">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>关闭面板时隐藏到托盘</h4>
+                <p>点击右上角关闭按钮时，程序将继续在后台运行。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="behavior.closeToTray" @change="saveBehavior">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>内核日志等级 (Log Level)</h4>
+                <p>调整核心输出的日志详细程度。如遇到问题无法排查，可改为 debug。</p>
+              </div>
+              <ModernSelect 
+                v-model="behavior.logLevel" 
+                :options="logLevelOptions" 
+                @change="saveBehavior" 
+              />
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>隐藏日志显示</h4>
+                <p>开启后，左侧导航栏的“实时日志”入口将被隐藏。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="behavior.hideLogs" @change="saveBehavior">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>订阅更新 User-Agent</h4>
+                <p>自定义下载或更新订阅配置时的请求头，留空使用默认值。</p>
+              </div>
+              <input 
+                type="text" 
+                class="modern-input" 
+                style="width: 200px; text-align: center;" 
+                v-model="behavior.subUA" 
+                @blur="saveBehavior" 
+                placeholder="默认 UA" 
+              />
+            </div>
+          </div>
+        </div>
+
+        <div v-else-if="view === 'uwp'" class="settings-page">
+          <div class="sub-header">
+            <button class="back-btn" @click="view = 'main'">
+              <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>
+            </button>
+            <h3>UWP 环回管理</h3>
+          </div>
+
+          <div class="uwp-toolbar">
+            <div class="uwp-search">
+              <span class="search-icon" v-html="ICONS.search"></span>
+              <input v-model="uwpSearch" placeholder="搜索应用名称或包名..." />
+              <span v-if="uwpSearch" class="clear-icon" @click="uwpSearch = ''" v-html="ICONS.close"></span>
+            </div>
+            <div class="uwp-batch">
+              <button class="batch-btn" @click="toggleAllUwp(true)">全选</button>
+              <button class="batch-btn" @click="toggleAllUwp(false)">反选</button>
+            </div>
+          </div>
+
+          <div class="uwp-list-wrapper scrollable">
+            <div 
+              v-for="app in filteredUwpApps" 
+              :key="app.sid" 
+              class="uwp-app-item"
+              :class="{ 'active': app.isEnabled }"
+              @click="app.isEnabled = !app.isEnabled"
+            >
+              <div class="app-main-content">
+                <div class="app-avatar">
+                  {{ app.displayName?.[0]?.toUpperCase() || '?' }}
+                </div>
+                <div class="app-details">
+                  <span class="app-name">{{ app.displayName || '未命名应用' }}</span>
+                  <span class="app-pkg">{{ app.packageFamilyName }}</span>
+                </div>
+              </div>
+
+              <div class="app-status-wrapper">
+                <div class="uwp-status-tag">
+                  {{ app.isEnabled ? '已豁免' : '受限' }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="uwp-footer">
+            <button class="apply-btn" :disabled="savingUwp" @click="saveUwpChanges">
+              <span v-if="!savingUwp">应用更改 (需要管理员权限)</span>
+              <span v-else class="loading-spinner">正在保存...</span>
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
+    </Transition>
 
     <div class="modal-overlay" v-if="showDbModal">
       <div class="custom-modal-card">
@@ -150,505 +653,6 @@
         </div>
       </div>
     </div>
-
-    <div v-else-if="view === 'tun'" class="settings-page">
-      <div class="sub-header">
-        <button class="back-btn" @click="view = 'main'">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-        </button>
-        <h3>虚拟网卡配置</h3>
-      </div>
-
-      <div class="glass-card setting-group scrollable">
-
-        <div class="setting-item">
-          <div class="info"><h4>开启 TUN 模式</h4></div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="tunConfig.enable" @change="handleTunToggle">
-            <span class="slider"></span>
-          </label>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info">
-            <h4>网卡驱动安装</h4>
-            <p class="status-msg">
-              检测状态: <span :class="tunStatus.hasWintun ? 'green-text' : 'red-text'">{{ tunStatus.hasWintun ? 'wintun 已就绪' : '缺失驱动文件' }}</span>
-            </p>
-          </div>
-          <button class="action-btn" @click="installDriver(false)" :disabled="isInstalling || tunStatus.hasWintun">
-            {{ isInstalling ? '处理中...' : (tunStatus.hasWintun ? '已安装' : '安装驱动') }}
-          </button>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>堆栈 (Stack)</h4></div>
-          <ModernSelect 
-            v-model="tunConfig.stack" 
-            :options="stackOptions" 
-            @change="saveTun" 
-            :disabled="!tunStatus.hasWintun" 
-          />
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>指定网卡名称 (Device)</h4></div>
-          <input type="text" class="modern-input" v-model="tunConfig.device" placeholder="留空则自动" @blur="saveTun" :disabled="!tunStatus.hasWintun" />
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>自动设置路由 (Auto Route)</h4></div>
-          <label class="modern-switch"><input type="checkbox" v-model="tunConfig.autoRoute" @change="saveTun" :disabled="!tunStatus.hasWintun"><span class="slider"></span></label>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>自动包含接口 (Auto Detect Interface)</h4></div>
-          <label class="modern-switch"><input type="checkbox" v-model="tunConfig.autoDetect" @change="saveTun" :disabled="!tunStatus.hasWintun"><span class="slider"></span></label>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>DNS 劫持 (DNS Hijack)</h4></div>
-          <input type="text" class="modern-input" :value="tunConfig.dnsHijack.join(', ')" @blur="updateTunDnsHijack" placeholder="如 any:53" :disabled="!tunStatus.hasWintun" />
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>严格路由 (Strict Route)</h4></div>
-          <label class="modern-switch"><input type="checkbox" v-model="tunConfig.strictRoute" @change="saveTun" :disabled="!tunStatus.hasWintun"><span class="slider"></span></label>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>最大传输单元 (MTU)</h4></div>
-          <ModernNumberInput 
-            v-model="tunConfig.mtu" 
-            :min="576" 
-            :max="1500" 
-            @change="saveTun" 
-            :disabled="!tunStatus.hasWintun" 
-          />
-        </div>
-
-      </div>
-    </div>
-
-    <div v-else-if="view === 'dns'" class="settings-page">
-      <div class="sub-header">
-        <button class="back-btn" @click="view = 'main'">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-        </button>
-        <h3>DNS 服务器配置</h3>
-      </div>
-
-      <div class="glass-card setting-group scrollable">
-
-        <div class="setting-item">
-          <div class="info"><h4>启用 DNS 解析 (Enable DNS)</h4></div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="dnsConfig.enable" @change="saveDns">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>DNS 监听端口 (Listen)</h4></div>
-          <input type="text" class="modern-input" v-model="dnsConfig.listen" @blur="saveDns" :disabled="!dnsConfig.enable" placeholder="如 0.0.0.0:1053" />
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>开启 IPv6 解析 (IPv6 Resolution)</h4></div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="dnsConfig.ipv6" @change="saveDns" :disabled="!dnsConfig.enable">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info">
-            <h4>偏好 HTTP/3 (Prefer HTTP/3)</h4>
-            <p>支持 DoH3 的服务器优先使用 HTTP/3 连接</p>
-          </div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="dnsConfig.preferH3" @change="saveDns" :disabled="!dnsConfig.enable">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>增强模式 (Enhanced Mode)</h4></div>
-          <ModernSelect 
-            v-model="dnsConfig.enhancedMode" 
-            :options="enhancedModeOptions" 
-            @change="saveDns" 
-            :disabled="!dnsConfig.enable" 
-          />
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info">
-             <h4>遵守规则 (Respect Rules)</h4>
-             <p>Fake-IP 模式下，匹配路由规则以决定是否返回真实 IP</p>
-          </div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="dnsConfig.respectRules" @change="saveDns" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip'">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>Fake-IP 范围 (Fake-IP Range)</h4></div>
-          <input type="text" class="modern-input" v-model="dnsConfig.fakeIpRange" @blur="saveDns" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip'" />
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item col-item">
-          <div class="info"><h4>Fake-IP 缓存过滤器 (Fake-IP Filter)</h4></div>
-          <textarea class="modern-textarea" :value="(dnsConfig.fakeIpFilter || []).join('\n')" @blur="updateDnsArray($event, 'fakeIpFilter')" rows="3" placeholder="如 *.lan" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip'"></textarea>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>使用系统 Hosts (Use System Hosts)</h4></div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="dnsConfig.useSystemHosts" @change="saveDns" :disabled="!dnsConfig.enable">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>使用 Hosts (Use Hosts)</h4></div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="dnsConfig.useHosts" @change="saveDns" :disabled="!dnsConfig.enable">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item col-item">
-          <div class="info"><h4>默认名称服务器 (Default Nameservers)</h4></div>
-          <textarea class="modern-textarea" :value="(dnsConfig.defaultNameserver || []).join('\n')" @blur="updateDnsArray($event, 'defaultNameserver')" rows="2" placeholder="纯IP服务器，如 114.114.114.114" :disabled="!dnsConfig.enable"></textarea>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item col-item">
-          <div class="info"><h4>主名称服务器 (Nameservers)</h4></div>
-          <textarea class="modern-textarea" :value="(dnsConfig.nameserver || []).join('\n')" @blur="updateDnsArray($event, 'nameserver')" rows="3" placeholder="推荐使用 DoH / DoT" :disabled="!dnsConfig.enable"></textarea>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item col-item">
-          <div class="info"><h4>备用名称服务器 (Fallback)</h4></div>
-          <textarea class="modern-textarea" :value="(dnsConfig.fallback || []).join('\n')" @blur="updateDnsArray($event, 'fallback')" rows="3" placeholder="用于解析境外域名" :disabled="!dnsConfig.enable"></textarea>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item col-item">
-          <div class="info"><h4>直连名称服务器 (Direct Nameservers)</h4></div>
-          <textarea class="modern-textarea" :value="(dnsConfig.directNameserver || []).join('\n')" @blur="updateDnsArray($event, 'directNameserver')" rows="2" placeholder="专用于直连规则的 DNS" :disabled="!dnsConfig.enable"></textarea>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item col-item">
-          <div class="info"><h4>代理节点解析服务器 (Proxy Server Nameserver)</h4></div>
-          <textarea class="modern-textarea" :value="(dnsConfig.proxyServerNameserver || []).join('\n')" @blur="updateDnsArray($event, 'proxyServerNameserver')" rows="2" placeholder="用于解析代理节点的域名" :disabled="!dnsConfig.enable"></textarea>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item col-item">
-          <div class="info"><h4>指定域名解析服务器 (Nameserver Policy)</h4></div>
-          <textarea class="modern-textarea" :value="formatNameserverPolicy(dnsConfig.nameserverPolicy)" @blur="updateNameserverPolicy" rows="4" placeholder="geosite:cn: https://doh.pub/dns-query" :disabled="!dnsConfig.enable"></textarea>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>启用 GeoIP 回退 (Fallback Filter GeoIP)</h4></div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="dnsConfig.fallbackFilter.geoip" @change="saveDns" :disabled="!dnsConfig.enable">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info"><h4>GeoIP 代码 (GeoIP Code)</h4></div>
-          <input type="text" class="modern-input" v-model="dnsConfig.fallbackFilter.geoipCode" @blur="saveDns" :disabled="!dnsConfig.enable || !dnsConfig.fallbackFilter.geoip" placeholder="默认 CN" />
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item col-item">
-          <div class="info"><h4>IPCIDR 过滤 (Fallback Filter IPCIDR)</h4></div>
-          <textarea class="modern-textarea" :value="(dnsConfig.fallbackFilter.ipcidr || []).join('\n')" @blur="updateFallbackFilterIpcidr" rows="3" placeholder="如 240.0.0.0/4" :disabled="!dnsConfig.enable"></textarea>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item col-item">
-          <div class="info"><h4>域名过滤 (Fallback Filter Domain)</h4></div>
-          <textarea class="modern-textarea" :value="(dnsConfig.fallbackFilter.domain || []).join('\n')" @blur="updateFallbackFilterDomain" rows="3" placeholder="匹配的域名将强制走 Fallback" :disabled="!dnsConfig.enable"></textarea>
-        </div>
-
-      </div>
-    </div>
-
-    <div v-else-if="view === 'network'" class="settings-page">
-      <div class="sub-header">
-        <button class="back-btn" @click="view = 'main'">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-        </button>
-        <h3>基础网络配置</h3>
-      </div>
-
-      <div class="glass-card setting-group scrollable">
-        <div class="setting-item">
-          <div class="info">
-            <h4>IPv6 支持</h4>
-            <p>开启后内核将解析并接管 IPv6 流量。若网络环境不支持可能导致卡顿。</p>
-          </div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="netConfig.ipv6" @change="saveNet">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info">
-            <h4>统一延迟测试 (Unified Delay)</h4>
-            <p>开启后将去除握手损耗，显示更真实的节点响应延迟。</p>
-          </div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="netConfig.unifiedDelay" @change="saveNet">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info">
-            <h4>TCP 并发连接</h4>
-            <p>同时向所有解析出的 IP 发起连接，取最快响应者。大幅提升首屏加载速度。</p>
-          </div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="netConfig.tcpConcurrent" @change="saveNet">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info">
-            <h4>TCP 保持活动 (Keep Alive)</h4>
-            <p>降低在某些防火墙下的断连概率，保持长连接存活。</p>
-          </div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="netConfig.tcpKeepAlive" @change="saveNet">
-            <span class="slider"></span>
-          </label>
-        </div>
-
-        <div class="setting-item sub-item" :class="{ 'disabled-fade': !netConfig.tcpKeepAlive }">
-          <div class="info">
-            <h4 class="sub-label">发送时间间隔 (Interval)</h4>
-            <p>单位为秒，建议值 15-30s</p>
-          </div>
-          <div class="input-with-unit">
-            <ModernNumberInput 
-              v-model="netConfig.tcpKeepAliveInterval" 
-              :min="1" 
-              :max="3600" 
-              @change="saveNet" 
-              :disabled="!netConfig.tcpKeepAlive" 
-            />
-            <span class="unit">s</span>
-          </div>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="setting-item col-item">
-          <div class="info">
-            <h4>延迟测试网址 (Delay Test URL)</h4>
-            <p>内核进行连接可用性测试时使用的 URL。建议使用 Google 或 Cloudflare 的测速地址。</p>
-          </div>
-          <input 
-            type="text" 
-            class="modern-input" 
-            style="text-align: left; width: 100%; margin-top: 10px;" 
-            v-model="netConfig.testUrl" 
-            @blur="saveNet" 
-            placeholder="http://www.gstatic.com/generate_204" 
-          />
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="setting-item col-item">
-          <div class="info">
-            <h4>本地 Hosts 映射 (Hosts)</h4>
-            <p>手动指定域名与 IP 的映射关系。对接 DNS 设置中的「使用 Hosts」选项。</p>
-          </div>
-          <textarea 
-            class="modern-textarea" 
-            v-model="netConfig.hosts" 
-            @blur="saveNet" 
-            rows="6" 
-            placeholder="'example.com': 127.0.0.1 (请遵循 YAML 键值对格式)"
-            style="margin-top: 10px; font-family: var(--font-mono); font-size: 0.85rem;"
-          ></textarea>
-        </div>
-      </div>
-    </div>
-
-    <div v-else-if="view === 'behavior'" class="settings-page">
-      <div class="sub-header">
-        <button class="back-btn" @click="view = 'main'">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-        </button>
-        <h3>应用行为设置</h3>
-      </div>
-
-      <div class="glass-card setting-group scrollable">
-        <div class="setting-item">
-          <div class="info">
-            <h4>静默启动</h4>
-            <p>启动时直接进入系统托盘，不自动显示主界面。</p>
-          </div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="behavior.silentStart" @change="saveBehavior">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info">
-            <h4>关闭面板时隐藏到托盘</h4>
-            <p>点击右上角关闭按钮时，程序将继续在后台运行。</p>
-          </div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="behavior.closeToTray" @change="saveBehavior">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info">
-            <h4>内核日志等级 (Log Level)</h4>
-            <p>调整核心输出的日志详细程度。如遇到问题无法排查，可改为 debug。</p>
-          </div>
-          <ModernSelect 
-            v-model="behavior.logLevel" 
-            :options="logLevelOptions" 
-            @change="saveBehavior" 
-          />
-        </div>
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info">
-            <h4>隐藏日志显示</h4>
-            <p>开启后，左侧导航栏的“实时日志”入口将被隐藏。</p>
-          </div>
-          <label class="modern-switch">
-            <input type="checkbox" v-model="behavior.hideLogs" @change="saveBehavior">
-            <span class="slider"></span>
-          </label>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="setting-item">
-          <div class="info">
-            <h4>订阅更新 User-Agent</h4>
-            <p>自定义下载或更新订阅配置时的请求头，留空使用默认值。</p>
-          </div>
-          <input 
-            type="text" 
-            class="modern-input" 
-            style="width: 200px; text-align: center;" 
-            v-model="behavior.subUA" 
-            @blur="saveBehavior" 
-            placeholder="默认 UA" 
-          />
-        </div>
-      </div>
-    </div>
-
-    <div v-else-if="view === 'uwp'" class="settings-page">
-      <div class="sub-header">
-        <button class="back-btn" @click="view = 'main'">
-          <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>
-        </button>
-        <h3>UWP 环回管理</h3>
-      </div>
-
-      <div class="uwp-toolbar">
-        <div class="uwp-search">
-          <span class="search-icon" v-html="ICONS.search"></span>
-          <input v-model="uwpSearch" placeholder="搜索应用名称或包名..." />
-          <span v-if="uwpSearch" class="clear-icon" @click="uwpSearch = ''" v-html="ICONS.close"></span>
-        </div>
-        <div class="uwp-batch">
-          <button class="batch-btn" @click="toggleAllUwp(true)">全选</button>
-          <button class="batch-btn" @click="toggleAllUwp(false)">反选</button>
-        </div>
-      </div>
-
-      <div class="uwp-list-wrapper scrollable">
-        <div 
-          v-for="app in filteredUwpApps" 
-          :key="app.sid" 
-          class="uwp-app-item"
-          :class="{ 'active': app.isEnabled }"
-          @click="app.isEnabled = !app.isEnabled"
-        >
-          <div class="app-main-content">
-            <div class="app-avatar">
-              {{ app.displayName?.[0]?.toUpperCase() || '?' }}
-            </div>
-            <div class="app-details">
-              <span class="app-name">{{ app.displayName || '未命名应用' }}</span>
-              <span class="app-pkg">{{ app.packageFamilyName }}</span>
-            </div>
-          </div>
-
-          <div class="app-status-wrapper">
-            <div class="uwp-status-tag">
-              {{ app.isEnabled ? '已豁免' : '受限' }}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="uwp-footer">
-        <button class="apply-btn" :disabled="savingUwp" @click="saveUwpChanges">
-          <span v-if="!savingUwp">应用更改 (需要管理员权限)</span>
-          <span v-else class="loading-spinner">正在保存...</span>
-        </button>
-      </div>
-    </div>
-
   </div>
 </template>
 
@@ -1072,7 +1076,20 @@ const updateNameserverPolicy = (e: Event) => {
 </script>
 
 <style scoped>
-.settings-container { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.settings-container { 
+  display: flex; 
+  flex-direction: column; 
+  height: 100%; 
+  overflow: hidden; 
+  position: relative; 
+}
+
+.settings-view-wrapper {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
 .settings-page { display: flex; flex-direction: column; flex: 1; overflow-y: auto; padding-right: 4px; }
 .setting-group { padding: 20px 24px; margin-bottom: 12px; }
 .scrollable { overflow-y: auto; padding-right: 12px; padding-bottom: 20px; }
@@ -1102,7 +1119,15 @@ p {
   gap: 8px;
 }
 
-.modern-input, .modern-textarea { background: var(--surface-hover); border: none; color: var(--text-main); padding: 8px 12px; border-radius: 8px; outline: none; }
+.modern-input, .modern-textarea { 
+  background: var(--surface-hover); 
+  border: none; 
+  color: var(--text-main); 
+  padding: 10px 14px; 
+  border-radius: 8px; 
+  outline: none; 
+  font-size: 0.9rem;
+}
 
 /* 专属的极简黑白风 Select 样式 */
 .modern-select {
@@ -1179,7 +1204,7 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 .sub-label { font-size: 0.9rem !important; font-weight: 500 !important; }
 .disabled-fade { opacity: 0.5; pointer-events: none; }
 .input-with-unit { display: flex; align-items: center; gap: 8px; }
-.unit { font-size: 0.85rem; color: var(--text-muted); font-family: var(--font-mono); }
+.unit { font-size: 0.85rem; color: var(--text-sub); font-family: var(--font-mono); font-weight: 500; }
 .status-msg { margin-top: 4px; font-weight: 500; }
 .green-text { color: var(--text-main); font-weight: 600; }
 .red-text { color: var(--text-muted); }
@@ -1412,4 +1437,26 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 
 /* 悬浮弹窗基础覆盖 */
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+
+/* ================================== */
+/* 子页面切换动画：水平滑移淡入 (Slide Fade) */
+/* ================================== */
+
+.slide-fade-enter-active,
+.slide-fade-leave-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 在动画期间强制绝对定位，防止两个页面在 out-in 瞬间发生排版挤压 */
+  width: 100%;
+  height: 100%;
+}
+
+.slide-fade-enter-from {
+  opacity: 0;
+  transform: translateX(12px); /* 进入时从右侧稍微滑入 */
+}
+
+.slide-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-12px); /* 离开时向左侧稍微滑出 */
+}
 </style>

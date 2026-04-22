@@ -326,13 +326,7 @@ watch(currentTab, (newTab) => {
 }
 
 .app-shell { 
-  /* 👇 1. 定义全局布局变量，统管所有间距与宽度 */
-  --sidebar-width: 220px;
-  --layout-padding: 20px; /* 软件边缘最外层留白 */
-  --layout-gap: 16px;     /* 侧边栏与主面板的间距 */
-  --content-px: 40px;     /* 右侧面板内部的【左右边距】 */
-  --content-py: 32px;     /* 右侧面板内部的【上下边距】 */
-
+  /* ❌ 删除了这里的变量，因为已经移交给了全局 style.css */
   display: flex; flex-direction: column; height: 100vh; color: var(--text-main); 
 }
 .drag-bar { height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 24px; }
@@ -346,7 +340,6 @@ watch(currentTab, (newTab) => {
 
 .main-layout { 
   display: flex; flex: 1; 
-  /* 👇 2. 应用变量：统一主容器的外边距 */
   padding: 0 var(--layout-padding) var(--layout-padding) var(--layout-padding); 
   gap: var(--layout-gap); 
   overflow: hidden; 
@@ -354,13 +347,12 @@ watch(currentTab, (newTab) => {
 
 .content { 
   flex: 1; display: flex; flex-direction: column; 
-  /* 👇 3. 剥夺 content 的左右/下边距，只留顶部边距 */
   padding: var(--content-py) 0 0 0; 
   overflow: hidden; 
 }
 
 .content-header {
-  /* 👇 单独给标题栏加上严格的左右边距 */
+  /* 绝对对称：直接使用全局变量 */
   padding: 0 var(--content-px);
 }
 .content-header h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 32px; }
@@ -368,10 +360,9 @@ watch(currentTab, (newTab) => {
 .view-scroller { 
   flex: 1; 
   overflow-y: auto; 
-  scrollbar-gutter: stable; /* 保留占位，防止滚动条闪烁挤压内容 */
-  /* 👇 4. 核心修正：右侧边距 = 期望边距(40px) - 滚动条宽度(约14px) */
-  /* 这样无论有没有滚动条，视觉上内容距离右侧边框永远是精准的 40px，达到完美居中对称！ */
-  padding: 0 calc(var(--content-px) - 14px) var(--content-py) var(--content-px); 
+  /* 🚀 核心修复：彻底删除 scrollbar-gutter 占位，并使用绝对对称的 padding */
+  /* 因为你在 style.css 中把滚动条改成了 4px 的极细条，它直接贴在最右侧几乎不占视觉体积 */
+  padding: 0 var(--content-px) var(--content-py) var(--content-px); 
 }
 
 .terminal-box { 

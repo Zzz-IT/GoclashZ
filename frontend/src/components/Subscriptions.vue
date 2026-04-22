@@ -413,7 +413,7 @@ onUnmounted(() => {
 .main-title { font-size: 1.6rem; font-weight: 600; margin-bottom: 4px; }
 .sub-text { font-size: 0.85rem; color: var(--text-sub); }
 .header-actions { display: flex; gap: 12px; }
-.subs-list { flex: 1; overflow-y: auto; padding-right: 8px; position: relative; }
+.subs-list { flex: 1; overflow-y: auto; padding-right: 0; position: relative; }
 
 /* 卡片基础样式 */
 .sub-card { 

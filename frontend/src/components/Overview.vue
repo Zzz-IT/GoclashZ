@@ -16,7 +16,7 @@
         <div class="status-meta">
           <span class="micro-title">引擎状态</span>
           <h2 class="status-heading">{{ isRestarting ? '内核重启中...' : (globalState.isRunning ? '接管中' : '服务停止') }}</h2>
-          <span class="version-tag">{{ globalState.version || 'Mihomo Core' }}</span>
+          <span class="version-tag">Mihomo {{ globalState.version || 'Core' }}</span>
         </div>
       </div>
 

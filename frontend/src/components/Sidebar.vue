@@ -76,17 +76,18 @@ const toggleTheme = () => {
 }
 .nav-list { flex: 1; }
 .nav-item { 
-  display: flex; align-items: center; gap: 12px; padding: 10px 14px; 
+  position: relative;
+  display: flex; align-items: center; justify-content: center; padding: 10px 14px; 
   margin-bottom: 4px; border-radius: 8px; cursor: pointer; 
   color: var(--text-main); transition: all 0.2s ease; 
 }
 .nav-item:hover { background: var(--surface); }
 .nav-item.active { background: var(--surface-hover); font-weight: 600; }
 
-.icon { width: 16px; height: 16px; display: flex; align-items: center; }
-.nav-label { font-size: 0.85rem; letter-spacing: 0.02em; }
+.icon { position: absolute; left: 16px; width: 16px; height: 16px; display: flex; align-items: center; }
+.nav-label { font-size: 0.85rem; letter-spacing: 0.02em; text-align: center; }
 
-.sidebar-footer { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; margin-top: auto; }
+.sidebar-footer { padding: 16px; display: flex; flex-direction: column; gap: 12px; margin-top: auto; }
 
 .icon-box { 
   width: 16px; height: 16px; display: flex; align-items: center; 

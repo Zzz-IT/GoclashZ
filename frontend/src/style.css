@@ -15,6 +15,13 @@
     --font-sans: 'Inter', -apple-system, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
 
+    /* 👇 新增：全局布局变量，统管整个软件骨架 */
+    --sidebar-width: 180px; /* 缩小侧边栏，原为 220px */
+    --layout-padding: 12px; /* 软件边缘最外层留白，从 20px 减小到 12px */
+    --layout-gap: 16px;     /* 侧边栏与主面板的间距 */
+    --content-px: 36px;     /* 右侧面板内部的左右边距，微调得更精致 */
+    --content-py: 32px;     /* 右侧面板内部的上下边距 */
+
     /* ☀️ 日间模式：纯净黑白灰，无色彩干扰 */
     --app-bg: #F2F2F2;
     /* 底色：温暖的浅灰 */
