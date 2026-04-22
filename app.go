@@ -454,6 +454,7 @@ func (a *App) GetProxyStatus() ProxyStatus {
 
 // ToggleSystemProxy 开关 1：系统代理
 func (a *App) ToggleSystemProxy(enable bool) error {
+	defer a.SyncState() // 🚀 无论成功失败，退出函数时强制刷新 UI 状态，防止前端卡死在错误位置
 	a.coreLifecycleMu.Lock()         // 🔒 加锁
 	defer a.coreLifecycleMu.Unlock() // 🔓 退出时自动解锁
 
@@ -500,6 +501,7 @@ func (a *App) ToggleSystemProxy(enable bool) error {
 
 // ToggleTunMode 开关 2：虚拟网卡 (TUN)
 func (a *App) ToggleTunMode(enable bool) error {
+	defer a.SyncState() // 🚀 防御性同步：确保 UI 状态始终回滚到真实后端状态
 	a.coreLifecycleMu.Lock()         // 🔒 加锁
 	defer a.coreLifecycleMu.Unlock() // 🔓 退出时自动解锁
 
@@ -802,6 +804,7 @@ func (a *App) TestAllProxies(nodeNames []string) {
 }
 
 func (a *App) UpdateClashMode(mode string) error {
+	defer a.SyncState() // 🚀 核心防御：无论成功失败，广播真实状态以纠正前端 UI
 	a.mu.Lock()
 	a.activeMode = mode
 	isRunning := clash.IsRunning() // 提取内核运行状态

@@ -16,7 +16,7 @@ var localAPIClient = &http.Client{
 	Transport: &http.Transport{
 		Proxy: nil, // 强制禁用代理，防止本地 9090 请求被 7890 系统代理劫持
 	},
-	Timeout: 10 * time.Second,
+	Timeout: 2 * time.Second, // 🚀 强制设定超时！如果内核装死，2秒后直接报错，绝不永久阻塞！
 }
 
 // FetchLogs 从内核获取实时日志流并执行回调
