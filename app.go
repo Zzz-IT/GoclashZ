@@ -178,20 +178,20 @@ func (a *App) GetAppBehavior() AppBehavior {
 }
 
 // 修改保存逻辑，写盘的同时更新缓存
+// SaveAppBehavior 修改保存逻辑，锁内更新快照，锁外异步写盘
 func (a *App) SaveAppBehavior(config AppBehavior) error {
-	// 1. 写入磁盘
-	data, _ := json.MarshalIndent(config, "", "  ")
+	// 1. 锁内更新内存缓存，并深拷贝一份用于安全的写盘
+	a.behaviorMu.Lock()
+	a.behaviorCache = config
+	behaviorToSave := a.behaviorCache
+	a.behaviorMu.Unlock()
+
+	// 2. 耗时的写盘操作放在锁外执行
+	data, _ := json.MarshalIndent(behaviorToSave, "", "  ")
 	err := os.WriteFile(a.getAppBehaviorPath(), data, 0644)
 
-	// 2. 更新内存缓存
-	if err == nil {
-		a.behaviorMu.Lock()
-		a.behaviorCache = config
-		a.behaviorMu.Unlock()
-	}
-
 	// 3. 广播与同步
-	runtime.EventsEmit(a.ctx, "behavior-changed", config)
+	runtime.EventsEmit(a.ctx, "behavior-changed", behaviorToSave)
 
 	active := a.getActiveConfig()
 	if active != "" {
@@ -458,16 +458,14 @@ func (a *App) ensureCoreRunning() error {
 
 // --- 底层：停止内核 ---
 func (a *App) stopCoreService() {
-	// 👇 核心修复 3：在彻底停机前，反向抓取内核中真实的节点状态存入离线缓存
 	if clash.IsRunning() {
 		if data, err := clash.GetInitialData(); err == nil {
-			if groups, ok := data["groups"].([]interface{}); ok { // 👈 注意：clash.GetInitialData 返回的 groups 是切片
-				for _, g := range groups {
-					if gMap, ok2 := g.(map[string]interface{}); ok2 {
-						gName, _ := gMap["name"].(string)
-						now, _ := gMap["now"].(string)
-						if gName != "" && now != "" {
-							a.MarkNodeOffline(gName, now)
+			// 🎯 精准修复：使用 map[string]interface{} 正确解析 JSON 对象
+			if groups, ok := data["groups"].(map[string]interface{}); ok { 
+				for gName, gData := range groups {
+					if gMap, ok2 := gData.(map[string]interface{}); ok2 {
+						if now, ok3 := gMap["now"].(string); ok3 && now != "" {
+							a.MarkNodeOffline(gName, now) // 安全写入离线记录
 						}
 					}
 				}
