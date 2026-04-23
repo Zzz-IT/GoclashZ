@@ -9,14 +9,14 @@ import (
 	"time"
 
 	"encoding/json"
-	"gopkg.in/yaml.v3"
-	"sync"
 	"goclashz/core/utils"
+	"sync"
+
+	"gopkg.in/yaml.v3"
 )
 
 // 👈 新增：定义一个全局互斥锁，专门保护 config.yaml 的并发 RMW (读-改-写) 操作
 var configMu sync.Mutex
-
 
 // GetConfigPath 获取 config.yaml 的绝对路径（导出供 app.go 使用，确保路径一致）
 func GetConfigPath() string {
@@ -39,7 +39,7 @@ type NetworkConfig struct {
 	TCPKeepAlive         bool   `yaml:"tcp-keep-alive" json:"tcpKeepAlive"`
 	TCPKeepAliveInterval int    `yaml:"tcp-keep-alive-interval" json:"tcpKeepAliveInterval"`
 	TestURL              string `yaml:"test-url" json:"testUrl"` // 👈 新增
-	Hosts                string `yaml:"-" json:"hosts"`         // 👈 新增：作为字符串传递给前端
+	Hosts                string `yaml:"-" json:"hosts"`          // 👈 新增：作为字符串传递给前端
 }
 
 // OfflineGroup 专供前端在“未启动”状态下展示的节点组结构
@@ -48,8 +48,6 @@ type OfflineGroup struct {
 	Type    string   `json:"type"`
 	Proxies []string `json:"proxies"` // 组内包含的所有节点名称
 }
-
-
 
 // ProxyGroupSchema 模拟内核 API 的 Group 结构
 type ProxyGroupSchema struct {
@@ -60,17 +58,17 @@ type ProxyGroupSchema struct {
 }
 
 // GetOfflineData 核心方法：模拟内核 API 返回的格式，从本地文件中提取数据
-func GetOfflineData(fileName string) (map[string]interface{}, error) {
+func GetOfflineData(id string) (map[string]interface{}, error) {
 	// 如果传入了空或者 config.yaml，直接指向主配置
-	if fileName == "" || fileName == "config.yaml" {
-		fileName = "config.yaml"
+	if id == "" || id == "config.yaml" {
+		id = "config.yaml"
 	}
 
 	var configPath string
-	if fileName == "config.yaml" {
+	if id == "config.yaml" {
 		configPath = GetConfigPath()
 	} else {
-		configPath = filepath.Join(utils.GetProfilesDir(), fileName)
+		configPath = filepath.Join(utils.GetProfilesDir(), id+".yaml")
 	}
 
 	// 如果文件不存在，回退到主 config.yaml
@@ -108,7 +106,7 @@ func GetOfflineData(fileName string) (map[string]interface{}, error) {
 
 	for _, g := range conf.ProxyGroups {
 		name, _ := g["name"].(string)
-		gTypeRaw, _ := g["type"].(string) 
+		gTypeRaw, _ := g["type"].(string)
 
 		gType := gTypeRaw
 		switch gTypeRaw {
@@ -135,7 +133,7 @@ func GetOfflineData(fileName string) (map[string]interface{}, error) {
 		proxiesMap[name] = map[string]interface{}{
 			"name": name,
 			"type": gType,
-			"now":  "", 
+			"now":  "",
 			"all":  all,
 		}
 	}
@@ -146,7 +144,6 @@ func GetOfflineData(fileName string) (map[string]interface{}, error) {
 		"groupOrder": ExtractGroupOrder(data),
 	}, nil
 }
-
 
 // DownloadSubscription 下载订阅文件并覆盖本地 config.yaml
 func DownloadSubscription(subUrl string, userAgent string) error {
@@ -280,11 +277,11 @@ type FallbackFilterConfig struct {
 // DNSConfig 映射 yaml 中的 dns 配置块
 type DNSConfig struct {
 	Enable                bool                 `yaml:"enable" json:"enable"`
-	Listen                string               `yaml:"listen,omitempty" json:"listen"`             // 👈 新增：监听端口
+	Listen                string               `yaml:"listen,omitempty" json:"listen"` // 👈 新增：监听端口
 	IPv6                  bool                 `yaml:"ipv6" json:"ipv6"`
-	PreferH3              bool                 `yaml:"prefer-h3,omitempty" json:"preferH3"`        // 👈 新增：偏好 HTTP/3
+	PreferH3              bool                 `yaml:"prefer-h3,omitempty" json:"preferH3"` // 👈 新增：偏好 HTTP/3
 	EnhancedMode          string               `yaml:"enhanced-mode" json:"enhancedMode"`
-	RespectRules          bool                 `yaml:"respect-rules,omitempty" json:"respectRules"`// 👈 新增：遵守规则
+	RespectRules          bool                 `yaml:"respect-rules,omitempty" json:"respectRules"` // 👈 新增：遵守规则
 	FakeIPRange           string               `yaml:"fake-ip-range,omitempty" json:"fakeIpRange"`
 	FakeIPFilter          []string             `yaml:"fake-ip-filter,omitempty" json:"fakeIpFilter"`
 	UseSystemHosts        bool                 `yaml:"use-system-hosts,omitempty" json:"useSystemHosts"`
@@ -314,20 +311,20 @@ func GetDNSConfig() (*DNSConfig, error) {
 
 	// 初始化完整默认值
 	conf := &DNSConfig{
-		Enable:            true,
-		Listen:            "0.0.0.0:1053",
-		IPv6:              false,
-		PreferH3:          false,
-		EnhancedMode:      "fake-ip",
-		RespectRules:      false,
-		FakeIPRange:       "198.18.0.1/16",
-		FakeIPFilter:      []string{"*.lan", "*.localdomain", "*.example", "*.invalid", "*.localhost", "*.test", "lan", "localdomain", "localhost"},
-		UseSystemHosts:    true,
-		UseHosts:          true,
-		DefaultNameserver: []string{"223.5.5.5", "114.114.114.114"},
-		Nameserver:        []string{"https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"},
-		Fallback:          []string{"https://doh.dns.sb/dns-query", "https://dns.cloudflare.com/dns-query"},
-		DirectNameserver:  []string{"https://dns.alidns.com/dns-query"},
+		Enable:                true,
+		Listen:                "0.0.0.0:1053",
+		IPv6:                  false,
+		PreferH3:              false,
+		EnhancedMode:          "fake-ip",
+		RespectRules:          false,
+		FakeIPRange:           "198.18.0.1/16",
+		FakeIPFilter:          []string{"*.lan", "*.localdomain", "*.example", "*.invalid", "*.localhost", "*.test", "lan", "localdomain", "localhost"},
+		UseSystemHosts:        true,
+		UseHosts:              true,
+		DefaultNameserver:     []string{"223.5.5.5", "114.114.114.114"},
+		Nameserver:            []string{"https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"},
+		Fallback:              []string{"https://doh.dns.sb/dns-query", "https://dns.cloudflare.com/dns-query"},
+		DirectNameserver:      []string{"https://dns.alidns.com/dns-query"},
 		ProxyServerNameserver: []string{"https://doh.pub/dns-query"},
 		NameserverPolicy:      map[string]string{"geosite:cn": "https://doh.pub/dns-query"},
 		FallbackFilter: FallbackFilterConfig{
@@ -507,7 +504,7 @@ func UpdateNetworkConfig(newCfg *NetworkConfig) error {
 // ==========================================
 
 // BuildRuntimeConfig 核心流水线：基础配置 + 用户设置 = 最终运行配置
-func BuildRuntimeConfig(profileName string, mode string) error {
+func BuildRuntimeConfig(id string, mode string) error {
 	configMu.Lock()         // ✅ 加锁
 	defer configMu.Unlock() // ✅ 保证最终释放
 
@@ -519,7 +516,7 @@ func BuildRuntimeConfig(profileName string, mode string) error {
 	userNet, _ := GetNetworkConfig()
 
 	// 2. 读取选中的订阅文件作为 "Base Config" (只读模板)
-	profilePath := filepath.Join(utils.GetProfilesDir(), profileName)
+	profilePath := filepath.Join(utils.GetProfilesDir(), id+".yaml")
 	baseData, err := os.ReadFile(profilePath)
 	if err != nil {
 		return fmt.Errorf("读取基础配置失败: %v", err)
@@ -611,7 +608,22 @@ func BuildRuntimeConfig(profileName string, mode string) error {
 	root["allow-lan"] = true
 	root["external-controller"] = "127.0.0.1:9090"
 	root["secret"] = "" // 确保没有意外的密码阻挡前端 WebSocket
-	
+
+	// 👇 核心注入：缝合规则！
+	customRules, _ := GetCustomRules(id)
+	var finalRules []interface{}
+
+	// 自定义规则优先级最高，放在最前面
+	for _, cr := range customRules {
+		finalRules = append(finalRules, cr)
+	}
+
+	// 附加原始规则
+	if originalRules, ok := root["rules"].([]interface{}); ok {
+		finalRules = append(finalRules, originalRules...)
+	}
+	root["rules"] = finalRules
+
 	// 👇 核心新增：动态读取并注入我们设置的日志等级
 	root["log-level"] = getAppBehaviorLogLevel()
 
@@ -652,89 +664,22 @@ func ExtractGroupOrder(yamlData []byte) []string {
 
 // -------------------- 规则配置相关 --------------------
 
-// RuleInfo 封装规则数据及其元数据
-type RuleInfo struct {
-	Rules      []string `json:"rules"`
-	IsEditable bool     `json:"isEditable"` // 是否允许增删
-}
-
-// GetRules 获取当前活跃配置的规则
-func GetRules(profileName string) (RuleInfo, error) {
-	// 判断是否允许编辑：
-	// 如果 profileName 为空或者是运行时的 config.yaml，通常属于订阅源或合并后的产物，设为只读
-	isEditable := profileName != "" && profileName != "config.yaml"
-
-	path := GetConfigPath() // 默认指向 DataDir/config.yaml
-	if isEditable {
-		// 指向用户选择的具体本地/订阅配置文件
-		path = filepath.Join(utils.GetProfilesDir(), profileName)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return RuleInfo{}, err
-	}
-
-	var root map[string]interface{}
-	if err := yaml.Unmarshal(data, &root); err != nil {
-		return RuleInfo{}, err
-	}
-
-	rules := []string{}
-	if r, ok := root["rules"].([]interface{}); ok {
-		for _, val := range r {
-			if s, ok := val.(string); ok {
-				rules = append(rules, s)
-			}
-		}
-	}
-
-	return RuleInfo{
-		Rules:      rules,
-		IsEditable: isEditable,
-	}, nil
-}
-
-// SaveRules 将新规则保存回原始导入的配置文件
-func SaveRules(profileName string, newRules []string) error {
-	if profileName == "" || profileName == "config.yaml" {
-		return fmt.Errorf("当前配置不可直接修改，请在本地配置文件中操作")
-	}
-
-	sourcePath := filepath.Join(utils.GetProfilesDir(), profileName)
-
-	// 1. 读取并修改原始导入文件 (保留其他配置不变)
-	data, err := os.ReadFile(sourcePath)
-	if err != nil {
-		return err
-	}
-
-	// 找到 rules 节点并更新 (这里简化为转 map 处理以防丢失结构，生产环境建议直接操作 yaml.Node)
-	var rootMap map[string]interface{}
-	if err := yaml.Unmarshal(data, &rootMap); err != nil {
-		return err
-	}
-	rootMap["rules"] = newRules
-
-	out, err := yaml.Marshal(rootMap)
-	if err != nil {
-		return err
-	}
-
-	// 覆写原文件
-	return os.WriteFile(sourcePath, out, 0644)
-}
+// GetRules 已经被 GetCustomRules 替代，这里可以保留空壳或者删除
+// 为了防止其他地方引用导致编译错误，暂时先删除，等会去 app.go 里修复引用
 
 // getAppBehaviorLogLevel 在文件底部新增此辅助方法
 func getAppBehaviorLogLevel() string {
 	path := filepath.Join(utils.GetDataDir(), "app_behavior.json")
 	data, err := os.ReadFile(path)
-	if err != nil { return "info" }
+	if err != nil {
+		return "info"
+	}
 	var config struct {
 		LogLevel string `json:"logLevel"`
 	}
 	json.Unmarshal(data, &config)
-	if config.LogLevel == "" { return "info" }
+	if config.LogLevel == "" {
+		return "info"
+	}
 	return config.LogLevel
 }
-

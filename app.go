@@ -20,9 +20,10 @@ import (
 	"time"
 	"unsafe"
 
+	"net/http"
+
 	"github.com/getlantern/systray" // 👈 2. 新增：引入托盘库
 	"github.com/wailsapp/wails/v2/pkg/runtime"
-	"net/http"
 )
 
 //go:embed build/windows/icon.ico
@@ -205,80 +206,21 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 	return err
 }
 
-// SubRecord 用于记录文件名与订阅链接的映射
-type SubRecord struct {
-	URL      string `json:"url"`
-	Upload   int64  `json:"upload"`   // 👈 新增
-	Download int64  `json:"download"` // 👈 新增
-	Total    int64  `json:"total"`    // 👈 新增
-	Expire   int64  `json:"expire"`   // 👈 新增
-}
-
-// 获取订阅信息存储路径
-func (a *App) getSubsRecordPath() string {
-	return filepath.Join(utils.GetDataDir(), "subs_history.json")
-}
-
-// 读取所有订阅记录
-func (a *App) readSubRecords() map[string]SubRecord {
-	records := make(map[string]SubRecord)
-	data, err := os.ReadFile(a.getSubsRecordPath())
-	if err == nil {
-		json.Unmarshal(data, &records)
-	}
-	return records
-}
-
-// 保存订阅记录
-func (a *App) saveSubRecord(filename string, url string, info *clash.SubInfo) {
-	records := a.readSubRecords()
-	record := SubRecord{URL: url}
-
-	// 保留历史流量记录
-	if old, exists := records[filename]; exists {
-		record.Upload = old.Upload
-		record.Download = old.Download
-		record.Total = old.Total
-		record.Expire = old.Expire
-	}
-	// 如果本次请求有新流量数据，则覆盖
-	if info != nil {
-		record.Upload = info.Upload
-		record.Download = info.Download
-		record.Total = info.Total
-		record.Expire = info.Expire
-	}
-
-	records[filename] = record
-	data, _ := json.MarshalIndent(records, "", "  ")
-	os.WriteFile(a.getSubsRecordPath(), data, 0644)
-}
-
-// GetSubRecords 供前端获取订阅记录映射
-func (a *App) GetSubRecords() map[string]SubRecord {
-	return a.readSubRecords()
-}
-
-// 1. 获取配置排序记忆文件的路径
-func (a *App) getSubsOrderPath() string {
-	return filepath.Join(utils.GetDataDir(), "subs_order.json")
-}
-
-// 2. 供前端调用的保存顺序 API (Wails 绑定方法)
-func (a *App) SaveConfigsOrder(order []string) error {
-	data, _ := json.MarshalIndent(order, "", "  ")
-	return os.WriteFile(a.getSubsOrderPath(), data, 0644)
+// GetLocalConfigs 获取订阅列表
+func (a *App) GetLocalConfigs() []clash.SubIndexItem {
+	clash.IndexLock.RLock()
+	defer clash.IndexLock.RUnlock()
+	return clash.SubIndex
 }
 
 // ProxyStatus 新增给前端返回的双重状态结构
 
-
 // AppState 定义全局状态同步结构
 type AppState struct {
-	IsRunning   bool   `json:"isRunning"`
-	Mode        string `json:"mode"`
-	Theme       string `json:"theme"`
-	HideLogs    bool   `json:"hideLogs"`
+	IsRunning bool   `json:"isRunning"`
+	Mode      string `json:"mode"`
+	Theme     string `json:"theme"`
+	HideLogs  bool   `json:"hideLogs"`
 	// 👇 新增以下字段，统一接管 UI
 	SystemProxy bool   `json:"systemProxy"`
 	Tun         bool   `json:"tun"`
@@ -313,17 +255,17 @@ func (a *App) mergeOfflineNodes(data map[string]interface{}) {
 func (a *App) saveActiveConfig(fileName string) {
 	// 🚀 1. 将读取、判断、修改全部放入锁闭环，杜绝 Read-Modify-Write 竞态漏洞
 	a.behaviorMu.Lock()
-	
+
 	// ⚡ 防抖：如果没变，直接释放锁并返回
 	if a.behaviorCache.ActiveConfig == fileName {
 		a.behaviorMu.Unlock()
 		return
 	}
-	
+
 	a.behaviorCache.ActiveConfig = fileName
 	// 🚀 2. 深拷贝一份结构体用于写盘
 	behaviorToSave := a.behaviorCache
-	
+
 	// 🚀 3. 立即释放锁，不要让缓慢的磁盘 IO 阻塞其他协程
 	a.behaviorMu.Unlock()
 
@@ -340,15 +282,15 @@ func (a *App) loadActiveConfig() string {
 // saveActiveMode 记录当前选中的模式到本地
 func (a *App) saveActiveMode(mode string) {
 	a.behaviorMu.Lock()
-	
+
 	if a.behaviorCache.ActiveMode == mode {
 		a.behaviorMu.Unlock()
 		return
 	}
-	
+
 	a.behaviorCache.ActiveMode = mode
 	behaviorToSave := a.behaviorCache
-	
+
 	a.behaviorMu.Unlock()
 
 	data, _ := json.MarshalIndent(behaviorToSave, "", "  ")
@@ -421,7 +363,7 @@ func (a *App) ensureCoreRunning() error {
 	if err := clash.Start(a.ctx); err != nil {
 		return err
 	}
-	
+
 	// 🚀 新增：内核一经启动（即使 API 还没就绪），立刻同步状态，让前端的“接管中”秒级点亮！
 	a.SyncState()
 
@@ -464,7 +406,7 @@ func (a *App) stopCoreService() {
 	if clash.IsRunning() {
 		if data, err := clash.GetInitialData(); err == nil {
 			// 🎯 精准修复：使用 map[string]interface{} 正确解析 JSON 对象
-			if groups, ok := data["groups"].(map[string]interface{}); ok { 
+			if groups, ok := data["groups"].(map[string]interface{}); ok {
 				for gName, gData := range groups {
 					if gMap, ok2 := gData.(map[string]interface{}); ok2 {
 						if now, ok3 := gMap["now"].(string); ok3 && now != "" {
@@ -479,7 +421,7 @@ func (a *App) stopCoreService() {
 
 	clash.Stop()
 	a.StopTrafficStream() // 👈 上一步修改的函数，这里会自动触发流量归零
-	
+
 	// 🚀 新增：内核一经停止，立刻同步状态，消除前端“服务停止”状态的延迟感！
 	a.SyncState()
 }
@@ -488,11 +430,9 @@ func (a *App) stopCoreService() {
 // --- 暴露给前端的 API ---
 // ==========================================
 
-
-
 // ToggleSystemProxy 开关 1：系统代理
 func (a *App) ToggleSystemProxy(enable bool) error {
-	defer a.SyncState() // 🚀 无论成功失败，退出函数时强制刷新 UI 状态，防止前端卡死在错误位置
+	defer a.SyncState()              // 🚀 无论成功失败，退出函数时强制刷新 UI 状态，防止前端卡死在错误位置
 	a.coreLifecycleMu.Lock()         // 🔒 加锁
 	defer a.coreLifecycleMu.Unlock() // 🔓 退出时自动解锁
 
@@ -539,7 +479,7 @@ func (a *App) ToggleSystemProxy(enable bool) error {
 
 // ToggleTunMode 开关 2：虚拟网卡 (TUN)
 func (a *App) ToggleTunMode(enable bool) error {
-	defer a.SyncState() // 🚀 防御性同步：确保 UI 状态始终回滚到真实后端状态
+	defer a.SyncState()              // 🚀 防御性同步：确保 UI 状态始终回滚到真实后端状态
 	a.coreLifecycleMu.Lock()         // 🔒 加锁
 	defer a.coreLifecycleMu.Unlock() // 🔓 退出时自动解锁
 
@@ -552,7 +492,7 @@ func (a *App) ToggleTunMode(enable bool) error {
 			// 1. 发送通知给前端弹出 Error Toast
 			runtime.EventsEmit(a.ctx, "notify-error", errContext)
 			// 2. 强制同步一次正确状态给前端
-			a.SyncState() 
+			a.SyncState()
 			return fmt.Errorf("permission denied")
 		}
 	}
@@ -631,14 +571,16 @@ func (a *App) cleanLegacyFiles() {
 	binDir := utils.GetCoreBinDir()
 	_ = os.Remove(filepath.Join(binDir, "active_config.txt"))
 	_ = os.Remove(filepath.Join(binDir, "active_mode.txt"))
-	
+
 	// 🚀 启动时静默清理上次内核更新产生的 .old 垃圾文件
 	_ = os.Remove(filepath.Join(binDir, "mihomo-windows-amd64.exe.old"))
-	_ = os.Remove(filepath.Join(binDir, "clash.exe.old")) 
+	_ = os.Remove(filepath.Join(binDir, "clash.exe.old"))
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	clash.LoadIndex() // 🚀 初始化加载订阅索引
 
 	// 🚀 核心修复：静默兜底清理
 	// 专门对付上次应用意外崩溃、蓝屏、被强制结束，导致注册表代理未关闭而断网的极端情况
@@ -804,7 +746,7 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	data["isOffline"] = false
 
 	// 注入节点组原始排序
-	configPath := filepath.Join(utils.GetProfilesDir(), activeConfig)
+	configPath := filepath.Join(utils.GetProfilesDir(), activeConfig+".yaml")
 	if activeConfig == "" || activeConfig == "config.yaml" {
 		configPath = filepath.Join(utils.GetDataDir(), "config.yaml")
 	}
@@ -918,7 +860,7 @@ func (a *App) UpdateClashMode(mode string) error {
 				clash.BuildRuntimeConfig(activeCfg, targetMode)
 			}
 		}
-		
+
 		// 最后做一次对齐
 		a.SyncState()
 	}(mode, isRunning)
@@ -946,21 +888,18 @@ func (a *App) SelectProxy(groupName, nodeName string) error {
 	return nil
 }
 
-func (a *App) UpdateSub(url string) error {
+func (a *App) UpdateSub(name, url string) error {
 	ua := a.GetAppBehavior().SubUA
-	// 1. 下载订阅
-	filename, info, err := clash.UpdateSubscription(url, "", ua)
+	// 1. 下载订阅 (自动生成 ID)
+	id, err := clash.DownloadSub(name, url, "", ua)
 	if err != nil {
 		return err
 	}
 
-	// 2. 记录 URL 映射
-	a.saveSubRecord(filename, url, info)
-
-	// 3. 如果更新的是当前正在使用的配置，触发重载
-	if a.getActiveConfig() == filename && clash.IsRunning() {
+	// 2. 如果更新的是当前正在使用的配置，触发重载
+	if a.getActiveConfig() == id && clash.IsRunning() {
 		mode := a.getActiveMode()
-		clash.BuildRuntimeConfig(filename, mode)
+		clash.BuildRuntimeConfig(id, mode)
 		clash.ReloadConfig()
 	}
 
@@ -968,26 +907,33 @@ func (a *App) UpdateSub(url string) error {
 }
 
 // UpdateSingleSub 实装：更新单个文件
-func (a *App) UpdateSingleSub(filename string) error {
-	records := a.readSubRecords()
-	record, ok := records[filename]
-	if !ok || record.URL == "" {
-		return fmt.Errorf("未找到该文件的订阅链接，请重新导入")
+func (a *App) UpdateSingleSub(id string) error {
+	clash.IndexLock.RLock()
+	var url string
+	var name string
+	for _, item := range clash.SubIndex {
+		if item.ID == id {
+			url = item.URL
+			name = item.Name
+			break
+		}
+	}
+	clash.IndexLock.RUnlock()
+
+	if url == "" {
+		return fmt.Errorf("未找到该订阅的链接")
 	}
 
 	ua := a.GetAppBehavior().SubUA
-	_, info, err := clash.UpdateSubscription(record.URL, filename, ua)
+	_, err := clash.DownloadSub(name, url, id, ua)
 	if err != nil {
 		return err
 	}
 
-	// 更新流量信息
-	a.saveSubRecord(filename, record.URL, info)
-
 	// 如果更新的是当前正在使用的配置，触发重载
-	if a.getActiveConfig() == filename && clash.IsRunning() {
+	if a.getActiveConfig() == id && clash.IsRunning() {
 		mode := a.getActiveMode()
-		clash.BuildRuntimeConfig(filename, mode)
+		clash.BuildRuntimeConfig(id, mode)
 		clash.ReloadConfig()
 	}
 
@@ -996,26 +942,25 @@ func (a *App) UpdateSingleSub(filename string) error {
 
 // UpdateAllSubs 实装：遍历并更新所有已记录链接的文件
 func (a *App) UpdateAllSubs() error {
-	records := a.readSubRecords()
+	clash.IndexLock.RLock()
+	// 复制一份索引以防长时间占锁
+	items := make([]clash.SubIndexItem, len(clash.SubIndex))
+	copy(items, clash.SubIndex)
+	clash.IndexLock.RUnlock()
+
 	ua := a.GetAppBehavior().SubUA
-	for filename, record := range records {
-		if record.URL != "" {
-			// 忽略错误继续更新下一个
-			_, info, _ := clash.UpdateSubscription(record.URL, filename, ua)
-			if info != nil {
-				a.saveSubRecord(filename, record.URL, info)
-			}
+	for _, item := range items {
+		if item.URL != "" && item.Type == "remote" {
+			_, _ = clash.DownloadSub(item.Name, item.URL, item.ID, ua)
 		}
 	}
 
 	// 更新完成后，如果当前活动配置在其中，触发一次重载
 	active := a.getActiveConfig()
 	if active != "" && clash.IsRunning() {
-		if _, exists := records[active]; exists {
-			mode := a.getActiveMode()
-			clash.BuildRuntimeConfig(active, mode)
-			clash.ReloadConfig()
-		}
+		mode := a.getActiveMode()
+		clash.BuildRuntimeConfig(active, mode)
+		clash.ReloadConfig()
 	}
 
 	return nil
@@ -1249,6 +1194,40 @@ func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 	return err
 }
 
+// RenameConfig 重命名配置文件
+func (a *App) RenameConfig(id, newName string) error {
+	a.mu.Lock()
+	isActiveConfig := (a.activeConfig == id)
+	mode := a.activeMode
+	wasActive := a.sysProxyActive || a.tunActive
+	a.mu.Unlock()
+
+	if isActiveConfig && clash.IsRunning() {
+		clash.Stop()
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	err := clash.RenameConfig(id, newName)
+
+	if isActiveConfig {
+		if err != nil {
+			clash.BuildRuntimeConfig(id, mode)
+			if wasActive {
+				a.ensureCoreRunning()
+				a.SyncState()
+			}
+			return fmt.Errorf("文件重命名失败: %v", err)
+		}
+
+		if wasActive {
+			a.ensureCoreRunning()
+			a.SyncState()
+		}
+	}
+
+	return err
+}
+
 // 3. 提供给前端：安装驱动 (加入安全回滚与防占用机制)
 func (a *App) InstallTunDriver(force bool) (string, error) {
 	binDir := utils.GetCoreBinDir()
@@ -1363,7 +1342,7 @@ func (a *App) GetConnections() (map[string]interface{}, error) {
 	var data struct {
 		Connections []traffic.RawConnection `json:"connections"`
 	}
-	
+
 	// 🚀 直接从字节流解析，省去 map 中转和二次 Marshal 的损耗
 	if err := json.Unmarshal(rawBytes, &data); err != nil {
 		return nil, err
@@ -1402,54 +1381,8 @@ func (a *App) getProfilesDir() string {
 	return utils.GetProfilesDir()
 }
 
-// 修改 GetLocalConfigs，让它结合物理文件和用户的自定义排序
-func (a *App) GetLocalConfigs() ([]string, error) {
-	dir := a.getProfilesDir()
-	files, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	// 1. 获取实际存在的文件
-	var actualConfigs []string
-	actualMap := make(map[string]bool)
-	for _, file := range files {
-		if !file.IsDir() && file.Name() != "config.yaml" &&
-			(strings.HasSuffix(file.Name(), ".yaml") || strings.HasSuffix(file.Name(), ".yml")) {
-			actualConfigs = append(actualConfigs, file.Name())
-			actualMap[file.Name()] = true
-		}
-	}
-
-	// 2. 读取之前保存的排序
-	orderPath := a.getSubsOrderPath()
-	data, err := os.ReadFile(orderPath)
-	var savedOrder []string
-	if err == nil {
-		json.Unmarshal(data, &savedOrder)
-	}
-
-	// 3. 重建有序列表
-	var finalConfigs []string
-	seen := make(map[string]bool)
-
-	// 先按保存的顺序推入（且确保文件确实存在）
-	for _, name := range savedOrder {
-		if actualMap[name] {
-			finalConfigs = append(finalConfigs, name)
-			seen[name] = true
-		}
-	}
-
-	// 把新下载/新导入、还不在排序记录里的文件追加到末尾
-	for _, name := range actualConfigs {
-		if !seen[name] {
-			finalConfigs = append(finalConfigs, name)
-		}
-	}
-
-	return finalConfigs, nil
-}
+// GetLocalConfigs 已经被全局 SubIndex 替代，这里提供一个空壳或者直接重命名
+// 已经在前面重新定义过了
 
 // ImportLocalConfig 导入本地配置文件
 func (a *App) ImportLocalConfig() error {
@@ -1469,83 +1402,37 @@ func (a *App) ImportLocalConfig() error {
 	}
 
 	fileName := filepath.Base(filePath)
-	destDir := a.getProfilesDir()
-	os.MkdirAll(destDir, 0755)
-	destPath := filepath.Join(destDir, fileName)
-
-	return os.WriteFile(destPath, content, 0644)
-}
-
-// RenameConfig 重命名配置文件
-func (a *App) RenameConfig(oldName, newName string) error {
-	oldName = filepath.Base(oldName)
-	newName = filepath.Base(newName)
-
-	if !strings.HasSuffix(newName, ".yaml") && !strings.HasSuffix(newName, ".yml") {
-		newName += ".yaml"
-	}
-	oldPath := filepath.Join(a.getProfilesDir(), oldName)
-	newPath := filepath.Join(a.getProfilesDir(), newName)
-
-	a.mu.Lock()
-	isActiveConfig := (a.activeConfig == oldName)
-	mode := a.activeMode // 提前取出 mode
-	a.mu.Unlock()
-
-	if isActiveConfig && clash.IsRunning() {
-		clash.Stop()
-		time.Sleep(200 * time.Millisecond) // 等待文件句柄释放
+	id := fmt.Sprintf("%d", time.Now().UnixMilli())
+	
+	destPath := filepath.Join(a.getProfilesDir(), id+".yaml")
+	if err := os.WriteFile(destPath, content, 0644); err != nil {
+		return err
 	}
 
-	renameFunc := func() error {
-		if strings.EqualFold(oldName, newName) && oldName != newName {
-			tempPath := newPath + ".tmp"
-			if err := os.Rename(oldPath, tempPath); err != nil {
-				return err
-			}
-			return os.Rename(tempPath, newPath)
-		}
-		return os.Rename(oldPath, newPath)
-	}
+	// 初始化伴生规则文件
+	rulesPath := filepath.Join(a.getProfilesDir(), id+"_rules.json")
+	os.WriteFile(rulesPath, []byte(`{"customRules":[]}`), 0644)
 
-	err := renameFunc()
+	// 更新全局索引
+	clash.IndexLock.Lock()
+	clash.SubIndex = append(clash.SubIndex, clash.SubIndexItem{
+		ID:      id,
+		Name:    fileName,
+		URL:     "",
+		Type:    "local",
+		Updated: time.Now().Unix(),
+	})
+	clash.IndexLock.Unlock()
 
-	if isActiveConfig {
-		// ✅ 优化：增加错误回退处理，如果重命名失败，必须用旧配置将内核救回来
-		if err != nil {
-			clash.BuildRuntimeConfig(oldName, mode)
-			a.ensureCoreRunning()
-			return fmt.Errorf("文件重命名失败，已恢复原状态: %v", err)
-		}
-
-		// ✅ 核心修复：重新加锁执行 CAS 状态校验
-		a.mu.Lock()
-		// 仅当 activeConfig 仍是刚才重命名的文件时，才予以更新
-		if a.activeConfig == oldName {
-			a.activeConfig = newName
-			a.mu.Unlock() // 尽早释放锁
-
-			// 耗时的磁盘操作放在锁外
-			a.saveActiveConfig(newName)
-
-			clash.BuildRuntimeConfig(newName, mode)
-			a.ensureCoreRunning()
-		} else {
-			a.mu.Unlock() // 如果已经被其他协程修改，则放弃覆盖
-		}
-	}
-
-	return err
+	return clash.SaveIndex()
 }
 
 // OpenConfigFile 使用系统默认应用打开配置文件
-func (a *App) OpenConfigFile(fileName string) error {
-	fileName = filepath.Base(fileName) // 净化
-	path := filepath.Join(a.getProfilesDir(), fileName)
+func (a *App) OpenConfigFile(id string) error {
+	path := filepath.Join(a.getProfilesDir(), id+".yaml")
 	var cmd *exec.Cmd
 	switch stdruntime.GOOS {
 	case "windows":
-		// ⚠️ 修复：避免使用 cmd /c，防止 Shell 元字符注入
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
 		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	case "darwin":
@@ -1557,25 +1444,20 @@ func (a *App) OpenConfigFile(fileName string) error {
 }
 
 // DeleteConfig 删除配置文件
-func (a *App) DeleteConfig(fileName string) error {
-	fileName = filepath.Base(fileName) // 👈 净化
-	path := filepath.Join(a.getProfilesDir(), fileName)
-
-	// 🚀 核心修复：如果删掉的是当前活动配置，必须重置环境
+func (a *App) DeleteConfig(id string) error {
 	a.mu.Lock()
-	if a.activeConfig == fileName {
+	if a.activeConfig == id {
 		a.activeConfig = ""
 		a.mu.Unlock()
-		
+
 		a.saveActiveConfig("") // 清空本地记忆
-		// 清空离线记录，防止切到空配置时报错
 		a.ClearOfflineNodes()
 		a.saveOfflineNodes()
 	} else {
 		a.mu.Unlock()
 	}
 
-	return os.Remove(path)
+	return clash.DeleteConfig(id)
 }
 
 // ClearBaseConfig 清空基础配置（当所有订阅被删除时调用）
@@ -1597,25 +1479,22 @@ func (a *App) ClearBaseConfig() error {
 }
 
 // 替换1：切换本地配置时，使用流水线生成机制
-func (a *App) SelectLocalConfig(fileName string) error {
-	fileName = filepath.Base(fileName)
-
+// 切换本地配置 (使用 ID)
+func (a *App) SelectLocalConfig(id string) error {
 	a.mu.Lock()
-	a.activeConfig = fileName
-	mode := a.activeMode // 顺便把 mode 一起取出来，后面不用再加锁
+	a.activeConfig = id
+	mode := a.activeMode
 	wasActive := a.sysProxyActive || a.tunActive
-	a.mu.Unlock() // ✅ 立即释放锁
+	a.mu.Unlock()
 	a.ClearOfflineNodes()
 	a.saveOfflineNodes()
 
-	// 耗时的磁盘 I/O 放在锁外执行
-	a.saveActiveConfig(fileName)
+	a.saveActiveConfig(id)
 
 	a.stopCoreService()
 	sys.DisableSystemProxy()
 
-	// 使用刚刚在锁内提取出的 mode
-	if err := clash.BuildRuntimeConfig(fileName, mode); err != nil {
+	if err := clash.BuildRuntimeConfig(id, mode); err != nil {
 		return fmt.Errorf("生成运行时配置失败: %v", err)
 	}
 
@@ -1627,7 +1506,6 @@ func (a *App) SelectLocalConfig(fileName string) error {
 		sysProxy := a.sysProxyActive
 		a.mu.Unlock()
 		if sysProxy {
-			// ✅ 动态获取端口
 			proxyPort := 7890
 			if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil {
 				if netCfg.MixedPort != 0 {
@@ -1643,80 +1521,26 @@ func (a *App) SelectLocalConfig(fileName string) error {
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	runtime.EventsEmit(a.ctx, "config-changed", fileName)
+	runtime.EventsEmit(a.ctx, "config-changed", id)
 	return nil
 }
 
 // --- 规则管理 (新增) ---
 
-// GetRules 供前端获取规则列表及权限
-func (a *App) GetRules() (clash.RuleInfo, error) {
-	return clash.GetRules(a.getActiveConfig())
+// 规则读写
+func (a *App) GetCustomRules(id string) []string {
+	rules, _ := clash.GetCustomRules(id)
+	return rules
 }
 
-// AddRule 增加一条规则到最前面
-func (a *App) AddRule(ruleStr string) error {
-	info, err := clash.GetRules(a.getActiveConfig())
-	if err != nil {
-		return err
-	}
-	if !info.IsEditable {
-		return fmt.Errorf("当前配置只读，无法修改规则")
-	}
-
-	// 新规则置于顶部
-	newRules := append([]string{ruleStr}, info.Rules...)
-	if err := clash.SaveRules(a.getActiveConfig(), newRules); err != nil {
-		return err
-	}
-
-	// 同步到内核：重构 config.yaml
-	mode := a.getActiveMode()
-	clash.BuildRuntimeConfig(a.getActiveConfig(), mode)
-
-	// 如果内核运行中，触发热重载
-	if clash.IsRunning() {
-		return clash.UpdateMode(mode)
-	}
-	return nil
-}
-
-// DeleteRule 根据索引删除规则
-func (a *App) DeleteRule(index int) error {
-	info, err := clash.GetRules(a.getActiveConfig())
-	if err != nil {
-		return err
-	}
-	if !info.IsEditable {
-		return fmt.Errorf("当前配置只读，无法修改规则")
-	}
-
-	if index < 0 || index >= len(info.Rules) {
-		return fmt.Errorf("规则索引越界")
-	}
-
-	// 移除指定索引的规则
-	newRules := append(info.Rules[:index], info.Rules[index+1:]...)
-
-	if err := clash.SaveRules(a.getActiveConfig(), newRules); err != nil {
-		return err
-	}
-
-	// 同步到内核
-	mode := a.getActiveMode()
-	clash.BuildRuntimeConfig(a.getActiveConfig(), mode)
-	if clash.IsRunning() {
-		return clash.UpdateMode(mode)
-	}
-	return nil
+func (a *App) SaveCustomRules(id string, rules []string) error {
+	return clash.SaveCustomRules(id, rules)
 }
 
 // 获取主题配置路径
 func getThemeConfigPath() string {
 	return filepath.Join(utils.GetDataDir(), "theme_setting.txt")
 }
-
-
 
 // GetAppState 供前端初始化时主动拉取应用状态
 func (a *App) GetAppState() AppState {
@@ -1741,8 +1565,6 @@ func (a *App) GetAppState() AppState {
 		Version:     a.GetCoreVersion(),
 	}
 }
-
-
 
 // ==========================================
 // --- 系统托盘功能 (新增) ---
@@ -1852,8 +1674,9 @@ type PagedRules struct {
 }
 
 // GetAllRules 供前端一次性获取所有匹配规则，配合虚拟滚动实现极致流畅
-func (a *App) GetAllRules(keyword string) (PagedRules, error) {
-	info, err := clash.GetRules(a.getActiveConfig())
+// GetAllRules 已经被 GetCustomRules 替代
+func (a *App) GetAllRules(id string, keyword string) (PagedRules, error) {
+	rules, err := clash.GetCustomRules(id)
 	if err != nil {
 		return PagedRules{}, err
 	}
@@ -1861,8 +1684,7 @@ func (a *App) GetAllRules(keyword string) (PagedRules, error) {
 	var filtered []RuleItem
 	keyword = strings.ToLower(keyword)
 
-	// Go 语言层面的极速过滤
-	for i, r := range info.Rules {
+	for i, r := range rules {
 		if keyword == "" || strings.Contains(strings.ToLower(r), keyword) {
 			filtered = append(filtered, RuleItem{Index: i, Text: r})
 		}
@@ -1871,7 +1693,7 @@ func (a *App) GetAllRules(keyword string) (PagedRules, error) {
 	return PagedRules{
 		Total:      len(filtered),
 		Items:      filtered,
-		IsEditable: info.IsEditable,
+		IsEditable: true,
 	}, nil
 }
 
@@ -1889,8 +1711,6 @@ func (a *App) CheckComponentUpdate() map[string]string {
 		"wintun": "0.14.1",
 	}
 }
-
-
 
 // GetWintunVersion 供前端获取当前 Wintun 驱动的版本
 func (a *App) GetWintunVersion() string {
@@ -2050,9 +1870,9 @@ func (a *App) UpdateCoreComponent() (string, error) {
 		if startErr := a.ensureCoreRunning(); startErr != nil {
 			// ⚠️ 灾难恢复：新内核架构不对或启动报错，立即执行最终回滚！
 			a.stopCoreService()
-			os.Remove(exePath)                 // 摧毁损坏的新内核
+			os.Remove(exePath)                  // 摧毁损坏的新内核
 			_ = safeRename(backupPath, exePath) // 复活老内核
-			a.ensureCoreRunning()              // 重新启动
+			a.ensureCoreRunning()               // 重新启动
 			a.SyncState()
 			return "", fmt.Errorf("新内核损坏或不兼容，已自动回滚至稳定版: %v", startErr)
 		}
@@ -2216,7 +2036,7 @@ func (a *App) UpdateAllGeoDatabases(types []string) error {
 			_ = safeRename(backupPath, targetPath) // 👈 失败回滚也使用安全替换
 			errs = append(errs, fmt.Sprintf("[%s] 部署失败: %v", task.key, err))
 		} else {
-			os.Remove(backupPath) 
+			os.Remove(backupPath)
 		}
 	}
 
@@ -2285,7 +2105,7 @@ func (a *App) GetGeoDatabaseInfo() map[string]GeoFileInfo {
 func getLatestMihomoAssetURL(osName, arch, suffix string) (string, string, error) {
 	// ⚡ 使用本地定义的超时 Client，防止 GitHub API 卡死整个应用
 	client := &http.Client{Timeout: 10 * time.Second}
-	
+
 	url := "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
 	resp, err := client.Get(url)
 	if err != nil {

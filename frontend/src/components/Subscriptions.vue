@@ -128,7 +128,7 @@
             <input v-model="renameValue" class="modal-input" placeholder="例如: MyConfig.yaml" @keyup.enter="confirmRename" />
             <div class="modal-footer">
               <button class="action-btn flex-1" @click="closeAllModals">取消</button>
-              <button class="primary-btn accent-btn flex-1" @click="confirmRename" :disabled="!renameValue || loading">确定</button>
+              <button class="primary-btn accent-btn flex-1" @click="confirmRename" :disabled="!renameValue || isRenaming">确定</button>
             </div>
           </div>
         </div>
@@ -167,6 +167,7 @@ const targetFile = ref('');
 const renameValue = ref('');
 const url = ref('');
 const loading = ref(false);
+const isRenaming = ref(false);
 const selecting = ref<string | null>(null);
 const currentPath = ref('');
 const localConfigs = ref<string[]>([]);
@@ -344,19 +345,24 @@ const openRenameModal = (filename: string) => {
 };
 
 const confirmRename = async () => {
-  if (!renameValue.value || renameValue.value === targetFile.value) {
+  let finalName = renameValue.value;
+  if (!finalName.endsWith('.yaml') && !finalName.endsWith('.yml')) {
+    finalName += '.yaml';
+  }
+  if (!renameValue.value || finalName === targetFile.value) {
     closeAllModals();
     return;
   }
-  loading.value = true;
+  
+  isRenaming.value = true; // 👈 修复：使用专属状态
   try {
-    await API.RenameConfig(targetFile.value, renameValue.value);
+    await API.RenameConfig(targetFile.value, finalName);
     await fetchConfigs();
     closeAllModals();
   } catch (e) {
     console.error("重命名失败:", e);
   } finally {
-    loading.value = false;
+    isRenaming.value = false; // 👈 修复：重置专属状态
   }
 };
 
@@ -446,6 +452,23 @@ onUnmounted(() => {
 /* ================================== */
 .list-move {
   transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* 找到你定义 .list-leave-active 的地方，添加 absolute 定位 */
+.list-leave-active {
+  position: absolute; /* 👈 核心修复：让离场元素脱离文档流 */
+  width: calc(100% - 40px); /* 防止绝对定位后宽度坍缩，数值根据你父容器的 padding 适当调整 */
+}
+
+/* 确保你的入场离场动画基础属性存在，例如： */
+.list-enter-active,
+.list-leave-active {
+  transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.list-enter-from,
+.list-leave-to {
+  opacity: 0;
+  transform: translateY(15px);
 }
 
 /* 1. 统一头部按钮的基础样式，锁定高度防止内容变化导致抖动 */

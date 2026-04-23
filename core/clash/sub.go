@@ -6,27 +6,18 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv" // 👈 新增导入
+	"strconv"
 	"strings"
 	"time"
 
-	"goclashz/core/utils" // 引入全局路径包
+	"goclashz/core/utils"
 )
 
-// SubInfo 👈 新增结构体
-type SubInfo struct {
-	Upload   int64 `json:"upload"`
-	Download int64 `json:"download"`
-	Total    int64 `json:"total"`
-	Expire   int64 `json:"expire"`
-}
-
-// ParseSubInfo 👈 新增解析函数
-func ParseSubInfo(header string) *SubInfo {
+// parseSubUserInfo 解析流量 Header
+func parseSubUserInfo(header string) (upload, download, total, expire int64) {
 	if header == "" {
-		return nil
+		return
 	}
-	info := &SubInfo{}
 	parts := strings.Split(header, ";")
 	for _, part := range parts {
 		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
@@ -34,41 +25,32 @@ func ParseSubInfo(header string) *SubInfo {
 			val, _ := strconv.ParseInt(kv[1], 10, 64)
 			switch strings.ToLower(kv[0]) {
 			case "upload":
-				info.Upload = val
+				upload = val
 			case "download":
-				info.Download = val
+				download = val
 			case "total":
-				info.Total = val
+				total = val
 			case "expire":
-				info.Expire = val
+				expire = val
 			}
 		}
 	}
-	return info
+	return
 }
 
-// UpdateSubscription 下载 YAML 订阅
-// 如果 targetName 为空，则自动根据 URL 生成文件名
-func UpdateSubscription(subURL string, targetName string, userAgent string) (string, *SubInfo, error) {
-	// 1. 决定文件名
-	fileName := targetName
-	if fileName == "" {
-		// 简单从 URL 提取或使用时间戳
-		fileName = fmt.Sprintf("sub_%d.yaml", time.Now().Unix())
-	}
-	if !strings.HasSuffix(fileName, ".yaml") && !strings.HasSuffix(fileName, ".yml") {
-		fileName += ".yaml"
+// DownloadSub 下载订阅 (id 为空表示新增，不为空表示更新)
+func DownloadSub(name, url, existingId, userAgent string) (string, error) {
+	id := existingId
+	if id == "" {
+		id = fmt.Sprintf("%d", time.Now().UnixMilli())
 	}
 
-	configPath := filepath.Join(utils.GetProfilesDir(), fileName)
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("GET", subURL, nil)
+	client := &http.Client{Timeout: 60 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return "", nil, err
+		return id, err
 	}
 
-	// 使用传入的 UA，如果没有则使用默认值
 	if userAgent == "" {
 		userAgent = "ClashforWindows/0.20.39"
 	}
@@ -76,33 +58,95 @@ func UpdateSubscription(subURL string, targetName string, userAgent string) (str
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", nil, fmt.Errorf("订阅下载失败: %v", err)
+		return id, fmt.Errorf("订阅下载失败: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", nil, fmt.Errorf("订阅服务器异常: HTTP %d", resp.StatusCode)
+		return id, fmt.Errorf("订阅服务器异常: HTTP %d", resp.StatusCode)
 	}
 
-	// 👈 核心拦截：在这里抓取流量 Header
-	infoStr := resp.Header.Get("Subscription-Userinfo")
-	info := ParseSubInfo(infoStr)
+	upload, download, total, expire := parseSubUserInfo(resp.Header.Get("Subscription-Userinfo"))
 
-	out, err := os.Create(configPath)
+	// 3. 绝对只读保存原始 YAML
+	yamlPath := filepath.Join(utils.GetProfilesDir(), id+".yaml")
+	outFile, err := os.Create(yamlPath)
 	if err != nil {
-		return "", nil, fmt.Errorf("无法创建配置文件(权限不足或目录不存在): %v", err)
+		return id, fmt.Errorf("无法创建配置文件: %v", err)
 	}
+	defer outFile.Close()
 
-	_, err = io.Copy(out, resp.Body)
-	out.Close()
+	_, err = io.Copy(outFile, resp.Body)
 	if err != nil {
-		os.Remove(configPath) // 写入失败时清理残缺文件
-		return "", nil, err
+		return id, err
 	}
 
-	// 如果当前正在运行且更新的是活动配置，则热重载
-	// 注意：这里为了简单，暂时不在此处判断是否是活动配置，由 App 层决定是否 Reload
-	return fileName, info, nil
+	// 4. 初始化伴生规则文件 (如果不存在才创建，防止洗掉用户规则)
+	rulesPath := filepath.Join(utils.GetProfilesDir(), id+"_rules.json")
+	if _, err := os.Stat(rulesPath); os.IsNotExist(err) {
+		os.WriteFile(rulesPath, []byte(`{"customRules":[]}`), 0644)
+	}
+
+	// 5. 更新全局索引
+	IndexLock.Lock()
+	found := false
+	for i, item := range SubIndex {
+		if item.ID == id {
+			SubIndex[i].Upload = upload // 更新流量和时间
+			SubIndex[i].Download = download
+			SubIndex[i].Total = total
+			SubIndex[i].Expire = expire
+			SubIndex[i].Updated = time.Now().Unix()
+			found = true
+			break
+		}
+	}
+	if !found {
+		SubIndex = append(SubIndex, SubIndexItem{
+			ID:       id,
+			Name:     name,
+			URL:      url,
+			Type:     "remote",
+			Upload:   upload,
+			Download: download,
+			Total:    total,
+			Expire:   expire,
+			Updated:  time.Now().Unix(),
+		})
+	}
+	IndexLock.Unlock()
+
+	return id, SaveIndex()
+}
+
+func RenameConfig(id, newName string) error {
+	IndexLock.Lock()
+	defer IndexLock.Unlock()
+	for i, item := range SubIndex {
+		if item.ID == id {
+			SubIndex[i].Name = newName
+			break
+		}
+	}
+	return SaveIndex() // 只改 json，底层 yaml 名字不动！
+}
+
+func DeleteConfig(id string) error {
+	IndexLock.Lock()
+	for i, item := range SubIndex {
+		if item.ID == id {
+			SubIndex = append(SubIndex[:i], SubIndex[i+1:]...)
+			break
+		}
+	}
+	IndexLock.Unlock()
+	SaveIndex()
+
+	// 删除物理文件
+	dir := utils.GetProfilesDir()
+	os.Remove(filepath.Join(dir, id+".yaml"))
+	os.Remove(filepath.Join(dir, id+"_rules.json"))
+	return nil
 }
 
 // ReloadConfig 调用内核 API 热重载
