@@ -126,6 +126,10 @@ export function RenameConfig(arg1, arg2) {
   return window['go']['main']['App']['RenameConfig'](arg1, arg2);
 }
 
+export function ResetComponentSettings(arg1) {
+  return window['go']['main']['App']['ResetComponentSettings'](arg1);
+}
+
 export function RestartCore() {
   return window['go']['main']['App']['RestartCore']();
 }

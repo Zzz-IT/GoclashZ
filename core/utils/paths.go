@@ -63,6 +63,7 @@ func initDirs() {
 	os.MkdirAll(dataDir, 0755)
 	os.MkdirAll(filepath.Join(dataDir, "profiles"), 0755)      // 存放 index.json
 	os.MkdirAll(filepath.Join(dataDir, "Subscriptions"), 0755) // 🎯 新增：存放 YAML 和 Rules
+	os.MkdirAll(filepath.Join(dataDir, "Settings"), 0755)      // 🎯 新增：存放独立设置文件
 	os.MkdirAll(filepath.Join(dataDir, "core", "bin"), 0755)   // 提前建好内核目录
 }
 
@@ -102,4 +103,9 @@ func GetProfilesDir() string {
 // GetSubscriptionsDir 返回存放 YAML 和 Rules 文件的目录
 func GetSubscriptionsDir() string {
 	return filepath.Join(dataDir, "Subscriptions")
+}
+
+// GetSettingsDir 返回设置文件夹的绝对路径
+func GetSettingsDir() string {
+	return filepath.Join(dataDir, "Settings")
 }

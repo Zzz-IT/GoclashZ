@@ -194,79 +194,22 @@ type TunConfig struct {
 	MTU                 int      `yaml:"mtu" json:"mtu"`
 }
 
-// GetTunConfig 从 config.yaml 读取 TUN 配置
+// ================= TUN 设置 =================
 func GetTunConfig() (*TunConfig, error) {
-	configMu.Lock()
-	defer configMu.Unlock()
-
-	configPath := GetConfigPath() // 👈 使用绝对路径
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil, err
-	}
-
-	var root map[string]interface{}
-	if err := yaml.Unmarshal(data, &root); err != nil {
-		return nil, err
-	}
-
-	// 初始化默认值
-	conf := &TunConfig{
+	defaultTun := TunConfig{
 		Enable:              false,
 		Stack:               "gvisor",
-		Device:              "",
 		AutoRoute:           true,
 		AutoDetectInterface: true,
 		DNSHijack:           []string{"any:53"},
 		StrictRoute:         true,
 		MTU:                 1500,
 	}
-
-	if tunMap, ok := root["tun"].(map[string]interface{}); ok {
-		raw, _ := yaml.Marshal(tunMap)
-		yaml.Unmarshal(raw, conf)
-	}
-
-	return conf, nil
+	return utils.LoadSetting("tun", defaultTun)
 }
 
-// UpdateTunConfig 将新的 TUN 配置写入 config.yaml
 func UpdateTunConfig(newTun *TunConfig) error {
-	configMu.Lock()         // ✅ 加锁
-	defer configMu.Unlock() // ✅ 保证最终释放
-
-	configPath := GetConfigPath() // 👈 使用绝对路径
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return err
-	}
-
-	var root map[string]interface{}
-	if err := yaml.Unmarshal(data, &root); err != nil {
-		return err
-	}
-
-	root["tun"] = newTun
-
-	// TUN 模式通常依赖 DNS 拦截
-	if newTun.Enable {
-		if _, ok := root["dns"]; !ok {
-			root["dns"] = map[string]interface{}{
-				"enable":        true,
-				"enhanced-mode": "fake-ip",
-				"nameserver":    []string{"119.29.29.29", "223.5.5.5"},
-			}
-		}
-	}
-
-	out, err := yaml.Marshal(root)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(configPath, out, 0644)
+	return utils.SaveSetting("tun", newTun)
 }
 
 // -------------------- DNS 配置相关 --------------------
@@ -300,31 +243,14 @@ type DNSConfig struct {
 	FallbackFilter        FallbackFilterConfig `yaml:"fallback-filter" json:"fallbackFilter"`
 }
 
-// GetDNSConfig 读取 DNS 配置
+// ================= DNS 设置 =================
 func GetDNSConfig() (*DNSConfig, error) {
-	configMu.Lock()
-	defer configMu.Unlock()
-
-	configPath := GetConfigPath()
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil, err
-	}
-
-	var root map[string]interface{}
-	if err := yaml.Unmarshal(data, &root); err != nil {
-		return nil, err
-	}
-
-	// 初始化完整默认值
-	conf := &DNSConfig{
+	defaultDNS := DNSConfig{
 		Enable:                true,
 		Listen:                "0.0.0.0:1053",
 		IPv6:                  false,
 		PreferH3:              false,
 		EnhancedMode:          "fake-ip",
-		RespectRules:          false,
 		FakeIPRange:           "198.18.0.1/16",
 		FakeIPFilter:          []string{"*.lan", "*.localdomain", "*.example", "*.invalid", "*.localhost", "*.test", "lan", "localdomain", "localhost"},
 		UseSystemHosts:        true,
@@ -342,80 +268,16 @@ func GetDNSConfig() (*DNSConfig, error) {
 			Domain:    []string{"+.google.com", "+.facebook.com", "+.twitter.com"},
 		},
 	}
-
-	if dnsMap, ok := root["dns"].(map[string]interface{}); ok {
-		raw, _ := yaml.Marshal(dnsMap)
-		yaml.Unmarshal(raw, conf)
-		if fakeRange, ok := dnsMap["fake-ip-range"].(string); ok {
-			conf.FakeIPRange = fakeRange
-		}
-	}
-
-	return conf, nil
+	return utils.LoadSetting("dns", defaultDNS)
 }
 
-// UpdateDNSConfig 将新的 DNS 配置写入 config.yaml
 func UpdateDNSConfig(newDNS *DNSConfig) error {
-	configMu.Lock()         // ✅ 加锁
-	defer configMu.Unlock() // ✅ 保证最终释放
-
-	configPath := GetConfigPath()
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return err
-	}
-
-	var root map[string]interface{}
-	if err := yaml.Unmarshal(data, &root); err != nil {
-		return err
-	}
-
-	dnsMap := map[string]interface{}{
-		"enable":                  newDNS.Enable,
-		"listen":                  newDNS.Listen,
-		"ipv6":                    newDNS.IPv6,
-		"prefer-h3":               newDNS.PreferH3,
-		"enhanced-mode":           newDNS.EnhancedMode,
-		"respect-rules":           newDNS.RespectRules,
-		"fake-ip-range":           newDNS.FakeIPRange,
-		"fake-ip-filter":          newDNS.FakeIPFilter,
-		"use-system-hosts":        newDNS.UseSystemHosts,
-		"use-hosts":               newDNS.UseHosts,
-		"default-nameserver":      newDNS.DefaultNameserver,
-		"nameserver":              newDNS.Nameserver,
-		"fallback":                newDNS.Fallback,
-		"direct-nameserver":       newDNS.DirectNameserver,
-		"proxy-server-nameserver": newDNS.ProxyServerNameserver,
-		"nameserver-policy":       newDNS.NameserverPolicy,
-		"fallback-filter":         newDNS.FallbackFilter,
-	}
-
-	root["dns"] = dnsMap
-	out, err := yaml.Marshal(root)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(configPath, out, 0644)
+	return utils.SaveSetting("dns", newDNS)
 }
 
-// GetNetworkConfig 获取基础网络配置
+// ================= 基础网络设置 =================
 func GetNetworkConfig() (*NetworkConfig, error) {
-	configMu.Lock()
-	defer configMu.Unlock()
-
-	configPath := GetConfigPath()
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil, err
-	}
-
-	var root map[string]interface{}
-	if err := yaml.Unmarshal(data, &root); err != nil {
-		return nil, err
-	}
-
-	// 默认值设置
-	conf := &NetworkConfig{
+	defaultNet := NetworkConfig{
 		Port:                 0,
 		MixedPort:            7890,
 		IPv6:                 false,
@@ -423,91 +285,14 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 		TCPConcurrent:        true,
 		TCPKeepAlive:         true,
 		TCPKeepAliveInterval: 15,
-		TestURL:              "http://www.gstatic.com/generate_204", // 👈 默认值
+		TestURL:              "http://www.gstatic.com/generate_204",
+		Hosts:                "",
 	}
-
-	// 从 yaml 根路径读取
-	if v, ok := root["port"].(int); ok {
-		conf.Port = v
-	}
-	if v, ok := root["mixed-port"].(int); ok {
-		conf.MixedPort = v
-	}
-	if v, ok := root["ipv6"].(bool); ok {
-		conf.IPv6 = v
-	}
-	if v, ok := root["unified-delay"].(bool); ok {
-		conf.UnifiedDelay = v
-	}
-	if v, ok := root["tcp-concurrent"].(bool); ok {
-		conf.TCPConcurrent = v
-	}
-	if v, ok := root["tcp-keep-alive"].(bool); ok {
-		conf.TCPKeepAlive = v
-	}
-	if v, ok := root["tcp-keep-alive-interval"].(int); ok {
-		conf.TCPKeepAliveInterval = v
-	}
-	if v, ok := root["test-url"].(string); ok {
-		conf.TestURL = v
-	}
-
-	// 👈 新增：读取 hosts 字段并转换为 YAML 字符串
-	if v, ok := root["hosts"]; ok {
-		if hostsData, err := yaml.Marshal(v); err == nil {
-			conf.Hosts = string(hostsData)
-		}
-	}
-
-	return conf, nil
+	return utils.LoadSetting("network", defaultNet)
 }
 
-// UpdateNetworkConfig 更新基础网络配置
 func UpdateNetworkConfig(newCfg *NetworkConfig) error {
-	configMu.Lock()         // ✅ 加锁
-	defer configMu.Unlock() // ✅ 保证最终释放
-
-	configPath := GetConfigPath()
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return err
-	}
-
-	var root map[string]interface{}
-	if err := yaml.Unmarshal(data, &root); err != nil {
-		return err
-	}
-
-	// 直接注入根节点
-	if newCfg.Port != 0 {
-		root["port"] = newCfg.Port
-	}
-	if newCfg.MixedPort != 0 {
-		root["mixed-port"] = newCfg.MixedPort
-	}
-	root["ipv6"] = newCfg.IPv6
-	root["unified-delay"] = newCfg.UnifiedDelay
-	root["tcp-concurrent"] = newCfg.TCPConcurrent
-	root["tcp-keep-alive"] = newCfg.TCPKeepAlive
-	root["tcp-keep-alive-interval"] = newCfg.TCPKeepAliveInterval
-	root["test-url"] = newCfg.TestURL // 👈 保存到 root 以便下次读取
-
-	// 👈 修复：增加严格的 YAML 语法检查，失败时将错误抛给前端
-	if newCfg.Hosts != "" {
-		var hostsMap map[string]interface{}
-		if err := yaml.Unmarshal([]byte(newCfg.Hosts), &hostsMap); err != nil {
-			return fmt.Errorf("Hosts 语法错误，必须符合 YAML 键值对格式: %v", err)
-		}
-		root["hosts"] = hostsMap
-	} else {
-		delete(root, "hosts")
-	}
-
-	out, err := yaml.Marshal(root)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(configPath, out, 0644)
+	return utils.SaveSetting("network", newCfg)
 }
 
 // ==========================================

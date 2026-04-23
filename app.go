@@ -80,10 +80,6 @@ type AppBehavior struct {
 	AsnLink     string `json:"asnLink"`
 }
 
-// 获取配置文件的存放路径
-func (a *App) getAppBehaviorPath() string {
-	return filepath.Join(utils.GetDataDir(), "app_behavior.json")
-}
 
 // 1. 获取离线节点记忆文件的路径
 func (a *App) getOfflineNodesPath() string {
@@ -148,27 +144,20 @@ func (a *App) initBehaviorCache() {
 		CloseToTray: true,
 		LogLevel:    "info",
 		HideLogs:    false,
-		// 预设好权威且带加速的默认链接
+		SubUA:       "clash-verge/1.0",
+		ActiveConfig: "",
+		ActiveMode:   "rule",
 		GeoIpLink:   "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
 		GeoSiteLink: "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
 		MmdbLink:    "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
 		AsnLink:     "https://ghproxy.net/https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
-		SubUA:       "clash-verge/1.0",
 	}
 
-	data, err := os.ReadFile(a.getAppBehaviorPath())
-	if err == nil {
-		if err := json.Unmarshal(data, &defaultConfig); err != nil {
-			fmt.Println("行为配置解析失败，使用默认值")
-		}
-	}
-
-	if defaultConfig.LogLevel == "" {
-		defaultConfig.LogLevel = "info"
-	}
+	// 自动处理读取、合并和生成默认文件
+	cfg, _ := utils.LoadSetting("behavior", defaultConfig)
 
 	a.behaviorMu.Lock()
-	a.behaviorCache = defaultConfig
+	a.behaviorCache = *cfg
 	a.behaviorMu.Unlock()
 }
 
@@ -188,9 +177,8 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 	behaviorToSave := a.behaviorCache
 	a.behaviorMu.Unlock()
 
-	// 2. 耗时的写盘操作放在锁外执行
-	data, _ := json.MarshalIndent(behaviorToSave, "", "  ")
-	err := os.WriteFile(a.getAppBehaviorPath(), data, 0644)
+	// 2. ⚡ 锁外调用泛型管理器统一保存
+	err := utils.SaveSetting("behavior", &behaviorToSave)
 
 	// 3. 广播与同步
 	runtime.EventsEmit(a.ctx, "behavior-changed", behaviorToSave)
@@ -275,8 +263,7 @@ func (a *App) saveActiveConfig(fileName string) {
 	a.behaviorMu.Unlock()
 
 	// 4. 将安全隔离的数据写入磁盘
-	data, _ := json.MarshalIndent(behaviorToSave, "", "  ")
-	os.WriteFile(a.getAppBehaviorPath(), data, 0644)
+	utils.SaveSetting("behavior", &behaviorToSave)
 }
 
 // 启动时读取上次选中的配置文件名
@@ -298,8 +285,7 @@ func (a *App) saveActiveMode(mode string) {
 
 	a.behaviorMu.Unlock()
 
-	data, _ := json.MarshalIndent(behaviorToSave, "", "  ")
-	os.WriteFile(a.getAppBehaviorPath(), data, 0644)
+	utils.SaveSetting("behavior", &behaviorToSave)
 }
 
 // 启动时读取上次选中的模式
@@ -1591,6 +1577,40 @@ func (a *App) StartClash(id string) error {
 // --- 规则管理 (新增) ---
 
 // 规则读写
+// ResetComponentSettings 供前端调用：一键重置指定模块的设置并热重载
+// module 支持: "tun", "dns", "network", "behavior"
+func (a *App) ResetComponentSettings(module string) error {
+	// 1. 删除 user_*.json 触发降级
+	utils.ResetSetting(module)
+
+	// 2. 如果重置的是应用行为，需立刻刷新内存缓存
+	if module == "behavior" {
+		a.initBehaviorCache()
+	}
+
+	// 3. 触发一次内核配置重塑
+	a.mu.Lock()
+	isActive := a.sysProxyActive || a.tunActive
+	a.mu.Unlock()
+
+	activeId := a.getActiveConfig()
+	if activeId != "" {
+		mode := a.getActiveMode()
+		clash.BuildRuntimeConfig(activeId, mode, a.GetAppBehavior().LogLevel)
+
+		// 重置涉及内核底层参数的模块，需热重启
+		if isActive && (module == "tun" || module == "dns" || module == "network") {
+			a.stopCoreService()
+			a.ensureCoreRunning()
+		} else if clash.IsRunning() {
+			clash.ReloadConfig() // 轻量级重载
+		}
+	}
+
+	a.SyncState()
+	return nil
+}
+
 func (a *App) GetCustomRules(id string) []string {
 	rules, _ := clash.GetCustomRules(id)
 	return rules
