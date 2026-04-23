@@ -134,10 +134,6 @@ export function RestartCore() {
   return window['go']['main']['App']['RestartCore']();
 }
 
-export function RunProxy() {
-  return window['go']['main']['App']['RunProxy']();
-}
-
 export function SaveAppBehavior(arg1) {
   return window['go']['main']['App']['SaveAppBehavior'](arg1);
 }
@@ -204,10 +200,6 @@ export function StartTrafficStream() {
 
 export function StopConnectionMonitor() {
   return window['go']['main']['App']['StopConnectionMonitor']();
-}
-
-export function StopProxy() {
-  return window['go']['main']['App']['StopProxy']();
 }
 
 export function StopStreamingLogs() {

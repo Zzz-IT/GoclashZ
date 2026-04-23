@@ -61,6 +61,9 @@ type App struct {
 
 	// 🚀 新增：主题缓存，终结高频 I/O
 	themeCache string
+
+	// 🔐 新增：专属 IO 锁，确保磁盘文件原子性写入，防止并发保存导致数据损坏
+	behaviorIOMu sync.Mutex
 }
 
 // AppBehavior 定义应用行为设置
@@ -177,8 +180,10 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 	behaviorToSave := a.behaviorCache
 	a.behaviorMu.Unlock()
 
-	// 2. ⚡ 锁外调用泛型管理器统一保存
+	// 2. 🔐 使用专属 IO 锁确保文件原子性串行写入，防止快照被旧携程覆盖
+	a.behaviorIOMu.Lock()
 	err := utils.SaveSetting("behavior", &behaviorToSave)
+	a.behaviorIOMu.Unlock()
 
 	// 3. 广播与同步
 	runtime.EventsEmit(a.ctx, "behavior-changed", behaviorToSave)
@@ -262,8 +267,10 @@ func (a *App) saveActiveConfig(fileName string) {
 	// 🚀 3. 立即释放锁，不要让缓慢的磁盘 IO 阻塞其他协程
 	a.behaviorMu.Unlock()
 
-	// 4. 将安全隔离的数据写入磁盘
+	// 4. 🔐 串行化 IO，杜绝并发写文件
+	a.behaviorIOMu.Lock()
 	utils.SaveSetting("behavior", &behaviorToSave)
+	a.behaviorIOMu.Unlock()
 }
 
 // 启动时读取上次选中的配置文件名
@@ -285,7 +292,10 @@ func (a *App) saveActiveMode(mode string) {
 
 	a.behaviorMu.Unlock()
 
+	// 🔐 使用专属 IO 锁确保文件原子性串行写入
+	a.behaviorIOMu.Lock()
 	utils.SaveSetting("behavior", &behaviorToSave)
+	a.behaviorIOMu.Unlock()
 }
 
 // 启动时读取上次选中的模式
@@ -634,8 +644,8 @@ func (a *App) startDaemonTasks() {
 			// 开启一个 Goroutine 执行，并配合 Context
 			go func(ctx context.Context) {
 				defer cancel()
-				// 执行订阅更新逻辑 (目前的方法内部如果是同步阻塞的，至少外部应用关闭时 a.ctx.Done 会立刻响应主循环退出)
-				err := a.UpdateAllSubs()
+				// 执行订阅更新逻辑，透传 ctx 以便在超时或关机时能立刻中断 HTTP
+				err := a.updateAllSubs(ctx)
 				if err == nil {
 					runtime.EventsEmit(a.ctx, "subs-background-updated")
 				}
@@ -734,7 +744,7 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	// 3. 统一下发排序信息
 	configPath := filepath.Join(utils.GetSubscriptionsDir(), activeConfig+".yaml")
 	if activeConfig == "" || activeConfig == "config.yaml" {
-		configPath = filepath.Join(utils.GetDataDir(), "config.yaml")
+		configPath = clash.GetConfigPath() // 👈 复用标准方法，消除硬编码
 	}
 	if yamlData, err := os.ReadFile(configPath); err == nil {
 		data["groupOrder"] = clash.ExtractGroupOrder(yamlData)
@@ -878,15 +888,21 @@ func (a *App) SelectProxy(groupName, nodeName string) error {
 	return nil
 }
 
+// UpdateSub 导出给前端
 func (a *App) UpdateSub(name, url string) error {
+	return a.updateSub(a.ctx, name, url)
+}
+
+// updateSub 内部实现
+func (a *App) updateSub(ctx context.Context, name, url string) error {
 	ua := a.GetAppBehavior().SubUA
 	// 1. 下载订阅 (自动生成 ID)
-	id, err := clash.DownloadSub(name, url, "", ua)
+	id, err := clash.DownloadSub(ctx, name, url, "", ua)
 	if err != nil {
 		return err
 	}
 
-	// 2. 如果更新的是当前正在使用的配置，触发重载
+	// 2. 如果更新的是当前正在使用的配置，触发一次内核重载
 	if a.getActiveConfig() == id && clash.IsRunning() {
 		mode := a.getActiveMode()
 		clash.BuildRuntimeConfig(id, mode, a.GetAppBehavior().LogLevel)
@@ -896,8 +912,13 @@ func (a *App) UpdateSub(name, url string) error {
 	return nil
 }
 
-// UpdateSingleSub 实装：更新单个文件
+// UpdateSingleSub 导出给前端
 func (a *App) UpdateSingleSub(id string) error {
+	return a.updateSingleSub(a.ctx, id)
+}
+
+// updateSingleSub 内部实现
+func (a *App) updateSingleSub(ctx context.Context, id string) error {
 	clash.IndexLock.RLock()
 	var url string
 	var name string
@@ -915,7 +936,7 @@ func (a *App) UpdateSingleSub(id string) error {
 	}
 
 	ua := a.GetAppBehavior().SubUA
-	_, err := clash.DownloadSub(name, url, id, ua)
+	_, err := clash.DownloadSub(ctx, name, url, id, ua)
 	if err != nil {
 		return err
 	}
@@ -930,8 +951,13 @@ func (a *App) UpdateSingleSub(id string) error {
 	return nil
 }
 
-// UpdateAllSubs 实装：遍历并更新所有已记录链接的文件
+// UpdateAllSubs 导出给前端
 func (a *App) UpdateAllSubs() error {
+	return a.updateAllSubs(a.ctx)
+}
+
+// updateAllSubs 内部实现
+func (a *App) updateAllSubs(ctx context.Context) error {
 	clash.IndexLock.RLock()
 	// 复制一份索引以防长时间占锁
 	items := make([]clash.SubIndexItem, len(clash.SubIndex))
@@ -941,7 +967,8 @@ func (a *App) UpdateAllSubs() error {
 	ua := a.GetAppBehavior().SubUA
 	for _, item := range items {
 		if item.URL != "" && item.Type == "remote" {
-			_, _ = clash.DownloadSub(item.Name, item.URL, item.ID, ua)
+			// 将 ctx 透传给底层的下载函数
+			_, _ = clash.DownloadSub(ctx, item.Name, item.URL, item.ID, ua)
 		}
 	}
 

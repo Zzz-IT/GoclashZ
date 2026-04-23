@@ -71,8 +71,6 @@ export function ResetComponentSettings(arg1:string):Promise<void>;
 
 export function RestartCore():Promise<void>;
 
-export function RunProxy():Promise<void>;
-
 export function SaveAppBehavior(arg1:main.AppBehavior):Promise<void>;
 
 export function SaveCustomRules(arg1:string,arg2:Array<string>):Promise<void>;
@@ -106,8 +104,6 @@ export function StartStreamingLogs():Promise<void>;
 export function StartTrafficStream():Promise<void>;
 
 export function StopConnectionMonitor():Promise<void>;
-
-export function StopProxy():Promise<void>;
 
 export function StopStreamingLogs():Promise<void>;
 

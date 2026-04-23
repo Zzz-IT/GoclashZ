@@ -1,6 +1,7 @@
 package clash
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,14 +40,14 @@ func parseSubUserInfo(header string) (upload, download, total, expire int64) {
 }
 
 // DownloadSub 下载订阅 (id 为空表示新增，不为空表示更新)
-func DownloadSub(name, url, existingId, userAgent string) (string, error) {
+func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (string, error) {
 	id := existingId
 	if id == "" {
 		id = fmt.Sprintf("%d", time.Now().UnixMilli())
 	}
 
-	client := &http.Client{Timeout: 60 * time.Second}
-	req, err := http.NewRequest("GET", url, nil)
+	client := &http.Client{} // ⚡ 移除硬编码 Timeout，改由 ctx 控制
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return id, err
 	}
