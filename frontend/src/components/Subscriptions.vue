@@ -20,9 +20,9 @@
         <button class="action-btn accent-btn" @click.stop="activeModal = 'import'">
           <span class="btn-icon" v-html="ICONS.plus"></span> 导入配置
         </button>
-        <button class="primary-btn accent-btn" @click="handleUpdateAll" :disabled="loading">
-          <span class="btn-icon" v-html="ICONS.refresh" :class="{ 'spin': loading }"></span>
-          {{ loading ? '更新中...' : '更新全部' }}
+        <button class="primary-btn accent-btn" @click="handleUpdateAll" :disabled="isUpdating">
+          <span class="btn-icon" v-html="ICONS.refresh" :class="{ 'spin': isUpdating }"></span>
+          {{ isUpdating ? '更新中...' : '更新全部' }}
         </button>
       </div>
     </div>
@@ -42,18 +42,15 @@
       >
         <div class="sub-header">
           <div class="sub-info">
-            
             <div v-if="isSortingMode" class="sort-controls">
               <button class="arrow-btn" :disabled="index === 0" @click.stop="moveUp(index)" v-html="ICONS.up"></button>
               <button class="arrow-btn" :disabled="index === localConfigs.length - 1" @click.stop="moveDown(index)" v-html="ICONS.down"></button>
             </div>
-
             <div style="flex: 1; min-width: 0;">
               <h4 class="sub-name">{{ config.name }}</h4>
               <span class="sub-path font-mono">profiles/{{ config.id }}.yaml</span>
             </div>
           </div>
-          
           <div class="sub-status">
             <div v-if="isCurrentConfig(config.id)" class="status-badge-active">
               <div class="breathe-dot"></div>
@@ -79,12 +76,10 @@
           <span class="sub-hint">点击应用此配置</span>
           <div class="sub-actions">
             <button class="icon-btn" @click.stop="toggleMenu(config.id)" v-html="ICONS.more"></button>
-            
             <div v-if="activeMenu === config.id" class="menu-click-overlay" @click.stop="activeMenu = null"></div>
-
             <Transition name="dropdown">
               <div v-if="activeMenu === config.id" class="dropdown-menu card-panel">
-                <button v-if="config.type === 'remote'" class="menu-item" @click.stop="handleUpdateSingle(config.id)">更新订阅</button>
+                <button v-if="config.type === 'remote'" class="menu-item" @click.stop="handleUpdateSingle(config)">更新订阅</button>
                 <div v-if="config.type === 'remote'" class="menu-divider"></div>
                 <button class="menu-item" @click.stop="openRenameModal(config)">重命名</button>
                 <button class="menu-item" @click.stop="handleEditFile(config.id)">记事本编辑</button>
@@ -96,44 +91,50 @@
       </div>
     </TransitionGroup>
 
-    <!-- 统一模态框系统 -->
+    <!-- 统一模态框系统 (回归上上次样式的简洁结构) -->
     <Transition name="pop">
       <div v-if="activeModal" class="modal-overlay" @click="closeAllModals">
-        <!-- 导入弹窗 -->
+        <!-- 导入主入口弹窗 -->
         <div v-if="activeModal === 'import'" class="custom-modal-card" @click.stop>
           <div class="modal-header">
             <h3>导入配置文件</h3>
           </div>
           <div class="modal-body">
-            <p class="global-modal-msg">通过订阅链接下载：</p>
+            <p class="global-modal-msg">通过订阅链接导入：</p>
             <div style="display: flex; gap: 8px;">
-              <input v-model="url" placeholder="https://..." class="modal-input" style="flex: 1;" />
-              <button class="primary-btn mini" style="height: 44px;" @click="handleDownload" :disabled="!url || loading">下载</button>
+              <input v-model="newSubUrl" placeholder="https://..." class="modal-input" style="flex: 1;" :disabled="isImporting" />
+              <button class="primary-btn mini-btn" style="height: 44px;" @click="handleDownload" :disabled="!newSubUrl.trim() || isImporting">导入</button>
             </div>
             <div class="divider-text">或者</div>
-            <button class="action-btn w-full-btn" @click="handlePickFile">
+            <button class="action-btn w-full-btn" @click="handlePickFile" :disabled="isImporting">
               <span class="btn-icon" v-html="ICONS.folder"></span> 浏览本地 YAML 文件
             </button>
           </div>
         </div>
 
-        <!-- 本地导入自定义名称弹窗 -->
-        <div v-if="activeModal === 'import_local_confirm'" class="custom-modal-card" @click.stop>
+        <!-- 导入确认/命名弹窗 -->
+        <div v-if="activeModal === 'import_confirm'" class="custom-modal-card" @click.stop>
           <div class="modal-header">
-            <h3>导入本地配置</h3>
+            <h3>{{ isImportingRemote ? '导入链接订阅' : '导入本地配置' }}</h3>
           </div>
           <div class="modal-body">
-            <p class="text-xs text-gray-500 mb-2 truncate" style="margin-bottom: 8px; opacity: 0.6;">文件：{{ pendingImportPath }}</p>
+            <p class="text-xs text-gray-500 mb-2 truncate" style="margin-bottom: 8px; opacity: 0.6; width: 100%; display: block;">
+              {{ isImportingRemote ? '链接:' : '文件:' }} {{ pendingImportPath }}
+            </p>
             <p class="global-modal-msg">设置配置显示名称：</p>
             <input 
               v-model="configNameInput" 
               placeholder="请输入名称" 
               class="modal-input"
               @keyup.enter="confirmImport"
+              :disabled="isImporting"
             />
             <div class="modal-footer">
-              <button class="action-btn flex-1" @click="activeModal = 'import'">取消</button>
-              <button class="primary-btn accent-btn flex-1" @click="confirmImport" :disabled="!configNameInput || loading">确认导入</button>
+              <button class="action-btn flex-1" @click="activeModal = 'import'" :disabled="isImporting">返回</button>
+              <button class="primary-btn accent-btn flex-1" @click="confirmImport" :disabled="!configNameInput || isImporting">
+                <span v-if="isImporting" class="btn-icon spin" v-html="ICONS.refresh"></span>
+                {{ isImporting ? (isImportingRemote ? '下载中...' : '导入中...') : '确定' }}
+              </button>
             </div>
           </div>
         </div>
@@ -145,9 +146,9 @@
           </div>
           <div class="modal-body">
             <p class="global-modal-msg">请输入新的配置显示名称：</p>
-            <input v-model="renameValue" class="modal-input" placeholder="例如: 我的订阅" @keyup.enter="confirmRename" />
+            <input v-model="renameValue" class="modal-input" placeholder="例如: 我的订阅" @keyup.enter="confirmRename" :disabled="isRenaming" />
             <div class="modal-footer">
-              <button class="action-btn flex-1" @click="closeAllModals">取消</button>
+              <button class="action-btn flex-1" @click="closeAllModals" :disabled="isRenaming">取消</button>
               <button class="primary-btn accent-btn flex-1" @click="confirmRename" :disabled="!renameValue || isRenaming">确定</button>
             </div>
           </div>
@@ -159,14 +160,14 @@
             <h3 class="danger-text">彻底删除</h3>
           </div>
           <div class="modal-body">
-            <div v-if="isCurrentConfig(targetId)" class="warning-box">
+            <p v-if="isCurrentConfig(targetId)" class="modal-hint-text">
               <strong>警告：</strong> "{{ targetName }}" 正在运行中。删除将强制停止所有代理服务。
-            </div>
-            <p v-else>确定要彻底删除 <strong>{{ targetName }}</strong> 吗？此操作不可撤销。</p>
+            </p>
+            <p v-else class="modal-hint-text">确定要彻底删除 <strong>{{ targetName }}</strong> 吗？此操作不可撤销。</p>
             <div class="modal-footer">
               <button class="action-btn flex-1" @click="closeAllModals">取消</button>
-              <button class="primary-btn accent-btn red-text-btn flex-1" @click="confirmDelete" :disabled="loading">
-                {{ loading ? '删除中...' : '确定删除' }}
+              <button class="primary-btn accent-btn red-text-btn flex-1" @click="confirmDelete" :disabled="isDeleting">
+                {{ isDeleting ? '删除中...' : '确定删除' }}
               </button>
             </div>
           </div>
@@ -183,21 +184,24 @@ import { ICONS } from '../utils/icons';
 import { showAlert, globalState } from '../store';
 import { clash } from '../../wailsjs/go/models';
 
-const activeModal = ref<'import' | 'import_local_confirm' | 'rename' | 'delete' | null>(null);
+const activeModal = ref<'import' | 'import_confirm' | 'rename' | 'delete' | null>(null);
 const targetId = ref('');
 const targetName = ref('');
 const renameValue = ref('');
-const url = ref('');
-const loading = ref(false);
+const isUpdating = ref(false);
+const isImporting = ref(false);
 const isRenaming = ref(false);
+const isDeleting = ref(false);
 const selecting = ref<string | null>(null);
 
 const localConfigs = ref<clash.SubIndexItem[]>([]);
 const activeMenu = ref<string | null>(null);
 
 // --- 导入相关状态 ---
+const newSubUrl = ref('');
 const pendingImportPath = ref('');
 const configNameInput = ref('');
+const isImportingRemote = ref(false);
 
 const formatBytes = (bytes: number) => {
   if (!bytes || bytes === 0) return '0 B';
@@ -273,7 +277,7 @@ const handleUpdateAll = async () => {
     return;
   }
 
-  loading.value = true;
+  isUpdating.value = true;
   try {
     await API.UpdateAllSubs();
     await fetchConfigs();
@@ -281,38 +285,31 @@ const handleUpdateAll = async () => {
   } catch (e) {
     await showAlert(`更新失败: ${e}`, "更新结果");
   } finally {
-    loading.value = false;
+    isUpdating.value = false;
   }
 };
 
-const handleUpdateSingle = async (id: string) => {
+const handleUpdateSingle = async (config: clash.SubIndexItem) => {
+  if (config.type !== 'remote') return;
   activeMenu.value = null;
-  loading.value = true;
+  isUpdating.value = true;
   try {
-    await API.UpdateSingleSub(id);
+    await API.UpdateSingleSub(config.id);
     await fetchConfigs();
-    await showAlert("更新成功", "更新完毕");
+    await showAlert("节点更新成功！\n\n自定义规则已保留。如需应用机场的最新规则，请前往「规则管理」页面手动同步。", "更新完毕");
   } catch (e) {
     await showAlert(`更新失败: ${e}`, "发生错误");
   } finally {
-    loading.value = false;
+    isUpdating.value = false;
   }
 };
 
-const handleDownload = async () => {
-  loading.value = true;
-  try {
-    const defaultName = url.value.split('/').pop()?.split('?')[0] || "未命名订阅";
-    await API.UpdateSub(defaultName, url.value);
-    await fetchConfigs();
-    closeAllModals();
-    url.value = '';
-  } catch (e) {
-    console.error("下载失败:", e);
-    await showAlert("下载失败: " + e, "错误");
-  } finally {
-    loading.value = false;
-  }
+const handleDownload = () => {
+  if (!newSubUrl.value.trim()) return;
+  pendingImportPath.value = newSubUrl.value.trim();
+  configNameInput.value = "新订阅";
+  isImportingRemote.value = true;
+  activeModal.value = 'import_confirm';
 };
 
 const handlePickFile = async () => {
@@ -321,7 +318,8 @@ const handlePickFile = async () => {
     if (result && result.path) {
       pendingImportPath.value = result.path;
       configNameInput.value = result.name;
-      activeModal.value = 'import_local_confirm';
+      isImportingRemote.value = false;
+      activeModal.value = 'import_confirm';
     }
   } catch (e) {
     console.log("Import cancelled");
@@ -330,16 +328,22 @@ const handlePickFile = async () => {
 
 const confirmImport = async () => {
   if (!pendingImportPath.value || !configNameInput.value) return;
-  loading.value = true;
+  isImporting.value = true;
   try {
-    await API.DoLocalImport(pendingImportPath.value, configNameInput.value);
+    const finalName = configNameInput.value.trim() || (isImportingRemote.value ? "未命名订阅" : "未命名文件");
+    if (isImportingRemote.value) {
+      await API.UpdateSub(finalName, pendingImportPath.value);
+    } else {
+      await API.DoLocalImport(pendingImportPath.value, finalName);
+    }
     await fetchConfigs();
     closeAllModals();
+    newSubUrl.value = '';
   } catch (e) {
     console.error("导入失败:", e);
     await showAlert("导入失败: " + e, "错误");
   } finally {
-    loading.value = false;
+    isImporting.value = false;
   }
 };
 
@@ -352,7 +356,6 @@ const openRenameModal = (config: clash.SubIndexItem) => {
 
 const confirmRename = async () => {
   if (!renameValue.value) return;
-  
   isRenaming.value = true;
   try {
     await API.RenameConfig(targetId.value, renameValue.value);
@@ -379,12 +382,13 @@ const openDeleteModal = (config: clash.SubIndexItem) => {
 };
 
 const confirmDelete = async () => {
-  loading.value = true;
+  isDeleting.value = true;
   try {
     if (isCurrentConfig(targetId.value)) {
       await API.StopProxy();
       globalState.activeConfigId = '';
       globalState.activeConfigName = '';
+      globalState.activeConfigType = '';
     }
     await API.DeleteConfig(targetId.value);
     await fetchConfigs();
@@ -393,7 +397,7 @@ const confirmDelete = async () => {
     console.error("删除失败:", e);
     await showAlert("删除失败: " + e, "错误");
   } finally {
-    loading.value = false;
+    isDeleting.value = false;
   }
 };
 
@@ -427,7 +431,9 @@ onUnmounted(() => {
 .page-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 32px; }
 .main-title { font-size: 1.6rem; font-weight: 600; margin-bottom: 4px; }
 .sub-text { font-size: 0.85rem; color: var(--text-sub); }
-.header-actions { display: flex; gap: 12px; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-actions { display: flex; gap: 12px; align-items: center; }
+
 .subs-list { flex: 1; overflow-y: auto; padding-right: 0; position: relative; }
 
 /* 卡片基础样式 */
@@ -559,12 +565,13 @@ onUnmounted(() => {
 .icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 .active-card .icon-btn:hover { background: transparent !important; }
 
-.mini { padding: 8px 16px; font-size: 0.85rem; }
-.divider-text { text-align: center; margin: 10px 0; color: var(--text-muted); font-size: 0.75rem; position: relative; }
-.divider-text::before, .divider-text::after { content: ""; position: absolute; top: 50%; width: 40%; height: 1px; background: var(--surface-hover); }
+.mini-btn { height: 44px; padding: 0 20px; font-weight: 700; border-radius: 12px; }
+.divider-text { text-align: center; margin: 15px 0; color: var(--text-muted); font-size: 0.75rem; position: relative; }
+.divider-text::before, .divider-text::after { content: ""; position: absolute; top: 50%; width: 35%; height: 1px; background: var(--surface-hover); }
 .divider-text::before { left: 0; } .divider-text::after { right: 0; }
-.w-full-btn { width: 100%; justify-content: center; padding: 14px; font-weight: 600; border-radius: 10px; border: none; background: var(--surface-hover); color: var(--text-main); cursor: pointer; }
-.warning-box { background: rgba(255, 77, 79, 0.1); padding: 12px; border-radius: 8px; color: #ff4d4f; font-size: 0.85rem; line-height: 1.4; border: 1px solid rgba(255, 77, 79, 0.2); }
+.w-full-btn { width: 100%; justify-content: center; padding: 14px; font-weight: 600; border-radius: 10px; border: none; background: var(--surface-hover); color: var(--text-main); cursor: pointer; display: flex; align-items: center; gap: 8px; }
+.modal-hint-text { padding: 4px 0 12px 0; color: var(--text-sub); font-size: 0.85rem; line-height: 1.6; }
+.danger-text { color: #ff4d4f !important; }
 
 /* --- 菜单遮罩 --- */
 .menu-click-overlay {
@@ -583,6 +590,7 @@ onUnmounted(() => {
 .menu-item.danger { color: #ff4d4f !important; font-weight: 600; }
 .menu-divider { height: 1px; margin: 4px 0; background: var(--surface-hover); }
 .empty-state { padding: 30px; text-align: center; color: var(--text-muted); border: none; border-radius: 10px; background: var(--surface); }
+
 /* --- 下拉菜单动画 --- */
 .dropdown-enter-active, .dropdown-leave-active {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);

@@ -7,7 +7,7 @@
       <div class="rules-header">
         <div class="search-bar">
           <span v-html="ICONS.search"></span>
-          <input v-model="searchQuery" placeholder="搜索我的自定义规则..." />
+          <input v-model="searchQuery" placeholder="搜索我的规则..." />
         </div>
         <div class="header-actions">
           <button 
@@ -15,11 +15,11 @@
             class="sync-btn" 
             @click="handleSync" 
             :disabled="loading"
-            title="从机场订阅文件重新提取原始规则，将覆盖现有自定义修改"
+            title="从机场订阅文件重新提取原始规则，将覆盖现有规则修改"
           >
-            <span class="btn-icon" v-html="ICONS.refresh"></span> 同步订阅规则
+            <span class="btn-icon" v-html="ICONS.refresh"></span> 同步
           </button>
-          <button class="add-rule-btn" @click="showAddModal = true">+ 添加自定义规则</button>
+          <button class="add-rule-btn" @click="showAddModal = true">+ 添加规则</button>
         </div>
       </div>
 
@@ -38,13 +38,13 @@
         </div>
         
         <div v-if="!loading && filteredRules.length === 0" class="loading-state">
-          {{ searchQuery ? '没有找到匹配的自定义规则' : '暂无自定义规则，点击上方按钮添加' }}
+          {{ searchQuery ? '没有找到匹配的规则' : '暂无规则，点击上方按钮添加' }}
         </div>
       </div>
 
       <div class="pagination-bar" v-if="userRules.length > 0">
-        <span class="page-info">当前订阅共有 {{ userRules.length }} 条自定义规则</span>
-        <div class="tip-text">自定义规则将自动注入并置于配置规则最前端</div>
+        <span class="page-info">当前订阅共有 {{ userRules.length }} 条规则</span>
+        <div class="tip-text">新添规则将自动注入置于规则文件最前端</div>
       </div>
     </template>
 
@@ -158,7 +158,7 @@ const handleDelete = async (idx: number) => {
 const handleSync = async () => {
   if (!globalState.activeConfigId) return;
   const ok = await showConfirm(
-    "确定要从机场订阅源重新同步规则吗？\n这将会彻底覆盖您当前对该配置的所有自定义规则修改！",
+    "确定要从机场订阅源重新同步规则吗？\n这将会彻底覆盖您当前对该配置的所有规则修改！",
     "同步规则警告",
     true
   );
@@ -194,9 +194,9 @@ onMounted(() => {
 .add-rule-btn:hover { filter: brightness(0.9); }
 
 .sync-btn {
-  background: var(--surface-hover);
-  color: #faad14; /* 警告黄色 */
-  border: 1px solid rgba(250, 173, 20, 0.2);
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: none;
   padding: 8px 16px;
   border-radius: 8px;
   font-weight: 600;
@@ -206,7 +206,7 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
 }
-.sync-btn:hover { background: rgba(250, 173, 20, 0.1); border-color: #faad14; }
+.sync-btn:hover { filter: brightness(0.9); }
 .sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .sync-btn .btn-icon :deep(svg) { width: 14px; height: 14px; }
 

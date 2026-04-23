@@ -21,9 +21,9 @@
       </div>
 
       <div class="traffic-meter">
-        <div class="traffic-box" style="margin-right: 24px; text-align: left;">
+        <div class="traffic-box active-config-box">
           <span class="micro-title">活动配置</span>
-          <div class="t-val truncate" style="max-width: 150px; font-size: 1rem;" :title="globalState.activeConfigName">
+          <div class="t-val truncate" :title="globalState.activeConfigName">
             {{ globalState.activeConfigName || '未选定' }}
           </div>
         </div>
@@ -319,6 +319,18 @@ const handleModeChange = (val: string) => {
 .t-header { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-bottom: 4px; }
 .t-arrow { width: 12px; height: 12px; color: var(--text-main); }
 .t-val { font-family: var(--font-mono); font-size: 1.15rem; font-weight: 500; color: var(--text-main); }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.active-config-box { 
+  text-align: left; 
+  margin-right: 24px; 
+  min-width: 0; 
+  flex: 1; 
+}
+.active-config-box .t-val { 
+  max-width: 180px; 
+  font-size: 1rem; 
+}
 
 /* 开关卡片 */
 .switch-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
