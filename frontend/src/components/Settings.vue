@@ -542,8 +542,8 @@
 
             <div class="setting-item">
               <div class="info">
-                <h4>内核日志等级 (Log Level)</h4>
-                <p>调整核心输出的日志详细程度。如遇到问题无法排查，可改为 debug。</p>
+                <h4>内核日志等级</h4>
+                <p>调整核心输出的日志详细程度。如遇到问题无法排查，可改为调试。</p>
               </div>
               <ModernSelect 
                 v-model="behavior.logLevel" 
@@ -704,11 +704,11 @@ const enhancedModeOptions = [
 ];
 
 const logLevelOptions = [
-  { label: '调试 (Debug)', value: 'debug' },
-  { label: '信息 (Info)', value: 'info' },
-  { label: '警告 (Warning)', value: 'warning' },
-  { label: '错误 (Error)', value: 'error' },
-  { label: '静默 (Silent)', value: 'silent' }
+  { label: '调试', value: 'debug' },
+  { label: '信息', value: 'info' },
+  { label: '警告', value: 'warning' },
+  { label: '错误', value: 'error' },
+  { label: '静默', value: 'silent' }
 ];
 
 const showDbModal = ref(false);

@@ -14,7 +14,7 @@ type CustomRuleSet struct {
 }
 
 func GetCustomRules(id string) ([]string, error) {
-	path := filepath.Join(utils.GetProfilesDir(), id+"_rules.json")
+	path := filepath.Join(utils.GetSubscriptionsDir(), id+"_rules.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return []string{}, nil
@@ -25,7 +25,7 @@ func GetCustomRules(id string) ([]string, error) {
 }
 
 func SaveCustomRules(id string, rules []string) error {
-	path := filepath.Join(utils.GetProfilesDir(), id+"_rules.json")
+	path := filepath.Join(utils.GetSubscriptionsDir(), id+"_rules.json")
 	set := CustomRuleSet{CustomRules: rules}
 	data, _ := json.MarshalIndent(set, "", "  ")
 	return os.WriteFile(path, data, 0644)
@@ -33,7 +33,7 @@ func SaveCustomRules(id string, rules []string) error {
 
 // GetOriginalRules 读取底层 YAML 文件，提取内置规则
 func GetOriginalRules(id string) ([]string, error) {
-	yamlPath := filepath.Join(utils.GetProfilesDir(), id+".yaml")
+	yamlPath := filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
 	data, err := os.ReadFile(yamlPath)
 	if err != nil {
 		return nil, err

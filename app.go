@@ -153,6 +153,7 @@ func (a *App) initBehaviorCache() {
 		GeoSiteLink: "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
 		MmdbLink:    "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
 		AsnLink:     "https://ghproxy.net/https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
+		SubUA:       "clash-verge/1.0",
 	}
 
 	data, err := os.ReadFile(a.getAppBehaviorPath())
@@ -197,7 +198,7 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 	active := a.getActiveConfig()
 	if active != "" {
 		mode := a.getActiveMode()
-		clash.BuildRuntimeConfig(active, mode)
+		clash.BuildRuntimeConfig(active, mode, behaviorToSave.LogLevel)
 		if clash.IsRunning() {
 			clash.ReloadConfig()
 		}
@@ -358,7 +359,7 @@ func (a *App) ensureCoreRunning() error {
 
 	// 👈 核心：利用已有的配置生成流水线，直接根据模板重写 config.yaml (含模式、TUN、端口等)
 	if activeCfg != "" {
-		if err := clash.BuildRuntimeConfig(activeCfg, mode); err != nil {
+		if err := clash.BuildRuntimeConfig(activeCfg, mode, a.GetAppBehavior().LogLevel); err != nil {
 			fmt.Printf("生成运行时配置警告: %v\n", err)
 		}
 	}
@@ -763,7 +764,7 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	clash.IndexLock.RUnlock()
 
 	// 3. 统一下发排序信息
-	configPath := filepath.Join(utils.GetProfilesDir(), activeConfig+".yaml")
+	configPath := filepath.Join(utils.GetSubscriptionsDir(), activeConfig+".yaml")
 	if activeConfig == "" || activeConfig == "config.yaml" {
 		configPath = filepath.Join(utils.GetDataDir(), "config.yaml")
 	}
@@ -818,7 +819,11 @@ func (a *App) TestAllProxies(nodeNames []string) {
 				defer func() { <-semaphore }()
 
 				// 2. 向 Clash 内核请求真实测速
-				delay, err := clash.GetProxyDelay(nName)
+				testUrl := ""
+				if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil {
+					testUrl = netCfg.TestURL
+				}
+				delay, err := clash.GetProxyDelay(nName, testUrl)
 
 				// 3. 发射结果
 				if err != nil || delay <= 0 {
@@ -874,7 +879,7 @@ func (a *App) UpdateClashMode(mode string) error {
 			// 内核未运行时，只去修改底层的 Yaml 预备配置
 			activeCfg := a.getActiveConfig()
 			if activeCfg != "" {
-				clash.BuildRuntimeConfig(activeCfg, targetMode)
+				clash.BuildRuntimeConfig(activeCfg, targetMode, a.GetAppBehavior().LogLevel)
 			}
 		}
 
@@ -916,7 +921,7 @@ func (a *App) UpdateSub(name, url string) error {
 	// 2. 如果更新的是当前正在使用的配置，触发重载
 	if a.getActiveConfig() == id && clash.IsRunning() {
 		mode := a.getActiveMode()
-		clash.BuildRuntimeConfig(id, mode)
+		clash.BuildRuntimeConfig(id, mode, a.GetAppBehavior().LogLevel)
 		clash.ReloadConfig()
 	}
 
@@ -950,7 +955,7 @@ func (a *App) UpdateSingleSub(id string) error {
 	// 如果更新的是当前正在使用的配置，触发重载
 	if a.getActiveConfig() == id && clash.IsRunning() {
 		mode := a.getActiveMode()
-		clash.BuildRuntimeConfig(id, mode)
+		clash.BuildRuntimeConfig(id, mode, a.GetAppBehavior().LogLevel)
 		clash.ReloadConfig()
 	}
 
@@ -976,7 +981,7 @@ func (a *App) UpdateAllSubs() error {
 	active := a.getActiveConfig()
 	if active != "" && clash.IsRunning() {
 		mode := a.getActiveMode()
-		clash.BuildRuntimeConfig(active, mode)
+		clash.BuildRuntimeConfig(active, mode, a.GetAppBehavior().LogLevel)
 		clash.ReloadConfig()
 	}
 
@@ -1244,7 +1249,7 @@ func (a *App) RenameConfig(id, newName string) error {
 
 	if isActiveConfig {
 		if err != nil {
-			clash.BuildRuntimeConfig(id, mode)
+			clash.BuildRuntimeConfig(id, mode, a.GetAppBehavior().LogLevel)
 			if wasActive {
 				a.ensureCoreRunning()
 				a.SyncState()
@@ -1446,7 +1451,7 @@ func (a *App) DoLocalImport(path, name string) error {
 	}
 
 	id := fmt.Sprintf("%d", time.Now().UnixMilli())
-	destPath := filepath.Join(a.getProfilesDir(), id+".yaml")
+	destPath := filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
 	if err := os.WriteFile(destPath, content, 0644); err != nil {
 		return err
 	}
@@ -1479,7 +1484,7 @@ func (a *App) SyncRules(id string) error {
 
 // OpenConfigFile 使用系统默认应用打开配置文件
 func (a *App) OpenConfigFile(id string) error {
-	path := filepath.Join(a.getProfilesDir(), id+".yaml")
+	path := filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
 	var cmd *exec.Cmd
 	switch stdruntime.GOOS {
 	case "windows":
@@ -1544,7 +1549,7 @@ func (a *App) SelectLocalConfig(id string) error {
 	a.stopCoreService()
 	sys.DisableSystemProxy()
 
-	if err := clash.BuildRuntimeConfig(id, mode); err != nil {
+	if err := clash.BuildRuntimeConfig(id, mode, a.GetAppBehavior().LogLevel); err != nil {
 		return fmt.Errorf("生成运行时配置失败: %v", err)
 	}
 

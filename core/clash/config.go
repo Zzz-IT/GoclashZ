@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"encoding/json"
 	"goclashz/core/utils"
 	"sync"
 
@@ -68,7 +67,7 @@ func GetOfflineData(id string) (map[string]interface{}, error) {
 	if id == "config.yaml" {
 		configPath = GetConfigPath()
 	} else {
-		configPath = filepath.Join(utils.GetProfilesDir(), id+".yaml")
+		configPath = filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
 	}
 
 	// 如果文件不存在，回退到主 config.yaml
@@ -147,6 +146,9 @@ func GetOfflineData(id string) (map[string]interface{}, error) {
 
 // DownloadSubscription 下载订阅文件并覆盖本地 config.yaml
 func DownloadSubscription(subUrl string, userAgent string) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+
 	configPath := GetConfigPath() // 👈 使用绝对路径
 
 	client := &http.Client{Timeout: 60 * time.Second}
@@ -194,6 +196,9 @@ type TunConfig struct {
 
 // GetTunConfig 从 config.yaml 读取 TUN 配置
 func GetTunConfig() (*TunConfig, error) {
+	configMu.Lock()
+	defer configMu.Unlock()
+
 	configPath := GetConfigPath() // 👈 使用绝对路径
 
 	data, err := os.ReadFile(configPath)
@@ -297,6 +302,9 @@ type DNSConfig struct {
 
 // GetDNSConfig 读取 DNS 配置
 func GetDNSConfig() (*DNSConfig, error) {
+	configMu.Lock()
+	defer configMu.Unlock()
+
 	configPath := GetConfigPath()
 
 	data, err := os.ReadFile(configPath)
@@ -392,6 +400,9 @@ func UpdateDNSConfig(newDNS *DNSConfig) error {
 
 // GetNetworkConfig 获取基础网络配置
 func GetNetworkConfig() (*NetworkConfig, error) {
+	configMu.Lock()
+	defer configMu.Unlock()
+
 	configPath := GetConfigPath()
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -504,7 +515,7 @@ func UpdateNetworkConfig(newCfg *NetworkConfig) error {
 // ==========================================
 
 // BuildRuntimeConfig 核心流水线：基础配置 + 用户设置 = 最终运行配置
-func BuildRuntimeConfig(id string, mode string) error {
+func BuildRuntimeConfig(id string, mode string, logLevel string) error {
 	configMu.Lock()         // ✅ 加锁
 	defer configMu.Unlock() // ✅ 保证最终释放
 
@@ -516,7 +527,7 @@ func BuildRuntimeConfig(id string, mode string) error {
 	userNet, _ := GetNetworkConfig()
 
 	// 2. 读取选中的订阅文件作为 "Base Config" (只读模板)
-	profilePath := filepath.Join(utils.GetProfilesDir(), id+".yaml")
+	profilePath := filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
 	baseData, err := os.ReadFile(profilePath)
 	if err != nil {
 		return fmt.Errorf("读取基础配置失败: %v", err)
@@ -614,7 +625,11 @@ func BuildRuntimeConfig(id string, mode string) error {
 	root["rules"] = customRules
 
 	// 👇 核心新增：动态读取并注入我们设置的日志等级
-	root["log-level"] = getAppBehaviorLogLevel()
+	if logLevel != "" {
+		root["log-level"] = logLevel
+	} else {
+		root["log-level"] = "info"
+	}
 
 	// 4. 序列化并生成最终的 config.yaml
 	out, err := yaml.Marshal(root)
@@ -656,19 +671,3 @@ func ExtractGroupOrder(yamlData []byte) []string {
 // GetRules 已经被 GetCustomRules 替代，这里可以保留空壳或者删除
 // 为了防止其他地方引用导致编译错误，暂时先删除，等会去 app.go 里修复引用
 
-// getAppBehaviorLogLevel 在文件底部新增此辅助方法
-func getAppBehaviorLogLevel() string {
-	path := filepath.Join(utils.GetDataDir(), "app_behavior.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "info"
-	}
-	var config struct {
-		LogLevel string `json:"logLevel"`
-	}
-	json.Unmarshal(data, &config)
-	if config.LogLevel == "" {
-		return "info"
-	}
-	return config.LogLevel
-}

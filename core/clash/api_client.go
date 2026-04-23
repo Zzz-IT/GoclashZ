@@ -69,9 +69,11 @@ func FetchLogs(ctx context.Context, onLog func(data interface{})) {
 }
 
 // GetProxyDelay 调用内核 API 测试节点延迟
-func GetProxyDelay(proxyName string) (int, error) {
+func GetProxyDelay(proxyName string, testUrl string) (int, error) {
 	encodedName := url.PathEscape(proxyName)
-	testUrl := "http://www.gstatic.com/generate_204"
+	if testUrl == "" {
+		testUrl = "http://www.gstatic.com/generate_204"
+	}
 	timeout := 5000
 
 	apiURL := fmt.Sprintf("http://127.0.0.1:9090/proxies/%s/delay?timeout=%d&url=%s",

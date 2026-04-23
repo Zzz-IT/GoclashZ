@@ -48,7 +48,7 @@
             </div>
             <div style="flex: 1; min-width: 0;">
               <h4 class="sub-name">{{ config.name }}</h4>
-              <span class="sub-path font-mono">profiles/{{ config.id }}.yaml</span>
+              <span class="sub-path font-mono">Subscriptions/{{ config.id }}.yaml</span>
             </div>
           </div>
           <div class="sub-status">

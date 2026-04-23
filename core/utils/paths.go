@@ -42,7 +42,7 @@ func initDirs() {
 	// ---------------------------------------------------------
 	// 2. 🎯 智能嗅探：决定数据目录 (DataDir)
 	// ---------------------------------------------------------
-	
+
 	// 预期在安装目录下建立一个专属的 data 文件夹（自定义模式）
 	customModeDataDir := filepath.Join(appDir, "data")
 
@@ -61,8 +61,9 @@ func initDirs() {
 
 	// 确保基础目录存在
 	os.MkdirAll(dataDir, 0755)
-	os.MkdirAll(filepath.Join(dataDir, "profiles"), 0755)
-	os.MkdirAll(filepath.Join(dataDir, "core", "bin"), 0755) // 提前建好内核目录
+	os.MkdirAll(filepath.Join(dataDir, "profiles"), 0755)      // 存放 index.json
+	os.MkdirAll(filepath.Join(dataDir, "Subscriptions"), 0755) // 🎯 新增：存放 YAML 和 Rules
+	os.MkdirAll(filepath.Join(dataDir, "core", "bin"), 0755)   // 提前建好内核目录
 }
 
 // isDirWritable 测试目标目录是否可写 (通过静默创建和删除测试文件)
@@ -93,7 +94,12 @@ func GetDataDir() string {
 	return dataDir
 }
 
-// GetProfilesDir 返回存放订阅配置文件的目录
+// GetProfilesDir 返回存放 index.json 的目录
 func GetProfilesDir() string {
 	return filepath.Join(dataDir, "profiles")
+}
+
+// GetSubscriptionsDir 返回存放 YAML 和 Rules 文件的目录
+func GetSubscriptionsDir() string {
+	return filepath.Join(dataDir, "Subscriptions")
 }

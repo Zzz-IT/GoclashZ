@@ -52,7 +52,7 @@ func DownloadSub(name, url, existingId, userAgent string) (string, error) {
 	}
 
 	if userAgent == "" {
-		userAgent = "ClashforWindows/0.20.39"
+		userAgent = "clash-verge/1.0"
 	}
 	req.Header.Set("User-Agent", userAgent)
 
@@ -69,7 +69,7 @@ func DownloadSub(name, url, existingId, userAgent string) (string, error) {
 	upload, download, total, expire := parseSubUserInfo(resp.Header.Get("Subscription-Userinfo"))
 
 	// 3. 绝对只读保存原始 YAML
-	yamlPath := filepath.Join(utils.GetProfilesDir(), id+".yaml")
+	yamlPath := filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
 	outFile, err := os.Create(yamlPath)
 	if err != nil {
 		return id, fmt.Errorf("无法创建配置文件: %v", err)
@@ -82,7 +82,7 @@ func DownloadSub(name, url, existingId, userAgent string) (string, error) {
 	}
 
 	// 4. 初始化伴生规则文件 (仅在第一次添加订阅时截取原始规则)
-	rulesPath := filepath.Join(utils.GetProfilesDir(), id+"_rules.json")
+	rulesPath := filepath.Join(utils.GetSubscriptionsDir(), id+"_rules.json")
 	if _, err := os.Stat(rulesPath); os.IsNotExist(err) {
 		rules, err := GetOriginalRules(id)
 		if err != nil || len(rules) == 0 {
@@ -149,7 +149,7 @@ func DeleteConfig(id string) error {
 	SaveIndex()
 
 	// 删除物理文件
-	dir := utils.GetProfilesDir()
+	dir := utils.GetSubscriptionsDir()
 	os.Remove(filepath.Join(dir, id+".yaml"))
 	os.Remove(filepath.Join(dir, id+"_rules.json"))
 	return nil
