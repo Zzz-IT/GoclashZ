@@ -382,3 +382,17 @@ body,
 .red-text-btn {
     color: #ff4d4f !important;
 }
+
+/* 图标对齐辅助 */
+.btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+}
+
+.btn-icon svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+}

@@ -140,11 +140,14 @@
         </div>
 
         <div v-else-if="view === 'tun'" class="settings-page">
-          <div class="sub-header">
+          <div class="sub-header section-header">
             <button class="back-btn" @click="view = 'main'">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
             </button>
             <h3>虚拟网卡配置</h3>
+            <button class="action-btn accent-btn mini-btn-reset" @click="confirmReset('tun')">
+              <span class="btn-icon" v-html="ICONS.refresh"></span> 重置
+            </button>
           </div>
 
           <div class="glass-card setting-group scrollable">
@@ -235,11 +238,14 @@
         </div>
 
         <div v-else-if="view === 'dns'" class="settings-page">
-          <div class="sub-header">
+          <div class="sub-header section-header">
             <button class="back-btn" @click="view = 'main'">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
             </button>
             <h3>DNS 服务器配置</h3>
+            <button class="action-btn accent-btn mini-btn-reset" @click="confirmReset('dns')">
+              <span class="btn-icon" v-html="ICONS.refresh"></span> 重置
+            </button>
           </div>
 
           <div class="glass-card setting-group scrollable">
@@ -399,11 +405,14 @@
         </div>
 
         <div v-else-if="view === 'network'" class="settings-page">
-          <div class="sub-header">
+          <div class="sub-header section-header">
             <button class="back-btn" @click="view = 'main'">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
             </button>
             <h3>基础网络配置</h3>
+            <button class="action-btn accent-btn mini-btn-reset" @click="confirmReset('network')">
+              <span class="btn-icon" v-html="ICONS.refresh"></span> 重置
+            </button>
           </div>
 
           <div class="glass-card setting-group scrollable">
@@ -508,11 +517,14 @@
         </div>
 
         <div v-else-if="view === 'behavior'" class="settings-page">
-          <div class="sub-header">
+          <div class="sub-header section-header">
             <button class="back-btn" @click="view = 'main'">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
             </button>
             <h3>应用行为设置</h3>
+            <button class="action-btn accent-btn mini-btn-reset" @click="confirmReset('behavior')">
+              <span class="btn-icon" v-html="ICONS.refresh"></span> 重置
+            </button>
           </div>
 
           <div class="glass-card setting-group scrollable">
@@ -653,6 +665,23 @@
         </div>
       </div>
     </div>
+    <!-- 统一模态框系统 -->
+    <Transition name="pop">
+      <div v-if="showResetConfirm" class="modal-overlay" @click="showResetConfirm = false">
+        <div class="custom-modal-card" @click.stop>
+          <div class="modal-header">
+            <h3 class="danger-text">确认重置</h3>
+          </div>
+          <div class="modal-body">
+            <p class="global-modal-msg">确定要将 <strong>{{ resetModuleName }}</strong> 恢复为默认设置吗？此操作不可撤销，程序将重新加载配置。</p>
+            <div class="modal-footer">
+              <button class="action-btn flex-1" @click="showResetConfirm = false">取消</button>
+              <button class="primary-btn accent-btn red-text-btn flex-1" @click="handleReset">确认重置</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -663,6 +692,52 @@ import { showAlert, globalState } from '../store';
 import { ICONS } from '../utils/icons';
 import ModernSelect from './ModernSelect.vue';
 import ModernNumberInput from './ModernNumberInput.vue';
+
+const showResetConfirm = ref(false);
+const resetModule = ref('');
+const resetModuleName = ref('');
+
+const modules: Record<string, string> = {
+  'network': '基础网络设置',
+  'dns': 'DNS 服务器设置',
+  'tun': '虚拟网卡设置',
+  'behavior': '应用行为设置'
+};
+
+const confirmReset = (mod: string) => {
+  resetModule.value = mod;
+  resetModuleName.value = modules[mod];
+  showResetConfirm.value = true;
+};
+
+const handleReset = async () => {
+  try {
+    await API.ResetComponentSettings(resetModule.value);
+    showResetConfirm.value = false;
+    
+    // 重新拉取对应数据以更新 UI
+    if (resetModule.value === 'network') {
+        const netConf = await (API.GetNetworkConfig as any)();
+        if (netConf) netConfig.value = netConf;
+    }
+    if (resetModule.value === 'dns') {
+        const dnsConf = await (API.GetDNSConfig as any)();
+        if (dnsConf) dnsConfig.value = dnsConf;
+    }
+    if (resetModule.value === 'tun') {
+        const tunConf = await API.GetTunConfig();
+        if (tunConf) tunConfig.value = tunConf;
+    }
+    if (resetModule.value === 'behavior') {
+        const bh = await API.GetAppBehavior();
+        if (bh) behavior.value = bh;
+    }
+    showAlert(`${resetModuleName.value} 已重置为默认值`, "成功");
+  } catch (e) {
+    console.error("重置失败:", e);
+    showAlert("重置失败: " + e, "错误");
+  }
+};
 
 const props = defineProps({
   initialView: {
@@ -681,7 +756,6 @@ const isReinstallingDriver = ref(false);
 const isInstalling = computed(() => isCheckingUpdate.value || isReinstallingDriver.value);
 const updatingCore = ref(false);
 
-// 新增数据库更新所需要的变量
 const dbList = [
   { key: 'geoip', title: 'GeoIP', behaviorKey: 'geoIpLink' },
   { key: 'geosite', title: 'GeoSite', behaviorKey: 'geoSiteLink' },
@@ -743,12 +817,10 @@ const handleUpdateCore = async () => {
   updatingCore.value = true;
   try {
     const res = await (API as any).UpdateCoreComponent();
-    // 拦截“已经是最新”的状态码
     if (res === "ALREADY_LATEST") {
       await showAlert(`当前内核 (${coreVersion.value}) 已是最新版本，无需更新！`, "通知");
     } else {
       await showAlert("内核跨版本更新成功！", "通知");
-      // 更新成功后刷新显示的版本号
       coreVersion.value = await (API as any).GetCoreVersion();
     }
   } catch (e) {
@@ -858,7 +930,6 @@ const saveUwpChanges = async () => {
 
 const loadData = async () => {
   try {
-    // 动态拉取实际版本号
     const cv = await (API as any).GetCoreVersion();
     if (cv) coreVersion.value = cv;
 
@@ -870,7 +941,6 @@ const loadData = async () => {
     const tunConf = await API.GetTunConfig();
     if (tunConf) tunConfig.value = tunConf;
 
-    // 🚀 核心优化：直接信任全局状态，不再发起冗余的 GetProxyStatus 请求
     tunConfig.value.enable = globalState.tun;
 
     const dnsConf = await (API.GetDNSConfig as any)();
@@ -882,7 +952,6 @@ const loadData = async () => {
     const behaviorConf = await (API.GetAppBehavior as any)();
     if (behaviorConf) behavior.value = behaviorConf;
 
-    // 获取数据库文件信息
     const dbInfo = await (API as any).GetGeoDatabaseInfo();
     if (dbInfo) dbFileInfo.value = dbInfo;
   } catch (e) {
@@ -900,19 +969,12 @@ const handleTunToggle = async (e: Event) => {
     return;
   }
   
-  // 1. 记录操作前的原始状态
   const originalValue = !tunConfig.value.enable;
   
   try {
-    // 2. 调用后端 API
     await API.ToggleTunMode(tunConfig.value.enable);
     await saveTun();
-
-    // 同步刷新全局状态
-    // 🚀 核心优化：后端 Toggle 函数已自带 SyncState 推送，前端无需再次拉取
-    // 状态会自动通过 store.ts 中的 EventsOn 流入 globalState
   } catch (err) {
-    // 3. 核心修复：发生错误时回滚 UI 状态
     tunConfig.value.enable = originalValue; 
     await showAlert("操作内核 TUN 失败: " + err, '错误');
   }
@@ -927,7 +989,6 @@ const installDriver = async (force: boolean = false) => {
     const res = await (API as any).InstallTunDriver(force);
     await loadData();
     
-    // 刷新版本号显示
     const wv = await (API as any).GetWintunVersion();
     if (wv) wintunVersion.value = wv;
 
@@ -975,9 +1036,6 @@ const saveBehavior = async () => {
   }
 };
 
-// ------------------------------
-// 新增操作函数
-// ------------------------------
 const openDbEditModal = (type: string, currentLink: string) => {
   editingDb.value = { type, link: currentLink };
   showDbModal.value = true;
@@ -994,13 +1052,12 @@ const saveDbLink = async () => {
 };
 
 const handleUpdateDb = async (type: string) => {
-  if (updatingDbs.value[type] || updatingAllDbs.value) return; // 防止重复点击
+  if (updatingDbs.value[type] || updatingAllDbs.value) return; 
   
   updatingDbs.value[type] = true;
   try {
     await (API as any).UpdateGeoDatabase(type);
     await showAlert(`${dbTitles[type]} 文件同步成功！`, "完成");
-    // 刷新文件信息
     const dbInfo = await (API as any).GetGeoDatabaseInfo();
     if (dbInfo) dbFileInfo.value = dbInfo;
   } catch (e) {
@@ -1010,14 +1067,11 @@ const handleUpdateDb = async (type: string) => {
   }
 };
 
-// 终极的一键并发更新方法
 const handleUpdateAllDbs = async () => {
   updatingAllDbs.value = true;
   try {
-    // 传空数组，代表告诉后端并发更新全部 4 个
     await (API as any).UpdateAllGeoDatabases([]);
     await showAlert("所有规则数据库已极速并发同步至最新！", "完成");
-    // 刷新显示的时间和大小
     const dbInfo = await (API as any).GetGeoDatabaseInfo();
     if (dbInfo) dbFileInfo.value = dbInfo;
   } catch (e) {
@@ -1127,12 +1181,10 @@ p {
   font-size: 0.9rem;
 }
 
-/* 专属的极简黑白风 Select 样式 */
 .modern-select {
   background-color: var(--surface-hover);
   border: 1px solid transparent;
   color: var(--text-main);
-  /* 右侧 padding 设置为 32px，专门给箭头腾出位置，防止文字被遮挡 */
   padding: 8px 32px 8px 12px; 
   border-radius: 8px;
   outline: none;
@@ -1140,30 +1192,23 @@ p {
   font-size: 0.9rem;
   font-family: inherit;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  
-  /* 🗡️ 核心杀招：扒掉系统的原生默认皮肤与灰色方块箭头 */
   appearance: none;
   -webkit-appearance: none;
-  
-  /* 🎨 注入自定义极简纯色 SVG 箭头 (自适应你主题的深灰色) */
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23777777' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
   background-size: 16px;
 }
 
-/* 鼠标悬停交互反馈 */
 .modern-select:hover:not(:disabled) {
   background-color: var(--surface-panel);
 }
 
-/* 点击展开下拉框时的边框反馈，适配黑白高对比度 */
 .modern-select:focus {
   border: 1px solid var(--text-sub);
   background-color: var(--surface);
 }
 
-/* 禁用状态 */
 .modern-select:disabled { 
   opacity: 0.5; 
   cursor: not-allowed; 
@@ -1207,11 +1252,6 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 .green-text { color: var(--text-main); font-weight: 600; }
 .red-text { color: var(--text-muted); }
 
-/* ================================== */
-/* UWP 管理器 - 像素级 UI 方案          */
-/* ================================== */
-
-/* 工具栏自适应搜索框 */
 .uwp-toolbar {
   display: flex;
   align-items: center;
@@ -1275,18 +1315,17 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 }
 .batch-btn:hover { background: var(--surface-panel); }
 
-/* 列表与卡片设计 */
 .uwp-list-wrapper {
   display: flex;
   flex-direction: column;
-  gap: 10px; /* 只有间距，没有分割线 */
+  gap: 10px; 
   flex: 1;
   padding-right: 4px;
 }
 
 .uwp-app-item {
   background: var(--surface);
-  border-radius: 12px; /* 12px 容器圆角 */
+  border-radius: 12px; 
   padding: 12px 16px;
   display: flex;
   justify-content: space-between;
@@ -1300,13 +1339,11 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   background: var(--surface-hover);
 }
 
-/* 选中态：背景色直接变为 Accent */
 .uwp-app-item.active {
   background: var(--accent);
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
 
-/* 左侧信息栏 */
 .app-main-content {
   display: flex;
   align-items: center;
@@ -1360,28 +1397,23 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 }
 .uwp-app-item.active .app-pkg { color: var(--accent-fg); opacity: 0.8; }
 
-/* 状态标签：对齐 Proxies 页面的 4px 圆角风格 */
 .uwp-status-tag {
-  font-size: 0.7rem; /* 中文稍微大一点点 */
-  letter-spacing: 0; /* 中文不需要额外的字母间距 */
+  font-size: 0.7rem; 
+  letter-spacing: 0; 
   font-weight: 600;
   padding: 3px 10px;
-  border-radius: 4px; /* 4px 内部标签圆角 */
+  border-radius: 4px; 
   text-transform: uppercase;
   transition: all 0.2s;
-  
-  /* 未选中：中性面板色 */
   background: var(--surface-panel);
   color: var(--text-main);
 }
 
-/* 选中态：照抄 Overview 的磨砂半透明遮罩逻辑 */
 .uwp-app-item.active .uwp-status-tag {
   background: rgba(255, 255, 255, 0.25) !important;
   color: var(--accent-fg) !important;
 }
 
-/* 底部操作 */
 .uwp-footer {
   margin-top: 20px;
   padding-top: 10px;
@@ -1417,44 +1449,57 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   gap: 8px;
 }
 
-/* 确保返回按钮内的图标有尺寸 */
 .back-btn .icon svg {
   width: 18px;
   height: 18px;
   display: block;
 }
 
-/* 针对 UWP 专属的返回图标额外修正 */
 .back-icon-svg :deep(svg) {
   width: 18px;
   height: 18px;
 }
 
-/* 针对新链接和小字 */
 .link-text { font-family: monospace; font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
 
-/* 悬浮弹窗基础覆盖 */
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
-
-/* ================================== */
-/* 子页面切换动画：水平滑移淡入 (Slide Fade) */
-/* ================================== */
 
 .slide-fade-enter-active,
 .slide-fade-leave-active {
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  /* 在动画期间强制绝对定位，防止两个页面在 out-in 瞬间发生排版挤压 */
   width: 100%;
   height: 100%;
 }
 
 .slide-fade-enter-from {
   opacity: 0;
-  transform: translateX(12px); /* 进入时从右侧稍微滑入 */
+  transform: translateX(12px); 
 }
 
 .slide-fade-leave-to {
   opacity: 0;
-  transform: translateX(-12px); /* 离开时向左侧稍微滑出 */
+  transform: translateX(-12px); 
+}
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sub-header.section-header h3 {
+  flex: 1;
+  margin-left: 12px;
+}
+
+.mini-btn-reset {
+  height: 32px !important;
+  padding: 0 12px !important;
+  font-size: 12px !important;
+  border-radius: 6px !important;
+}
+
+.mini-btn-reset :deep(svg) {
+  width: 12px;
+  height: 12px;
 }
 </style>

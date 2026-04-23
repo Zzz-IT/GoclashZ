@@ -604,18 +604,6 @@ onUnmounted(() => {
   transform: translateY(0) scale(1);
 }
 
-.btn-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 4px;
-}
-
-.btn-icon :deep(svg) {
-  width: 14px;
-  height: 14px;
-}
-
 .spin :deep(svg) {
   animation: spin 1s linear infinite;
 }
