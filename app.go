@@ -679,24 +679,6 @@ func (a *App) ElevatePrivileges() error {
 	return sys.RequestAdmin() // 将会呼出 UAC 窗口并重启软件
 }
 
-// --- 代理旧接口兼容 (可选，若前端已全量更新可删除) ---
-
-func (a *App) RunProxy() error {
-	return a.ToggleSystemProxy(true)
-}
-
-func (a *App) StopProxy() error {
-	a.mu.Lock()
-	a.sysProxyActive = false
-	a.tunActive = false
-	a.mu.Unlock()
-	sys.DisableSystemProxy()
-	a.stopCoreService()
-
-	a.SyncState() // 👈 关键：同步状态
-	return nil
-}
-
 // --- 配置与测速 ---
 
 func (a *App) GetInitialData() (map[string]interface{}, error) {
@@ -1405,8 +1387,7 @@ func (a *App) getProfilesDir() string {
 	return utils.GetProfilesDir()
 }
 
-// GetLocalConfigs 已经被全局 SubIndex 替代，这里提供一个空壳或者直接重命名
-// 已经在前面重新定义过了
+
 
 type SelectedFile struct {
 	Path string `json:"path"`
@@ -1512,7 +1493,7 @@ func (a *App) ClearBaseConfig() error {
 	a.saveOfflineNodes()
 
 	// ✅ 改写到安全的数据目录
-	destPath := filepath.Join(utils.GetDataDir(), "config.yaml")
+	destPath := clash.GetConfigPath() // 👈 复用标准方法
 
 	// 写入一个最基础的空结构，防止 Clash 内核解析时直接崩溃
 	emptyConfig := "mode: rule\nproxies: []\nproxy-groups: []\nrules: []\n"
@@ -1757,7 +1738,6 @@ type PagedRules struct {
 }
 
 // GetAllRules 供前端一次性获取所有匹配规则，配合虚拟滚动实现极致流畅
-// GetAllRules 已经被 GetCustomRules 替代
 func (a *App) GetAllRules(id string, keyword string) (PagedRules, error) {
 	rules, err := clash.GetCustomRules(id)
 	if err != nil {

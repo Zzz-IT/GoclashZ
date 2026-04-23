@@ -450,9 +450,3 @@ func ExtractGroupOrder(yamlData []byte) []string {
 	}
 	return order
 }
-
-// -------------------- 规则配置相关 --------------------
-
-// GetRules 已经被 GetCustomRules 替代，这里可以保留空壳或者删除
-// 为了防止其他地方引用导致编译错误，暂时先删除，等会去 app.go 里修复引用
-
