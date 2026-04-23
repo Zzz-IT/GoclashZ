@@ -109,18 +109,32 @@ export namespace clash {
 	        this.hosts = source["hosts"];
 	    }
 	}
-	export class RuleInfo {
-	    rules: string[];
-	    isEditable: boolean;
+	export class SubIndexItem {
+	    id: string;
+	    name: string;
+	    url: string;
+	    type: string;
+	    upload: number;
+	    download: number;
+	    total: number;
+	    expire: number;
+	    updated: number;
 	
 	    static createFrom(source: any = {}) {
-	        return new RuleInfo(source);
+	        return new SubIndexItem(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.rules = source["rules"];
-	        this.isEditable = source["isEditable"];
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.url = source["url"];
+	        this.type = source["type"];
+	        this.upload = source["upload"];
+	        this.download = source["download"];
+	        this.total = source["total"];
+	        this.expire = source["expire"];
+	        this.updated = source["updated"];
 	    }
 	}
 	export class TunConfig {
@@ -278,6 +292,21 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	
+	export class SelectedFile {
+	    path: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SelectedFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.name = source["name"];
+	    }
 	}
 
 }

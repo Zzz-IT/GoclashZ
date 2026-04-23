@@ -5,8 +5,6 @@ import {clash} from '../models';
 import {logger} from '../models';
 import {sys} from '../models';
 
-export function AddRule(arg1:string):Promise<void>;
-
 export function CheckComponentUpdate():Promise<Record<string, string>>;
 
 export function CheckTunEnv():Promise<Record<string, boolean>>;
@@ -21,7 +19,7 @@ export function CloseConnection(arg1:string):Promise<void>;
 
 export function DeleteConfig(arg1:string):Promise<void>;
 
-export function DeleteRule(arg1:number):Promise<void>;
+export function DoLocalImport(arg1:string,arg2:string):Promise<void>;
 
 export function ElevatePrivileges():Promise<void>;
 
@@ -29,7 +27,7 @@ export function FixUWPNetwork():Promise<void>;
 
 export function FlashWindow():Promise<void>;
 
-export function GetAllRules(arg1:string):Promise<main.PagedRules>;
+export function GetAllRules(arg1:string,arg2:string):Promise<main.PagedRules>;
 
 export function GetAppBehavior():Promise<main.AppBehavior>;
 
@@ -39,29 +37,25 @@ export function GetConnections():Promise<Record<string, any>>;
 
 export function GetCoreVersion():Promise<string>;
 
+export function GetCustomRules(arg1:string):Promise<Array<string>>;
+
 export function GetDNSConfig():Promise<clash.DNSConfig>;
 
 export function GetGeoDatabaseInfo():Promise<Record<string, main.GeoFileInfo>>;
 
 export function GetInitialData():Promise<Record<string, any>>;
 
-export function GetLocalConfigs():Promise<Array<string>>;
+export function GetLocalConfigs():Promise<Array<clash.SubIndexItem>>;
 
 export function GetNetworkConfig():Promise<clash.NetworkConfig>;
 
 export function GetRecentLogs():Promise<Array<logger.LogEntry>>;
-
-export function GetRules():Promise<clash.RuleInfo>;
-
-export function GetSubRecords():Promise<Record<string, main.SubRecord>>;
 
 export function GetTunConfig():Promise<clash.TunConfig>;
 
 export function GetUwpApps():Promise<Array<sys.UwpApp>>;
 
 export function GetWintunVersion():Promise<string>;
-
-export function ImportLocalConfig():Promise<void>;
 
 export function InstallTunDriver(arg1:boolean):Promise<string>;
 
@@ -79,7 +73,7 @@ export function RunProxy():Promise<void>;
 
 export function SaveAppBehavior(arg1:main.AppBehavior):Promise<void>;
 
-export function SaveConfigsOrder(arg1:Array<string>):Promise<void>;
+export function SaveCustomRules(arg1:string,arg2:Array<string>):Promise<void>;
 
 export function SaveDNSConfig(arg1:clash.DNSConfig):Promise<void>;
 
@@ -95,9 +89,13 @@ export function SearchLogs(arg1:string):Promise<Array<logger.LogEntry>>;
 
 export function SelectLocalConfig(arg1:string):Promise<void>;
 
+export function SelectLocalFile():Promise<main.SelectedFile>;
+
 export function SelectProxy(arg1:string,arg2:string):Promise<void>;
 
 export function SetupSystray():Promise<void>;
+
+export function StartClash(arg1:string):Promise<void>;
 
 export function StartConnectionMonitor():Promise<void>;
 
@@ -133,4 +131,4 @@ export function UpdateGeoDatabase(arg1:string):Promise<void>;
 
 export function UpdateSingleSub(arg1:string):Promise<void>;
 
-export function UpdateSub(arg1:string):Promise<void>;
+export function UpdateSub(arg1:string,arg2:string):Promise<void>;

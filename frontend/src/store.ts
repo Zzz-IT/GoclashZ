@@ -18,6 +18,10 @@ export const globalState = reactive({
   version: '',
   tunStatus: { hasWintun: false, isAdmin: false },
 
+  // 🚀 核心：当前运行配置的 ID 和显示名称
+  activeConfigId: '',
+  activeConfigName: '',
+
   // 全局模态框状态
   modal: {
     show: false,
@@ -62,6 +66,12 @@ function updateStateFromBackend(rawData: any) {
 
   if (rawData.version !== undefined) globalState.version = rawData.version;
   else if (rawData.Version !== undefined) globalState.version = rawData.Version;
+
+  if (rawData.activeConfig !== undefined) globalState.activeConfigId = rawData.activeConfig;
+  else if (rawData.ActiveConfig !== undefined) globalState.activeConfigId = rawData.ActiveConfig;
+
+  if (rawData.activeConfigName !== undefined) globalState.activeConfigName = rawData.activeConfigName;
+  else if (rawData.ActiveConfigName !== undefined) globalState.activeConfigName = rawData.ActiveConfigName;
 }
 
 // 全局 Alert 提示框 (替代原生 alert)

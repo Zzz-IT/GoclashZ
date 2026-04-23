@@ -745,6 +745,16 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	data["mode"] = mode
 	data["isOffline"] = false
 
+	// 获取配置显示名称
+	clash.IndexLock.RLock()
+	for _, item := range clash.SubIndex {
+		if item.ID == activeConfig {
+			data["activeConfigName"] = item.Name
+			break
+		}
+	}
+	clash.IndexLock.RUnlock()
+
 	// 注入节点组原始排序
 	configPath := filepath.Join(utils.GetProfilesDir(), activeConfig+".yaml")
 	if activeConfig == "" || activeConfig == "config.yaml" {
@@ -1384,8 +1394,13 @@ func (a *App) getProfilesDir() string {
 // GetLocalConfigs 已经被全局 SubIndex 替代，这里提供一个空壳或者直接重命名
 // 已经在前面重新定义过了
 
-// ImportLocalConfig 导入本地配置文件
-func (a *App) ImportLocalConfig() error {
+type SelectedFile struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
+// SelectLocalFile 1. 选择本地文件并预提取名称
+func (a *App) SelectLocalFile() (*SelectedFile, error) {
 	filePath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "选择本地配置文件",
 		Filters: []runtime.FileFilter{
@@ -1393,17 +1408,21 @@ func (a *App) ImportLocalConfig() error {
 		},
 	})
 	if err != nil || filePath == "" {
-		return err
+		return nil, err
 	}
+	// 提取不带后缀的文件名
+	name := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
+	return &SelectedFile{Path: filePath, Name: name}, nil
+}
 
-	content, err := os.ReadFile(filePath)
+// DoLocalImport 2. 执行最终导入动作
+func (a *App) DoLocalImport(path, name string) error {
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
-	fileName := filepath.Base(filePath)
 	id := fmt.Sprintf("%d", time.Now().UnixMilli())
-	
 	destPath := filepath.Join(a.getProfilesDir(), id+".yaml")
 	if err := os.WriteFile(destPath, content, 0644); err != nil {
 		return err
@@ -1417,7 +1436,7 @@ func (a *App) ImportLocalConfig() error {
 	clash.IndexLock.Lock()
 	clash.SubIndex = append(clash.SubIndex, clash.SubIndexItem{
 		ID:      id,
-		Name:    fileName,
+		Name:    name,
 		URL:     "",
 		Type:    "local",
 		Updated: time.Now().Unix(),
@@ -1523,6 +1542,11 @@ func (a *App) SelectLocalConfig(id string) error {
 
 	runtime.EventsEmit(a.ctx, "config-changed", id)
 	return nil
+}
+
+// StartClash 启动配置 (前端兼容接口)
+func (a *App) StartClash(id string) error {
+	return a.SelectLocalConfig(id)
 }
 
 // --- 规则管理 (新增) ---

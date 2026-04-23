@@ -21,6 +21,12 @@
       </div>
 
       <div class="traffic-meter">
+        <div class="traffic-box" style="margin-right: 24px; text-align: left;">
+          <span class="micro-title">活动配置</span>
+          <div class="t-val truncate" style="max-width: 150px; font-size: 1rem;" :title="globalState.activeConfigName">
+            {{ globalState.activeConfigName || '未选定' }}
+          </div>
+        </div>
         <div class="traffic-box">
           <div class="t-header">
             <span class="t-arrow up" v-html="ICONS.arrowUp"></span>
