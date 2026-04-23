@@ -281,7 +281,7 @@ const handleUpdateAll = async () => {
   try {
     await API.UpdateAllSubs();
     await fetchConfigs();
-    await showAlert("全部更新完成", "更新成功");
+    await showAlert("全部订阅更新完成！\n\n自定义规则已保留。如需应用机场的最新规则，请前往「规则管理」页面手动同步。", "更新成功");
   } catch (e) {
     await showAlert(`更新失败: ${e}`, "更新结果");
   } finally {

@@ -716,40 +716,42 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	activeConfig := a.getActiveConfig()
 	mode := a.getActiveMode()
 
+	var data map[string]interface{}
+
+	// 1. 获取基础数据
 	if !clash.IsRunning() {
-		data, err := clash.GetOfflineData(activeConfig)
+		offlineData, err := clash.GetOfflineData(activeConfig)
 		if err != nil {
-			// 🎯 核心修复 1：即使离线获取失败（如文件损坏），也必须把 activeConfig 传给前端，防止前端丢失“当前选中”的记忆
-			return map[string]interface{}{"mode": mode, "groups": make(map[string]interface{}), "activeConfig": activeConfig, "isOffline": true}, nil
+			data = map[string]interface{}{"mode": mode, "groups": make(map[string]interface{}), "activeConfig": activeConfig, "isOffline": true}
+		} else {
+			a.mergeOfflineNodes(offlineData)
+			offlineData["activeConfig"] = activeConfig
+			offlineData["mode"] = mode
+			offlineData["isOffline"] = true
+			data = offlineData
 		}
-
-		a.mergeOfflineNodes(data)
-
-		data["activeConfig"] = activeConfig
-		data["mode"] = mode
-		data["isOffline"] = true
-		return data, nil
+	} else {
+		apiData, err := clash.GetInitialData()
+		if err != nil {
+			fallbackData, _ := clash.GetOfflineData(activeConfig)
+			if fallbackData != nil {
+				a.mergeOfflineNodes(fallbackData)
+				fallbackData["activeConfig"] = activeConfig
+				fallbackData["isOffline"] = true
+				fallbackData["mode"] = mode
+				data = fallbackData
+			} else {
+				data = map[string]interface{}{"mode": mode, "groups": make(map[string]interface{}), "activeConfig": activeConfig, "isOffline": true}
+			}
+		} else {
+			apiData["activeConfig"] = activeConfig
+			apiData["mode"] = mode
+			apiData["isOffline"] = false
+			data = apiData
+		}
 	}
 
-	data, err := clash.GetInitialData()
-	if err != nil {
-		fallbackData, _ := clash.GetOfflineData(activeConfig)
-		if fallbackData != nil {
-			a.mergeOfflineNodes(fallbackData)
-			fallbackData["activeConfig"] = activeConfig
-			fallbackData["isOffline"] = true
-			fallbackData["mode"] = mode
-			return fallbackData, nil
-		}
-		// 🎯 核心修复 2：即使 API 失败且降级也失败，依然要将 activeConfig 传出
-		return map[string]interface{}{"mode": mode, "groups": make(map[string]interface{}), "activeConfig": activeConfig, "isOffline": true}, nil
-	}
-
-	data["activeConfig"] = activeConfig
-	data["mode"] = mode
-	data["isOffline"] = false
-
-	// 获取配置显示名称
+	// 2. 🚀 核心修复：无论内核是否运行，统一下发配置名称和类型！
 	clash.IndexLock.RLock()
 	for _, item := range clash.SubIndex {
 		if item.ID == activeConfig {
@@ -760,7 +762,7 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	}
 	clash.IndexLock.RUnlock()
 
-	// 注入节点组原始排序
+	// 3. 统一下发排序信息
 	configPath := filepath.Join(utils.GetProfilesDir(), activeConfig+".yaml")
 	if activeConfig == "" || activeConfig == "config.yaml" {
 		configPath = filepath.Join(utils.GetDataDir(), "config.yaml")
@@ -1568,6 +1570,9 @@ func (a *App) SelectLocalConfig(id string) error {
 	} else {
 		time.Sleep(200 * time.Millisecond)
 	}
+
+	// 🚀 核心修复：无论内核是否启动，主动把最新状态(含名称、类型)强行推给前端 globalState
+	a.SyncState() 
 
 	runtime.EventsEmit(a.ctx, "config-changed", id)
 	return nil

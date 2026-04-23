@@ -123,16 +123,18 @@ func DownloadSub(name, url, existingId, userAgent string) (string, error) {
 	return id, SaveIndex()
 }
 
+// RenameConfig 重命名配置文件
 func RenameConfig(id, newName string) error {
 	IndexLock.Lock()
-	defer IndexLock.Unlock()
 	for i, item := range SubIndex {
 		if item.ID == id {
 			SubIndex[i].Name = newName
 			break
 		}
 	}
-	return SaveIndex() // 只改 json，底层 yaml 名字不动！
+	IndexLock.Unlock() // 👈 核心修复：必须在这里提前释放写锁，删掉原本的 defer
+
+	return SaveIndex() // SaveIndex 内部会自己去申请 RLock，这样就不会死锁了
 }
 
 func DeleteConfig(id string) error {
