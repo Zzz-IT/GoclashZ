@@ -150,7 +150,16 @@ const toggleTheme = () => {
 .t-label, .theme-switch-row .label { font-size: 0.8rem; color: var(--text-main); white-space: nowrap; flex-shrink: 0; }
 .status-text { font-size: 0.8rem; color: var(--text-sub); transition: 0.3s; white-space: nowrap; }
 .status-text.online { color: var(--text-main); font-weight: 600; }
-.t-val { margin-left: auto; font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-main); opacity: 0.9; white-space: nowrap; flex-shrink: 0; }
+.t-val { 
+  margin-left: auto; 
+  font-family: var(--font-mono); 
+  font-size: 0.7rem; 
+  color: var(--text-main); 
+  opacity: 0.9; 
+  white-space: nowrap; 
+  flex-shrink: 0; 
+  font-variant-numeric: tabular-nums;
+}
 
 .theme-switch-row { cursor: pointer; transition: opacity 0.2s; }
 .theme-switch-row:hover { opacity: 0.7; }

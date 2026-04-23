@@ -20,13 +20,14 @@
         </div>
       </div>
 
-      <div class="traffic-meter">
-        <div class="traffic-box active-config-box">
-          <span class="micro-title">活动配置</span>
-          <div class="t-val truncate" :title="globalState.activeConfigName">
-            {{ globalState.activeConfigName || '未选定' }}
-          </div>
+      <div class="active-config-display">
+        <span class="micro-title">活动配置</span>
+        <div class="config-name truncate" :title="globalState.activeConfigName">
+          {{ globalState.activeConfigName || '未选定' }}
         </div>
+      </div>
+
+      <div class="traffic-meter">
         <div class="traffic-box">
           <div class="t-header">
             <span class="t-arrow up" v-html="ICONS.arrowUp"></span>
@@ -314,22 +315,50 @@ const handleModeChange = (val: string) => {
 .status-heading { font-size: 1.6rem; font-weight: 600; margin: 4px 0; color: var(--text-main); }
 .version-tag { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-sub); opacity: 0.8; }
 
-.traffic-meter { display: flex; gap: 32px; }
-.traffic-box { text-align: right; }
-.t-header { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-bottom: 4px; }
+.traffic-meter { 
+  display: flex; 
+  gap: 32px; 
+  align-items: flex-end; 
+  margin-left: auto; /* 核心：将流量计推向最右侧 */
+}
+
+.traffic-box { 
+  text-align: right; 
+  flex-shrink: 0; 
+  width: 110px; /* 核心：固定宽度防止位移 */
+}
+
+.t-header { 
+  display: flex; 
+  align-items: center; 
+  gap: 6px; 
+  justify-content: flex-end; 
+  margin-bottom: 4px; 
+}
+
 .t-arrow { width: 12px; height: 12px; color: var(--text-main); }
-.t-val { font-family: var(--font-mono); font-size: 1.15rem; font-weight: 500; color: var(--text-main); }
+
+.t-val { 
+  font-family: var(--font-mono); 
+  font-size: 1.15rem; 
+  font-weight: 500; 
+  color: var(--text-main); 
+  font-variant-numeric: tabular-nums; /* 核心：等宽数字 */
+}
+
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.active-config-box { 
-  text-align: left; 
-  margin-right: 24px; 
+.active-config-display { 
+  margin-left: 60px; /* 与左侧状态保持距离 */
   min-width: 0; 
   flex: 1; 
 }
-.active-config-box .t-val { 
-  max-width: 180px; 
+
+.active-config-display .config-name { 
+  max-width: 280px; 
   font-size: 1rem; 
+  font-weight: 500;
+  margin-top: 4px;
 }
 
 /* 开关卡片 */

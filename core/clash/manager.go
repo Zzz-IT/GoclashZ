@@ -42,10 +42,31 @@ func LoadIndex() error {
 	return json.Unmarshal(data, &SubIndex)
 }
 
-// SaveIndex 保存到本地
+// SaveIndex 保存到本地 (原子写入版)
 func SaveIndex() error {
-	IndexLock.RLock()
-	defer IndexLock.RUnlock()
-	data, _ := json.MarshalIndent(SubIndex, "", "  ")
-	return os.WriteFile(getIndexPath(), data, 0644)
+	// 1. 注意这里从 RLock() 提升为了 Lock()，因为底层文件写入需要绝对的串行保护
+	IndexLock.Lock()
+	defer IndexLock.Unlock()
+
+	data, err := json.MarshalIndent(SubIndex, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	indexPath := getIndexPath()
+	tempPath := indexPath + ".tmp"
+
+	// 2. 先将数据安全地写入临时文件
+	if err := os.WriteFile(tempPath, data, 0644); err != nil {
+		return err
+	}
+
+	// 3. 原子重命名覆盖（Windows 底层原生支持 MoveFileEx 进行原子覆盖）
+	if err := os.Rename(tempPath, indexPath); err != nil {
+		// 如果重命名失败，删除无用的临时文件
+		os.Remove(tempPath)
+		return err
+	}
+
+	return nil
 }

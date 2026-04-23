@@ -796,12 +796,12 @@ func (a *App) TestAllProxies(nodeNames []string) {
 				}
 				defer func() { <-semaphore }()
 
-				// 2. 向 Clash 内核请求真实测速
+				// 2. 向 Clash 内核请求真实测速 (透传 ctx)
 				testUrl := ""
 				if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil {
 					testUrl = netCfg.TestURL
 				}
-				delay, err := clash.GetProxyDelay(nName, testUrl)
+				delay, err := clash.GetProxyDelay(ctx, nName, testUrl)
 
 				// 3. 发射结果
 				if err != nil || delay <= 0 {
@@ -1740,6 +1740,12 @@ func (a *App) onTrayReady() {
 				systray.Quit()
 				runtime.Quit(a.ctx)
 				return // 退出这个监听死循环
+
+			// 🚀 修复点：新增对 Wails 全局上下文销毁的监听
+			case <-a.ctx.Done():
+				// 当用户从主界面 [X] 按钮强制退出，或者通过快捷键结束应用时，
+				// a.ctx 会发送 Done 信号。此时优雅退出监听协程，防止内存泄露。
+				return
 			}
 		}
 	}()
