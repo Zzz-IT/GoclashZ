@@ -609,20 +609,9 @@ func BuildRuntimeConfig(id string, mode string) error {
 	root["external-controller"] = "127.0.0.1:9090"
 	root["secret"] = "" // 确保没有意外的密码阻挡前端 WebSocket
 
-	// 👇 核心注入：缝合规则！
+	// 👇 核心注入：规则接管 (真理只在 JSON 中)
 	customRules, _ := GetCustomRules(id)
-	var finalRules []interface{}
-
-	// 自定义规则优先级最高，放在最前面
-	for _, cr := range customRules {
-		finalRules = append(finalRules, cr)
-	}
-
-	// 附加原始规则
-	if originalRules, ok := root["rules"].([]interface{}); ok {
-		finalRules = append(finalRules, originalRules...)
-	}
-	root["rules"] = finalRules
+	root["rules"] = customRules
 
 	// 👇 核心新增：动态读取并注入我们设置的日志等级
 	root["log-level"] = getAppBehaviorLogLevel()

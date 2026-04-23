@@ -111,6 +111,8 @@ export function StopStreamingLogs():Promise<void>;
 
 export function StopTrafficStream():Promise<void>;
 
+export function SyncRules(arg1:string):Promise<void>;
+
 export function SyncState():Promise<void>;
 
 export function TestAllProxies(arg1:Array<string>):Promise<void>;

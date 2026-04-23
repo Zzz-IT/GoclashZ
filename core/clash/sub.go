@@ -81,10 +81,14 @@ func DownloadSub(name, url, existingId, userAgent string) (string, error) {
 		return id, err
 	}
 
-	// 4. 初始化伴生规则文件 (如果不存在才创建，防止洗掉用户规则)
+	// 4. 初始化伴生规则文件 (仅在第一次添加订阅时截取原始规则)
 	rulesPath := filepath.Join(utils.GetProfilesDir(), id+"_rules.json")
 	if _, err := os.Stat(rulesPath); os.IsNotExist(err) {
-		os.WriteFile(rulesPath, []byte(`{"customRules":[]}`), 0644)
+		rules, err := GetOriginalRules(id)
+		if err != nil || len(rules) == 0 {
+			rules = []string{"MATCH,DIRECT"}
+		}
+		SaveCustomRules(id, rules)
 	}
 
 	// 5. 更新全局索引

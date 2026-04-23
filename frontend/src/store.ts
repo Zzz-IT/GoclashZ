@@ -21,6 +21,7 @@ export const globalState = reactive({
   // 🚀 核心：当前运行配置的 ID 和显示名称
   activeConfigId: '',
   activeConfigName: '',
+  activeConfigType: '',
 
   // 全局模态框状态
   modal: {
@@ -72,6 +73,9 @@ function updateStateFromBackend(rawData: any) {
 
   if (rawData.activeConfigName !== undefined) globalState.activeConfigName = rawData.activeConfigName;
   else if (rawData.ActiveConfigName !== undefined) globalState.activeConfigName = rawData.ActiveConfigName;
+
+  if (rawData.activeConfigType !== undefined) globalState.activeConfigType = rawData.activeConfigType;
+  else if (rawData.ActiveConfigType !== undefined) globalState.activeConfigType = rawData.ActiveConfigType;
 }
 
 // 全局 Alert 提示框 (替代原生 alert)

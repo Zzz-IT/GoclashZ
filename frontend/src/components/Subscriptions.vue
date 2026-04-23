@@ -244,6 +244,7 @@ const fetchConfigs = async () => {
     if (data && data.activeConfig !== undefined) {
       globalState.activeConfigId = data.activeConfig;
       globalState.activeConfigName = data.activeConfigName || '';
+      globalState.activeConfigType = data.activeConfigType || '';
     }
   } catch (e) {
     console.error("同步状态失败:", e);
@@ -257,6 +258,7 @@ const handleSelectConfig = async (config: clash.SubIndexItem) => {
     await API.StartClash(config.id);
     globalState.activeConfigId = config.id;
     globalState.activeConfigName = config.name;
+    globalState.activeConfigType = config.type;
   } catch (error) {
     console.error("切换失败:", error);
   } finally {

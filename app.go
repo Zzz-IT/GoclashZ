@@ -225,6 +225,10 @@ type AppState struct {
 	SystemProxy bool   `json:"systemProxy"`
 	Tun         bool   `json:"tun"`
 	Version     string `json:"version"`
+	// 🚀 新增：让前端实时知道当前在跑哪个配置
+	ActiveConfig     string `json:"activeConfig"`
+	ActiveConfigName string `json:"activeConfigName"`
+	ActiveConfigType string `json:"activeConfigType"`
 }
 
 // 1. 在 app.go 任意位置新增这个辅助方法，用于将离线缓存合并到数据源
@@ -750,6 +754,7 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	for _, item := range clash.SubIndex {
 		if item.ID == activeConfig {
 			data["activeConfigName"] = item.Name
+			data["activeConfigType"] = item.Type
 			break
 		}
 	}
@@ -1130,15 +1135,31 @@ func (a *App) SyncState() {
 		theme = "dark"
 	}
 
+	activeId := a.getActiveConfig()
+	activeName := ""
+	activeType := ""
+	clash.IndexLock.RLock()
+	for _, item := range clash.SubIndex {
+		if item.ID == activeId {
+			activeName = item.Name
+			activeType = item.Type
+			break
+		}
+	}
+	clash.IndexLock.RUnlock()
+
 	// 统一组装当前真实状态
 	state := AppState{
-		IsRunning:   clash.IsRunning(),
-		Mode:        a.getActiveMode(), // 这个方法内部自带了安全锁，没问题
-		Theme:       theme,
-		HideLogs:    behavior.HideLogs,
-		SystemProxy: sysProxy,
-		Tun:         tunActive,
-		Version:     a.GetCoreVersion(),
+		IsRunning:        clash.IsRunning(),
+		Mode:             a.getActiveMode(),
+		Theme:            theme,
+		HideLogs:         behavior.HideLogs,
+		SystemProxy:      sysProxy,
+		Tun:              tunActive,
+		Version:          a.GetCoreVersion(),
+		ActiveConfig:     activeId,
+		ActiveConfigName: activeName,
+		ActiveConfigType: activeType,
 	}
 
 	// 推送给前端（唯一通道）
@@ -1428,9 +1449,12 @@ func (a *App) DoLocalImport(path, name string) error {
 		return err
 	}
 
-	// 初始化伴生规则文件
-	rulesPath := filepath.Join(a.getProfilesDir(), id+"_rules.json")
-	os.WriteFile(rulesPath, []byte(`{"customRules":[]}`), 0644)
+	// 初始化伴生规则文件 (导入时立刻截取 YAML 规则，存入 JSON 中)
+	rules, err := clash.GetOriginalRules(id)
+	if err != nil || len(rules) == 0 {
+		rules = []string{"MATCH,DIRECT"}
+	}
+	clash.SaveCustomRules(id, rules)
 
 	// 更新全局索引
 	clash.IndexLock.Lock()
@@ -1444,6 +1468,11 @@ func (a *App) DoLocalImport(path, name string) error {
 	clash.IndexLock.Unlock()
 
 	return clash.SaveIndex()
+}
+
+// SyncRules 从配置源文件同步覆盖当前自定义规则
+func (a *App) SyncRules(id string) error {
+	return clash.SyncRulesFromYaml(id)
 }
 
 // OpenConfigFile 使用系统默认应用打开配置文件

@@ -214,6 +214,10 @@ export function StopTrafficStream() {
   return window['go']['main']['App']['StopTrafficStream']();
 }
 
+export function SyncRules(arg1) {
+  return window['go']['main']['App']['SyncRules'](arg1);
+}
+
 export function SyncState() {
   return window['go']['main']['App']['SyncState']();
 }

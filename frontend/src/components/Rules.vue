@@ -9,7 +9,18 @@
           <span v-html="ICONS.search"></span>
           <input v-model="searchQuery" placeholder="搜索我的自定义规则..." />
         </div>
-        <button class="add-rule-btn" @click="showAddModal = true">+ 添加自定义规则</button>
+        <div class="header-actions">
+          <button 
+            v-if="globalState.activeConfigType === 'remote'" 
+            class="sync-btn" 
+            @click="handleSync" 
+            :disabled="loading"
+            title="从机场订阅文件重新提取原始规则，将覆盖现有自定义修改"
+          >
+            <span class="btn-icon" v-html="ICONS.refresh"></span> 同步订阅规则
+          </button>
+          <button class="add-rule-btn" @click="showAddModal = true">+ 添加自定义规则</button>
+        </div>
       </div>
 
       <div class="rules-grid">
@@ -144,6 +155,27 @@ const handleDelete = async (idx: number) => {
   }
 };
 
+const handleSync = async () => {
+  if (!globalState.activeConfigId) return;
+  const ok = await showConfirm(
+    "确定要从机场订阅源重新同步规则吗？\n这将会彻底覆盖您当前对该配置的所有自定义规则修改！",
+    "同步规则警告",
+    true
+  );
+  if (ok) {
+    loading.value = true;
+    try {
+      await API.SyncRules(globalState.activeConfigId);
+      await loadRules();
+      await showAlert("规则已同步至机场最新状态", "同步成功");
+    } catch (e) {
+      await showAlert("同步失败: " + e, "错误");
+    } finally {
+      loading.value = false;
+    }
+  }
+};
+
 onMounted(() => {
   loadRules();
 });
@@ -154,11 +186,29 @@ onMounted(() => {
 .empty-state-view { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 0.9rem; }
 
 .rules-header { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; width: 100%; }
+.header-actions { display: flex; gap: 12px; }
 .search-bar { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--surface-hover); border-radius: 8px; padding: 8px 12px; flex: 1; }
 .search-bar input { border: none; background: transparent; color: var(--text-main); outline: none; margin-left: 8px; width: 100%; }
 
 .add-rule-btn { background: var(--accent); color: var(--accent-fg); border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; flex-shrink: 0; }
 .add-rule-btn:hover { filter: brightness(0.9); }
+
+.sync-btn {
+  background: var(--surface-hover);
+  color: #faad14; /* 警告黄色 */
+  border: 1px solid rgba(250, 173, 20, 0.2);
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sync-btn:hover { background: rgba(250, 173, 20, 0.1); border-color: #faad14; }
+.sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.sync-btn .btn-icon :deep(svg) { width: 14px; height: 14px; }
 
 .rules-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-content: start; gap: 16px; overflow-y: auto; padding-right: 10px; padding-bottom: 20px; }
 .rule-card { background: var(--surface); border: 1px solid var(--surface-hover); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; transition: background 0.2s; }

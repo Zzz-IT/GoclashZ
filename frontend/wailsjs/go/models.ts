@@ -229,6 +229,9 @@ export namespace main {
 	    systemProxy: boolean;
 	    tun: boolean;
 	    version: string;
+	    activeConfig: string;
+	    activeConfigName: string;
+	    activeConfigType: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppState(source);
@@ -243,6 +246,9 @@ export namespace main {
 	        this.systemProxy = source["systemProxy"];
 	        this.tun = source["tun"];
 	        this.version = source["version"];
+	        this.activeConfig = source["activeConfig"];
+	        this.activeConfigName = source["activeConfigName"];
+	        this.activeConfigType = source["activeConfigType"];
 	    }
 	}
 	export class RuleItem {
