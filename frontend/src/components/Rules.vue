@@ -78,7 +78,7 @@
             <h3>新增分流规则</h3>
           </div>
           <div class="modal-body">
-            <p class="global-modal-msg">格式: 类型,目标,策略 (例如: DOMAIN,google.com,Proxy)</p>
+            <p class="global-modal-msg">格式: 类型,目标,策略</p>
             <input v-model="newRuleStr" class="modal-input" placeholder="DOMAIN,example.com,DIRECT" @keyup.enter="handleAdd" />
             <div class="modal-footer">
               <button class="action-btn flex-1" @click="showAddModal = false">取消</button>
@@ -149,13 +149,22 @@ watch(() => globalState.activeConfigId, (newId) => {
   }
 }, { immediate: true });
 
-// 🚀 新增：只过滤索引，不生成临时对象 (O(1)级开销)
+// 🚀 新增：静态缓存全小写规则，生命周期内只在 userRules 变动时执行 1 次！
+// 彻底杜绝搜索过程中的瞬时大量小写字符串分配，消除 GC 抖动
+const lowerCaseRulesCache = computed(() => {
+  return userRules.value.map(r => r.toLowerCase());
+});
+
+// 🚀 核心优化：只过滤索引，不生成临时对象 (O(1)级开销)
 const filteredIndices = computed(() => {
   const query = debouncedQuery.value;
   const indices: number[] = [];
   const rules = userRules.value;
+  const lowerCache = lowerCaseRulesCache.value; // 借用预计算的小写缓存
+  
   for (let i = 0; i < rules.length; i++) {
-    if (!query || rules[i].toLowerCase().includes(query)) {
+    // 零瞬时内存分配：直接在已存在的缓存小写字符串上比对
+    if (!query || lowerCache[i].includes(query)) {
       indices.push(i);
     }
   }
@@ -174,7 +183,7 @@ watch(totalPages, (newTotal) => {
   }
 });
 
-// 🚀 新增：仅将当前页的数据实例化为 Object，极致节省内存
+// 🚀 核心优化：仅将当前页的数据实例化为 Object，极致节省内存
 const paginatedRules = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value;
   const end = start + pageSize.value;
@@ -184,26 +193,34 @@ const paginatedRules = computed(() => {
     return {
       type: parts[0]?.trim() || 'UNKNOWN',
       payload: parts[1]?.trim() || '',
-      policy: parts[2]?.trim() || '',
+      // 🚀 修复：将剩余所有部分拼接（兼容 no-resolve 等 4 段或多段式高级规则）
+      policy: parts.slice(2).join(', ').trim() || '', 
       originalIndex: index
     };
   });
 });
 
 const handleAdd = async () => {
-  if (!newRuleStr.value || !globalState.activeConfigId) return;
+  const ruleStr = newRuleStr.value.trim();
+  if (!ruleStr || !globalState.activeConfigId) return;
+
   loading.value = true;
   try {
-    const newList = [newRuleStr.value, ...userRules.value];
+    // 1. 直接将原始字符串扔给后端，由 Go 进行绝对校验和清洗
+    const newList = [ruleStr, ...userRules.value];
     await API.SaveCustomRules(globalState.activeConfigId, newList);
+    
+    // 2. 只有后端没有抛出错误（校验通过并落盘成功），才更新前端视图
     userRules.value = newList;
     newRuleStr.value = '';
     showAddModal.value = false;
-    currentPage.value = 1;
+    
     searchQuery.value = '';
+    currentPage.value = 1;
     await showAlert("规则已添加并保存", "提示");
   } catch (e) {
-    await showAlert("添加失败: " + e, '错误');
+    // 3. 拦截后端的 fmt.Errorf 并直接展示给用户
+    await showAlert(String(e), '格式校验失败');
   } finally {
     loading.value = false;
   }

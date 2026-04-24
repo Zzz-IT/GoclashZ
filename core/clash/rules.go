@@ -2,9 +2,11 @@ package clash
 
 import (
 	"encoding/json"
+	"fmt"
 	"goclashz/core/utils"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -12,6 +14,37 @@ import (
 
 // 定义全局读写锁，保护伴生规则文件的读写安全
 var rulesMutex sync.RWMutex
+
+// 🛡️ 终极防线 1：Clash 官方与 Meta (mihomo) 核心全量规则类型白名单
+var validRuleTypes = map[string]bool{
+	"DOMAIN":         true,
+	"DOMAIN-SUFFIX":  true,
+	"DOMAIN-KEYWORD": true,
+	"DOMAIN-REGEX":   true,
+	"GEOSITE":        true,
+	"GEOIP":          true,
+	"IP-CIDR":        true,
+	"IP-CIDR6":       true,
+	"IP-SUFFIX":      true,
+	"IP-ASN":         true,
+	"SRC-IP-CIDR":    true,
+	"SRC-PORT":       true,
+	"DST-PORT":       true,
+	"IN-PORT":        true,
+	"IN-TYPE":        true,
+	"IN-USER":        true,
+	"PROCESS-NAME":   true,
+	"PROCESS-PATH":   true,
+	"UID":            true,
+	"NETWORK":        true,
+	"DSCP":           true,
+	"RULE-SET":       true,
+	"AND":            true,
+	"OR":             true,
+	"NOT":            true,
+	"SUB-RULE":       true,
+	"MATCH":          true,
+}
 
 type CustomRuleSet struct {
 	CustomRules []string `json:"customRules"`
@@ -36,14 +69,72 @@ func GetCustomRules(id string) ([]string, error) {
 }
 
 func SaveCustomRules(id string, rules []string) error {
-	rulesMutex.Lock() // 加写锁
+	rulesMutex.Lock()
 	defer rulesMutex.Unlock()
 
+	if rules == nil {
+		rules = []string{}
+	}
+
+	var sanitizedRules []string
+	for _, r := range rules {
+		cleanRule := strings.TrimSpace(r)
+		if cleanRule == "" {
+			continue
+		}
+
+		parts := strings.Split(cleanRule, ",")
+
+		// 基础清理与遍历检查空缺
+		var cleanedParts []string
+		for _, p := range parts {
+			trimmed := strings.TrimSpace(p)
+			if trimmed == "" {
+				return fmt.Errorf("格式拒绝：逗号之间不允许存在空缺值")
+			}
+			cleanedParts = append(cleanedParts, trimmed)
+		}
+
+		if len(cleanedParts) < 2 {
+			return fmt.Errorf("格式拒绝：缺少逗号分隔，且至少需要两段")
+		}
+
+		// 🛡️ 终极防线 2：绝对白名单校验（自动容错用户的输入大小写，统一转为大写对比）
+		ruleType := strings.ToUpper(cleanedParts[0])
+		if !validRuleTypes[ruleType] {
+			return fmt.Errorf("格式拒绝：[%s] 不是合法的 Clash 规则类型。支持的类型如 DOMAIN, IP-CIDR, MATCH 等", cleanedParts[0])
+		}
+
+		// 🛡️ 终极防线 3：动态语义段数校验
+		// MATCH 规则特殊，只有两段 (MATCH,DIRECT) 或带附加参数 (MATCH,DIRECT,no-resolve)
+		if ruleType == "MATCH" {
+			if len(cleanedParts) < 2 {
+				return fmt.Errorf("格式拒绝：MATCH 规则至少需要2段 (例如 MATCH,DIRECT)")
+			}
+		} else {
+			// 除 MATCH 以外的所有规则，绝大多数必须至少 3 段 (类型, 载荷, 策略)
+			if len(cleanedParts) < 3 {
+				return fmt.Errorf("格式拒绝：[%s] 规则至少需要3段 (类型,目标,策略)，例如 %s,example.com,DIRECT", ruleType, ruleType)
+			}
+		}
+
+		// 强制将类型转为标准大写，并重组写入
+		cleanedParts[0] = ruleType
+		sanitizedRules = append(sanitizedRules, strings.Join(cleanedParts, ","))
+	}
+
 	path := filepath.Join(utils.GetSubscriptionsDir(), id+"_rules.json")
-	set := CustomRuleSet{CustomRules: rules}
-	// 修改：去掉 MarshalIndent，改用 Marshal 压缩文件体积和提升 IO 速度
+	tmpPath := path + ".tmp"
+
+	// 使用校验并清洗过的数据落盘
+	set := CustomRuleSet{CustomRules: sanitizedRules}
 	data, _ := json.Marshal(set)
-	return os.WriteFile(path, data, 0644)
+
+	// 原子操作写入
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 // GetOriginalRules 读取底层 YAML 文件，提取内置规则
