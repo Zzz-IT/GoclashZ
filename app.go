@@ -179,6 +179,7 @@ func (a *App) GetAppBehavior() AppBehavior {
 func (a *App) SaveAppBehavior(config AppBehavior) error {
 	// 1. 锁内更新内存缓存，并深拷贝一份用于安全的写盘
 	a.behaviorMu.Lock()
+	oldLogLevel := a.behaviorCache.LogLevel // 👈 新增：记录旧的日志等级
 	a.behaviorCache = config
 	behaviorToSave := a.behaviorCache
 	a.behaviorMu.Unlock()
@@ -199,6 +200,20 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 			clash.ReloadConfig()
 		}
 	}
+
+	// 👇 核心修复：如果日志等级发生变化，且当前前端正在查看日志（流正在运行），立刻重启日志流！
+	if oldLogLevel != behaviorToSave.LogLevel {
+		a.mu.Lock()
+		isLogging := a.logRunning
+		a.mu.Unlock()
+		if isLogging {
+			a.StopStreamingLogs()
+			// 稍微休眠，确保底层网络请求句柄已经彻底关闭
+			time.Sleep(50 * time.Millisecond) 
+			a.StartStreamingLogs()
+		}
+	}
+
 	a.SyncState()
 	return err
 }
@@ -1672,8 +1687,14 @@ func (a *App) ResetComponentSettings(module string) error {
 	// 1. 删除 user_*.json 触发降级
 	utils.ResetSetting(module)
 
+	oldLogLevel := "" // 👈 新增
+	
 	// 2. 如果重置的是应用行为，需立刻刷新内存缓存
 	if module == "behavior" {
+		a.behaviorMu.RLock()
+		oldLogLevel = a.behaviorCache.LogLevel // 👈 记录旧等级
+		a.behaviorMu.RUnlock()
+		
 		a.initBehaviorCache()
 	}
 
@@ -1695,6 +1716,24 @@ func (a *App) ResetComponentSettings(module string) error {
 			a.coreLifecycleMu.Unlock()
 		} else if clash.IsRunning() {
 			clash.ReloadConfig() // 轻量级重载
+		}
+	}
+
+	// 👇 核心修复：如果恢复默认设置导致日志等级发生了变化，重启日志流
+	if module == "behavior" {
+		a.behaviorMu.RLock()
+		newLogLevel := a.behaviorCache.LogLevel
+		a.behaviorMu.RUnlock()
+
+		if oldLogLevel != "" && oldLogLevel != newLogLevel {
+			a.mu.Lock()
+			isLogging := a.logRunning
+			a.mu.Unlock()
+			if isLogging {
+				a.StopStreamingLogs()
+				time.Sleep(50 * time.Millisecond)
+				a.StartStreamingLogs()
+			}
 		}
 	}
 
