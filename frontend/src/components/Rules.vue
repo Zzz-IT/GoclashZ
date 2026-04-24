@@ -37,13 +37,13 @@
           </div>
         </div>
         
-        <div v-if="!loading && filteredRules.length === 0" class="loading-state">
+        <div v-if="!loading && !hasFilteredRules" class="loading-state">
           {{ searchQuery ? '没有找到匹配的规则' : '暂无规则，点击上方按钮添加' }}
         </div>
       </div>
 
-      <div class="pagination-bar" v-if="filteredRules.length > 0">
-        <span class="page-info">共 {{ filteredRules.length }} 条规则</span>
+      <div class="pagination-bar" v-if="hasFilteredRules">
+        <span class="page-info">共 {{ totalFilteredCount }} 条</span>
         
         <div class="pagination-controls">
           <button 
@@ -54,7 +54,9 @@
             &lt; 上一页
           </button>
           
-          <span class="page-status">第 {{ currentPage }} / {{ totalPages }} 页</span>
+          <span class="page-status">
+            {{ currentPage }} / {{ totalPages }}
+          </span>
           
           <button 
             class="page-btn" 
@@ -90,7 +92,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, onMounted, computed, watch } from 'vue';
+import { ref, shallowRef, onMounted, onUnmounted, computed, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { showAlert, showConfirm, globalState } from '../store';
 import { ICONS } from '../utils/icons';
@@ -106,7 +108,12 @@ const newRuleStr = ref('');
 const loading = ref(false);
 
 const currentPage = ref(1);
-const pageSize = ref(42); // 调整为每页 42 条规则，优化视觉排布
+const pageSize = ref(42); 
+
+// 新增：组件卸载清理
+onUnmounted(() => {
+  if (searchTimer) clearTimeout(searchTimer);
+});
 
 // 监听搜索词变化并加入防抖，防止高频触发过滤计算
 watch(searchQuery, (newVal) => {
@@ -132,12 +139,47 @@ const loadRules = async () => {
 
 // 监听配置切换
 watch(() => globalState.activeConfigId, (newId) => {
-  if (newId) loadRules();
-  else userRules.value = [];
+  if (newId) {
+    searchQuery.value = '';
+    debouncedQuery.value = '';
+    currentPage.value = 1;
+    loadRules();
+  } else {
+    userRules.value = [];
+  }
 }, { immediate: true });
 
-const parsedRules = computed(() => {
-  return userRules.value.map((text, index) => {
+// 🚀 新增：只过滤索引，不生成临时对象 (O(1)级开销)
+const filteredIndices = computed(() => {
+  const query = debouncedQuery.value;
+  const indices: number[] = [];
+  const rules = userRules.value;
+  for (let i = 0; i < rules.length; i++) {
+    if (!query || rules[i].toLowerCase().includes(query)) {
+      indices.push(i);
+    }
+  }
+  return indices;
+});
+
+// 新增：状态标志供模板使用
+const totalFilteredCount = computed(() => filteredIndices.value.length);
+const hasFilteredRules = computed(() => totalFilteredCount.value > 0);
+const totalPages = computed(() => Math.ceil(totalFilteredCount.value / pageSize.value) || 1);
+
+// 越界保护：当删除数据导致总页数缩减时，自动修正当前页码
+watch(totalPages, (newTotal) => {
+  if (currentPage.value > newTotal) {
+    currentPage.value = newTotal;
+  }
+});
+
+// 🚀 新增：仅将当前页的数据实例化为 Object，极致节省内存
+const paginatedRules = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  const end = start + pageSize.value;
+  return filteredIndices.value.slice(start, end).map(index => {
+    const text = userRules.value[index];
     const parts = text.split(',');
     return {
       type: parts[0]?.trim() || 'UNKNOWN',
@@ -146,34 +188,6 @@ const parsedRules = computed(() => {
       originalIndex: index
     };
   });
-});
-
-const filteredRules = computed(() => {
-  if (!debouncedQuery.value) return parsedRules.value;
-  return parsedRules.value.filter(r => 
-    r.type.toLowerCase().includes(debouncedQuery.value) || 
-    r.payload.toLowerCase().includes(debouncedQuery.value) || 
-    r.policy.toLowerCase().includes(debouncedQuery.value)
-  );
-});
-
-// --- 分页逻辑核心 ---
-
-const totalPages = computed(() => {
-  return Math.ceil(filteredRules.value.length / pageSize.value) || 1;
-});
-
-const paginatedRules = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value;
-  const end = start + pageSize.value;
-  return filteredRules.value.slice(start, end);
-});
-
-// 越界保护：当删除数据导致总页数缩减时，自动修正当前页码
-watch(totalPages, (newTotal) => {
-  if (currentPage.value > newTotal) {
-    currentPage.value = newTotal;
-  }
 });
 
 const handleAdd = async () => {
@@ -185,6 +199,8 @@ const handleAdd = async () => {
     userRules.value = newList;
     newRuleStr.value = '';
     showAddModal.value = false;
+    currentPage.value = 1;
+    searchQuery.value = '';
     await showAlert("规则已添加并保存", "提示");
   } catch (e) {
     await showAlert("添加失败: " + e, '错误');
@@ -222,6 +238,8 @@ const handleSync = async () => {
     try {
       await API.SyncRules(globalState.activeConfigId);
       await loadRules();
+      currentPage.value = 1;
+      searchQuery.value = '';
       await showAlert("规则已同步至机场最新状态", "同步成功");
     } catch (e) {
       await showAlert("同步失败: " + e, "错误");

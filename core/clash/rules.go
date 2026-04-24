@@ -18,26 +18,30 @@ type CustomRuleSet struct {
 }
 
 func GetCustomRules(id string) ([]string, error) {
-	rulesMutex.RLock()
+	rulesMutex.RLock() // 加读锁
 	defer rulesMutex.RUnlock()
 
 	path := filepath.Join(utils.GetSubscriptionsDir(), id+"_rules.json")
 	data, err := os.ReadFile(path)
-	if err != nil {
+	if err != nil || len(data) == 0 {
 		return []string{}, nil
 	}
+
 	var set CustomRuleSet
-	json.Unmarshal(data, &set)
+	// 修改：增加错误抛出，防止文件损坏时返回空切片导致前端覆写
+	if err := json.Unmarshal(data, &set); err != nil {
+		return nil, err
+	}
 	return set.CustomRules, nil
 }
 
 func SaveCustomRules(id string, rules []string) error {
-	rulesMutex.Lock()
+	rulesMutex.Lock() // 加写锁
 	defer rulesMutex.Unlock()
 
 	path := filepath.Join(utils.GetSubscriptionsDir(), id+"_rules.json")
 	set := CustomRuleSet{CustomRules: rules}
-	// ⚡ 优化：取消缩进格式化，对于上万条规则的大数组，普通 Marshal 可显著减小文件体积并提升 I/O 速度
+	// 修改：去掉 MarshalIndent，改用 Marshal 压缩文件体积和提升 IO 速度
 	data, _ := json.Marshal(set)
 	return os.WriteFile(path, data, 0644)
 }
