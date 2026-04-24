@@ -197,13 +197,14 @@ type TunConfig struct {
 // ================= TUN 设置 =================
 func GetTunConfig() (*TunConfig, error) {
 	defaultTun := TunConfig{
-		Enable:              false,
-		Stack:               "gvisor",
+		Enable:              true,
+		Stack:               "mixed",
+		Device:              "",
 		AutoRoute:           true,
 		AutoDetectInterface: true,
 		DNSHijack:           []string{"any:53"},
-		StrictRoute:         true,
-		MTU:                 1500,
+		StrictRoute:         false,
+		MTU:                 1430,
 	}
 	return utils.LoadSetting("tun", defaultTun)
 }
@@ -248,18 +249,19 @@ func GetDNSConfig() (*DNSConfig, error) {
 	defaultDNS := DNSConfig{
 		Enable:                true,
 		Listen:                "0.0.0.0:1053",
-		IPv6:                  false,
+		IPv6:                  true,
 		PreferH3:              false,
 		EnhancedMode:          "fake-ip",
+		RespectRules:          false,
 		FakeIPRange:           "198.18.0.1/16",
 		FakeIPFilter:          []string{"*.lan", "*.localdomain", "*.example", "*.invalid", "*.localhost", "*.test", "lan", "localdomain", "localhost"},
 		UseSystemHosts:        true,
-		UseHosts:              true,
+		UseHosts:              false,
 		DefaultNameserver:     []string{"223.5.5.5", "114.114.114.114"},
 		Nameserver:            []string{"https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"},
 		Fallback:              []string{"https://doh.dns.sb/dns-query", "https://dns.cloudflare.com/dns-query"},
-		DirectNameserver:      []string{"https://dns.alidns.com/dns-query"},
-		ProxyServerNameserver: []string{"https://doh.pub/dns-query"},
+		DirectNameserver:      []string{"https://dns.alidns.com/dns-query", "https://doh.pub/dns-query"},
+		ProxyServerNameserver: []string{"223.5.5.5", "114.114.114.114"},
 		NameserverPolicy:      map[string]string{"geosite:cn": "https://doh.pub/dns-query"},
 		FallbackFilter: FallbackFilterConfig{
 			GeoIP:     true,
@@ -284,7 +286,7 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 		UnifiedDelay:         true,
 		TCPConcurrent:        true,
 		TCPKeepAlive:         true,
-		TCPKeepAliveInterval: 15,
+		TCPKeepAliveInterval: 30,
 		TestURL:              "http://www.gstatic.com/generate_204",
 		Hosts:                "",
 	}

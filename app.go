@@ -143,17 +143,17 @@ func (a *App) IsNodeOffline(groupName string) (bool, string) {
 // 内部初始化缓存的方法，在 startup 中调用
 func (a *App) initBehaviorCache() {
 	defaultConfig := AppBehavior{
-		SilentStart: false,
-		CloseToTray: true,
-		LogLevel:    "info",
-		HideLogs:    false,
-		SubUA:       "clash-verge/1.0",
-		ActiveConfig: "",
+		SilentStart:  false,
+		CloseToTray:  false,
+		LogLevel:     "error",
+		HideLogs:     true,
+		SubUA:        "clash-verge",
+		ActiveConfig: "1776940878659",
 		ActiveMode:   "rule",
-		GeoIpLink:   "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
-		GeoSiteLink: "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
-		MmdbLink:    "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
-		AsnLink:     "https://ghproxy.net/https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
+		GeoIpLink:    "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
+		GeoSiteLink:  "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
+		MmdbLink:     "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
+		AsnLink:      "https://ghproxy.net/https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
 	}
 
 	// 自动处理读取、合并和生成默认文件
@@ -754,29 +754,52 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 }
 
 func (a *App) TestAllProxies(nodeNames []string) {
-	// 🚀 修复：加入内核生命周期锁，防止并发抢占
 	a.coreLifecycleMu.Lock()
+
+	isSilentTest := false
+
+	// 1. 如果内核没有运行，执行【后台静默启动】
 	if !clash.IsRunning() {
-		// 使用封装好的安全启动方法，而不是底层的 clash.Start()
-		if err := a.ensureCoreRunning(); err != nil {
-			a.coreLifecycleMu.Unlock() // 失败时尽早释放锁
-			runtime.EventsEmit(a.ctx, "proxy-test-finished", "内核启动失败，无法测速")
+		mode := a.getActiveMode()
+		activeCfg := a.getActiveConfig()
+		if activeCfg != "" {
+			clash.BuildRuntimeConfig(activeCfg, mode, a.GetAppBehavior().LogLevel)
+		}
+		
+		// 直接调用底层 Start，不调用 ensureCoreRunning，避免触发流量监控和 UI 同步
+		if err := clash.Start(a.ctx); err != nil {
+			a.coreLifecycleMu.Unlock()
+			runtime.EventsEmit(a.ctx, "proxy-test-finished", "后台静默启动内核失败，无法测速")
 			return
 		}
-		time.Sleep(1 * time.Second)
+		
+		// 探针等待 API 就绪
+		for i := 0; i < 20; i++ {
+			if _, err := clash.GetInitialData(); err == nil {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		isSilentTest = true
 	}
-	a.coreLifecycleMu.Unlock() // 状态确认完毕，释放锁，不阻塞后续测速的并发协程
+	a.coreLifecycleMu.Unlock() // 尽早释放锁，不阻塞并发测速
 
 	go func() {
-		concurrency := 16 // 稍微提高并发
+		// 2. 测速地址获取提到循环外部，彻底消除锁竞争
+		testUrl := "http://www.gstatic.com/generate_204"
+		if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil && netCfg.TestURL != "" {
+			testUrl = netCfg.TestURL
+		}
+
+		concurrency := 16
 		semaphore := make(chan struct{}, concurrency)
 		var wg sync.WaitGroup
 
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		// 3. 根 Context 不设超时，只响应软件强制退出
+		ctx, cancel := context.WithCancel(a.ctx)
 		defer cancel()
 
 		for _, name := range nodeNames {
-			// 1. 立即发射“开始测速”事件，告诉前端这个节点开始转圈了
 			runtime.EventsEmit(a.ctx, "proxy-test-start", name)
 
 			wg.Add(1)
@@ -786,24 +809,21 @@ func (a *App) TestAllProxies(nodeNames []string) {
 				select {
 				case semaphore <- struct{}{}:
 				case <-ctx.Done():
-					// 🚀 核心修复：被 Context 强制取消的节点，必须通知前端停止转圈
 					runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
 						"name":   nName,
 						"delay":  0,
-						"status": "timeout", // 通知前端测速取消
+						"status": "timeout",
 					})
 					return
 				}
 				defer func() { <-semaphore }()
 
-				// 2. 向 Clash 内核请求真实测速 (透传 ctx)
-				testUrl := ""
-				if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil {
-					testUrl = netCfg.TestURL
-				}
-				delay, err := clash.GetProxyDelay(ctx, nName, testUrl)
+				// 4. 为每个节点分配绝对独立的 5 秒专属超时时间
+				reqCtx, reqCancel := context.WithTimeout(ctx, 5*time.Second)
+				defer reqCancel()
 
-				// 3. 发射结果
+				delay, err := clash.GetProxyDelay(reqCtx, nName, testUrl)
+
 				if err != nil || delay <= 0 {
 					runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
 						"name":   nName,
@@ -822,6 +842,21 @@ func (a *App) TestAllProxies(nodeNames []string) {
 
 		wg.Wait()
 		runtime.EventsEmit(a.ctx, "proxy-test-finished", "测速完成")
+
+		// 5. 【用完即焚】：如果内核是专门为了测速启动的，测完后无痕关闭
+		if isSilentTest {
+			a.coreLifecycleMu.Lock()
+			a.mu.RLock()
+			stillInactive := !a.sysProxyActive && !a.tunActive
+			a.mu.RUnlock()
+
+			// 如果测速期间，用户没有手动开启系统代理或 TUN，就静默关闭内核节约内存
+			// (如果测速期间用户打开了开关，这里会自动放过，实现无缝移交)
+			if stillInactive && clash.IsRunning() {
+				clash.Stop()
+			}
+			a.coreLifecycleMu.Unlock()
+		}
 	}()
 }
 
@@ -1150,9 +1185,13 @@ func (a *App) SyncState() {
 	}
 	clash.IndexLock.RUnlock()
 
+	// 🚀 核心修改：将内核物理运行状态与 UI 业务接管状态解耦
+	// 只有系统代理或 TUN 开启时，才向前端汇报 true，屏蔽静默测速引发的闪烁
+	logicalIsRunning := clash.IsRunning() && (sysProxy || tunActive)
+
 	// 统一组装当前真实状态
 	state := AppState{
-		IsRunning:        clash.IsRunning(),
+		IsRunning:        logicalIsRunning, // 👈 修改了这里
 		Mode:             a.getActiveMode(),
 		Theme:            theme,
 		HideLogs:         behavior.HideLogs,
@@ -1202,9 +1241,25 @@ func (a *App) SyncState() {
 	}
 }
 
-// GetCoreVersion 占位，返回内核版本
+// GetCoreVersion 返回内核版本
 func (a *App) GetCoreVersion() string {
-	return clash.GetVersion()
+	// 1. 优先尝试从本地物理文件直接读取（无论内核是否在运行都能成功）
+	binDir := utils.GetCoreBinDir()
+	exePath := filepath.Join(binDir, "clash.exe")
+	localVer := getLocalCoreVersion(exePath)
+	
+	if localVer != "" {
+		return localVer
+	}
+
+	// 2. 如果本地文件读取失败，兜底尝试从 API 获取
+	apiVer := clash.GetVersion()
+	if apiVer != "" {
+		return apiVer
+	}
+
+	// 3. 如果都失败了，说明还没下载内核
+	return "未安装"
 }
 
 func (a *App) GetTunConfig() (*clash.TunConfig, error) {
@@ -2246,3 +2301,4 @@ func downloadFileWithRetry(destPath, url string) error {
 	}
 	return fmt.Errorf("三次尝试均失败: %v", lastErr)
 }
+
