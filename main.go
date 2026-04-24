@@ -12,6 +12,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	"goclashz/core/utils"
 	syswin "golang.org/x/sys/windows" // 👈 引入 windows 底层包并起别名，避免与 Wails 的 windows 冲突
+	"strings"
 	"unsafe"
 )
 
@@ -120,14 +121,16 @@ func main() {
 
 	app := NewApp()
 
-	// 1. 👈 动态读取上一次保存的主题
-	var r, g, b uint8 = 242, 242, 242 // 默认日间底色 (#F2F2F2)
+	// 👇 修复：将默认兜底颜色改为夜间模式，对齐 app.go 的默认行为
+	var r, g, b uint8 = 17, 17, 17 // 默认夜间底色 (#111111)
 	
 	// ✅ 使用统一的智能数据目录读取主题
 	themeFile := filepath.Join(utils.GetDataDir(), "theme_setting.txt")
-	content, err := os.ReadFile(themeFile)
-	if err == nil && string(content) == "dark" {
-		r, g, b = 17, 17, 17 // 匹配夜间模式底色 (#111111)
+	if content, err := os.ReadFile(themeFile); err == nil {
+		// 👇 修复：如果有配置且明确为 light，才使用白色底色
+		if strings.TrimSpace(string(content)) == "light" {
+			r, g, b = 242, 242, 242 // 匹配日间模式底色 (#F2F2F2)
+		}
 	}
 
 	err = wails.Run(&options.App{

@@ -197,7 +197,7 @@ type TunConfig struct {
 // ================= TUN 设置 =================
 func GetTunConfig() (*TunConfig, error) {
 	defaultTun := TunConfig{
-		Enable:              true,
+		Enable:              false,
 		Stack:               "mixed",
 		Device:              "",
 		AutoRoute:           true,

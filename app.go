@@ -1075,6 +1075,9 @@ func (a *App) StartStreamingLogs() {
 	// 👈 创建独立的子 Context 控制日志
 	logCtx, cancel := context.WithCancel(a.ctx)
 	a.cancelLogs = cancel
+
+	// 👇 获取当前设置的日志等级
+	logLevel := a.GetAppBehavior().LogLevel
 	a.mu.Unlock()
 
 	// 调用 api_client.go 中定义的 FetchLogs，传入受控的 logCtx 和回调
@@ -1090,7 +1093,8 @@ func (a *App) StartStreamingLogs() {
 			a.mu.Unlock()
 		}()
 
-		clash.FetchLogs(logCtx, func(data interface{}) {
+		// 👇 修复：将 logLevel 传递给底层 API
+		clash.FetchLogs(logCtx, logLevel, func(data interface{}) {
 			// 解析为 LogEntry 并存入 Buffer
 			if m, ok := data.(map[string]interface{}); ok {
 				entry := logger.LogEntry{

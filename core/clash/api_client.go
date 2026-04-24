@@ -34,7 +34,11 @@ var streamClient = &http.Client{
 }
 
 // FetchLogs 获取实时日志流并执行回调（带自动重连）
-func FetchLogs(ctx context.Context, onLog func(data interface{})) {
+func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) {
+	if level == "" {
+		level = "info" // 兜底默认值
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -42,7 +46,9 @@ func FetchLogs(ctx context.Context, onLog func(data interface{})) {
 		default:
 		}
 
-		req, err := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:9090/logs", nil)
+		// 👇 修复：携带 level 参数请求 API
+		apiURL := fmt.Sprintf("http://127.0.0.1:9090/logs?level=%s", level)
+		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err != nil {
 			time.Sleep(2 * time.Second)
 			continue
