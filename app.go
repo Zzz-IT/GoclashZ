@@ -1068,7 +1068,6 @@ func (a *App) StartTrafficStream() {
 		})
 	}()
 }
-}
 
 func (a *App) StopTrafficStream() {
 	a.mu.Lock()
