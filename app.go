@@ -1066,15 +1066,8 @@ func (a *App) StartTrafficStream() {
 		traffic.StreamTraffic(ctx, func(up, down string) {
 			runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": up, "down": down})
 		})
-
-		// 如果流异常断开，自动清理上下文以便后续可重新启动
-		a.mu.Lock()
-		if a.cancelTraffic != nil {
-			a.cancelTraffic()
-			a.cancelTraffic = nil
-		}
-		a.mu.Unlock()
 	}()
+}
 }
 
 func (a *App) StopTrafficStream() {
