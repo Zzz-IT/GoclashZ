@@ -133,7 +133,7 @@ func main() {
 		}
 	}
 
-	err = wails.Run(&options.App{
+	err := wails.Run(&options.App{
 		Title:  "GoclashZ",
 		Width:  1024,
 		Height: 768,
