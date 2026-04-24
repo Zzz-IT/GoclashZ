@@ -24,7 +24,7 @@
       </div>
 
       <div class="rules-grid">
-        <div v-for="(rule, index) in filteredRules" :key="index" class="rule-card">
+        <div v-for="rule in paginatedRules" :key="rule.originalIndex" class="rule-card">
           <div class="rule-main">
             <div class="rule-type tag-primary">{{ rule.type }}</div>
             <div class="rule-payload truncate" :title="rule.payload">{{ rule.payload }}</div>
@@ -42,9 +42,30 @@
         </div>
       </div>
 
-      <div class="pagination-bar" v-if="userRules.length > 0">
-        <span class="page-info">当前订阅共有 {{ userRules.length }} 条规则</span>
-        <div class="tip-text">新添规则将自动注入置于规则文件最前端</div>
+      <div class="pagination-bar" v-if="filteredRules.length > 0">
+        <span class="page-info">共 {{ filteredRules.length }} 条规则</span>
+        
+        <div class="pagination-controls">
+          <button 
+            class="page-btn" 
+            @click="currentPage--" 
+            :disabled="currentPage <= 1"
+          >
+            &lt; 上一页
+          </button>
+          
+          <span class="page-status">第 {{ currentPage }} / {{ totalPages }} 页</span>
+          
+          <button 
+            class="page-btn" 
+            @click="currentPage++" 
+            :disabled="currentPage >= totalPages"
+          >
+            下一页 &gt;
+          </button>
+        </div>
+
+        <div class="tip-text">新添规则自动置顶</div>
       </div>
     </template>
 
@@ -69,16 +90,32 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, shallowRef, onMounted, computed, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { showAlert, showConfirm, globalState } from '../store';
 import { ICONS } from '../utils/icons';
 
-const userRules = ref<string[]>([]);
+// 🚀 性能极化：使用 shallowRef 存储几万条规则，避免 Vue 深度代理导致的内存溢出和初始化卡顿
+const userRules = shallowRef<string[]>([]);
 const searchQuery = ref('');
+const debouncedQuery = ref(''); // 实际用于过滤的搜索词
+let searchTimer: ReturnType<typeof setTimeout>;
+
 const showAddModal = ref(false);
 const newRuleStr = ref('');
 const loading = ref(false);
+
+const currentPage = ref(1);
+const pageSize = ref(42); // 调整为每页 42 条规则，优化视觉排布
+
+// 监听搜索词变化并加入防抖，防止高频触发过滤计算
+watch(searchQuery, (newVal) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    debouncedQuery.value = newVal.toLowerCase().trim();
+    currentPage.value = 1; // 搜索词确认改变后，重置页码
+  }, 300);
+});
 
 const loadRules = async () => {
   if (!globalState.activeConfigId) return;
@@ -112,13 +149,31 @@ const parsedRules = computed(() => {
 });
 
 const filteredRules = computed(() => {
-  const query = searchQuery.value.toLowerCase();
-  if (!query) return parsedRules.value;
+  if (!debouncedQuery.value) return parsedRules.value;
   return parsedRules.value.filter(r => 
-    r.type.toLowerCase().includes(query) || 
-    r.payload.toLowerCase().includes(query) || 
-    r.policy.toLowerCase().includes(query)
+    r.type.toLowerCase().includes(debouncedQuery.value) || 
+    r.payload.toLowerCase().includes(debouncedQuery.value) || 
+    r.policy.toLowerCase().includes(debouncedQuery.value)
   );
+});
+
+// --- 分页逻辑核心 ---
+
+const totalPages = computed(() => {
+  return Math.ceil(filteredRules.value.length / pageSize.value) || 1;
+});
+
+const paginatedRules = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  const end = start + pageSize.value;
+  return filteredRules.value.slice(start, end);
+});
+
+// 越界保护：当删除数据导致总页数缩减时，自动修正当前页码
+watch(totalPages, (newTotal) => {
+  if (currentPage.value > newTotal) {
+    currentPage.value = newTotal;
+  }
 });
 
 const handleAdd = async () => {
@@ -210,13 +265,61 @@ onMounted(() => {
 .sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .sync-btn .btn-icon :deep(svg) { width: 14px; height: 14px; }
 
-.rules-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-content: start; gap: 16px; overflow-y: auto; padding-right: 10px; padding-bottom: 20px; }
-.rule-card { background: var(--surface); border: 1px solid var(--surface-hover); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; transition: background 0.2s; }
+.rules-grid { 
+  flex: 1; 
+  min-height: 0; 
+  display: grid; 
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); 
+  align-content: start; 
+  gap: 16px; 
+  overflow-y: auto; 
+  padding-right: 12px; /* 🚀 恢复间距，让滚动条与卡片保持呼吸感 */
+  padding-bottom: 20px; 
+}
+
+/* 🚀 滚动条样式保持简洁 */
+.rules-grid::-webkit-scrollbar {
+  width: 10px; 
+}
+
+.rules-grid::-webkit-scrollbar-thumb {
+  background-color: var(--surface-hover);
+  border: 3px solid transparent; 
+  background-clip: padding-box;
+  border-radius: 10px;
+  transition: background 0.2s;
+}
+
+.rules-grid::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-sub); /* 悬停时加深，提示已抓取 */
+}
+
+.rule-card { 
+  background: var(--surface); 
+  border: 1px solid var(--surface-hover); 
+  border-radius: 10px; 
+  padding: 14px 16px; 
+  display: flex; 
+  flex-direction: column; 
+  gap: 10px; 
+  transition: background 0.2s; 
+  height: 110px; /* 🚀 增加高度，彻底解决文字“腰斩”问题 */
+  box-sizing: border-box;
+  justify-content: space-between;
+}
 .rule-card:hover { background: var(--surface-hover); }
-.rule-main { display: flex; flex-direction: column; gap: 6px; }
-.rule-type { font-size: 0.7rem; font-weight: 700; padding: 4px 8px; border-radius: 6px; width: fit-content; border: none; }
+.rule-main { display: flex; flex-direction: column; gap: 8px; } /* 🚀 增加内容间距 */
+.rule-type { font-size: 0.7rem; font-weight: 700; padding: 4px 8px; border-radius: 6px; width: fit-content; border: none; flex-shrink: 0; }
 .tag-primary { background: var(--text-main); color: var(--surface); } 
-.rule-payload { font-size: 0.95rem; color: var(--text-main); font-weight: 600; word-break: break-all; }
+.rule-payload { 
+  font-size: 1rem; 
+  color: var(--text-main); 
+  font-weight: 600; 
+  line-height: 1.4; /* 🚀 优化行高 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .rule-footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
 .rule-policy { font-size: 0.75rem; color: var(--text-sub); font-weight: 600; }
 
@@ -225,9 +328,70 @@ onMounted(() => {
 
 .loading-state { grid-column: 1 / -1; text-align: center; padding: 20px; color: var(--text-muted); font-size: 0.85rem; }
 
-.pagination-bar { display: flex; justify-content: space-between; align-items: center; padding-top: 16px; border-top: 1px solid var(--surface-hover); margin-top: auto; }
-.page-info { font-size: 0.85rem; color: var(--text-sub); font-weight: 500; }
-.tip-text { font-size: 0.75rem; color: var(--text-muted); font-style: italic; }
+.pagination-bar { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  padding-top: 16px; 
+  border-top: 1px solid var(--surface-hover); 
+  margin-top: auto; 
+}
+
+.page-info, .tip-text {
+  flex: 1;
+}
+.tip-text {
+  text-align: right;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex: 2;
+}
+
+.page-btn {
+  background: var(--surface);
+  border: none; /* 彻底去除轮廓线 */
+  color: var(--text-main);
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  outline: none;
+}
+
+/* 悬停与点击采用反色方案，增强交互的高级感 */
+.page-btn:hover:not(:disabled) {
+  background: var(--text-main);
+  color: var(--surface);
+}
+
+.page-btn:active:not(:disabled) {
+  transform: scale(0.96);
+  opacity: 0.8;
+}
+
+.page-btn:disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
+}
+
+.page-status {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-main);
+  min-width: 80px;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
 
 .flex-1 { flex: 1; }
 </style>

@@ -5,15 +5,22 @@ import (
 	"goclashz/core/utils"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
+
+// 定义全局读写锁，保护伴生规则文件的读写安全
+var rulesMutex sync.RWMutex
 
 type CustomRuleSet struct {
 	CustomRules []string `json:"customRules"`
 }
 
 func GetCustomRules(id string) ([]string, error) {
+	rulesMutex.RLock()
+	defer rulesMutex.RUnlock()
+
 	path := filepath.Join(utils.GetSubscriptionsDir(), id+"_rules.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -25,9 +32,13 @@ func GetCustomRules(id string) ([]string, error) {
 }
 
 func SaveCustomRules(id string, rules []string) error {
+	rulesMutex.Lock()
+	defer rulesMutex.Unlock()
+
 	path := filepath.Join(utils.GetSubscriptionsDir(), id+"_rules.json")
 	set := CustomRuleSet{CustomRules: rules}
-	data, _ := json.MarshalIndent(set, "", "  ")
+	// ⚡ 优化：取消缩进格式化，对于上万条规则的大数组，普通 Marshal 可显著减小文件体积并提升 I/O 速度
+	data, _ := json.Marshal(set)
 	return os.WriteFile(path, data, 0644)
 }
 
