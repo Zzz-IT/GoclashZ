@@ -1,62 +1,69 @@
-# GoclashZ ⚡
+# GoclashZ
+
+一款基于 Wails 构建的轻量、极简且高性能的 Mihomo (Clash Meta) Windows 桌面客户端。
+
+![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)
+![Wails](https://img.shields.io/badge/Wails-v2-red)
+![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js)
+![License](https://img.shields.io/badge/License-MIT-black)
 
 ![Banner](docs/assets/banner.png)
 
-GoclashZ 是一款基于 **Wails v2** 与 **Mihomo (Clash Meta)** 内核构建的工业级极简主义代理客户端。它专为极致性能与工业美学而设计，提供高度稳定且安全的网络接管体验。
+> **GoclashZ** 是一款专为追求极致性能与极简视觉体验而打造的现代化桌面客户端。它采用 Go + Wails 框架构建，彻底剥离了传统 Electron 架构的臃肿，在提供纯粹的黑白高对比度 UI 和流畅卡片交互的同时，将系统内存与资源占用降至最低。
 
-## ✨ 核心特性
+### ✨ 核心特性
 
-- **🏁 极简工业美学**：全界面采用高对比度黑白设计，移除所有冗余装饰，回归工具本质。
-- **🚀 极致响应性能**：基于 Go 原生后端与 Webview2 渲染，内存占用极低，状态切换秒级响应。
-- **🛡️ 工业级稳定性**：
-  - **原子替换**：内核与数据库更新采用带指数退避的原子重命名机制，对抗杀毒软件文件锁定。
-  - **进程守护**：利用 Windows Job Object 确保内核随主程序同步启停，杜绝僵尸进程。
-  - **并发安全**：严格的生命周期锁机制，防止系统代理、TUN 模式与测速任务之间的状态竞争。
-- **🌐 全面网络接管**：
-  - 支持 **系统代理 (System Proxy)** 自动配置与智能分流。
-  - 支持 **虚拟网卡 (TUN Mode)** 底层流量接管（需管理员权限）。
-- **📊 深度可视化**：
-  - 实时流量仪表盘，支持流式数据更新。
-  - 结构化日志查看器，支持全文过滤。
-  - 节点测速系统，具备高并发请求与超时回收机制。
-- **📂 订阅管理**：支持多订阅导入、自动更新、流量统计显示及离线节点记忆。
+*   **🎨 极简美学**：彻底剔除冗余的视觉干扰，采用纯黑白高对比度设计，保留清爽的弹出式卡片动画（Pop-up transitions），去除拖沓的展开动效。
+*   **⚡ 极致性能**：基于 Wails v2 构建，告别 Electron 的高内存消耗；UI 独立接管状态机，避免前端卡死。
+*   **🛡️ 智能 TUN 模式**：内置 Wintun 驱动的自动化安装、提权与防占用备份回滚机制，底层安全接管虚拟网卡。
+*   **📊 无延迟流量监控**：抛弃传统的定时轮询，采用长连接流式读取（Stream API）内核数据，实现丝滑的流量与连接数展示。
+*   **⚙️ 深度并发优化**：在 Geo 数据库更新、内核热重载等高频 I/O 场景下，采用精确的读写锁与原子替换操作，彻底杜绝并发写盘导致的文件损坏。
+*   **🧩 全栈接管**：支持 UWP 应用网络回环解除、系统代理静默切换、离线节点记忆与后台静默多线程测速。
 
-## 🛠️ 技术栈
+### 📥 下载与安装
 
-- **Backend**: [Go 1.21+](https://golang.org/)
-- **Frontend**: [Vue 3](https://vuejs.org/), [TypeScript](https://www.typescriptlang.org/)
-- **Framework**: [Wails v2](https://wails.io/)
-- **Core**: [Mihomo (Clash Meta)](https://github.com/MetaCubeX/mihomo)
-- **Styling**: Vanilla CSS (Industrial High-Contrast Design)
+前往 [Releases](https://github.com/Zzz-IT/GoclashZ/releases) 页面下载最新版本的 `GoclashZ-Installer.exe` 并安装。
 
-## 📥 快速开始
+### 🚀 运行须知
 
-### 环境要求
-- Windows 10/11 (x64)
-- [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+1.  **常规模式**：默认情况下，双击即可运行并使用系统代理模式（System Proxy）。
+2.  **高级模式 (TUN/UWP)**：若需开启 **虚拟网卡 (TUN) 模式** 或 **解除 UWP 限制**，请务必右键 GoclashZ 图标，选择 **「以管理员身份运行」**，否则由于 Windows 权限限制将无法安装 Wintun 驱动或修改系统网络设置。
 
-### 编译安装
-1. 克隆仓库：
-   ```bash
-   git clone https://github.com/Zzz-IT/GoclashZ.git
-   cd GoclashZ
-   ```
-2. 安装依赖并编译：
-   ```bash
-   wails build
-   ```
-3. 产物路径：`build/bin/GoclashZ.exe`
+### 🛠️ 环境准备
 
-## 🔒 安全说明
-本软件在开发过程中经过严格的代码审计，针对以下风险进行了专项加固：
-- **参数注入防护**：所有 UAC 提权参数均经过 `syscall.EscapeArg` 安全转义。
-- **PID 安全清理**：清理旧进程时执行严格的 PID 类型校验与进程名匹配。
-- **路径劫持防护**：系统敏感工具（如 `taskkill`）均使用绝对路径调用。
+*   [Go](https://go.dev/) 1.21 或更高版本
+*   [Node.js](https://nodejs.org/) 18 或更高版本
+*   [Wails CLI](https://wails.io/docs/gettingstarted/installation)
 
-## 👤 作者
-- **Developer**: Zzz
-- **Email**: [zzx685690@gmail.com](mailto:zzx685690@gmail.com)
-- **GitHub**: [Zzz-IT](https://github.com/Zzz-IT)
+### 💻 启动开发环境
 
-## 📄 开源协议
-本项目基于 MIT 协议开源。
+```bash
+# 在项目根目录下运行
+wails dev
+```
+
+### 📦 构建发行版
+
+```bash
+# 构建 Windows 安装包 (需配置好 NSIS 环境)
+wails build -clean -nsis
+```
+
+### 📁 核心架构
+
+*   `core/clash`: 内核启停生命周期、配置生成与高并发控制核心。
+*   `core/sys`: Windows 底层 API（TUN 驱动原子安装、系统代理、UWP 提权、原生进程管控 JobObject）。
+*   `core/traffic`: 长连接流量监听与数据清洗。
+*   `frontend`: 基于 Vue 3 构建的黑白极简前端工程。
+
+### 🙏 致谢
+
+本项目站在了以下优秀开源项目的肩膀上：
+
+*   **代理内核**：[Mihomo (Clash Meta)](https://github.com/MetaCubeX/mihomo)
+*   **桌面框架**：[Wails](https://wails.io/)
+*   **系统托盘**：[getlantern/systray](https://github.com/getlantern/systray)
+
+### 📄 开源协议
+
+本项目基于 **MIT** 协议开源。
