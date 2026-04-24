@@ -42,22 +42,29 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return // 瞬间响应外部的 Cancel 信号
 		default:
 		}
 
-		// 👇 修复：携带 level 参数请求 API
 		apiURL := fmt.Sprintf("http://127.0.0.1:9090/logs?level=%s", level)
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err != nil {
-			time.Sleep(2 * time.Second)
+			// 🚀 优化：用 select 替代粗暴的 time.Sleep，使休眠可被瞬间打断
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(2 * time.Second):
+			}
 			continue
 		}
 
-		// 👇 核心修复：直接使用全局长连接客户端，绝不动态创建
 		resp, err := streamClient.Do(req)
 		if err != nil {
-			time.Sleep(2 * time.Second)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(2 * time.Second):
+			}
 			continue
 		}
 
@@ -65,7 +72,6 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 		for {
 			var logData map[string]interface{}
 			if err := decoder.Decode(&logData); err != nil {
-				// 发生 EOF 断开，关闭当前流，准备重连
 				resp.Body.Close()
 				break
 			}
@@ -151,7 +157,7 @@ func UpdateMode(mode string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	resp, err := localAPIClient.Do(req)
 	if err != nil {
 		return err
@@ -179,8 +185,6 @@ func SelectProxy(groupName, proxyName string) error {
 	defer resp.Body.Close()
 	return nil
 }
-
-
 
 // GetConnectionsRaw 获取实时连接原始数据
 func GetConnectionsRaw() ([]byte, error) {

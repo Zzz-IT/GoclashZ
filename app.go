@@ -33,6 +33,7 @@ type App struct {
 	ctx            context.Context
 	cancelTraffic  context.CancelFunc
 	cancelLogs     context.CancelFunc
+	logGen         int // 🚀 新增：日志流版本号，用于区分新旧协程
 	logRunning     bool
 	mu             sync.RWMutex
 	activeConfig   string
@@ -85,7 +86,6 @@ type AppBehavior struct {
 	MmdbLink    string `json:"mmdbLink"`
 	AsnLink     string `json:"asnLink"`
 }
-
 
 // 1. 获取离线节点记忆文件的路径
 func (a *App) getOfflineNodesPath() string {
@@ -209,7 +209,7 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 		if isLogging {
 			a.StopStreamingLogs()
 			// 稍微休眠，确保底层网络请求句柄已经彻底关闭
-			time.Sleep(50 * time.Millisecond) 
+			time.Sleep(50 * time.Millisecond)
 			a.StartStreamingLogs()
 		}
 	}
@@ -1093,37 +1093,34 @@ func (a *App) StartStreamingLogs() {
 		return
 	}
 
-	// ✅ 核心加固：防御性清理残留的 cancel 函数，防止 Goroutine 泄露
+	// ✅ 防御性清理残留
 	if a.cancelLogs != nil {
 		a.cancelLogs()
 		a.cancelLogs = nil
 	}
 
 	a.logRunning = true
-	// 👈 创建独立的子 Context 控制日志
+	a.logGen++ // 🚀 递增版本号，确保每个协程有唯一身份
+	currentGen := a.logGen
 	logCtx, cancel := context.WithCancel(a.ctx)
 	a.cancelLogs = cancel
 
-	// 👇 获取当前设置的日志等级
 	logLevel := a.GetAppBehavior().LogLevel
 	a.mu.Unlock()
 
-	// 调用 api_client.go 中定义的 FetchLogs，传入受控的 logCtx 和回调
 	go func() {
-		// 🚀 核心修复：确保即使 HTTP 长连接断开（内核重启），也能重置状态
 		defer func() {
 			a.mu.Lock()
-			a.logRunning = false
-			if a.cancelLogs != nil {
-				a.cancelLogs()
+			// 🚀 核心修复：只清理属于当前版本号（当前协程）的状态！
+			if a.logGen == currentGen {
+				a.logRunning = false
 				a.cancelLogs = nil
 			}
 			a.mu.Unlock()
+			cancel() // 释放当前独立的 Context
 		}()
 
-		// 👇 修复：将 logLevel 传递给底层 API
 		clash.FetchLogs(logCtx, logLevel, func(data interface{}) {
-			// 解析为 LogEntry 并存入 Buffer
 			if m, ok := data.(map[string]interface{}); ok {
 				entry := logger.LogEntry{
 					Type:    fmt.Sprintf("%v", m["type"]),
@@ -1145,6 +1142,7 @@ func (a *App) StopStreamingLogs() {
 		a.cancelLogs()     // 👈 真正发送取消信号给后台协程
 		a.cancelLogs = nil // 清空
 		a.logRunning = false
+		a.logGen++ // 🚀 使旧协程在清理时“认不清身份”，防止其覆盖新状态
 	}
 }
 
@@ -1279,7 +1277,7 @@ func (a *App) GetCoreVersion() string {
 	binDir := utils.GetCoreBinDir()
 	exePath := filepath.Join(binDir, "clash.exe")
 	localVer := getLocalCoreVersion(exePath)
-	
+
 	if localVer != "" {
 		return localVer
 	}
@@ -1509,8 +1507,6 @@ func (a *App) getProfilesDir() string {
 	return utils.GetProfilesDir()
 }
 
-
-
 type SelectedFile struct {
 	Path string `json:"path"`
 	Name string `json:"name"`
@@ -1667,7 +1663,7 @@ func (a *App) SelectLocalConfig(id string) error {
 	}
 
 	// 🚀 核心修复：无论内核是否启动，主动把最新状态(含名称、类型)强行推给前端 globalState
-	a.SyncState() 
+	a.SyncState()
 
 	runtime.EventsEmit(a.ctx, "config-changed", id)
 	return nil
@@ -1688,13 +1684,13 @@ func (a *App) ResetComponentSettings(module string) error {
 	utils.ResetSetting(module)
 
 	oldLogLevel := "" // 👈 新增
-	
+
 	// 2. 如果重置的是应用行为，需立刻刷新内存缓存
 	if module == "behavior" {
 		a.behaviorMu.RLock()
 		oldLogLevel = a.behaviorCache.LogLevel // 👈 记录旧等级
 		a.behaviorMu.RUnlock()
-		
+
 		a.initBehaviorCache()
 	}
 
@@ -2370,4 +2366,3 @@ func downloadFileWithRetry(destPath, url string) error {
 	}
 	return fmt.Errorf("三次尝试均失败: %v", lastErr)
 }
-
