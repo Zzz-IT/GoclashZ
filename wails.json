@@ -9,5 +9,12 @@
   "author": {
     "name": "Zzz",
     "email": "zzx685690@gmail.com"
+  },
+  "info": {
+    "productVersion": "1.1.0",
+    "companyName": "ZzzDREAM",
+    "productName": "GoclashZ",
+    "copyright": "Copyright © 2026",
+    "comments": "A modern Clash client"
   }
 }

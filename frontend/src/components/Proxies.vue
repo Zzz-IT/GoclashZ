@@ -371,6 +371,10 @@ onUnmounted(() => {
 }
 
 /* 确保测速中的动画在选中态也是反色 */
+.node-item.active .scanner-track {
+  stroke: var(--accent-fg) !important;
+  stroke-opacity: 0.15; /* 🚀 核心：让底圈更浅、更通透 */
+}
 .node-item.active .scanner-bar {
   stroke: var(--accent-fg) !important;
 }

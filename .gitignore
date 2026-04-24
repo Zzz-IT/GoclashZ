@@ -1,6 +1,32 @@
-build/bin
-node_modules
-frontend/dist
+# Wails / Go / Frontend
 build/bin/
+frontend/dist/
+node_modules/
 *.exe
-/data/
+*.log
+
+# Local data & logs
+/data/*
+!/data/core/
+!/data/core/bin/
+!/data/core/bin/*
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build Artifacts
+build/installer/
+build/windows/installer/tmp/
+*.msi
+*.msix
+
+# Temp/Misc
+webfonts/
+scratch/

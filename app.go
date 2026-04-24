@@ -66,8 +66,11 @@ type App struct {
 	// 🔐 新增：专属 IO 锁，确保磁盘文件原子性写入，防止并发保存导致数据损坏
 	behaviorIOMu sync.Mutex
 
-	testCancel context.CancelFunc // 👈 测速任务的取消句柄
-	testMu     sync.Mutex         // 👈 保护取消句柄的锁
+	// 👇 替换这里：移除原有的 testCancel，改为更优雅的全局并发控制与引用计数
+	testMu        sync.Mutex    // 保护下方变量的并发安全
+	activeTests   int           // 记录当前正在进行的测速任务数量
+	testSemaphore chan struct{} // 全局测速限流信号量，防止高并发耗尽端口
+	isSilentCore  bool          // 标记内核是否仅为测速而在后台静默运行
 }
 
 // AppBehavior 定义应用行为设置
@@ -768,31 +771,34 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 }
 
 func (a *App) TestAllProxies(nodeNames []string) {
-	// 🚀 优化：掐断历史遗留的、还在疯狂测速的旧任务
+	// 1. 🚀 注册本次测速任务，初始化全局限流器
 	a.testMu.Lock()
-	if a.testCancel != nil {
-		a.testCancel()
+	a.activeTests++
+	if a.testSemaphore == nil {
+		a.testSemaphore = make(chan struct{}, 16) // 全局限流：最多同时测16个节点
 	}
-	// 创建仅针对本轮测速的独立 Context
-	ctx, cancel := context.WithCancel(a.ctx)
-	a.testCancel = cancel
 	a.testMu.Unlock()
 
 	a.coreLifecycleMu.Lock()
 
-	isSilentTest := false
-
-	// 1. 如果内核没有运行，执行【后台静默启动】
+	// 2. 如果内核没有运行，执行【后台静默启动】
 	if !clash.IsRunning() {
+		a.testMu.Lock()
+		a.isSilentCore = true // 标记：这个内核是为了测速临时拉起的
+		a.testMu.Unlock()
+
 		mode := a.getActiveMode()
 		activeCfg := a.getActiveConfig()
 		if activeCfg != "" {
 			clash.BuildRuntimeConfig(activeCfg, mode, a.GetAppBehavior().LogLevel)
 		}
 
-		// 直接调用底层 Start，不调用 ensureCoreRunning，避免触发流量监控和 UI 同步
+		// 直接调用底层 Start，不调用 ensureCoreRunning，避免触发流量监控和 UI 闪烁
 		if err := clash.Start(a.ctx); err != nil {
 			a.coreLifecycleMu.Unlock()
+			a.testMu.Lock()
+			a.activeTests-- // 失败时回退计数
+			a.testMu.Unlock()
 			runtime.EventsEmit(a.ctx, "proxy-test-finished", "后台静默启动内核失败，无法测速")
 			return
 		}
@@ -804,66 +810,79 @@ func (a *App) TestAllProxies(nodeNames []string) {
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
-		isSilentTest = true
 	}
-	a.coreLifecycleMu.Unlock() // 尽早释放锁，不阻塞并发测速
+	a.coreLifecycleMu.Unlock() // 尽早释放锁，绝不阻塞后续点击
 
+	// 3. 开启异步测速执行器
 	go func() {
+		// 🚀 核心修复：收尾工作 (引用计数归零判断)
 		defer func() {
 			a.testMu.Lock()
-			if a.testCancel != nil { // 👈 修正：由于 defer 在函数退出时执行，直接判断并清理
-				a.testCancel = nil
-			}
+			a.activeTests--
+			remaining := a.activeTests
+			shouldCheckSilent := a.isSilentCore
 			a.testMu.Unlock()
-			cancel()
+
+			// 【用完即焚】：当所有测速任务（包括你狂点单节点产生的所有并发）都彻底结束时，才考虑清理内核
+			if remaining == 0 && shouldCheckSilent {
+				a.coreLifecycleMu.Lock()
+				a.mu.RLock()
+				stillInactive := !a.sysProxyActive && !a.tunActive
+				a.mu.RUnlock()
+
+				// 只有在测速期间，用户依然没有开启系统代理或 TUN 时，才静默关闭内核节约内存
+				if stillInactive && clash.IsRunning() {
+					clash.Stop()
+				}
+				
+				// 无论是否关闭，静默测速状态都清空
+				a.testMu.Lock()
+				a.isSilentCore = false
+				a.testMu.Unlock()
+
+				a.coreLifecycleMu.Unlock()
+			}
 		}()
 
-		// 2. 测速地址获取提到循环外部，彻底消除锁竞争
+		// 提前获取测试地址，脱离锁与循环的竞争
 		testUrl := "http://www.gstatic.com/generate_204"
 		if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil && netCfg.TestURL != "" {
 			testUrl = netCfg.TestURL
 		}
 
-		concurrency := 16
-		semaphore := make(chan struct{}, concurrency)
 		var wg sync.WaitGroup
 
 		for _, name := range nodeNames {
 			runtime.EventsEmit(a.ctx, "proxy-test-start", name)
-
 			wg.Add(1)
+
 			go func(nName string) {
 				defer wg.Done()
 
+				// 🚀 核心修复：获取全局并发槽位。即使狂点100次，也只会同时发起16个HTTP请求，多余的温柔等待
 				select {
-				case semaphore <- struct{}{}:
-				case <-ctx.Done():
+				case a.testSemaphore <- struct{}{}:
+				case <-a.ctx.Done(): // 只有在彻底关闭软件时才强制阻断
 					runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-						"name":   nName,
-						"delay":  0,
-						"status": "timeout",
+						"name": nName, "delay": 0, "status": "timeout",
 					})
 					return
 				}
-				defer func() { <-semaphore }()
+				defer func() { <-a.testSemaphore }()
 
-				// 4. 为每个节点分配绝对独立的 5 秒专属超时时间
-				reqCtx, reqCancel := context.WithTimeout(ctx, 5*time.Second)
+				// 赋予该节点独立的 5 秒专属超时
+				reqCtx, reqCancel := context.WithTimeout(a.ctx, 5*time.Second)
 				defer reqCancel()
 
 				delay, err := clash.GetProxyDelay(reqCtx, nName, testUrl)
 
 				if err != nil || delay <= 0 {
 					runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-						"name":   nName,
-						"delay":  0,
-						"status": "timeout",
+						"name": nName, "delay": 0, "status": "timeout",
 					})
 				} else {
 					runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-						"name":   nName,
-						"delay":  delay,
-						"status": "success",
+						"name": nName, "delay": delay, "status": "success",
 					})
 				}
 			}(name)
@@ -871,20 +890,6 @@ func (a *App) TestAllProxies(nodeNames []string) {
 
 		wg.Wait()
 		runtime.EventsEmit(a.ctx, "proxy-test-finished", "测速完成")
-
-		// 5. 【用完即焚】：如果内核是专门为了测速启动的，测完后无痕关闭
-		if isSilentTest {
-			a.coreLifecycleMu.Lock()
-			a.mu.RLock()
-			stillInactive := !a.sysProxyActive && !a.tunActive
-			a.mu.RUnlock()
-
-			// 如果测速期间，用户没有手动开启系统代理或 TUN，就静默关闭内核节约内存
-			if stillInactive && clash.IsRunning() {
-				clash.Stop()
-			}
-			a.coreLifecycleMu.Unlock()
-		}
 	}()
 }
 

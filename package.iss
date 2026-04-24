@@ -3,14 +3,20 @@
 ; =========================================================
 
 #define MyAppName "GoclashZ"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Zzz"
 #define MyAppExeName "GoclashZ.exe"
 
 [Setup]
+WizardStyle=modern dark  includetitlebar
+VersionInfoVersion=1.1.0.1
+VersionInfoCompany=Zzz
+VersionInfoDescription=GoclashZ Installer
+VersionInfoCopyright=Copyright (C) 2026 Zzz
 ; 基础信息
 AppName={#MyAppName}
 AppVerName={#MyAppName}
+AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 
 ; --- 🎯 核心修改 1：采用现代“当前用户”安装模式 ---
