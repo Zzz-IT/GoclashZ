@@ -64,6 +64,9 @@ type App struct {
 
 	// 🔐 新增：专属 IO 锁，确保磁盘文件原子性写入，防止并发保存导致数据损坏
 	behaviorIOMu sync.Mutex
+
+	testCancel context.CancelFunc // 👈 测速任务的取消句柄
+	testMu     sync.Mutex         // 👈 保护取消句柄的锁
 }
 
 // AppBehavior 定义应用行为设置
@@ -517,7 +520,6 @@ func (a *App) ToggleTunMode(enable bool) error {
 	a.stopCoreService()
 
 	if needCore {
-		time.Sleep(150 * time.Millisecond) // 等待旧端口释放
 		err := a.ensureCoreRunning()
 		a.SyncState()
 		return err
@@ -535,15 +537,12 @@ func (a *App) RestartCore() error {
 	// 1. 停止当前运行的内核与流量监控
 	a.stopCoreService()
 
-	// 2. 短暂等待，确保底层的端口释放、TUN 虚拟网卡卸载干净
-	time.Sleep(300 * time.Millisecond)
-
-	// 3. 读取当前应用的接管状态
+	// 2. 读取当前应用的接管状态
 	a.mu.RLock()
 	needCore := a.sysProxyActive || a.tunActive
 	a.mu.RUnlock()
 
-	// 4. 如果系统代理或 TUN 至少开了一个，则重新启动内核
+	// 3. 如果系统代理或 TUN 至少开了一个，则重新启动内核
 	if needCore {
 		if err := a.ensureCoreRunning(); err != nil {
 			a.SyncState() // 即使失败也要推一次状态
@@ -551,7 +550,7 @@ func (a *App) RestartCore() error {
 		}
 	}
 
-	// 5. 同步最新状态给前端
+	// 4. 同步最新状态给前端
 	a.SyncState()
 	return nil
 }
@@ -754,6 +753,16 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 }
 
 func (a *App) TestAllProxies(nodeNames []string) {
+	// 🚀 优化：掐断历史遗留的、还在疯狂测速的旧任务
+	a.testMu.Lock()
+	if a.testCancel != nil {
+		a.testCancel()
+	}
+	// 创建仅针对本轮测速的独立 Context
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.testCancel = cancel
+	a.testMu.Unlock()
+
 	a.coreLifecycleMu.Lock()
 
 	isSilentTest := false
@@ -765,14 +774,14 @@ func (a *App) TestAllProxies(nodeNames []string) {
 		if activeCfg != "" {
 			clash.BuildRuntimeConfig(activeCfg, mode, a.GetAppBehavior().LogLevel)
 		}
-		
+
 		// 直接调用底层 Start，不调用 ensureCoreRunning，避免触发流量监控和 UI 同步
 		if err := clash.Start(a.ctx); err != nil {
 			a.coreLifecycleMu.Unlock()
 			runtime.EventsEmit(a.ctx, "proxy-test-finished", "后台静默启动内核失败，无法测速")
 			return
 		}
-		
+
 		// 探针等待 API 就绪
 		for i := 0; i < 20; i++ {
 			if _, err := clash.GetInitialData(); err == nil {
@@ -785,6 +794,15 @@ func (a *App) TestAllProxies(nodeNames []string) {
 	a.coreLifecycleMu.Unlock() // 尽早释放锁，不阻塞并发测速
 
 	go func() {
+		defer func() {
+			a.testMu.Lock()
+			if a.testCancel != nil { // 👈 修正：由于 defer 在函数退出时执行，直接判断并清理
+				a.testCancel = nil
+			}
+			a.testMu.Unlock()
+			cancel()
+		}()
+
 		// 2. 测速地址获取提到循环外部，彻底消除锁竞争
 		testUrl := "http://www.gstatic.com/generate_204"
 		if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil && netCfg.TestURL != "" {
@@ -794,10 +812,6 @@ func (a *App) TestAllProxies(nodeNames []string) {
 		concurrency := 16
 		semaphore := make(chan struct{}, concurrency)
 		var wg sync.WaitGroup
-
-		// 3. 根 Context 不设超时，只响应软件强制退出
-		ctx, cancel := context.WithCancel(a.ctx)
-		defer cancel()
 
 		for _, name := range nodeNames {
 			runtime.EventsEmit(a.ctx, "proxy-test-start", name)
@@ -851,7 +865,6 @@ func (a *App) TestAllProxies(nodeNames []string) {
 			a.mu.RUnlock()
 
 			// 如果测速期间，用户没有手动开启系统代理或 TUN，就静默关闭内核节约内存
-			// (如果测速期间用户打开了开关，这里会自动放过，实现无缝移交)
 			if stillInactive && clash.IsRunning() {
 				clash.Stop()
 			}
@@ -1279,8 +1292,11 @@ func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 	a.mu.Unlock()
 
 	if err == nil && isActive {
+		// 🚀 修复点：加入生命周期锁，防止热重启瞬间用户点击 UI 触发并发启动
+		a.coreLifecycleMu.Lock()
+		defer a.coreLifecycleMu.Unlock()
+
 		a.stopCoreService()
-		time.Sleep(200 * time.Millisecond)
 		a.ensureCoreRunning()
 	}
 	return err
@@ -1295,8 +1311,9 @@ func (a *App) RenameConfig(id, newName string) error {
 	a.mu.Unlock()
 
 	if isActiveConfig && clash.IsRunning() {
-		clash.Stop()
-		time.Sleep(200 * time.Millisecond)
+		a.coreLifecycleMu.Lock()
+		a.stopCoreService()
+		a.coreLifecycleMu.Unlock()
 	}
 
 	err := clash.RenameConfig(id, newName)
@@ -1394,8 +1411,10 @@ func (a *App) SaveDNSConfig(cfg *clash.DNSConfig) error {
 	a.mu.Unlock()
 
 	if err == nil && isActive {
+		a.coreLifecycleMu.Lock()
+		defer a.coreLifecycleMu.Unlock()
+
 		a.stopCoreService()
-		time.Sleep(200 * time.Millisecond)
 		a.ensureCoreRunning()
 	}
 	return err
@@ -1416,8 +1435,10 @@ func (a *App) SaveNetworkConfig(cfg *clash.NetworkConfig) error {
 
 	// 这些设置直接影响内核底层行为，需要重启内核生效
 	if err == nil && isActive {
+		a.coreLifecycleMu.Lock()
+		defer a.coreLifecycleMu.Unlock()
+
 		a.stopCoreService()
-		time.Sleep(200 * time.Millisecond)
 		a.ensureCoreRunning()
 	}
 	return err
@@ -1599,7 +1620,10 @@ func (a *App) SelectLocalConfig(id string) error {
 
 	a.saveActiveConfig(id)
 
+	a.coreLifecycleMu.Lock()
 	a.stopCoreService()
+	a.coreLifecycleMu.Unlock()
+
 	sys.DisableSystemProxy()
 
 	if err := clash.BuildRuntimeConfig(id, mode, a.GetAppBehavior().LogLevel); err != nil {
@@ -1625,8 +1649,6 @@ func (a *App) SelectLocalConfig(id string) error {
 			bypass := "localhost;127.*;10.*;172.16.*;192.168.*;<local>"
 			sys.EnableSystemProxy("127.0.0.1", proxyPort, bypass)
 		}
-	} else {
-		time.Sleep(200 * time.Millisecond)
 	}
 
 	// 🚀 核心修复：无论内核是否启动，主动把最新状态(含名称、类型)强行推给前端 globalState
@@ -1667,8 +1689,10 @@ func (a *App) ResetComponentSettings(module string) error {
 
 		// 重置涉及内核底层参数的模块，需热重启
 		if isActive && (module == "tun" || module == "dns" || module == "network") {
+			a.coreLifecycleMu.Lock()
 			a.stopCoreService()
 			a.ensureCoreRunning()
+			a.coreLifecycleMu.Unlock()
 		} else if clash.IsRunning() {
 			clash.ReloadConfig() // 轻量级重载
 		}
@@ -1991,8 +2015,9 @@ func (a *App) UpdateCoreComponent() (string, error) {
 	a.mu.RUnlock()
 
 	// 停机准备换核
+	a.coreLifecycleMu.Lock()
 	a.stopCoreService()
-	time.Sleep(300 * time.Millisecond) // 等待 Windows 彻底释放旧文件占用锁
+	a.coreLifecycleMu.Unlock()
 
 	backupPath := filepath.Join(binDir, "clash_backup.exe")
 	os.Remove(backupPath) // 确保历史备份档为空
@@ -2159,8 +2184,9 @@ func (a *App) UpdateAllGeoDatabases(types []string) error {
 	a.mu.RUnlock()
 
 	// 无论更新1个还是4个文件，内核只停机 1 次！
+	a.coreLifecycleMu.Lock()
 	a.stopCoreService()
-	time.Sleep(200 * time.Millisecond)
+	a.coreLifecycleMu.Unlock()
 
 	for _, task := range tasks {
 		tempPath := filepath.Join(binDir, task.file+".temp")
@@ -2296,7 +2322,7 @@ func downloadFileWithRetry(destPath, url string) error {
 	var lastErr error
 	for i := 0; i < 3; i++ {
 		// 🚀 调用 downloader.go 中的核心下载逻辑
-		lastErr = DownloadFile(url, destPath)
+		lastErr = DownloadLargeFile(url, destPath)
 		if lastErr == nil {
 			return nil
 		}

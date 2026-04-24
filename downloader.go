@@ -7,30 +7,40 @@ import (
 	"time"
 )
 
-// 🚀 1. 定义全局带超时的 HTTP 客户端
-// 彻底解决机场节点卡死导致前端“无限转圈”的问题
+// 针对订阅等轻量级请求 (30秒超时防卡死)
 var httpClient = &http.Client{
 	Timeout: 30 * time.Second, 
 }
 
-// DownloadFile 安全地下载文件（防损坏）
+// 🚀 新增：针对内核/数据库等大文件的专用客户端 (10分钟超时)
+var largeFileClient = &http.Client{
+	Timeout: 10 * time.Minute, 
+}
+
+// DownloadFile 安全地下载普通文件 (用于订阅)
 func DownloadFile(url string, destPath string) error {
+    return doDownload(httpClient, url, destPath)
+}
+
+// 🚀 新增：用于 app.go 和 downloader.go 中的 UpdateCore / Geo 数据库下载
+func DownloadLargeFile(url string, destPath string) error {
+    return doDownload(largeFileClient, url, destPath)
+}
+
+// 提取底层的原子下载逻辑
+func doDownload(client *http.Client, url string, destPath string) error {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return err
 	}
-	
-	// 伪装 User-Agent，防止被某些严格的机场 WAF 拦截
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GoclashZ/1.0")
 
-	resp, err := httpClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	// 🚀 2. 原子写入机制 (Atomic Write)
-	// 先将文件下载为 .tmp 临时文件
 	tmpPath := destPath + ".tmp"
 	out, err := os.Create(tmpPath)
 	if err != nil {
@@ -38,15 +48,12 @@ func DownloadFile(url string, destPath string) error {
 	}
 
 	_, err = io.Copy(out, resp.Body)
-	out.Close() // 必须先关闭文件句柄，否则 Windows 下无法重命名
+	out.Close() 
 
-	// 如果下载过程中途断网或发生错误，清理残缺的临时文件，保护原配置不被破坏
 	if err != nil {
 		_ = os.Remove(tmpPath)
 		return err
 	}
-
-	// 下载完整后，瞬间覆盖原文件（操作系统级原子操作，绝对安全）
 	return os.Rename(tmpPath, destPath)
 }
 
@@ -63,7 +70,7 @@ func UpdateCore(url string, destPath string) error {
 	}
 
 	// 2. 此时原位置 destPath 已经空出来了，安全下载新内核
-	err := DownloadFile(url, destPath) // 调用我们之前写好的带原子写入的 DownloadFile
+	err := DownloadLargeFile(url, destPath) // 👈 替换为大文件专用方法
 	if err != nil {
 		// 🚨 兜底机制：如果新内核下载失败或损坏，把旧内核的名字改回来，保证软件还能用
 		_ = os.Rename(oldPath, destPath)
