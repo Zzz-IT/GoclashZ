@@ -1486,6 +1486,10 @@ func (a *App) CloseAllConnections() error {
 	return clash.CloseAllConnections()
 }
 
+func (a *App) FlushFakeIP() error {
+	return clash.FlushFakeIP()
+}
+
 // StartConnectionMonitor 供前端调用：开启连接监控
 func (a *App) StartConnectionMonitor() error {
 	return clash.StartConnectionMonitor(a.ctx)

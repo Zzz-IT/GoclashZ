@@ -241,3 +241,28 @@ func GetVersion() string {
 	}
 	return data["version"]
 }
+
+// FlushFakeIP 刷新 Fake-IP 缓存（带前置条件检查）
+func FlushFakeIP() error {
+	// 1. 读取当前的 DNS 配置，判断是否是 Fake-IP 模式
+	dnsCfg, err := GetDNSConfig()
+	if err != nil || dnsCfg == nil {
+		return nil // 读不到配置，安全起见直接跳过
+	}
+
+	// 2. 如果根本不是 Fake-IP 模式，直接返回，不打扰内核
+	if dnsCfg.EnhancedMode != "fake-ip" {
+		return nil
+	}
+
+	// 3. 只有确认是 Fake-IP 模式，才真正向内核发送清理请求
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:9090/cache/fakeip/flush", nil)
+	resp, err := localAPIClient.Do(req)
+	if err != nil {
+		return err // 只有真正网络不通（比如内核挂了）才返回错误
+	}
+	defer resp.Body.Close()
+
+	// 即使内核因为某种原因返回了错误，我们也当作成功处理，不向前端抛出异常
+	return nil
+}

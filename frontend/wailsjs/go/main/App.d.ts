@@ -27,6 +27,8 @@ export function FixUWPNetwork():Promise<void>;
 
 export function FlashWindow():Promise<void>;
 
+export function FlushFakeIP():Promise<void>;
+
 export function GetAllRules(arg1:string,arg2:string):Promise<main.PagedRules>;
 
 export function GetAppBehavior():Promise<main.AppBehavior>;

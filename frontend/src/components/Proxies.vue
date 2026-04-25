@@ -69,7 +69,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
-import { showAlert } from '../store';
+import { showAlert, globalState } from '../store';
 import { ICONS } from '../utils/icons';
 
 const localGroups = ref<any[]>([]);
@@ -137,6 +137,12 @@ const selectNode = async (groupName: string, nodeName: string) => {
     await API.SelectProxy(groupName, nodeName);
     if (targetGroup) {
         targetGroup.now = nodeName;
+    }
+
+    // 🚀 核心修改：视觉无感穿透同步
+    if (globalState.mode === 'global') {
+        // 使用 catch 忽略潜在错误，不阻断主流程
+        API.SelectProxy('GLOBAL', nodeName).catch(console.error);
     }
   } catch (e) {
     await showAlert("切换失败: " + e, '错误');

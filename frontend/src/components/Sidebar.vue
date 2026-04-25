@@ -2,13 +2,15 @@
   <aside class="sidebar">
     <div class="sidebar-brand">GoclashZ</div>
     <nav class="nav-list">
-      <div v-for="item in menu" :key="item.id"
-           v-show="item.id !== 'logs' || !globalState.hideLogs"
-           :class="['nav-item', { active: activeId === item.id }]"
-           @click="$emit('update:activeId', item.id)">
-        <span class="icon" v-html="item.icon"></span>
-        <span class="nav-label">{{ item.label }}</span>
-      </div>
+      <TransitionGroup name="nav-slide">
+        <div v-for="item in menu" :key="item.id"
+             v-show="(item.id !== 'logs' || !globalState.hideLogs) && (item.id !== 'proxies' || globalState.mode !== 'direct')"
+             :class="['nav-item', { active: activeId === item.id }]"
+             @click="$emit('update:activeId', item.id)">
+          <span class="icon" v-html="item.icon"></span>
+          <span class="nav-label">{{ item.label }}</span>
+        </div>
+      </TransitionGroup>
     </nav>
 
     <div class="sidebar-footer">
@@ -174,5 +176,55 @@ const toggleTheme = () => {
 @keyframes breathe {
   0%, 100% { opacity: 0.6; box-shadow: 0 0 4px var(--text-main); }
   50% { opacity: 1; box-shadow: 0 0 12px var(--text-main); }
+}
+/* ========================================== */
+/* 导航菜单交错动效 (Staggered Slide)            */
+/* ========================================== */
+
+/* 1. 正在移动的元素 (v-move 是 TransitionGroup 自动提供的类名) */
+.nav-slide-move {
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 2. 进入与离开的激活状态 */
+.nav-slide-enter-active {
+  /* 展开时：高度先撑开 (0.3s)，内容延迟淡入 (delay 0.1s) */
+  transition: 
+    max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    padding 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    margin 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.2s ease-out 0.1s,
+    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1) 0.1s;
+  overflow: hidden;
+}
+
+.nav-slide-leave-active {
+  /* 折叠时：内容先淡出位移 (0.2s)，高度延迟收缩 (delay 0.2s) */
+  transition: 
+    opacity 0.2s ease-in,
+    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.2s,
+    padding 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.2s,
+    margin 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.2s;
+  overflow: hidden;
+}
+
+/* 3. 初始/结束状态 */
+.nav-slide-enter-from,
+.nav-slide-leave-to {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  transform: translateX(-20px);
+}
+
+.nav-slide-enter-to,
+.nav-slide-leave-from {
+  max-height: 48px; /* 🚀 核心修复：精准匹配 nav-item 的实际高度 (44px + 4px margin) */
+  opacity: 1;
+  transform: translateX(0);
 }
 </style>

@@ -46,6 +46,10 @@ export function FlashWindow() {
   return window['go']['main']['App']['FlashWindow']();
 }
 
+export function FlushFakeIP() {
+  return window['go']['main']['App']['FlushFakeIP']();
+}
+
 export function GetAllRules(arg1, arg2) {
   return window['go']['main']['App']['GetAllRules'](arg1, arg2);
 }

@@ -107,7 +107,9 @@ const modes = [
 
 // 👈 1. 彻底删除本地的 status、currentMode、clashVersion 变量！
 // 直接使用 globalState 作为唯一真相源，计算属性自动响应
-const sliderStyle = computed(() => ({ transform: `translateX(${modes.findIndex(m => m.val === globalState.mode) * 100}%)` }));
+const sliderStyle = computed(() => ({ 
+  left: `${(modes.findIndex(m => m.val === globalState.mode) * 100) / 3}%` 
+}));
 
 const isRestarting = ref(false);
 
@@ -217,12 +219,84 @@ const runTunWorker = async (target: boolean) => {
   }
 };
 
+// ==========================================
+// 模式切换：状态截断法 + 自动断开旧连接
+// ==========================================
+
+let modeWorkerActive = false;
+let pendingModeTarget: string | null = null;
+let previousMode = globalState.mode; // 用于失败时回滚 UI
+
 const handleModeChange = (val: string) => {
-  // 1. 极致乐观 UI：点击瞬间直接改全局状态，滑块和文字立刻变色，绝不等待后端
+  if (globalState.mode === val) return; // 如果点的是当前模式，直接忽略
+
+  // 1. 极致乐观 UI：瞬间响应
+  previousMode = globalState.mode;
   globalState.mode = val;
   
-  // 2. 异步通知后端执行切换 (后台会处理写盘和内核 API，失败会自动回滚)
-  API.UpdateClashMode(val);
+  // 2. 状态截断：如果后台还在忙，把最新目标挂在门外
+  if (modeWorkerActive) {
+    pendingModeTarget = val;
+    return;
+  }
+
+  // 3. 开始后台干活
+  runModeWorker(val);
+};
+
+const runModeWorker = async (targetMode: string) => {
+  modeWorkerActive = true;
+  
+  try {
+    // 1. 更新内核模式
+    await API.UpdateClashMode(targetMode);
+
+    // 🚀 核心新增：刷新 DNS/Fake-IP 缓存，确保后续流量重新判定
+    await API.FlushFakeIP().catch(() => {}); 
+
+    // 2. 模式切换成功后，立刻斩断所有现存的活动连接，强迫后续流量重新匹配新规则！
+    // 哪怕清空失败也不要阻断整个流程
+    await API.CloseAllConnections().catch(e => console.warn("清空连接失败(可忽略):", e));
+
+    // 2. 全局模式下的视觉无感继承节点逻辑 (保留你之前的绝佳设计)
+    if (targetMode === 'global') {
+      const data: any = await API.GetInitialData();
+      if (data && data.groups) {
+        const keys = (data.groupOrder && data.groupOrder.length > 0) 
+                   ? data.groupOrder 
+                   : Object.keys(data.groups);
+
+        for (const name of keys) {
+          const item = data.groups[name];
+          if (!item) continue;
+          
+          const isSystemReserved = ['GLOBAL', 'DIRECT', 'REJECT'].includes(name);
+
+          if (item.type === 'Selector' && !isSystemReserved) {
+            if (item.now) {
+              await API.SelectProxy('GLOBAL', item.now).catch(e => console.warn("继承节点失败:", e));
+            }
+            break; 
+          }
+        }
+      }
+    }
+  } catch (err) {
+    // 💥 灾难回滚：如果模式切换真失败了，把 UI 掰回上一个状态
+    globalState.mode = previousMode;
+    console.error("模式切换失败: ", err);
+    await showAlert("模式切换失败: " + err, '错误');
+  }
+
+  // 4. 活干完了，看看这期间有没有新目标
+  if (pendingModeTarget !== null && pendingModeTarget !== targetMode) {
+    const nextMode = pendingModeTarget;
+    pendingModeTarget = null;
+    await runModeWorker(nextMode); // 递归去执行最新指令
+  } else {
+    pendingModeTarget = null;
+    modeWorkerActive = false; // 彻底下班
+  }
 };
 
 // 👈 3. 彻底删除了 onMounted 里的 EventsOn 和 onUnmounted 里的 EventsOff！
@@ -408,9 +482,16 @@ const handleModeChange = (val: string) => {
 }
 .seg-item.active { color: var(--text-main); font-weight: 600; }
 .seg-slider {
-  position: absolute; top: 4px; left: 4px; width: calc(33.33% - 8px); height: calc(100% - 8px);
-  background: var(--surface-panel); border-radius: 10px; z-index: 0;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: calc(33.33% - 8px);
+  margin-left: 4px; /* 🚀 核心：通过左边距实现滑块在 1/3 槽位内的居中 */
+  background: var(--surface-panel);
+  border-radius: 10px;
+  z-index: 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes pulse { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(2.5); opacity: 0; } }
