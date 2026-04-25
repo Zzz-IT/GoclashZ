@@ -617,8 +617,8 @@
                 <h4>软件版本</h4>
                 <p>{{ globalState.appVersion || '获取中...' }}</p>
               </div>
-              <button class="action-btn accent-btn" @click="handleCheckUpdate" :disabled="updatingCore">
-                {{ updatingCore ? '检查中...' : '检查更新' }}
+              <button class="action-btn accent-btn" @click="handleCheckUpdate" :disabled="checkingAppUpdate">
+                {{ checkingAppUpdate ? '检查中...' : '检查更新' }}
               </button>
             </div>
 
@@ -772,6 +772,7 @@ import ModernNumberInput from './ModernNumberInput.vue';
 const showResetConfirm = ref(false);
 const resetModule = ref('');
 const resetModuleName = ref('');
+const checkingAppUpdate = ref(false); // 👈 新增：应用更新专用 Loading
 
 const modules: Record<string, string> = {
   'network': '基础网络设置',
@@ -890,7 +891,7 @@ const formatRelativeTime = (timestamp: number) => {
 };
 
 const handleCheckUpdate = async () => {
-  updatingCore.value = true;
+  checkingAppUpdate.value = true; // 👈 切换变量
   try {
     const res = await (API as any).ManualCheckAppUpdate();
     if (res === "ALREADY_LATEST") {
@@ -901,7 +902,7 @@ const handleCheckUpdate = async () => {
   } catch (e) {
     await showAlert("检查更新失败: " + e, "错误");
   } finally {
-    updatingCore.value = false;
+    checkingAppUpdate.value = false;
   }
 };
 

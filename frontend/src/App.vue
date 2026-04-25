@@ -197,10 +197,18 @@ onMounted(async () => {
       globalState.systemProxy = state.systemProxy ?? state.SystemProxy ?? false;
       globalState.tun = state.tun ?? state.Tun ?? false;
       globalState.version = state.version ?? state.Version ?? '';
+      globalState.appVersion = state.appVersion ?? state.AppVersion ?? ''; // 👈 统一初始化
     }
   } catch (e) {
     console.error("获取初始状态失败:", e);
   }
+
+  // 🚀 新增：显式尝试再次拉取应用版本（双重保险）
+  try {
+    if (!globalState.appVersion) {
+      globalState.appVersion = await (API as any).GetAppVersion();
+    }
+  } catch (e) {}
 
   try {
     const status = await API.CheckTunEnv();
@@ -239,6 +247,36 @@ onMounted(async () => {
   // 监听窗口大小变化，同步最大化状态
   window.addEventListener('resize', async () => {
     isMaximized.value = await (window as any).runtime.WindowIsMaximised();
+  });
+
+  // 🚀 核心：监听软件更新就绪事件 (由后端在下载完成后触发)
+  EventsOn("app-update-ready", (version: string) => {
+    globalState.modal = {
+      show: true,
+      title: "发现新版本就绪",
+      message: `GoclashZ 新版本 ${version} 已在后台静默下载完毕。是否立即关闭当前程序并启动安装？`,
+      type: "confirm",
+      isDanger: false,
+      onConfirm: async () => {
+        try {
+          // 彻底、优雅地自我了断并启动安装包
+          await (API as any).ApplyAppUpdate();
+        } catch (e) {
+          globalState.modal = {
+            show: true,
+            title: "安装启动失败",
+            message: String(e),
+            type: "alert",
+            isDanger: true,
+            onConfirm: null,
+            onCancel: null
+          };
+        }
+      },
+      onCancel: () => {
+        globalState.modal.show = false;
+      }
+    };
   });
 });
 
