@@ -1,11 +1,87 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"time"
 )
+
+// ==========================================
+// --- 软件本体更新专用下载器 (支持断点续传) ---
+// ==========================================
+
+// DownloadFileResumable 支持断点续传的大文件下载器
+func DownloadFileResumable(url string, destPath string) error {
+	tmpPath := destPath + ".tmp"
+
+	var downloaded int64
+	// 检查是否存在未下载完的临时文件，获取已下载的字节数
+	if info, err := os.Stat(tmpPath); err == nil {
+		downloaded = info.Size()
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "GoclashZ-Updater/1.0")
+
+	// 如果有部分文件，发起 Range 请求断点续传
+	if downloaded > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", downloaded))
+	}
+
+	resp, err := largeFileClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	flags := os.O_CREATE | os.O_WRONLY
+	switch resp.StatusCode {
+	case http.StatusPartialContent:
+		// 服务器支持断点续传 (206)，追加写入
+		flags |= os.O_APPEND
+	case http.StatusOK:
+		// 服务器不支持断点续传或文件变更 (200)，从头开始覆写
+		flags |= os.O_TRUNC
+		downloaded = 0
+	default:
+		return fmt.Errorf("下载请求异常，状态码: %d", resp.StatusCode)
+	}
+
+	out, err := os.OpenFile(tmpPath, flags, 0644)
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(out, resp.Body)
+	out.Close() // 必须先关闭文件，才能在后面执行重命名
+
+	if err != nil {
+		return fmt.Errorf("下载流被中断: %v", err)
+	}
+
+	// 彻底下载成功，安全覆盖目标文件
+	os.Remove(destPath)
+	return os.Rename(tmpPath, destPath)
+}
+
+// downloadAppUpdateWithRetry 带自动重连的下载循环封装
+func downloadAppUpdateWithRetry(url, destPath string) error {
+	var lastErr error
+	// 断网或异常时，最多尝试续传重连 5 次，总共容忍约 15 秒的网络波动
+	for i := 0; i < 5; i++ {
+		lastErr = DownloadFileResumable(url, destPath)
+		if lastErr == nil {
+			return nil
+		}
+		time.Sleep(3 * time.Second)
+	}
+	return fmt.Errorf("下载多次中断且重连均失败: %v", lastErr)
+}
 
 // 针对订阅等轻量级请求 (30秒超时防卡死)
 var httpClient = &http.Client{

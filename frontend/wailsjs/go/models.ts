@@ -235,6 +235,7 @@ export namespace main {
 	    systemProxy: boolean;
 	    tun: boolean;
 	    version: string;
+	    appVersion: string;
 	    activeConfig: string;
 	    activeConfigName: string;
 	    activeConfigType: string;
@@ -252,6 +253,7 @@ export namespace main {
 	        this.systemProxy = source["systemProxy"];
 	        this.tun = source["tun"];
 	        this.version = source["version"];
+	        this.appVersion = source["appVersion"];
 	        this.activeConfig = source["activeConfig"];
 	        this.activeConfigName = source["activeConfigName"];
 	        this.activeConfigType = source["activeConfigType"];

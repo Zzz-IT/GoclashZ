@@ -17,6 +17,7 @@ export const globalState = reactive({
   systemProxy: false, 
   tun: false,
   version: '',
+  appVersion: '', // 👈 新增
   tunStatus: { hasWintun: false, isAdmin: false },
 
   // 🚀 核心：使用缓存初始化消除渲染空窗期的闪烁
@@ -68,6 +69,9 @@ function updateStateFromBackend(rawData: any) {
 
   if (rawData.version !== undefined) globalState.version = rawData.version;
   else if (rawData.Version !== undefined) globalState.version = rawData.Version;
+
+  if (rawData.appVersion !== undefined) globalState.appVersion = rawData.appVersion;
+  else if (rawData.AppVersion !== undefined) globalState.appVersion = rawData.AppVersion;
 
   if (rawData.activeConfig !== undefined) {
       globalState.activeConfigId = rawData.activeConfig;

@@ -5,6 +5,10 @@ import {clash} from '../models';
 import {logger} from '../models';
 import {sys} from '../models';
 
+export function ApplyAppUpdate():Promise<void>;
+
+export function CheckAndDownloadAppUpdate():Promise<void>;
+
 export function CheckComponentUpdate():Promise<Record<string, string>>;
 
 export function CheckTunEnv():Promise<Record<string, boolean>>;
@@ -35,6 +39,8 @@ export function GetAppBehavior():Promise<main.AppBehavior>;
 
 export function GetAppState():Promise<main.AppState>;
 
+export function GetAppVersion():Promise<string>;
+
 export function GetConnections():Promise<Record<string, any>>;
 
 export function GetCoreVersion():Promise<string>;
@@ -62,6 +68,8 @@ export function GetWintunVersion():Promise<string>;
 export function InstallTunDriver(arg1:boolean):Promise<string>;
 
 export function IsNodeOffline(arg1:string):Promise<boolean|string>;
+
+export function ManualCheckAppUpdate():Promise<string>;
 
 export function MarkNodeOffline(arg1:string,arg2:string):Promise<void>;
 

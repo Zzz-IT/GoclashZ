@@ -615,7 +615,7 @@
             <div class="setting-item">
               <div class="info">
                 <h4>软件版本</h4>
-                <p>{{ globalState.version || '获取中...' }}</p>
+                <p>{{ globalState.appVersion || '获取中...' }}</p>
               </div>
               <button class="action-btn accent-btn" @click="handleCheckUpdate" :disabled="updatingCore">
                 {{ updatingCore ? '检查中...' : '检查更新' }}
@@ -890,8 +890,19 @@ const formatRelativeTime = (timestamp: number) => {
 };
 
 const handleCheckUpdate = async () => {
-  // 联动内核更新逻辑
-  await handleUpdateCore();
+  updatingCore.value = true;
+  try {
+    const res = await (API as any).ManualCheckAppUpdate();
+    if (res === "ALREADY_LATEST") {
+      await showAlert(`当前版本 (${globalState.appVersion}) 已是最新，无需更新。`, "通知");
+    } else {
+      await showAlert(`发现新版本 ${res}，正在后台为您静默下载中...`, "通知");
+    }
+  } catch (e) {
+    await showAlert("检查更新失败: " + e, "错误");
+  } finally {
+    updatingCore.value = false;
+  }
 };
 
 const handleUpdateCore = async () => {
@@ -963,7 +974,11 @@ const behavior = ref<any>({
   geoIpLink: '',
   geoSiteLink: '',
   mmdbLink: '',
-  asnLink: ''
+  asnLink: '',
+  // 👇 新增：自动更新相关
+  autoUpdate: true,
+  updateMethod: 'startup',
+  updateInterval: 3,
 });
 
 
@@ -1086,6 +1101,14 @@ const installDriver = async (force: boolean = false) => {
     isCheckingUpdate.value = false;
   }
 };
+// 🚀 核心：监听更新间隔时间，防止用户输入 0 或负数
+watch(() => behavior.value.updateInterval, async (newVal) => {
+  if (newVal !== undefined && newVal <= 0) {
+    behavior.value.updateInterval = 1;
+    await showAlert("检查更新间隔不能小于 1 天。", "配置提示");
+    saveBehavior();
+  }
+});
 
 const saveTun = async () => {
   try { await API.SaveTunConfig(tunConfig.value); } catch (e) { console.error('保存失败', e); }

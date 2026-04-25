@@ -29,6 +29,8 @@ import (
 //go:embed build/windows/icon.ico
 var iconData []byte // 👈 3. 新增：将图标编译进二进制文件中给托盘使用
 
+const CurrentAppVersion = "v1.1.2"
+
 type App struct {
 	ctx            context.Context
 	cancelTraffic  context.CancelFunc
@@ -71,6 +73,10 @@ type App struct {
 	activeTests   int           // 记录当前正在进行的测速任务数量
 	testSemaphore chan struct{} // 全局测速限流信号量，防止高并发耗尽端口
 	isSilentCore  bool          // 标记内核是否仅为测速而在后台静默运行
+
+	// 👇 新增：软件本体更新相关状态
+	appUpdateReady bool
+	newAppVersion  string
 }
 
 // AppBehavior 定义应用行为设置
@@ -250,6 +256,7 @@ type AppState struct {
 	SystemProxy bool   `json:"systemProxy"`
 	Tun         bool   `json:"tun"`
 	Version     string `json:"version"`
+	AppVersion  string `json:"appVersion"` // 👈 新增：应用版本
 	// 🚀 新增：让前端实时知道当前在跑哪个配置
 	ActiveConfig     string `json:"activeConfig"`
 	ActiveConfigName string `json:"activeConfigName"`
@@ -603,6 +610,10 @@ func (a *App) cleanLegacyFiles() {
 	// 🚀 启动时静默清理上次内核更新产生的 .old 垃圾文件
 	_ = os.Remove(filepath.Join(binDir, "mihomo-windows-amd64.exe.old"))
 	_ = os.Remove(filepath.Join(binDir, "clash.exe.old"))
+
+	// 🚀 新增：每次启动软件，强制清理上次可能残留的下载失败的 .tmp 文件
+	updateTmp := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe.tmp")
+	_ = os.Remove(updateTmp)
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -653,6 +664,32 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) startDaemonTasks() {
+	// 🚀 获取用户设置的应用更新策略
+	config := a.GetAppBehavior()
+
+	// 1. 启动检查：如果设置为 "startup" 或者是第一次运行，延迟 5 秒检查
+	if config.UpdateMethod == "startup" || config.UpdateMethod == "" {
+		go func() {
+			time.Sleep(5 * time.Second)
+			a.CheckAndDownloadAppUpdate()
+		}()
+	}
+
+	// 2. 定时检查：如果设置为 "scheduled"
+	var updateTicker *time.Ticker
+	if config.UpdateMethod == "scheduled" {
+		intervalDays := config.UpdateInterval
+		if intervalDays <= 0 {
+			intervalDays = 1 // 🛡️ 防御性编程：最小间隔为 1 天，防止 0 天导致的高频请求
+		}
+		// 将天数转换为 Ticker (Go 的 Ticker 适合长周期任务)
+		updateTicker = time.NewTicker(time.Duration(intervalDays) * 24 * time.Hour)
+	} else {
+		// 即使不是定时模式，也给一个超长 Ticker 占位，避免 select 阻塞或 nil 指针
+		updateTicker = time.NewTicker(720 * time.Hour)
+		updateTicker.Stop()
+	}
+
 	// 设定定时器：比如每 12 小时更新订阅，每 30 分钟测速
 	subTicker := time.NewTicker(12 * time.Hour)
 	speedTicker := time.NewTicker(30 * time.Minute)
@@ -660,10 +697,14 @@ func (a *App) startDaemonTasks() {
 	defer func() {
 		subTicker.Stop()
 		speedTicker.Stop()
+		updateTicker.Stop()
 	}()
 
 	for {
 		select {
+		case <-updateTicker.C:
+			// 定时触发应用更新检查
+			go a.CheckAndDownloadAppUpdate()
 		case <-subTicker.C:
 			// 增加安全锁：每次后台静默更新，最多允许执行 2 分钟，防止 HTTP 卡死
 			updateCtx, cancel := context.WithTimeout(a.ctx, 2*time.Minute)
@@ -1243,6 +1284,7 @@ func (a *App) SyncState() {
 		SystemProxy:      sysProxy,
 		Tun:              tunActive,
 		Version:          a.GetCoreVersion(),
+		AppVersion:       CurrentAppVersion,
 		ActiveConfig:     activeId,
 		ActiveConfigName: activeName,
 		ActiveConfigType: activeType,
@@ -1305,6 +1347,11 @@ func (a *App) GetCoreVersion() string {
 
 	// 3. 如果都失败了，说明还没下载内核
 	return "未安装"
+}
+
+// GetAppVersion 返回应用本体版本
+func (a *App) GetAppVersion() string {
+	return CurrentAppVersion
 }
 
 func (a *App) GetTunConfig() (*clash.TunConfig, error) {
@@ -1810,6 +1857,7 @@ func (a *App) GetAppState() AppState {
 		SystemProxy:      sysProxy,
 		Tun:              tunActive,
 		Version:          a.GetCoreVersion(),
+		AppVersion:       CurrentAppVersion,
 		ActiveConfig:     activeId,
 		ActiveConfigName: activeName,
 		ActiveConfigType: activeType,
@@ -1875,6 +1923,16 @@ func (a *App) onTrayReady() {
 				// 当 StartHidden: true 时，单靠 WindowShow 有时无法抢占系统前台焦点
 				runtime.WindowShow(a.ctx)
 				runtime.WindowUnminimise(a.ctx)
+
+				// 🚀 新增补充：只要窗口被显示，就去检查一下是不是后台已经下好更新了
+				// 如果有更新，顺手再向前端抛一次事件，触发“下次打开自动弹出”
+				a.mu.RLock()
+				ready := a.appUpdateReady
+				ver := a.newAppVersion
+				a.mu.RUnlock()
+				if ready {
+					runtime.EventsEmit(a.ctx, "app-update-ready", ver)
+				}
 
 			// 👇 修复 3：极其致命的修复！【必须】使用 go 关键字异步执行！
 			// 既然是状态机，托盘和 Vue 前端一样只负责"发送指令"，绝不阻塞自身
@@ -2364,6 +2422,110 @@ func (a *App) GetGeoDatabaseInfo() map[string]GeoFileInfo {
 	}
 
 	return results
+}
+
+// getLatestAppReleaseURL 走 GitHub API 获取最新软件版本的直链
+func getLatestAppReleaseURL(repo, osName, arch, suffix string) (string, string, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+	
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	var release struct {
+		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return "", "", err
+	}
+
+	for _, asset := range release.Assets {
+		name := strings.ToLower(asset.Name)
+		// 寻找包含 windows, amd64 和 .exe 后缀的安装包
+		if strings.Contains(name, osName) && strings.Contains(name, arch) && strings.HasSuffix(name, suffix) {
+			return asset.BrowserDownloadURL, release.TagName, nil
+		}
+	}
+	return "", "", fmt.Errorf("未找到匹配的安装包")
+}
+
+// CheckAndDownloadAppUpdate 核心逻辑：静默比对、断点下载、分发通知
+func (a *App) CheckAndDownloadAppUpdate() {
+	directURL, latestVersion, err := getLatestAppReleaseURL("Zzz-IT/GoclashZ", "windows", "amd64", ".exe")
+	if err != nil {
+		return
+	}
+
+	// 已经是最新版本，退出
+	if normalizeVersion(CurrentAppVersion) == normalizeVersion(latestVersion) {
+		return
+	}
+
+	exePath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
+
+	// ⚡ 执行静默下载，内含 5 次断线重连/断点续传机制
+	err = downloadAppUpdateWithRetry(directURL, exePath)
+	if err != nil {
+		// 下载彻底失败：清理残余的 .tmp 并向前端推送错误警告卡片
+		_ = os.Remove(exePath + ".tmp")
+		runtime.EventsEmit(a.ctx, "notify-error", "软件本体更新下载失败，请检查网络环境。")
+		return
+	}
+
+	// 下载成功：将就绪状态固化到内存
+	a.mu.Lock()
+	a.appUpdateReady = true
+	a.newAppVersion = latestVersion
+	a.mu.Unlock()
+
+	// 主动向前端广播更新就绪事件 (如果当前窗口是打开的，前端收到后直接弹窗)
+	runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
+}
+
+// ApplyAppUpdate 供前端调用：确认更新后，关闭应用并打开安装包
+func (a *App) ApplyAppUpdate() error {
+	exePath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
+	
+	if _, err := os.Stat(exePath); os.IsNotExist(err) {
+		return fmt.Errorf("安装包不存在，可能被安全软件清理")
+	}
+
+	cmd := exec.Command(exePath)
+	// 使得安装包脱离当前父进程独立运行，防止我们的进程退出导致安装包也退出
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
+	
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("启动安装程序失败: %v", err)
+	}
+
+	// 彻底、优雅地自我了断，释放正在运行的文件占用，让新安装包可以顺利覆盖安装
+	systray.Quit()
+	os.Exit(0)
+	return nil
+}
+
+// ManualCheckAppUpdate 供前端手动点击触发：包含更明显的交互反馈
+func (a *App) ManualCheckAppUpdate() (string, error) {
+	_, latestVersion, err := getLatestAppReleaseURL("Zzz-IT/GoclashZ", "windows", "amd64", ".exe")
+	if err != nil {
+		return "", fmt.Errorf("检查失败: %v", err)
+	}
+
+	if normalizeVersion(CurrentAppVersion) == normalizeVersion(latestVersion) {
+		return "ALREADY_LATEST", nil
+	}
+
+	// 如果有更新，触发异步下载流程
+	go a.CheckAndDownloadAppUpdate()
+	return latestVersion, nil
 }
 
 // getLatestMihomoAssetURL 走 GitHub API 获取最新内核版本与下载直链
