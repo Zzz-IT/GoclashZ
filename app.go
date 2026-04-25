@@ -96,9 +96,10 @@ type AppBehavior struct {
 	AsnLink     string `json:"asnLink"`
 
 	// 👇 新增：自动更新配置相关字段
-	AutoUpdate     bool   `json:"autoUpdate"`     // 是否开启自动更新
-	UpdateMethod   string `json:"updateMethod"`   // 检查更新方式: "startup" (每次启动) 或 "scheduled" (定时)
-	UpdateInterval int    `json:"updateInterval"` // 检查间隔时间 (天)
+	AutoUpdate      bool   `json:"autoUpdate"`      // 是否开启自动更新
+	UpdateMethod    string `json:"updateMethod"`    // 检查更新方式: "startup" (每次启动) 或 "scheduled" (定时)
+	UpdateInterval  int    `json:"updateInterval"`  // 检查间隔时间 (天)
+	LastUpdateCheck int64  `json:"lastUpdateCheck"` // 🚀 新增：上次检查更新的时间戳 (Unix秒)
 }
 
 // 1. 获取离线节点记忆文件的路径
@@ -664,31 +665,45 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) startDaemonTasks() {
-	// 🚀 获取用户设置的应用更新策略
-	config := a.GetAppBehavior()
+	// 🚀 修改：加入规则判断的后台静默检查
+	go func() {
+		time.Sleep(5 * time.Second)
 
-	// 1. 启动检查：如果设置为 "startup" 或者是第一次运行，延迟 5 秒检查
-	if config.UpdateMethod == "startup" || config.UpdateMethod == "" {
-		go func() {
-			time.Sleep(5 * time.Second)
-			a.CheckAndDownloadAppUpdate()
-		}()
-	}
-
-	// 2. 定时检查：如果设置为 "scheduled"
-	var updateTicker *time.Ticker
-	if config.UpdateMethod == "scheduled" {
-		intervalDays := config.UpdateInterval
-		if intervalDays <= 0 {
-			intervalDays = 1 // 🛡️ 防御性编程：最小间隔为 1 天，防止 0 天导致的高频请求
+		behavior := a.GetAppBehavior()
+		if !behavior.AutoUpdate {
+			return // 用户关了自动更新，直接退出
 		}
-		// 将天数转换为 Ticker (Go 的 Ticker 适合长周期任务)
-		updateTicker = time.NewTicker(time.Duration(intervalDays) * 24 * time.Hour)
-	} else {
-		// 即使不是定时模式，也给一个超长 Ticker 占位，避免 select 阻塞或 nil 指针
-		updateTicker = time.NewTicker(720 * time.Hour)
-		updateTicker.Stop()
-	}
+
+		shouldCheck := false
+		switch behavior.UpdateMethod {
+		case "startup", "":
+			shouldCheck = true
+		case "scheduled":
+			now := time.Now().Unix()
+			// 判断是否超过设定的天数 (天数 * 24小时 * 3600秒)
+			interval := behavior.UpdateInterval
+			if interval <= 0 {
+				interval = 1
+			}
+			if now-behavior.LastUpdateCheck >= int64(interval*86400) {
+				shouldCheck = true
+			}
+		}
+
+		if shouldCheck {
+			a.CheckAndDownloadAppUpdate()
+
+			// 无论检查成功与否，更新最后检查时间
+			a.behaviorMu.Lock()
+			a.behaviorCache.LastUpdateCheck = time.Now().Unix()
+			behaviorToSave := a.behaviorCache
+			a.behaviorMu.Unlock()
+
+			a.behaviorIOMu.Lock()
+			utils.SaveSetting("behavior", &behaviorToSave)
+			a.behaviorIOMu.Unlock()
+		}
+	}()
 
 	// 设定定时器：比如每 12 小时更新订阅，每 30 分钟测速
 	subTicker := time.NewTicker(12 * time.Hour)
@@ -697,14 +712,10 @@ func (a *App) startDaemonTasks() {
 	defer func() {
 		subTicker.Stop()
 		speedTicker.Stop()
-		updateTicker.Stop()
 	}()
 
 	for {
 		select {
-		case <-updateTicker.C:
-			// 定时触发应用更新检查
-			go a.CheckAndDownloadAppUpdate()
 		case <-subTicker.C:
 			// 增加安全锁：每次后台静默更新，最多允许执行 2 分钟，防止 HTTP 卡死
 			updateCtx, cancel := context.WithTimeout(a.ctx, 2*time.Minute)
@@ -2471,6 +2482,18 @@ func (a *App) CheckAndDownloadAppUpdate() {
 
 	exePath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
 
+	// 🚀 新增：防止重复下载！如果文件已存在且大小合理（比如大于 10MB），并且没有 .tmp 临时文件，直接判定就绪
+	if info, err := os.Stat(exePath); err == nil && info.Size() > 10*1024*1024 {
+		if _, tmpErr := os.Stat(exePath + ".tmp"); os.IsNotExist(tmpErr) {
+			a.mu.Lock()
+			a.appUpdateReady = true
+			a.newAppVersion = latestVersion
+			a.mu.Unlock()
+			runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
+			return // 直接退出，不再下载
+		}
+	}
+
 	// ⚡ 执行静默下载，内含 5 次断线重连/断点续传机制
 	err = downloadAppUpdateWithRetry(directURL, exePath)
 	if err != nil {
@@ -2514,7 +2537,7 @@ func (a *App) ApplyAppUpdate() error {
 
 // ManualCheckAppUpdate 供前端手动点击触发：包含更明显的交互反馈
 func (a *App) ManualCheckAppUpdate() (string, error) {
-	_, latestVersion, err := getLatestAppReleaseURL("Zzz-IT/GoclashZ", "windows", "amd64", ".exe")
+	directURL, latestVersion, err := getLatestAppReleaseURL("Zzz-IT/GoclashZ", "windows", "amd64", ".exe")
 	if err != nil {
 		return "", fmt.Errorf("检查失败: %v", err)
 	}
@@ -2524,7 +2547,35 @@ func (a *App) ManualCheckAppUpdate() (string, error) {
 	}
 
 	// 如果有更新，触发异步下载流程
-	go a.CheckAndDownloadAppUpdate()
+	go func() {
+		exePath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
+
+		// 🚀 同样拦截重复下载
+		if info, err := os.Stat(exePath); err == nil && info.Size() > 10*1024*1024 {
+			if _, tmpErr := os.Stat(exePath + ".tmp"); os.IsNotExist(tmpErr) {
+				a.mu.Lock()
+				a.appUpdateReady = true
+				a.newAppVersion = latestVersion
+				a.mu.Unlock()
+				runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
+				return
+			}
+		}
+
+		err := downloadAppUpdateWithRetry(directURL, exePath)
+		if err == nil {
+			a.mu.Lock()
+			a.appUpdateReady = true
+			a.newAppVersion = latestVersion
+			a.mu.Unlock()
+			// 下载完后，向前端推送就绪事件，触发弹窗
+			runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
+		} else {
+			// 🚀 新增：手动检查时下载失败也需要通知！
+			_ = os.Remove(exePath + ".tmp")
+			runtime.EventsEmit(a.ctx, "notify-error", "软件本体更新下载失败，请检查网络环境。")
+		}
+	}()
 	return latestVersion, nil
 }
 
