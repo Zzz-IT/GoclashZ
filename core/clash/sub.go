@@ -25,8 +25,12 @@ func parseSubUserInfo(header string) (upload, download, total, expire int64) {
 	for _, part := range parts {
 		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
 		if len(kv) == 2 {
-			val, _ := strconv.ParseInt(kv[1], 10, 64)
-			switch strings.ToLower(kv[0]) {
+			// 🚀 修复：增加极其严苛的空格清洗，防止某些机场面板的不规范下发导致数据丢失
+			key := strings.ToLower(strings.TrimSpace(kv[0]))
+			valStr := strings.TrimSpace(kv[1])
+
+			val, _ := strconv.ParseInt(valStr, 10, 64)
+			switch key {
 			case "upload":
 				upload = val
 			case "download":

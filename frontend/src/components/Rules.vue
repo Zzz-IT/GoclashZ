@@ -12,14 +12,14 @@
         <div class="header-actions">
           <button 
             v-if="globalState.activeConfigType === 'remote'" 
-            class="sync-btn" 
+            class="primary-btn accent-btn" 
             @click="handleSync" 
             :disabled="loading"
             title="从机场订阅文件重新提取原始规则，将覆盖现有规则修改"
           >
             <span class="btn-icon" v-html="ICONS.refresh"></span> 同步
           </button>
-          <button class="add-rule-btn" @click="showAddModal = true">+ 添加规则</button>
+          <button class="primary-btn" @click="showAddModal = true">+ 添加规则</button>
         </div>
       </div>
 
@@ -292,36 +292,6 @@ onMounted(() => {
 .search-bar { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--surface-hover); border-radius: 8px; padding: 8px 12px; flex: 1; }
 .search-bar input { border: none; background: transparent; color: var(--text-main); outline: none; margin-left: 8px; width: 100%; }
 
-.add-rule-btn { 
-  background: var(--accent); 
-  color: var(--accent-fg); 
-  border: none; 
-  height: 36px;
-  padding: 0 16px; 
-  border-radius: 8px; 
-  font-weight: 600; 
-  cursor: pointer; 
-  transition: 0.2s; 
-  flex-shrink: 0; 
-}
-.add-rule-btn:hover { filter: brightness(0.9); }
-
-.sync-btn {
-  background: var(--accent);
-  color: var(--accent-fg);
-  height: 36px;
-  padding: 0 16px;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.sync-btn:hover { filter: brightness(0.9); }
-.sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.sync-btn .btn-icon :deep(svg) { width: 14px; height: 14px; }
 
 .rules-grid { 
   flex: 1; 
@@ -406,19 +376,18 @@ onMounted(() => {
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease-in-out;
+  transition: none;
   outline: none;
 }
 
-/* 悬停与点击采用反色方案，增强交互的高级感 */
+/* 悬停与点击采用反色方案，但移除位移与缩放 */
 .page-btn:hover:not(:disabled) {
   background: var(--text-main);
   color: var(--surface);
 }
 
 .page-btn:active:not(:disabled) {
-  transform: scale(0.96);
-  opacity: 0.8;
+  transform: none;
 }
 
 .page-btn:disabled {

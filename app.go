@@ -81,6 +81,8 @@ type App struct {
 	// 👇 新增：本体更新防并发锁
 	appUpdateTaskMu  sync.Mutex
 	isDownloadingApp bool
+
+	logRestartMu sync.Mutex // 🚀 新增：用于防抖和序列化日志重启
 }
 
 // AppBehavior 定义应用行为设置
@@ -233,6 +235,10 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 		if isLogging {
 			// 🚀 优化：扔到后台去重启，让前端的 Save 设置按钮点下去瞬间丝滑完成
 			go func() {
+				// 🚀 修复：引入互斥锁，防止快速连点造成的僵尸日志流协程泄露
+				a.logRestartMu.Lock()
+				defer a.logRestartMu.Unlock()
+
 				a.StopStreamingLogs()
 				// 稍微休眠，确保底层网络请求句柄已经彻底关闭
 				time.Sleep(50 * time.Millisecond)

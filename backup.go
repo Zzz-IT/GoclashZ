@@ -47,9 +47,12 @@ func (a *App) ExportBackup() (string, error) {
 	zw := zip.NewWriter(f)
 	defer zw.Close()
 
-	// 🚀 修复：增加全局 IO 锁，防止打包时恰逢其他协程正在保存配置，导致备份文件内容残缺！
 	a.behaviorIOMu.Lock()
 	defer a.behaviorIOMu.Unlock()
+
+	// 🚀 修复：2. 跨包调用并锁定订阅索引文件的 IO，确保备份期间节点列表绝对静止！
+	clash.IndexLock.RLock()
+	defer clash.IndexLock.RUnlock()
 
 	dataDir := utils.GetDataDir()
 	// 指定需要备份的相对目标

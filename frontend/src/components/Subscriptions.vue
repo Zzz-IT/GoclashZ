@@ -480,16 +480,7 @@ onUnmounted(() => {
   transform: translateY(15px);
 }
 
-.header-actions .action-btn, 
-.header-actions .primary-btn {
-  height: 36px;
-  border: none !important;
-  box-shadow: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s ease, color 0.2s ease;
-}
+.header-actions { display: flex; gap: 12px; align-items: center; }
 
 .sorting-active {
   background: var(--surface-hover) !important; 
@@ -504,7 +495,7 @@ onUnmounted(() => {
 
 .header-actions .action-btn:active,
 .header-actions .primary-btn:active {
-  transform: scale(0.98);
+  transform: none;
 }
 
 .sort-controls {
