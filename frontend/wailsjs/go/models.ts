@@ -204,6 +204,7 @@ export namespace main {
 	    autoUpdate: boolean;
 	    updateMethod: string;
 	    updateInterval: number;
+	    lastUpdateCheck: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppBehavior(source);
@@ -225,6 +226,7 @@ export namespace main {
 	        this.autoUpdate = source["autoUpdate"];
 	        this.updateMethod = source["updateMethod"];
 	        this.updateInterval = source["updateInterval"];
+	        this.lastUpdateCheck = source["lastUpdateCheck"];
 	    }
 	}
 	export class AppState {

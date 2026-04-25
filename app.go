@@ -612,9 +612,19 @@ func (a *App) cleanLegacyFiles() {
 	_ = os.Remove(filepath.Join(binDir, "mihomo-windows-amd64.exe.old"))
 	_ = os.Remove(filepath.Join(binDir, "clash.exe.old"))
 
-	// 🚀 新增：每次启动软件，强制清理上次可能残留的下载失败的 .tmp 文件
+	// 🚀 新增：每次启动软件，清理上个版本可能残留的更新文件
 	updateTmp := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe.tmp")
+	updateExe := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
+	updateVer := filepath.Join(utils.GetDataDir(), "GoclashZ_update.version")
 	_ = os.Remove(updateTmp)
+	
+	// 如果本地存在的更新包版本已经低于或等于当前运行的版本，则说明是旧包，清理掉
+	if cachedVer, err := os.ReadFile(updateVer); err == nil {
+		if normalizeVersion(string(cachedVer)) <= normalizeVersion(CurrentAppVersion) {
+			_ = os.Remove(updateExe)
+			_ = os.Remove(updateVer)
+		}
+	}
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -2481,27 +2491,38 @@ func (a *App) CheckAndDownloadAppUpdate() {
 	}
 
 	exePath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
+	versionPath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.version") // 🚀 新增：版本号记录文件
 
-	// 🚀 新增：防止重复下载！如果文件已存在且大小合理（比如大于 10MB），并且没有 .tmp 临时文件，直接判定就绪
+	// 🚀 修改：防重复下载校验，增加版本一致性比对
 	if info, err := os.Stat(exePath); err == nil && info.Size() > 10*1024*1024 {
 		if _, tmpErr := os.Stat(exePath + ".tmp"); os.IsNotExist(tmpErr) {
-			a.mu.Lock()
-			a.appUpdateReady = true
-			a.newAppVersion = latestVersion
-			a.mu.Unlock()
-			runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
-			return // 直接退出，不再下载
+			// 读取本地保存的安装包版本号
+			if cachedVer, err := os.ReadFile(versionPath); err == nil && string(cachedVer) == latestVersion {
+				// 版本完全匹配，安全跳过下载
+				a.mu.Lock()
+				a.appUpdateReady = true
+				a.newAppVersion = latestVersion
+				a.mu.Unlock()
+				runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
+				return 
+			} else {
+				// 🔴 版本不匹配（本地是旧包），删除旧包，强制重新下载
+				_ = os.Remove(exePath)
+				_ = os.Remove(versionPath)
+			}
 		}
 	}
 
 	// ⚡ 执行静默下载，内含 5 次断线重连/断点续传机制
 	err = downloadAppUpdateWithRetry(directURL, exePath)
 	if err != nil {
-		// 下载彻底失败：清理残余的 .tmp 并向前端推送错误警告卡片
 		_ = os.Remove(exePath + ".tmp")
 		runtime.EventsEmit(a.ctx, "notify-error", "软件本体更新下载失败，请检查网络环境。")
 		return
 	}
+
+	// 🚀 新增：下载彻底成功后，写入版本号文件，供下次校验使用
+	_ = os.WriteFile(versionPath, []byte(latestVersion), 0644)
 
 	// 下载成功：将就绪状态固化到内存
 	a.mu.Lock()
@@ -2549,21 +2570,30 @@ func (a *App) ManualCheckAppUpdate() (string, error) {
 	// 如果有更新，触发异步下载流程
 	go func() {
 		exePath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
+		versionPath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.version")
 
-		// 🚀 同样拦截重复下载
+		// 🚀 同样拦截重复下载 (带版本校验)
 		if info, err := os.Stat(exePath); err == nil && info.Size() > 10*1024*1024 {
 			if _, tmpErr := os.Stat(exePath + ".tmp"); os.IsNotExist(tmpErr) {
-				a.mu.Lock()
-				a.appUpdateReady = true
-				a.newAppVersion = latestVersion
-				a.mu.Unlock()
-				runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
-				return
+				if cachedVer, err := os.ReadFile(versionPath); err == nil && string(cachedVer) == latestVersion {
+					a.mu.Lock()
+					a.appUpdateReady = true
+					a.newAppVersion = latestVersion
+					a.mu.Unlock()
+					runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
+					return
+				} else {
+					_ = os.Remove(exePath)
+					_ = os.Remove(versionPath)
+				}
 			}
 		}
 
 		err := downloadAppUpdateWithRetry(directURL, exePath)
 		if err == nil {
+			// 写入版本校验文件
+			_ = os.WriteFile(versionPath, []byte(latestVersion), 0644)
+
 			a.mu.Lock()
 			a.appUpdateReady = true
 			a.newAppVersion = latestVersion

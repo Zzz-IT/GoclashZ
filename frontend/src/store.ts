@@ -89,12 +89,12 @@ function updateStateFromBackend(rawData: any) {
 }
 
 // 全局 Alert 提示框 (替代原生 alert)
-export function showAlert(message: string, title: string = '提示'): Promise<void> {
+export function showAlert(message: string, title: string = '提示', isDanger: boolean = false): Promise<void> {
   return new Promise((resolve) => {
     globalState.modal.type = 'alert';
     globalState.modal.title = title;
     globalState.modal.message = message;
-    globalState.modal.isDanger = false;
+    globalState.modal.isDanger = isDanger;
     globalState.modal.onConfirm = () => resolve();
     globalState.modal.onCancel = () => resolve(); // Alert 模式下点击遮罩层取消也视为 resolve
     globalState.modal.show = true;

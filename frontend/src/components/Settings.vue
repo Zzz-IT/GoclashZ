@@ -900,7 +900,7 @@ const handleCheckUpdate = async () => {
       await showAlert(`发现新版本 ${res}，正在后台为您静默下载中...`, "通知");
     }
   } catch (e) {
-    await showAlert("检查更新失败: " + e, "错误");
+    await showAlert("检查更新失败: " + e, "错误", true);
   } finally {
     checkingAppUpdate.value = false;
   }
