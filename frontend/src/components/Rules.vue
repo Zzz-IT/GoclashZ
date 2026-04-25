@@ -292,14 +292,25 @@ onMounted(() => {
 .search-bar { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--surface-hover); border-radius: 8px; padding: 8px 12px; flex: 1; }
 .search-bar input { border: none; background: transparent; color: var(--text-main); outline: none; margin-left: 8px; width: 100%; }
 
-.add-rule-btn { background: var(--accent); color: var(--accent-fg); border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; flex-shrink: 0; }
+.add-rule-btn { 
+  background: var(--accent); 
+  color: var(--accent-fg); 
+  border: none; 
+  height: 36px;
+  padding: 0 16px; 
+  border-radius: 8px; 
+  font-weight: 600; 
+  cursor: pointer; 
+  transition: 0.2s; 
+  flex-shrink: 0; 
+}
 .add-rule-btn:hover { filter: brightness(0.9); }
 
 .sync-btn {
   background: var(--accent);
   color: var(--accent-fg);
-  border: none;
-  padding: 8px 16px;
+  height: 36px;
+  padding: 0 16px;
   border-radius: 8px;
   font-weight: 600;
   cursor: pointer;
@@ -389,7 +400,8 @@ onMounted(() => {
   background: var(--surface);
   border: none; /* 彻底去除轮廓线 */
   color: var(--text-main);
-  padding: 8px 18px;
+  padding: 0 18px;
+  height: 36px;
   border-radius: 8px;
   font-size: 0.85rem;
   font-weight: 600;

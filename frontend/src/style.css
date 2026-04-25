@@ -342,7 +342,8 @@ body,
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 10px 20px;
+    height: 36px;
+    padding: 0 20px;
     border-radius: 8px;
     border: none;
     background: var(--text-main);
@@ -367,7 +368,8 @@ body,
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 10px 20px;
+    height: 36px;
+    padding: 0 20px;
     border-radius: 8px;
     border: none;
     background: var(--surface-hover);
@@ -378,8 +380,10 @@ body,
     gap: 10px;
 }
 
-.action-btn:hover {
-    background: var(--surface-hover);
+/* 弹出卡片内的按钮保持较大尺寸以方便点击 */
+.custom-modal-card .primary-btn,
+.custom-modal-card .action-btn {
+    height: 44px !important;
 }
 
 /* 强调色辅助类 (黑白反色) */

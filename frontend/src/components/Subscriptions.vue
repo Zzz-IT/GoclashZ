@@ -482,7 +482,7 @@ onUnmounted(() => {
 
 .header-actions .action-btn, 
 .header-actions .primary-btn {
-  height: 40px;
+  height: 36px;
   border: none !important;
   box-shadow: none;
   display: flex;

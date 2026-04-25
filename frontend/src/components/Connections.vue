@@ -203,6 +203,11 @@ const closeSingleConnection = async (id: string) => {
 .stats .count { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
 
 .global-actions { display: flex; gap: 12px; }
+.global-actions .action-btn,
+.global-actions .primary-btn {
+  height: 36px;
+  padding: 0 16px;
+}
 .btn-icon { width: 14px; height: 14px; display: inline-flex; align-items: center;}
 
 .scroll-content { flex: 1; overflow-y: auto; padding-right: 8px; }

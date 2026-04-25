@@ -75,6 +75,7 @@ onUnmounted(() => {
 .modern-custom-select {
   position: relative;
   width: 140px; 
+  height: 36px;
   font-family: inherit;
   font-size: 0.85rem;
   font-weight: 500;
