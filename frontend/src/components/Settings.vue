@@ -684,14 +684,15 @@
             <div class="setting-item">
               <div class="info">
                 <h4>还原备份</h4>
-                <p>从 .gocz 备份文件恢复数据 (将覆盖当前配置并重载内核)</p>
+                <p>从 .gocz 文件恢复数据，订阅配置将采用智能合并模式</p>
               </div>
-              <button class="action-btn accent-btn" @click="handleImportBackup">立即还原</button>
+              <button class="action-btn accent-btn" @click="openRestoreModal">还原备份</button>
             </div>
           </div>
         </div>
 
         <div v-else-if="view === 'uwp'" class="settings-page">
+
           <div class="sub-header">
             <button class="back-btn" @click="view = 'main'">
               <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>
@@ -778,6 +779,49 @@
         </div>
       </div>
     </Transition>
+
+    <!-- 还原备份弹窗 (复用订阅管理的卡片样式) -->
+    <Transition name="pop">
+      <div v-if="showRestoreModal" class="modal-overlay" @click.self="showRestoreModal = false">
+        <div class="custom-modal-card" @click.stop>
+          <div class="modal-header">
+            <h3>还原本地数据</h3>
+          </div>
+          <div class="modal-body">
+            <p class="global-modal-msg">请选择备份文件并设置还原模式：</p>
+            
+            <div class="restore-actions" style="width: 100%; display: flex; flex-direction: column; gap: 4px;">
+              <button class="action-btn w-full-btn hover-accent" @click="handleSelectFile" :class="{'active-border': selectedPath}" style="width: 100%; height: 44px; box-sizing: border-box;">
+                <span class="btn-icon" v-html="ICONS.folder" style="margin-right: 4px;"></span>
+                <span class="truncate" style="flex: 1; text-align: center;">
+                  {{ selectedPath ? '已选择: ' + selectedPath.split('\\').pop() : '浏览备份文件 (.gocz)' }}
+                </span>
+              </button>
+              
+              <div class="divider-text" style="margin: 12px 0">配置还原模式</div>
+              
+              <div class="mode-selector-group" style="width: 100%;">
+                <ModernSelect 
+                  v-model="restoreMode" 
+                  :options="[
+                    { label: '全部恢复 (包含订阅与软件设置)', value: 'all' },
+                    { label: '仅恢复订阅配置 (合并入现有列表)', value: 'subs' },
+                    { label: '仅恢复软件设置 (包含主题/日志)', value: 'settings' }
+                  ]"
+                  class="w-full"
+                  style="height: 44px;"
+                />
+              </div>
+            </div>
+
+            <div class="modal-footer">
+              <button class="action-btn flex-1" @click="showRestoreModal = false">取消</button>
+              <button class="primary-btn accent-btn flex-1" :disabled="!selectedPath" @click="confirmRestore">执行还原</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -793,6 +837,11 @@ const showResetConfirm = ref(false);
 const resetModule = ref('');
 const resetModuleName = ref('');
 const checkingAppUpdate = ref(false); // 👈 新增：应用更新专用 Loading
+
+// --- 备份与还原状态 ---
+const showRestoreModal = ref(false);
+const selectedPath = ref("");
+const restoreMode = ref("all");
 
 const modules: Record<string, string> = {
   'network': '基础网络设置',
@@ -926,6 +975,7 @@ const handleCheckUpdate = async () => {
   }
 };
 
+// 导出备份
 const handleExportBackup = async () => {
   try {
     const res = await (API as any).ExportBackup();
@@ -933,31 +983,40 @@ const handleExportBackup = async () => {
       await showAlert("备份成功导出", "通知");
     }
   } catch (e) {
-    await showAlert("导出失败: " + e, "错误");
+    await showAlert("导出失败: " + String(e), "错误");
   }
 };
 
-const handleImportBackup = async () => {
-  globalState.modal = {
-    show: true,
-    title: "确认还原",
-    message: "还原备份将覆盖当前的订阅列表和应用设置，是否继续？程序将自动重载配置。",
-    type: "confirm",
-    isDanger: true,
-    onConfirm: async () => {
-      try {
-        const res = await (API as any).ImportBackup();
-        if (res === "SUCCESS") {
-          await showAlert("配置已成功恢复并生效", "成功");
-        }
-      } catch (e) {
-        await showAlert("还原失败: " + e, "错误");
-      }
-    },
-    onCancel: () => {
-      globalState.modal.show = false;
+// 打开还原面板
+const openRestoreModal = () => {
+  selectedPath.value = "";
+  restoreMode.value = "all";
+  showRestoreModal.value = true;
+};
+
+// 选择还原文件
+const handleSelectFile = async () => {
+  try {
+    const path = await (API as any).SelectBackupFile();
+    if (path) {
+      selectedPath.value = path;
     }
-  };
+  } catch (e) {
+    console.error("选择文件取消或失败", e);
+  }
+};
+
+// 执行还原
+const confirmRestore = async () => {
+  try {
+    const res = await (API as any).ExecuteRestore(selectedPath.value, restoreMode.value);
+    if (res === "SUCCESS") {
+      showRestoreModal.value = false;
+      await showAlert("数据还原成功！设置及配置已即时生效。", "成功");
+    }
+  } catch (e) {
+    await showAlert("还原失败: " + String(e), "错误");
+  }
 };
 
 const handleUpdateCore = async () => {
@@ -1621,7 +1680,14 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 
 .link-text { font-family: monospace; font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
 
-.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+/* 统一弹窗按钮高度与宽度 */
+.modal-footer .action-btn, 
+.modal-footer .primary-btn {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
 .slide-fade-enter-active,
 .slide-fade-leave-active {
@@ -1661,4 +1727,17 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   width: 12px;
   height: 12px;
 }
+
+.w-full-btn { width: 100%; justify-content: center; }
+.divider-text { 
+  display: flex; align-items: center; text-align: center; color: var(--text-sub); font-size: 0.75rem; 
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin: 15px 0;
+}
+.divider-text::before, .divider-text::after { content: ''; flex: 1; border-bottom: 1px solid var(--surface-hover); }
+.divider-text::before { margin-right: 10px; }
+.divider-text::after { margin-left: 10px; }
+
+.restore-actions { display: flex; flex-direction: column; }
+.active-border { border: 1px solid var(--accent) !important; }
+.w-full { width: 100%; }
 </style>

@@ -106,8 +106,8 @@
               <button class="primary-btn mini-btn" style="height: 44px;" @click="handleDownload" :disabled="!newSubUrl.trim() || isImporting">导入</button>
             </div>
             <div class="divider-text">或者</div>
-            <button class="action-btn w-full-btn" @click="handlePickFile" :disabled="isImporting">
-              <span class="btn-icon" v-html="ICONS.folder"></span> 浏览本地 YAML 文件
+            <button class="action-btn w-full-btn hover-accent" @click="handlePickFile" :disabled="isImporting" style="height: 44px; margin-top: 4px;">
+              <span class="btn-icon" v-html="ICONS.folder" style="margin-right: 4px;"></span> 浏览本地 YAML 文件
             </button>
           </div>
         </div>

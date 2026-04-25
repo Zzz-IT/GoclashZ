@@ -2,7 +2,7 @@
   <div class="modern-custom-select" :class="{ disabled, 'is-open': isOpen }" ref="selectRef">
     <div class="select-trigger" @click.stop="toggle">
       <span>{{ selectedLabel }}</span>
-      <svg class="arrow" :class="{ 'arrow-up': isOpen }" viewBox="0 0 24 24" fill="none" stroke="#777" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <svg class="arrow" :class="{ 'arrow-up': isOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="6 9 12 15 18 9"></polyline>
       </svg>
     </div>
@@ -76,7 +76,12 @@ onUnmounted(() => {
   position: relative;
   width: 140px; 
   font-family: inherit;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.modern-custom-select.w-full {
+  width: 100%;
 }
 
 /* 2. 触发器（视觉主体） */
@@ -89,8 +94,8 @@ onUnmounted(() => {
   border-radius: 8px; 
   cursor: pointer;
   transition: background-color 0.2s ease;
-  
-  /* 默认使用比纯黑背景稍微亮一点的灰度，建立层次感 */
+  height: 100%;
+  box-sizing: border-box;
   background-color: var(--surface-hover);
 }
 

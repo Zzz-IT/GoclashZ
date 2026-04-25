@@ -370,11 +370,12 @@ body,
     padding: 10px 20px;
     border-radius: 8px;
     border: none;
-    background: var(--surface);
+    background: var(--surface-hover);
     color: var(--text-main);
     cursor: pointer;
     font-weight: 500;
-    transition: 0.2s;
+    transition: all 0.2s;
+    gap: 10px;
 }
 
 .action-btn:hover {
@@ -390,6 +391,15 @@ body,
 /* 危险操作红字 */
 .red-text-btn {
     color: #ff4d4f !important;
+}
+
+.hover-accent:hover:not(:disabled) {
+    background: var(--accent) !important;
+    color: var(--accent-fg) !important;
+}
+
+.hover-accent:hover:not(:disabled) .btn-icon svg {
+    stroke: var(--accent-fg) !important;
 }
 
 /* 图标对齐辅助 */

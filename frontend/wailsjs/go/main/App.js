@@ -46,6 +46,10 @@ export function ElevatePrivileges() {
   return window['go']['main']['App']['ElevatePrivileges']();
 }
 
+export function ExecuteRestore(arg1, arg2) {
+  return window['go']['main']['App']['ExecuteRestore'](arg1, arg2);
+}
+
 export function ExportBackup() {
   return window['go']['main']['App']['ExportBackup']();
 }
@@ -126,10 +130,6 @@ export function GetWintunVersion() {
   return window['go']['main']['App']['GetWintunVersion']();
 }
 
-export function ImportBackup() {
-  return window['go']['main']['App']['ImportBackup']();
-}
-
 export function InstallTunDriver(arg1) {
   return window['go']['main']['App']['InstallTunDriver'](arg1);
 }
@@ -192,6 +192,10 @@ export function SaveUwpExemptions(arg1) {
 
 export function SearchLogs(arg1) {
   return window['go']['main']['App']['SearchLogs'](arg1);
+}
+
+export function SelectBackupFile() {
+  return window['go']['main']['App']['SelectBackupFile']();
 }
 
 export function SelectLocalConfig(arg1) {

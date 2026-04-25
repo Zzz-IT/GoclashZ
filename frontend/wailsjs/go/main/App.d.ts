@@ -27,7 +27,9 @@ export function DoLocalImport(arg1:string,arg2:string):Promise<void>;
 
 export function ElevatePrivileges():Promise<void>;
 
-export function ExportBackup():Promise<void>;
+export function ExecuteRestore(arg1:string,arg2:string):Promise<string>;
+
+export function ExportBackup():Promise<string>;
 
 export function FixUWPNetwork():Promise<void>;
 
@@ -67,8 +69,6 @@ export function GetUwpApps():Promise<Array<sys.UwpApp>>;
 
 export function GetWintunVersion():Promise<string>;
 
-export function ImportBackup():Promise<void>;
-
 export function InstallTunDriver(arg1:boolean):Promise<string>;
 
 export function IsNodeOffline(arg1:string):Promise<boolean|string>;
@@ -100,6 +100,8 @@ export function SaveTunConfig(arg1:clash.TunConfig):Promise<void>;
 export function SaveUwpExemptions(arg1:Array<string>):Promise<void>;
 
 export function SearchLogs(arg1:string):Promise<Array<logger.LogEntry>>;
+
+export function SelectBackupFile():Promise<string>;
 
 export function SelectLocalConfig(arg1:string):Promise<void>;
 
