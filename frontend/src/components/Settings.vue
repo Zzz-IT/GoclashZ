@@ -59,6 +59,14 @@
               </div>
               <span class="arrow">➔</span>
             </div>
+
+            <div class="setting-item clickable" @click="view = 'about'">
+              <div class="info">
+                <h4>关于应用</h4>
+                <p>查看版本信息与自动更新选项。</p>
+              </div>
+              <span class="arrow">➔</span>
+            </div>
           </div>
         </div>
 
@@ -595,6 +603,74 @@
           </div>
         </div>
 
+        <div v-else-if="view === 'about'" class="settings-page">
+          <div class="sub-header section-header">
+            <button class="back-btn" @click="view = 'main'">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            </button>
+            <h3>关于应用</h3>
+          </div>
+
+          <div class="glass-card setting-group scrollable">
+            <div class="setting-item">
+              <div class="info">
+                <h4>软件版本</h4>
+                <p>{{ globalState.version || '获取中...' }}</p>
+              </div>
+              <button class="action-btn accent-btn" @click="handleCheckUpdate" :disabled="updatingCore">
+                {{ updatingCore ? '检查中...' : '检查更新' }}
+              </button>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>自动更新</h4>
+                <p>允许软件自动检查并提示新版本。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="behavior.autoUpdate" @change="saveBehavior" />
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <template v-if="behavior.autoUpdate">
+              <div class="divider"></div>
+              <div class="setting-item">
+                <div class="info">
+                  <h4>检查更新方式</h4>
+                </div>
+                <ModernSelect 
+                  v-model="behavior.updateMethod" 
+                  :options="[
+                    { label: '每次启动', value: 'startup' }, 
+                    { label: '定时', value: 'scheduled' }
+                  ]" 
+                  @change="saveBehavior" 
+                />
+              </div>
+
+              <div class="divider"></div>
+              <div class="setting-item" :class="{ 'disabled-fade': behavior.updateMethod !== 'scheduled' }">
+                <div class="info">
+                  <h4>检查间隔时间</h4>
+                </div>
+                <div class="input-with-unit">
+                  <ModernNumberInput 
+                    v-model="behavior.updateInterval" 
+                    :min="1"
+                    :max="365"
+                    :disabled="behavior.updateMethod !== 'scheduled'" 
+                    @change="saveBehavior"
+                  />
+                  <span class="unit">天</span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
         <div v-else-if="view === 'uwp'" class="settings-page">
           <div class="sub-header">
             <button class="back-btn" @click="view = 'main'">
@@ -746,7 +822,7 @@ const props = defineProps({
   }
 });
 
-const view = ref(props.initialView as 'main' | 'uwp' | 'tun' | 'dns' | 'network' | 'behavior' | 'update');
+const view = ref(props.initialView as 'main' | 'uwp' | 'tun' | 'dns' | 'network' | 'behavior' | 'update' | 'about');
 watch(() => props.initialView, (newVal) => { view.value = newVal as any; });
 
 const coreVersion = ref('读取中...');
@@ -811,6 +887,11 @@ const formatRelativeTime = (timestamp: number) => {
   if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
   if (diff < 2592000) return Math.floor(diff / 86400) + ' 天前';
   return new Date(timestamp * 1000).toLocaleDateString();
+};
+
+const handleCheckUpdate = async () => {
+  // 联动内核更新逻辑
+  await handleUpdateCore();
 };
 
 const handleUpdateCore = async () => {

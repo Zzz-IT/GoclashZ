@@ -88,6 +88,11 @@ type AppBehavior struct {
 	GeoSiteLink string `json:"geoSiteLink"`
 	MmdbLink    string `json:"mmdbLink"`
 	AsnLink     string `json:"asnLink"`
+
+	// 👇 新增：自动更新配置相关字段
+	AutoUpdate     bool   `json:"autoUpdate"`     // 是否开启自动更新
+	UpdateMethod   string `json:"updateMethod"`   // 检查更新方式: "startup" (每次启动) 或 "scheduled" (定时)
+	UpdateInterval int    `json:"updateInterval"` // 检查间隔时间 (天)
 }
 
 // 1. 获取离线节点记忆文件的路径
@@ -160,6 +165,11 @@ func (a *App) initBehaviorCache() {
 		GeoSiteLink:  "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
 		MmdbLink:     "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
 		AsnLink:      "https://ghproxy.net/https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
+		
+		// 👇 新增：默认开启自动更新，方式为每次启动
+		AutoUpdate:     true,
+		UpdateMethod:   "startup",
+		UpdateInterval: 3, 
 	}
 
 	// 自动处理读取、合并和生成默认文件

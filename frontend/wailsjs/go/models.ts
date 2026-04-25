@@ -201,6 +201,9 @@ export namespace main {
 	    geoSiteLink: string;
 	    mmdbLink: string;
 	    asnLink: string;
+	    autoUpdate: boolean;
+	    updateMethod: string;
+	    updateInterval: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppBehavior(source);
@@ -219,6 +222,9 @@ export namespace main {
 	        this.geoSiteLink = source["geoSiteLink"];
 	        this.mmdbLink = source["mmdbLink"];
 	        this.asnLink = source["asnLink"];
+	        this.autoUpdate = source["autoUpdate"];
+	        this.updateMethod = source["updateMethod"];
+	        this.updateInterval = source["updateInterval"];
 	    }
 	}
 	export class AppState {
