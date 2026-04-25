@@ -47,6 +47,10 @@ func (a *App) ExportBackup() (string, error) {
 	zw := zip.NewWriter(f)
 	defer zw.Close()
 
+	// 🚀 修复：增加全局 IO 锁，防止打包时恰逢其他协程正在保存配置，导致备份文件内容残缺！
+	a.behaviorIOMu.Lock()
+	defer a.behaviorIOMu.Unlock()
+
 	dataDir := utils.GetDataDir()
 	// 指定需要备份的相对目标
 	targets := []string{"settings", "subscriptions", "theme_setting.txt"}
@@ -125,6 +129,10 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 	defer a.behaviorIOMu.Unlock()
 
 	for _, f := range zr.File {
+		// 🚀 修复：遇到压缩包中的纯目录节点直接跳过，因为后续文件解压时会通过 MkdirAll 自动创建所需目录
+		if f.FileInfo().IsDir() {
+			continue
+		}
 		isSettingFile := strings.HasPrefix(f.Name, "settings/")
 		isSubFile := strings.HasPrefix(f.Name, "subscriptions/")
 		isThemeFile := f.Name == "theme_setting.txt"

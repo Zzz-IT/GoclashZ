@@ -231,10 +231,13 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 		isLogging := a.logRunning
 		a.mu.Unlock()
 		if isLogging {
-			a.StopStreamingLogs()
-			// 稍微休眠，确保底层网络请求句柄已经彻底关闭
-			time.Sleep(50 * time.Millisecond)
-			a.StartStreamingLogs()
+			// 🚀 优化：扔到后台去重启，让前端的 Save 设置按钮点下去瞬间丝滑完成
+			go func() {
+				a.StopStreamingLogs()
+				// 稍微休眠，确保底层网络请求句柄已经彻底关闭
+				time.Sleep(50 * time.Millisecond)
+				a.StartStreamingLogs()
+			}()
 		}
 	}
 
