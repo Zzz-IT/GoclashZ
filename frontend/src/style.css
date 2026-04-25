@@ -176,11 +176,20 @@ body,
 
 ::-webkit-scrollbar {
     width: 4px;
+    height: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: var(--surface-hover);
+    background: var(--text-muted);
     border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-sub);
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
 }
 
 /* --- 全局通用 UI 规范 (按钮、弹窗、动画) --- */

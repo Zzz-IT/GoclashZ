@@ -436,7 +436,7 @@ onUnmounted(() => {
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .header-actions { display: flex; gap: 12px; align-items: center; }
 
-.subs-list { flex: 1; overflow-y: auto; padding-right: 0; position: relative; }
+.subs-list { flex: 1; overflow-y: auto; padding-right: 8px; position: relative; }
 
 /* 卡片基础样式 */
 .sub-card { 

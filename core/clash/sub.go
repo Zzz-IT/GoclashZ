@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"goclashz/core/utils"
+
+	"gopkg.in/yaml.v3"
 )
 
 // parseSubUserInfo 解析流量 Header
@@ -46,8 +48,12 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 		id = fmt.Sprintf("%d", time.Now().UnixMilli())
 	}
 
-	client := &http.Client{} // ⚡ 移除硬编码 Timeout，改由 ctx 控制
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	client := &http.Client{}
+	// 🛡️ 修复：必须加上硬超时！防止机场服务器假死导致前端 UI 的 loading 圈永远转下去
+	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, "GET", url, nil)
 	if err != nil {
 		return id, err
 	}
@@ -69,17 +75,24 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 
 	upload, download, total, expire := parseSubUserInfo(resp.Header.Get("Subscription-Userinfo"))
 
-	// 3. 绝对只读保存原始 YAML
-	yamlPath := filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
-	outFile, err := os.Create(yamlPath)
+	// ==========================================
+	// 🛡️ 终极护城河：YAML 格式与结构语义极严校验
+	// ==========================================
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return id, fmt.Errorf("无法创建配置文件: %v", err)
+		return id, fmt.Errorf("读取订阅内容失败: %v", err)
 	}
-	defer outFile.Close()
 
-	_, err = io.Copy(outFile, resp.Body)
-	if err != nil {
-		return id, err
+	if err := StrictVerifyClashConfig(bodyBytes); err != nil {
+		// 直接将极严校验的详细报错抛出，阻断落盘
+		return id, fmt.Errorf("订阅配置校验失败: %v", err)
+	}
+	// ==========================================
+
+	// 校验通过，安全落盘
+	yamlPath := filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
+	if err := os.WriteFile(yamlPath, bodyBytes, 0644); err != nil {
+		return id, fmt.Errorf("无法写入配置文件: %v", err)
 	}
 
 	// 4. 初始化伴生规则文件 (仅在第一次添加订阅时截取原始规则)
@@ -164,5 +177,76 @@ func ReloadConfig() error {
 	if err != nil || resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("内核配置重载失败")
 	}
+	return nil
+}
+
+// StrictVerifyClashConfig 进行极度严格的 Clash 配置文件语义与结构级校验
+func StrictVerifyClashConfig(data []byte) error {
+	var root map[string]interface{}
+	// 1. 基础语法校验：必须是合法的 YAML
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("文件解析失败，非合法 YAML 格式 (可能下载到了网页、HTML 或乱码)")
+	}
+
+	if len(root) == 0 {
+		return fmt.Errorf("文件格式拒绝：配置文件为空")
+	}
+
+	// 2. 宏观特征校验：必须包含 Clash 的核心特征字段 (兼容首字母大写)
+	hasProxies := root["proxies"] != nil || root["Proxy"] != nil
+	hasProxyGroups := root["proxy-groups"] != nil || root["Proxy Group"] != nil
+	hasProxyProviders := root["proxy-providers"] != nil
+
+	if !hasProxies && !hasProxyGroups && !hasProxyProviders {
+		return fmt.Errorf("格式拒绝：未检测到 proxies 或 proxy-groups。这不是一个标准的 Clash 订阅文件")
+	}
+
+	// 3. 刚性结构与语义抽样校验：防止披着 proxies 外衣的假数据
+	if proxiesNode := root["proxies"]; proxiesNode != nil {
+		proxiesList, ok := proxiesNode.([]interface{})
+		if !ok {
+			return fmt.Errorf("语法结构致命错误：[proxies] 必须是一个节点列表 (Array)")
+		}
+
+		// 抽样检查第一个代理节点的内部结构
+		if len(proxiesList) > 0 {
+			firstProxy, isMap := proxiesList[0].(map[string]interface{})
+			if !isMap {
+				return fmt.Errorf("语法结构致命错误：[proxies] 列表内的元素必须是节点对象 (Object)")
+			}
+
+			// Clash 节点的刚性必备属性，缺一不可
+			requiredKeys := []string{"name", "type", "server", "port"}
+			for _, key := range requiredKeys {
+				if _, exists := firstProxy[key]; !exists {
+					return fmt.Errorf("语义合规拒绝：代理节点缺失 Clash 必备底层属性 [%s]", key)
+				}
+			}
+		}
+	}
+
+	// 校验 proxy-groups (策略组) 结构
+	if groupsNode := root["proxy-groups"]; groupsNode != nil {
+		groupsList, ok := groupsNode.([]interface{})
+		if !ok {
+			return fmt.Errorf("语法结构致命错误：[proxy-groups] 必须是一个组列表 (Array)")
+		}
+
+		if len(groupsList) > 0 {
+			firstGroup, isMap := groupsList[0].(map[string]interface{})
+			if !isMap {
+				return fmt.Errorf("语法结构致命错误：[proxy-groups] 内的元素必须是对象 (Object)")
+			}
+			// 策略组必备属性
+			if _, ok := firstGroup["name"]; !ok {
+				return fmt.Errorf("语义合规拒绝：策略组缺失必备属性 [name]")
+			}
+			if _, ok := firstGroup["type"]; !ok {
+				return fmt.Errorf("语义合规拒绝：策略组缺失必备属性 [type]")
+			}
+		}
+	}
+
+	// 校验通过，确认为高纯度合规的 Clash 配置
 	return nil
 }

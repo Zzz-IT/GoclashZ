@@ -8,7 +8,7 @@
 #define MyAppExeName "GoclashZ.exe"
 
 [Setup]
-WizardStyle=modern dark  includetitlebar
+WizardStyle=modern dynamic includetitlebar
 VersionInfoVersion=1.1.0.1
 VersionInfoCompany=Zzz
 VersionInfoDescription=GoclashZ Installer

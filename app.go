@@ -1532,6 +1532,11 @@ func (a *App) DoLocalImport(path, name string) error {
 		return err
 	}
 
+	// 🛡️ 新增：极严结构化语义拦截 (防本地垃圾文件)
+	if err := clash.StrictVerifyClashConfig(content); err != nil {
+		return fmt.Errorf("本地导入失败: %v", err)
+	}
+
 	id := fmt.Sprintf("%d", time.Now().UnixMilli())
 	destPath := filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
 	if err := os.WriteFile(destPath, content, 0644); err != nil {

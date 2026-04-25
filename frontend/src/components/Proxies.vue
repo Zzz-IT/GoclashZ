@@ -267,19 +267,6 @@ onUnmounted(() => {
   user-select: none;
   -webkit-user-select: none;
 }
-.group-tabs::-webkit-scrollbar { 
-  height: 4px; 
-}
-.group-tabs::-webkit-scrollbar-thumb { 
-  background-color: var(--text-muted); 
-  border-radius: 6px; 
-}
-.group-tabs::-webkit-scrollbar-thumb:hover {
-  background-color: var(--text-sub);
-}
-.group-tabs::-webkit-scrollbar-track {
-  background: transparent;
-}
 
 .global-actions {
   flex-shrink: 0;

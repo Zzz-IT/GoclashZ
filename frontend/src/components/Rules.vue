@@ -67,7 +67,7 @@
           </button>
         </div>
 
-        <div class="tip-text">新添规则自动置顶</div>
+        <div class="tip-text">新规则自动置于首位</div>
       </div>
     </template>
 
@@ -190,11 +190,23 @@ const paginatedRules = computed(() => {
   return filteredIndices.value.slice(start, end).map(index => {
     const text = userRules.value[index];
     const parts = text.split(',');
+    
+    const ruleType = parts[0]?.trim().toUpperCase() || 'UNKNOWN';
+    let payloadStr = '';
+    let policyStr = '';
+
+    // 🛡️ 修复：MATCH 规则没有 Payload，第二段直接就是 Policy
+    if (ruleType === 'MATCH') {
+      policyStr = parts.slice(1).join(', ').trim();
+    } else {
+      payloadStr = parts[1]?.trim() || '';
+      policyStr = parts.slice(2).join(', ').trim();
+    }
+
     return {
-      type: parts[0]?.trim() || 'UNKNOWN',
-      payload: parts[1]?.trim() || '',
-      // 🚀 修复：将剩余所有部分拼接（兼容 no-resolve 等 4 段或多段式高级规则）
-      policy: parts.slice(2).join(', ').trim() || '', 
+      type: ruleType,
+      payload: payloadStr,
+      policy: policyStr,
       originalIndex: index
     };
   });
@@ -308,26 +320,10 @@ onMounted(() => {
   align-content: start; 
   gap: 16px; 
   overflow-y: auto; 
-  padding-right: 12px; /* 🚀 恢复间距，让滚动条与卡片保持呼吸感 */
+  padding-right: 8px; /* 🚀 统一间距：与代理节点页保持一致 */
   padding-bottom: 20px; 
 }
 
-/* 🚀 滚动条样式保持简洁 */
-.rules-grid::-webkit-scrollbar {
-  width: 10px; 
-}
-
-.rules-grid::-webkit-scrollbar-thumb {
-  background-color: var(--surface-hover);
-  border: 3px solid transparent; 
-  background-clip: padding-box;
-  border-radius: 10px;
-  transition: background 0.2s;
-}
-
-.rules-grid::-webkit-scrollbar-thumb:hover {
-  background-color: var(--text-sub); /* 悬停时加深，提示已抓取 */
-}
 
 .rule-card { 
   background: var(--surface); 
@@ -368,7 +364,6 @@ onMounted(() => {
   justify-content: space-between; 
   align-items: center; 
   padding-top: 16px; 
-  border-top: 1px solid var(--surface-hover); 
   margin-top: auto; 
 }
 
