@@ -126,10 +126,15 @@ func main() {
 	
 	// ✅ 使用统一的智能数据目录读取主题
 	themeFile := filepath.Join(utils.GetDataDir(), "theme_setting.txt")
-	if content, err := os.ReadFile(themeFile); err == nil {
-		// 👇 修复：如果有配置且明确为 light，才使用白色底色
-		if strings.TrimSpace(string(content)) == "light" {
-			r, g, b = 242, 242, 242 // 匹配日间模式底色 (#F2F2F2)
+	// 🎯 修复：使用流式读取并严格限制读取最大字节数
+	if f, err := os.Open(themeFile); err == nil {
+		defer f.Close() // 记得关闭文件句柄
+		
+		buf := make([]byte, 16) // 分配 16 字节的安全缓冲区
+		n, _ := f.Read(buf)     // 最多读取 16 字节
+		
+		if n > 0 && strings.TrimSpace(string(buf[:n])) == "light" {
+			r, g, b = 242, 242, 242 
 		}
 	}
 
