@@ -2536,7 +2536,6 @@ func (a *App) CheckAndDownloadAppUpdate() {
 	// ⚡ 执行静默下载，内含 5 次断线重连/断点续传机制
 	err = downloadAppUpdateWithRetry(directURL, exePath)
 	if err != nil {
-		_ = os.Remove(exePath + ".tmp")
 		runtime.EventsEmit(a.ctx, "notify-error", "软件本体更新下载失败，请检查网络环境。")
 		return
 	}
@@ -2638,8 +2637,7 @@ func (a *App) ManualCheckAppUpdate() (string, error) {
 			// 下载完后，向前端推送就绪事件，触发弹窗
 			runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
 		} else {
-			// 🚀 新增：手动检查时下载失败也需要通知！
-			_ = os.Remove(exePath + ".tmp")
+			// 🚀 修复：删掉 os.Remove(exePath + ".tmp")，保留下载进度！
 			runtime.EventsEmit(a.ctx, "notify-error", "软件本体更新下载失败，请检查网络环境。")
 		}
 	}()
