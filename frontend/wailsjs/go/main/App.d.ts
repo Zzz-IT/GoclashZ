@@ -27,6 +27,8 @@ export function DoLocalImport(arg1:string,arg2:string):Promise<void>;
 
 export function ElevatePrivileges():Promise<void>;
 
+export function ExportBackup():Promise<void>;
+
 export function FixUWPNetwork():Promise<void>;
 
 export function FlashWindow():Promise<void>;
@@ -64,6 +66,8 @@ export function GetTunConfig():Promise<clash.TunConfig>;
 export function GetUwpApps():Promise<Array<sys.UwpApp>>;
 
 export function GetWintunVersion():Promise<string>;
+
+export function ImportBackup():Promise<void>;
 
 export function InstallTunDriver(arg1:boolean):Promise<string>;
 

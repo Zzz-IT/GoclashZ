@@ -46,6 +46,10 @@ export function ElevatePrivileges() {
   return window['go']['main']['App']['ElevatePrivileges']();
 }
 
+export function ExportBackup() {
+  return window['go']['main']['App']['ExportBackup']();
+}
+
 export function FixUWPNetwork() {
   return window['go']['main']['App']['FixUWPNetwork']();
 }
@@ -120,6 +124,10 @@ export function GetUwpApps() {
 
 export function GetWintunVersion() {
   return window['go']['main']['App']['GetWintunVersion']();
+}
+
+export function ImportBackup() {
+  return window['go']['main']['App']['ImportBackup']();
 }
 
 export function InstallTunDriver(arg1) {

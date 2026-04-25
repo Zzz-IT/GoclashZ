@@ -668,6 +668,26 @@
                 </div>
               </div>
             </template>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>本地配置备份</h4>
+                <p>将订阅、应用设置及主题打包导出为 .gocz 文件</p>
+              </div>
+              <button class="action-btn accent-btn" @click="handleExportBackup">导出备份</button>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>还原备份</h4>
+                <p>从 .gocz 备份文件恢复数据 (将覆盖当前配置并重载内核)</p>
+              </div>
+              <button class="action-btn accent-btn" @click="handleImportBackup">立即还原</button>
+            </div>
           </div>
         </div>
 
@@ -904,6 +924,40 @@ const handleCheckUpdate = async () => {
   } finally {
     checkingAppUpdate.value = false;
   }
+};
+
+const handleExportBackup = async () => {
+  try {
+    const res = await (API as any).ExportBackup();
+    if (res === "SUCCESS") {
+      await showAlert("备份成功导出", "通知");
+    }
+  } catch (e) {
+    await showAlert("导出失败: " + e, "错误");
+  }
+};
+
+const handleImportBackup = async () => {
+  globalState.modal = {
+    show: true,
+    title: "确认还原",
+    message: "还原备份将覆盖当前的订阅列表和应用设置，是否继续？程序将自动重载配置。",
+    type: "confirm",
+    isDanger: true,
+    onConfirm: async () => {
+      try {
+        const res = await (API as any).ImportBackup();
+        if (res === "SUCCESS") {
+          await showAlert("配置已成功恢复并生效", "成功");
+        }
+      } catch (e) {
+        await showAlert("还原失败: " + e, "错误");
+      }
+    },
+    onCancel: () => {
+      globalState.modal.show = false;
+    }
+  };
 };
 
 const handleUpdateCore = async () => {

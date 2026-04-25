@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip" // 👈 新增：用于备份还原
 	"context"
 	_ "embed" // 👈 1. 新增：导入 embed 包用于打包图标
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"goclashz/core/sys"
 	"goclashz/core/traffic"
 	"goclashz/core/utils"
+	"io" // 👈 新增
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -2692,4 +2694,122 @@ func downloadFileWithRetry(destPath, url string) error {
 		time.Sleep(2 * time.Second)
 	}
 	return fmt.Errorf("三次尝试均失败: %v", lastErr)
+}
+
+// ExportBackup 导出备份：Settings, Subscriptions, theme_setting.txt
+func (a *App) ExportBackup() (string, error) {
+	// 1. 弹出保存对话框
+	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "选择备份保存位置",
+		DefaultFilename: fmt.Sprintf("GoclashZ_Backup_%s.gocz", time.Now().Format("20060102")),
+		Filters: []runtime.FileFilter{
+			{DisplayName: "GoclashZ 备份文件 (*.gocz)", Pattern: "*.gocz"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if savePath == "" {
+		return "CANCELLED", nil
+	}
+
+	// 确保后缀正确
+	if !strings.HasSuffix(savePath, ".gocz") {
+		savePath += ".gocz"
+	}
+
+	// 2. 创建压缩包
+	f, err := os.Create(savePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	zw := zip.NewWriter(f)
+	defer zw.Close()
+
+	dataDir := utils.GetDataDir()
+	// 需要备份的目标
+	targets := []string{"settings", "subscriptions", "theme_setting.txt"}
+
+	for _, target := range targets {
+		fullPath := filepath.Join(dataDir, target)
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			continue // 文件夹不存在则跳过
+		}
+
+		if info.IsDir() {
+			// 递归遍历文件夹
+			filepath.Walk(fullPath, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() {
+					return nil
+				}
+				relPath, _ := filepath.Rel(dataDir, path)
+				w, _ := zw.Create(relPath)
+				content, _ := os.ReadFile(path)
+				w.Write(content)
+				return nil
+			})
+		} else {
+			// 处理单个文件
+			w, _ := zw.Create(target)
+			content, _ := os.ReadFile(fullPath)
+			w.Write(content)
+		}
+	}
+
+	return "SUCCESS", nil
+}
+
+// ImportBackup 还原备份
+func (a *App) ImportBackup() (string, error) {
+	// 1. 选择备份文件
+	selected, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "选择要还原的备份文件",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "GoclashZ 备份文件 (*.gocz)", Pattern: "*.gocz"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if selected == "" {
+		return "CANCELLED", nil
+	}
+
+	// 2. 解压并覆盖
+	zr, err := zip.OpenReader(selected)
+	if err != nil {
+		return "", err
+	}
+	defer zr.Close()
+
+	dataDir := utils.GetDataDir()
+
+	for _, f := range zr.File {
+		destPath := filepath.Join(dataDir, f.Name)
+		
+		// 确保父目录存在
+		os.MkdirAll(filepath.Dir(destPath), 0755)
+
+		rc, _ := f.Open()
+		dstFile, _ := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		io.Copy(dstFile, rc)
+		rc.Close()
+		dstFile.Close()
+	}
+
+	// 3. 🚨 关键：热重载内存与内核
+	a.initBehaviorCache() // 重新加载设置到内存
+	active := a.getActiveConfig()
+	if active != "" {
+		clash.BuildRuntimeConfig(active, a.getActiveMode(), a.GetAppBehavior().LogLevel)
+		if clash.IsRunning() {
+			clash.ReloadConfig()
+		}
+	}
+	a.SyncState() // 同步 UI 状态
+
+	return "SUCCESS", nil
 }
