@@ -77,6 +77,10 @@ type App struct {
 	// 👇 新增：软件本体更新相关状态
 	appUpdateReady bool
 	newAppVersion  string
+
+	// 👇 新增：本体更新防并发锁
+	appUpdateTaskMu  sync.Mutex
+	isDownloadingApp bool
 }
 
 // AppBehavior 定义应用行为设置
@@ -618,9 +622,9 @@ func (a *App) cleanLegacyFiles() {
 	updateVer := filepath.Join(utils.GetDataDir(), "GoclashZ_update.version")
 	_ = os.Remove(updateTmp)
 	
-	// 如果本地存在的更新包版本已经低于或等于当前运行的版本，则说明是旧包，清理掉
+	// 如果本地存在的更新包版本已经等于当前运行的版本，则说明是旧包，清理掉
 	if cachedVer, err := os.ReadFile(updateVer); err == nil {
-		if normalizeVersion(string(cachedVer)) <= normalizeVersion(CurrentAppVersion) {
+		if normalizeVersion(string(cachedVer)) == normalizeVersion(CurrentAppVersion) {
 			_ = os.Remove(updateExe)
 			_ = os.Remove(updateVer)
 		}
@@ -2490,6 +2494,22 @@ func (a *App) CheckAndDownloadAppUpdate() {
 		return
 	}
 
+	// 👇 新增：获取并发锁，防止与手动点击起冲突
+	a.appUpdateTaskMu.Lock()
+	if a.isDownloadingApp {
+		a.appUpdateTaskMu.Unlock()
+		return // 已经在下载中了，直接忽略本次定时任务
+	}
+	a.isDownloadingApp = true
+	a.appUpdateTaskMu.Unlock()
+
+	// 确保函数退出时释放下载状态
+	defer func() {
+		a.appUpdateTaskMu.Lock()
+		a.isDownloadingApp = false
+		a.appUpdateTaskMu.Unlock()
+	}()
+
 	exePath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
 	versionPath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.version") // 🚀 新增：版本号记录文件
 
@@ -2567,8 +2587,25 @@ func (a *App) ManualCheckAppUpdate() (string, error) {
 		return "ALREADY_LATEST", nil
 	}
 
+	// 👇 新增：获取并发锁
+	a.appUpdateTaskMu.Lock()
+	if a.isDownloadingApp {
+		a.appUpdateTaskMu.Unlock()
+		// 已经在下载中了，直接返回 latestVersion，前端收到后会弹 Toast 提示“正在后台静默下载中”
+		return latestVersion, nil
+	}
+	a.isDownloadingApp = true
+	a.appUpdateTaskMu.Unlock()
+
 	// 如果有更新，触发异步下载流程
 	go func() {
+		// 确保下载协程结束时，重置下载状态
+		defer func() {
+			a.appUpdateTaskMu.Lock()
+			a.isDownloadingApp = false
+			a.appUpdateTaskMu.Unlock()
+		}()
+
 		exePath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
 		versionPath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.version")
 
