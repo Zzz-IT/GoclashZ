@@ -117,6 +117,11 @@ func doDownload(client *http.Client, url string, destPath string) error {
 	}
 	defer resp.Body.Close()
 
+	// 🚀 补上状态码校验：防止下载到 404/500 等 HTML 报错页面并将其保存为配置/数据库
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("请求失败，服务器返回 HTTP 状态码: %d", resp.StatusCode)
+	}
+
 	tmpPath := destPath + ".tmp"
 	out, err := os.Create(tmpPath)
 	if err != nil {
