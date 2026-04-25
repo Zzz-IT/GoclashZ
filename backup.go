@@ -104,6 +104,7 @@ func (a *App) SelectBackupFile() (string, error) {
 
 // ExecuteRestore 核心还原逻辑：支持按照 mode 过滤并合并订阅
 // mode: "all" (全部), "subs" (仅订阅), "settings" (仅设置)
+// ExecuteRestore 核心还原逻辑：支持按照 mode 过滤，强制以备份包状态为准进行覆盖/合并
 func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 	if selected == "" {
 		return "", fmt.Errorf("未选择有效的备份文件")
@@ -116,38 +117,45 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 	defer zr.Close()
 
 	dataDir := utils.GetDataDir()
+	cleanDataDir := filepath.Clean(dataDir)
 	var backupIndex []clash.SubIndexItem
 
+	// 获取全局 IO 锁，防止与后台自动保存冲突
+	a.behaviorIOMu.Lock()
+	defer a.behaviorIOMu.Unlock()
+
 	for _, f := range zr.File {
-		// 1. 判断文件类型归属
 		isSettingFile := strings.HasPrefix(f.Name, "settings/")
 		isSubFile := strings.HasPrefix(f.Name, "subscriptions/")
 		isThemeFile := f.Name == "theme_setting.txt"
 
-		// 2. 按照还原模式过滤不需要的文件
 		if mode == "subs" && !isSubFile && f.Name != "settings/user_index.json" {
-			continue // 仅恢复订阅时，只放行订阅文件夹和索引
+			continue
 		}
 		if mode == "settings" && !isSettingFile && !isThemeFile {
-			continue // 仅恢复设置时，放行设置和主题
+			continue
 		}
-		// 特殊阻截：如果是“仅恢复设置”，绝不能覆盖现有的订阅索引
 		if mode == "settings" && f.Name == "settings/user_index.json" {
 			continue
 		}
 
-		// 3. 拦截订阅索引文件，提取到内存进行合并运算，不直接物理覆盖
 		if f.Name == "settings/user_index.json" && (mode == "all" || mode == "subs") {
 			rc, err := f.Open()
 			if err == nil {
 				_ = json.NewDecoder(rc).Decode(&backupIndex)
 				rc.Close()
 			}
+			continue
+		}
+
+		destPath := filepath.Join(dataDir, filepath.FromSlash(f.Name))
+		
+		// Zip Slip 防护
+		if !strings.HasPrefix(filepath.Clean(destPath), cleanDataDir+string(os.PathSeparator)) {
 			continue 
 		}
 
-		// 4. 将被放行的文件物理解压覆盖到本地
-		destPath := filepath.Join(dataDir, filepath.FromSlash(f.Name))
+		// 无条件覆盖本地，实现“备份是什么样就还原成什么样”
 		os.MkdirAll(filepath.Dir(destPath), 0755)
 
 		rc, err := f.Open()
@@ -163,36 +171,38 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 		rc.Close()
 	}
 
-	// 5. 核心逻辑：智能合并订阅索引
+	// 核心逻辑：强力合并订阅索引
 	if (mode == "all" || mode == "subs") && len(backupIndex) > 0 {
-		clash.LoadIndex() // 重新加载当前磁盘的最新索引
+		clash.LoadIndex()
 		clash.IndexLock.Lock()
 
-		// 记录当前已存在的订阅 ID，防止重复导入
-		currentMap := make(map[string]bool)
-		for _, item := range clash.SubIndex {
-			currentMap[item.ID] = true
+		// 记录本地订阅的索引位置
+		localIndexMap := make(map[string]int)
+		for i, item := range clash.SubIndex {
+			localIndexMap[item.ID] = i
 		}
 
-		// 执行合并：仅追加本地不存在的订阅配置
-		addedCount := 0
+		changed := false
 		for _, bItem := range backupIndex {
-			if !currentMap[bItem.ID] {
+			if idx, exists := localIndexMap[bItem.ID]; exists {
+				// 1. 本地已存在：强制将元数据覆写为备份里的状态
+				clash.SubIndex[idx] = bItem
+				changed = true
+			} else {
+				// 2. 本地不存在：追加备份里的新订阅
 				clash.SubIndex = append(clash.SubIndex, bItem)
-				addedCount++
+				changed = true
 			}
 		}
 		clash.IndexLock.Unlock()
 
-		if addedCount > 0 {
-			clash.SaveIndex() // 有新增才写入磁盘
+		if changed {
+			clash.SaveIndex()
 		}
 	}
 
-	// 6. 热重载系统状态
-	a.initBehaviorCache() // 重新读取最新的 settings 进内存
-	
-	// 若内核正在运行，则重载配置让新设置生效
+	// 热重载内存与系统状态
+	a.initBehaviorCache() 
 	active := a.getActiveConfig()
 	if active != "" {
 		clash.BuildRuntimeConfig(active, a.getActiveMode(), a.GetAppBehavior().LogLevel)
@@ -200,7 +210,7 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 			clash.ReloadConfig()
 		}
 	}
-	a.SyncState() // 同步最新状态给 Vue 前端
+	a.SyncState()
 
 	return "SUCCESS", nil
 }
