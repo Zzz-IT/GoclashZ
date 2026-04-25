@@ -56,6 +56,28 @@ func assignProcessToJobObject(proc *os.Process) error {
 	return windows.AssignProcessToJobObject(job, windows.Handle(proc.Pid))
 }
 
+// killProcessIfClash 安全杀进程：验证 PID 对应进程名是否确为 clash.exe，防止 PID 复用误杀
+func killProcessIfClash(pid int) {
+	// 请求查询进程信息和终止权限
+	hProcess, err := windows.OpenProcess(windows.PROCESS_QUERY_INFORMATION|windows.PROCESS_TERMINATE, false, uint32(pid))
+	if err != nil {
+		return // 进程已不存在或无权限打开
+	}
+	defer windows.CloseHandle(hProcess)
+
+	// 获取进程的完整镜像路径
+	buf := make([]uint16, windows.MAX_PATH)
+	size := uint32(len(buf))
+	err = windows.QueryFullProcessImageName(hProcess, 0, &buf[0], &size)
+	if err == nil {
+		imageName := windows.UTF16ToString(buf[:size])
+		// 验证进程名是否确为 clash.exe（忽略大小写验证更安全）
+		if strings.HasSuffix(strings.ToLower(imageName), "clash.exe") {
+			_ = windows.TerminateProcess(hProcess, 1)
+		}
+	}
+}
+
 func Start(ctx context.Context) error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -73,16 +95,11 @@ func Start(ctx context.Context) error {
 	pidFile := filepath.Join(dataDir, "clash.pid")
 	runtimeConfig := filepath.Join(dataDir, "config.yaml") // 运行时最终生成的配置
 
-	// 🚀 修复：使用 Native API 安全地清理旧进程
+	// 🚀 修复：使用 PID 校验机制清理旧进程，防止误杀
 	if pidData, err := os.ReadFile(pidFile); err == nil {
 		pidStr := strings.TrimSpace(string(pidData))
 		if pid, err := strconv.Atoi(pidStr); err == nil && pid > 0 {
-			// 纯 Go 底层调用，无视环境变量劫持与部分杀软对 cmd/taskkill 的拦截
-			hProcess, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(pid))
-			if err == nil {
-				_ = windows.TerminateProcess(hProcess, 1)
-				windows.CloseHandle(hProcess)
-			}
+			killProcessIfClash(pid)
 		}
 		os.Remove(pidFile)
 	}

@@ -3,9 +3,9 @@
 package sys
 
 import (
-	"bufio"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 	"syscall"
 
@@ -73,6 +73,9 @@ func GetUwpAppList() ([]UwpApp, error) {
 	return apps, nil
 }
 
+// 预编译正则，匹配 UWP 的标准 SID 格式
+var uwpSidRegex = regexp.MustCompile(`S-1-15-[-0-9]+`)
+
 // getExemptedSids 解析 CheckNetIsolation.exe LoopbackExempt -s 的结果
 func getExemptedSids() (map[string]bool, error) {
 	exemptMap := make(map[string]bool)
@@ -84,19 +87,13 @@ func getExemptedSids() (map[string]bool, error) {
 		return exemptMap, nil // 即使失败也返回空表，不阻塞主流程
 	}
 
-	// 遍历输出，寻找类似 SID: S-1-15-... 的行
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "SID:") || strings.Contains(line, "S-1-15-") {
-			parts := strings.Fields(line)
-			for _, p := range parts {
-				if strings.HasPrefix(p, "S-1-15-") {
-					exemptMap[p] = true
-				}
-			}
-		}
+	// ✅ 直接使用正则从所有输出内容中暴力提取符合 UWP SID 规范的字符串
+	// 这样可以完全无视 CheckNetIsolation 的输出语言（中/英/俄等）
+	matches := uwpSidRegex.FindAllString(string(output), -1)
+	for _, sid := range matches {
+		exemptMap[sid] = true
 	}
+	
 	return exemptMap, nil
 }
 

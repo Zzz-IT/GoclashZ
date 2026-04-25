@@ -5,6 +5,7 @@ import { EventsOn } from '../wailsjs/runtime/runtime';
 // 1. 同步读取本地缓存（发生在 Vue 渲染前，绝对 0 延迟）
 const cachedHideLogs = localStorage.getItem('goclashz_hideLogs') === 'true';
 const cachedTheme = localStorage.getItem('goclashz_theme') || 'light';
+const cachedActiveConfigId = localStorage.getItem('goclashz_activeConfigId') || ''; // 👈 新增缓存预热
 
 // 定义全局响应式状态
 export const globalState = reactive({
@@ -18,8 +19,8 @@ export const globalState = reactive({
   version: '',
   tunStatus: { hasWintun: false, isAdmin: false },
 
-  // 🚀 核心：当前运行配置的 ID 和显示名称
-  activeConfigId: '',
+  // 🚀 核心：使用缓存初始化消除渲染空窗期的闪烁
+  activeConfigId: cachedActiveConfigId,
   activeConfigName: '',
   activeConfigType: '',
 
@@ -68,8 +69,13 @@ function updateStateFromBackend(rawData: any) {
   if (rawData.version !== undefined) globalState.version = rawData.version;
   else if (rawData.Version !== undefined) globalState.version = rawData.Version;
 
-  if (rawData.activeConfig !== undefined) globalState.activeConfigId = rawData.activeConfig;
-  else if (rawData.ActiveConfig !== undefined) globalState.activeConfigId = rawData.ActiveConfig;
+  if (rawData.activeConfig !== undefined) {
+      globalState.activeConfigId = rawData.activeConfig;
+      localStorage.setItem('goclashz_activeConfigId', rawData.activeConfig); // 存入缓存
+  } else if (rawData.ActiveConfig !== undefined) {
+      globalState.activeConfigId = rawData.ActiveConfig;
+      localStorage.setItem('goclashz_activeConfigId', rawData.ActiveConfig); // 存入缓存
+  }
 
   if (rawData.activeConfigName !== undefined) globalState.activeConfigName = rawData.activeConfigName;
   else if (rawData.ActiveConfigName !== undefined) globalState.activeConfigName = rawData.ActiveConfigName;

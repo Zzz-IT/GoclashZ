@@ -850,45 +850,53 @@ func (a *App) TestAllProxies(nodeNames []string) {
 			testUrl = netCfg.TestURL
 		}
 
+		// ✅ 1. 创建任务队列
+		jobs := make(chan string, len(nodeNames))
 		var wg sync.WaitGroup
 
-		for _, name := range nodeNames {
-			runtime.EventsEmit(a.ctx, "proxy-test-start", name)
-			wg.Add(1)
-
-			go func(nName string) {
-				defer wg.Done()
-
-				// 🚀 核心修复：获取全局并发槽位。即使狂点100次，也只会同时发起16个HTTP请求，多余的温柔等待
-				select {
-				case a.testSemaphore <- struct{}{}:
-				case <-a.ctx.Done(): // 只有在彻底关闭软件时才强制阻断
-					runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-						"name": nName, "delay": 0, "status": "timeout",
-					})
-					return
-				}
-				defer func() { <-a.testSemaphore }()
-
-				// 赋予该节点独立的 5 秒专属超时
-				reqCtx, reqCancel := context.WithTimeout(a.ctx, 5*time.Second)
-				defer reqCancel()
-
-				delay, err := clash.GetProxyDelay(reqCtx, nName, testUrl)
-
-				if err != nil || delay <= 0 {
-					runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-						"name": nName, "delay": 0, "status": "timeout",
-					})
-				} else {
-					runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-						"name": nName, "delay": delay, "status": "success",
-					})
-				}
-			}(name)
+		// ✅ 2. 启动固定数量的 Worker（根据 a.testSemaphore 的容量决定，通常是 16）
+		workerCount := 16
+		if len(nodeNames) < workerCount {
+			workerCount = len(nodeNames)
 		}
 
-		wg.Wait()
+		for i := 0; i < workerCount; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				// 从通道中不断获取节点名称进行测速
+				for nName := range jobs {
+					// 赋予该节点独立的 5 秒专属超时
+					reqCtx, reqCancel := context.WithTimeout(a.ctx, 5*time.Second)
+					delay, err := clash.GetProxyDelay(reqCtx, nName, testUrl)
+					reqCancel()
+
+					if err != nil || delay <= 0 {
+						runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
+							"name": nName, "delay": 0, "status": "timeout",
+						})
+					} else {
+						runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
+							"name": nName, "delay": delay, "status": "success",
+						})
+					}
+				}
+			}()
+		}
+
+		// ✅ 3. 下发任务
+	taskLoop:
+		for _, name := range nodeNames {
+			runtime.EventsEmit(a.ctx, "proxy-test-start", name)
+			select {
+			case jobs <- name:
+			case <-a.ctx.Done(): // 如果软件退出，打断投递
+				break taskLoop
+			}
+		}
+		close(jobs) // 投递完毕，关闭通道
+
+		wg.Wait() // 等待所有 Worker 消化完任务
 		runtime.EventsEmit(a.ctx, "proxy-test-finished", "测速完成")
 	}()
 }
@@ -1770,14 +1778,31 @@ func (a *App) GetAppState() AppState {
 		theme = "dark"
 	}
 
+	// 👇 新增：提取当前的活动配置信息（参考 SyncState 中的逻辑）
+	activeId := a.getActiveConfig()
+	activeName := ""
+	activeType := ""
+	clash.IndexLock.RLock()
+	for _, item := range clash.SubIndex {
+		if item.ID == activeId {
+			activeName = item.Name
+			activeType = item.Type
+			break
+		}
+	}
+	clash.IndexLock.RUnlock()
+
 	return AppState{
-		IsRunning:   clash.IsRunning(),
-		Mode:        a.getActiveMode(),
-		Theme:       theme,
-		HideLogs:    behavior.HideLogs,
-		SystemProxy: sysProxy,
-		Tun:         tunActive,
-		Version:     a.GetCoreVersion(),
+		IsRunning:        clash.IsRunning(),
+		Mode:             a.getActiveMode(),
+		Theme:            theme,
+		HideLogs:         behavior.HideLogs,
+		SystemProxy:      sysProxy,
+		Tun:              tunActive,
+		Version:          a.GetCoreVersion(),
+		ActiveConfig:     activeId,
+		ActiveConfigName: activeName,
+		ActiveConfigType: activeType,
 	}
 }
 
@@ -2091,9 +2116,17 @@ func (a *App) UpdateCoreComponent() (string, error) {
 		if startErr := a.ensureCoreRunning(); startErr != nil {
 			// ⚠️ 灾难恢复：新内核架构不对或启动报错，立即执行最终回滚！
 			a.stopCoreService()
-			os.Remove(exePath)                  // 摧毁损坏的新内核
-			_ = safeRename(backupPath, exePath) // 复活老内核
-			a.ensureCoreRunning()               // 重新启动
+			os.Remove(exePath) // 摧毁损坏的新内核
+			
+			// ✅ 修复：处理复活老内核失败的绝境
+			rollbackErr := safeRename(backupPath, exePath) 
+			if rollbackErr != nil {
+				errMsg := fmt.Sprintf("严重故障: 新内核损坏且无法还原旧内核！请手动去 %s 目录检查文件。错误: %v", binDir, rollbackErr)
+				runtime.EventsEmit(a.ctx, "notify-error", errMsg) // 通知前端弹强红窗
+				return "", fmt.Errorf("%s", errMsg)
+			}
+			
+			a.ensureCoreRunning() // 重新启动老内核
 			a.SyncState()
 			return "", fmt.Errorf("新内核损坏或不兼容，已自动回滚至稳定版: %v", startErr)
 		}
