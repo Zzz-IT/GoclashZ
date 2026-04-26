@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -140,14 +142,12 @@ func doDownload(client *http.Client, url string, destPath string) error {
 
 // UpdateCore 安全更新内核文件（绕过正在运行的文件锁）
 func UpdateCore(url string, destPath string) error {
-	// 1. 🚀 核心修复：将正在运行的内核重命名为 .old 
-	// Windows 允许重构正在运行的可执行文件，但不允许删除或修改内容。
-	oldPath := destPath + ".old"
-	_ = os.Remove(oldPath) // 先清理掉上一次可能残留的 .old 文件
+	// 1. 🚀 核心修复：生成带有时间戳的唯一备份名，彻底避开“上次的 .old 文件仍被系统锁定”的死局
+	oldPath := fmt.Sprintf("%s.%d.old", destPath, time.Now().Unix())
 
 	// 尝试重命名。如果文件不存在（第一次安装），忽略错误
 	if err := os.Rename(destPath, oldPath); err != nil && !os.IsNotExist(err) {
-		return err // 如果重命名失败（可能权限不足），直接返回错误，保护原文件
+		return fmt.Errorf("内核文件被系统强力锁定，请手动关闭代理后重试: %v", err)
 	}
 
 	// 2. 此时原位置 destPath 已经空出来了，安全下载新内核
@@ -158,5 +158,22 @@ func UpdateCore(url string, destPath string) error {
 		return err
 	}
 
+	// 3. 🚀 核心修复：启动后台静默协程，清理以前遗留的所有 .old 垃圾文件
+	go cleanOldKernels(filepath.Dir(destPath))
+
 	return nil
+}
+
+// 异步垃圾清理函数
+func cleanOldKernels(dir string) {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".old") {
+			// 尝试删除，如果被杀软锁定就忽略，等下次软件启动再删
+			_ = os.Remove(filepath.Join(dir, f.Name()))
+		}
+	}
 }

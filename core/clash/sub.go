@@ -156,6 +156,18 @@ func RenameConfig(id, newName string) error {
 }
 
 func DeleteConfig(id string) error {
+	dir := utils.GetSubscriptionsDir()
+	yamlPath := filepath.Join(dir, id+".yaml")
+	rulesPath := filepath.Join(dir, id+"_rules.json")
+
+	// 1. 🚀 核心修复：先尝试删除物理文件（或者校验文件锁）
+	if err := os.Remove(yamlPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("无法删除配置文件，可能正被内核占用，请停止代理后重试: %v", err)
+	}
+	// 伴生规则文件一并清理
+	_ = os.Remove(rulesPath)
+
+	// 2. 物理文件删除成功后，再安全地更新内存与磁盘索引（事务提交）
 	IndexLock.Lock()
 	for i, item := range SubIndex {
 		if item.ID == id {
@@ -164,13 +176,8 @@ func DeleteConfig(id string) error {
 		}
 	}
 	IndexLock.Unlock()
-	SaveIndex()
 
-	// 删除物理文件
-	dir := utils.GetSubscriptionsDir()
-	os.Remove(filepath.Join(dir, id+".yaml"))
-	os.Remove(filepath.Join(dir, id+"_rules.json"))
-	return nil
+	return SaveIndex()
 }
 
 // ReloadConfig 调用内核 API 热重载

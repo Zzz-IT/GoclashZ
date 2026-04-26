@@ -83,26 +83,31 @@ func downloadAndExtractWintun(finalDllPath string) error {
 		return fmt.Errorf("数据流接收异常中断: %v", err)
 	}
 
-	// 2. 解压并提取 (修复解除文件锁定逻辑)
-	r, err := zip.OpenReader(zipPath)
+	// 2. 解压并提取 (🚀 核心修复：使用 defer 保证资源释放与清理)
+	var r *zip.ReadCloser
+
+	defer func() {
+		if r != nil {
+			r.Close() // 释放系统级文件锁
+		}
+		os.Remove(zipPath) // 安全删除临时压缩包
+	}()
+
+	r, err = zip.OpenReader(zipPath)
 	if err != nil {
-		os.Remove(zipPath)
 		return fmt.Errorf("解压失败: %v", err)
 	}
-	// ⚠️ 取消 defer r.Close() 防止 os.Remove 失败
 
 	found := false
 	for _, f := range r.File {
 		if strings.HasSuffix(strings.ToLower(f.Name), "amd64/wintun.dll") {
 			rc, err := f.Open()
 			if err != nil {
-				r.Close()
 				return err
 			}
 			outFile, err := os.Create(finalDllPath)
 			if err != nil {
 				rc.Close()
-				r.Close()
 				return err
 			}
 			// 再次使用缓冲提升解压释放速度
@@ -111,17 +116,12 @@ func downloadAndExtractWintun(finalDllPath string) error {
 			rc.Close()
 			
 			if err != nil {
-				r.Close()
 				return err
 			}
 			found = true
 			break
 		}
 	}
-	
-	// 3. 安全清理临时压缩包 (必须先释放 Reader)
-	r.Close()
-	os.Remove(zipPath)
 
 	if !found {
 		return fmt.Errorf("在压缩包中未找到适配 64 位系统的驱动文件")

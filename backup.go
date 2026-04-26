@@ -55,8 +55,8 @@ func (a *App) ExportBackup() (string, error) {
 	defer clash.IndexLock.RUnlock()
 
 	dataDir := utils.GetDataDir()
-	// 指定需要备份的相对目标
-	targets := []string{"settings", "subscriptions", "theme_setting.txt"}
+	// 🚀 核心修复：加入 profiles 目录，确保 index.json 能够被打包！
+	targets := []string{"settings", "subscriptions", "profiles", "theme_setting.txt"}
 
 	for _, target := range targets {
 		fullPath := filepath.Join(dataDir, target)
@@ -76,8 +76,14 @@ func (a *App) ExportBackup() (string, error) {
 				if err != nil {
 					return err
 				}
-				content, _ := os.ReadFile(path)
-				w.Write(content)
+				content, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				// 🚀 核心修复：增加写入字节数与错误校验，杜绝静默损坏
+				if _, err := w.Write(content); err != nil {
+					return fmt.Errorf("写入压缩包失败: %v", err)
+				}
 				return nil
 			})
 		} else {
@@ -86,8 +92,12 @@ func (a *App) ExportBackup() (string, error) {
 			if err != nil {
 				return "", err
 			}
-			content, _ := os.ReadFile(fullPath)
-			w.Write(content)
+			content, err := os.ReadFile(fullPath)
+			if err == nil {
+				if _, err := w.Write(content); err != nil {
+					return "", fmt.Errorf("写入文件 %s 失败: %v", target, err)
+				}
+			}
 		}
 	}
 
@@ -138,19 +148,23 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 		}
 		isSettingFile := strings.HasPrefix(f.Name, "settings/")
 		isSubFile := strings.HasPrefix(f.Name, "subscriptions/")
+		isProfileFile := strings.HasPrefix(f.Name, "profiles/")
 		isThemeFile := f.Name == "theme_setting.txt"
 
-		if mode == "subs" && !isSubFile && f.Name != "settings/user_index.json" {
+		// 订阅模式：仅恢复 subscriptions 文件夹和 profiles 文件夹（含 index.json）
+		if mode == "subs" && !isSubFile && !isProfileFile {
 			continue
 		}
+		// 设置模式：仅恢复 settings 文件夹和主题文件
 		if mode == "settings" && !isSettingFile && !isThemeFile {
 			continue
 		}
-		if mode == "settings" && f.Name == "settings/user_index.json" {
+		// 设置模式下不处理索引合并（索引合并属于 subs 或 all 范畴）
+		if mode == "settings" && isProfileFile {
 			continue
 		}
 
-		if f.Name == "settings/user_index.json" && (mode == "all" || mode == "subs") {
+		if f.Name == "profiles/index.json" && (mode == "all" || mode == "subs") {
 			rc, err := f.Open()
 			if err == nil {
 				_ = json.NewDecoder(rc).Decode(&backupIndex)
@@ -213,7 +227,16 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 	}
 
 	// 热重载内存与系统状态
-	a.initBehaviorCache() 
+	a.initBehaviorCache()
+
+	// 🚀 核心修复：重新读取并刷新主题内存缓存，避免 UI 状态滞后
+	themeData, err := os.ReadFile(filepath.Join(dataDir, "theme_setting.txt"))
+	if err == nil && len(themeData) > 0 {
+		a.mu.Lock()
+		a.themeCache = strings.TrimSpace(string(themeData))
+		a.mu.Unlock()
+	}
+
 	active := a.getActiveConfig()
 	if active != "" {
 		clash.BuildRuntimeConfig(active, a.getActiveMode(), a.GetAppBehavior().LogLevel)

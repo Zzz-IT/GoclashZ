@@ -260,22 +260,28 @@ func FlushFakeIP() error {
 	// 1. 读取当前的 DNS 配置，判断是否是 Fake-IP 模式
 	dnsCfg, err := GetDNSConfig()
 	if err != nil || dnsCfg == nil {
-		return nil // 读不到配置，安全起见直接跳过
+		// 🚀 核心修复：不再隐瞒，直接抛出，让前端弹窗提示内核异常
+		return fmt.Errorf("通信失败：无法获取当前 DNS 状态，请检查内核是否运行") 
 	}
 
 	// 2. 如果根本不是 Fake-IP 模式，直接返回，不打扰内核
 	if dnsCfg.EnhancedMode != "fake-ip" {
-		return nil
+		// 🚀 核心修复：告知前端当前环境不需要清理
+		return fmt.Errorf("当前为 %s 模式，仅 Fake-IP 模式支持刷新缓存", dnsCfg.EnhancedMode)
 	}
 
 	// 3. 只有确认是 Fake-IP 模式，才真正向内核发送清理请求
 	req, _ := http.NewRequest("POST", "http://127.0.0.1:9090/cache/fakeip/flush", nil)
 	resp, err := localAPIClient.Do(req)
 	if err != nil {
-		return err // 只有真正网络不通（比如内核挂了）才返回错误
+		return fmt.Errorf("清理指令未送达内核: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// 即使内核因为某种原因返回了错误，我们也当作成功处理，不向前端抛出异常
+	// 检查内核是否真的处理成功了
+	if resp.StatusCode != 200 && resp.StatusCode != 204 {
+		return fmt.Errorf("内核拒绝了清理请求，状态码: %d", resp.StatusCode)
+	}
+
 	return nil
 }

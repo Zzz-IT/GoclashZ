@@ -55,7 +55,7 @@
             <div class="setting-item clickable" @click="view = 'update'">
               <div class="info">
                 <h4>组件与库更新</h4>
-                <p>检查并更新 Mihomo 内核二进制文件及 Wintun 驱动组件。</p>
+                <p>管理并同步 Mihomo 内核、Wintun 驱动以及 GeoIP/GeoSite 规则数据库。</p>
               </div>
               <span class="arrow">➔</span>
             </div>
@@ -63,7 +63,7 @@
             <div class="setting-item clickable" @click="view = 'about'">
               <div class="info">
                 <h4>关于应用</h4>
-                <p>查看版本信息与自动更新选项。</p>
+                <p>查看软件版本、进行配置备份还原以及访问 GitHub 开源仓库。</p>
               </div>
               <span class="arrow">➔</span>
             </div>
