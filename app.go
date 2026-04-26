@@ -171,14 +171,14 @@ func (a *App) IsNodeOffline(groupName string) (bool, string) {
 func (a *App) initBehaviorCache() {
 	defaultConfig := AppBehavior{
 		SilentStart:        false,
-		CloseToTray:        false,
+		CloseToTray:        true,
 		ColorDelay:         false,
-		DelayRetention:     false,
+		DelayRetention:     true,
 		DelayRetentionTime: "long",
 		LogLevel:           "error",
-		HideLogs:           true,
+		HideLogs:           false,
 		SubUA:              "clash-verge",
-		ActiveConfig:       "1776940878659",
+		ActiveConfig:       "",
 		ActiveMode:         "rule",
 		GeoIpLink:          "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
 		GeoSiteLink:        "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
@@ -186,9 +186,10 @@ func (a *App) initBehaviorCache() {
 		AsnLink:            "https://ghproxy.net/https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
 		
 		// 👇 新增：默认开启自动更新，方式为每次启动
-		AutoUpdate:     true,
-		UpdateMethod:   "startup",
-		UpdateInterval: 3, 
+		AutoUpdate:      true,
+		UpdateMethod:    "startup",
+		UpdateInterval:  1,
+		LastUpdateCheck: 1777227846,
 	}
 
 	// 自动处理读取、合并和生成默认文件

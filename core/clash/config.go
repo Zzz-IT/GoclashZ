@@ -58,6 +58,8 @@ type ProxyGroupSchema struct {
 
 // GetOfflineData 核心方法：模拟内核 API 返回的格式，从本地文件中提取数据
 func GetOfflineData(id string) (map[string]interface{}, error) {
+	configMu.Lock()
+	defer configMu.Unlock()
 	// 如果传入了空或者 config.yaml，直接指向主配置
 	if id == "" || id == "config.yaml" {
 		id = "config.yaml"
@@ -197,9 +199,9 @@ type TunConfig struct {
 // ================= TUN 设置 =================
 func GetTunConfig() (*TunConfig, error) {
 	defaultTun := TunConfig{
-		Enable:              false,
-		Stack:               "mixed",
-		Device:              "",
+		Enable:              true,
+		Stack:               "gvisor",
+		Device:              "GOCLASHZ",
 		AutoRoute:           true,
 		AutoDetectInterface: true,
 		DNSHijack:           []string{"any:53"},
@@ -249,7 +251,7 @@ func GetDNSConfig() (*DNSConfig, error) {
 	defaultDNS := DNSConfig{
 		Enable:                true,
 		Listen:                "0.0.0.0:1053",
-		IPv6:                  true,
+		IPv6:                  false,
 		PreferH3:              false,
 		EnhancedMode:          "fake-ip",
 		RespectRules:          false,
@@ -261,7 +263,7 @@ func GetDNSConfig() (*DNSConfig, error) {
 		Nameserver:            []string{"https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"},
 		Fallback:              []string{"https://doh.dns.sb/dns-query", "https://dns.cloudflare.com/dns-query"},
 		DirectNameserver:      []string{"https://dns.alidns.com/dns-query", "https://doh.pub/dns-query"},
-		ProxyServerNameserver: []string{"223.5.5.5", "114.114.114.114"},
+		ProxyServerNameserver: []string{"223.5.5.5"},
 		NameserverPolicy:      map[string]string{"geosite:cn": "https://doh.pub/dns-query"},
 		FallbackFilter: FallbackFilterConfig{
 			GeoIP:     true,
@@ -287,7 +289,7 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 		TCPConcurrent:        true,
 		TCPKeepAlive:         true,
 		TCPKeepAliveInterval: 30,
-		TestURL:              "http://www.gstatic.com/generate_204",
+		TestURL:              "http://www.g.cn/generate_204",
 		Hosts:                "",
 	}
 	return utils.LoadSetting("network", defaultNet)
