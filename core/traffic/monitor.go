@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -37,9 +38,16 @@ type ConnectionVO struct {
 	DurationStr string `json:"durationStr"`
 }
 
-// 🚀 核心修复：创建独立的全局流量长连接客户端
+// 🚀 核心修复：创建独立的全局流量长连接客户端，并增加 TCP 探活
 var trafficStreamClient = &http.Client{
-	Transport: &http.Transport{Proxy: nil}, 
+	Transport: &http.Transport{
+		Proxy: nil,
+		// 👇 核心修复：为流量监听器加上底层心跳检测
+		DialContext: (&net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 15 * time.Second,
+		}).DialContext,
+	},
 }
 
 // StreamTraffic 建立一个长连接并持续监听内核推送的流量数据

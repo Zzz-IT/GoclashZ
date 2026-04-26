@@ -5,14 +5,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
 )
 
-// 🚀 1. 定义全局共享的无代理 Transport，完美复用 TCP 底层连接
+// 🚀 1. 定义全局共享的无代理 Transport，加入 TCP 探活机制
 var noProxyTransport = &http.Transport{
-	Proxy:               nil,
+	Proxy: nil,
+	// 👇 核心修复：强制 TCP 层面每 15 秒探活一次，防止假死连接让解码器永久阻塞
+	DialContext: (&net.Dialer{
+		Timeout:   5 * time.Second,
+		KeepAlive: 15 * time.Second,
+	}).DialContext,
 	MaxIdleConns:        100,              // 最大空闲连接数
 	IdleConnTimeout:     90 * time.Second, // 空闲超时时间
 	TLSHandshakeTimeout: 10 * time.Second,
@@ -40,30 +46,36 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 	}
 
 	for {
+		// 快速响应外部的 Cancel 信号
 		select {
 		case <-ctx.Done():
-			return // 瞬间响应外部的 Cancel 信号
+			return
 		default:
 		}
 
 		apiURL := fmt.Sprintf("http://127.0.0.1:9090/logs?level=%s", level)
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err != nil {
-			// 🚀 优化：用 select 替代粗暴的 time.Sleep，使休眠可被瞬间打断
+			// 👇 核心修复 1：使用显式的 Timer 替代 time.After
+			timer := time.NewTimer(2 * time.Second)
 			select {
 			case <-ctx.Done():
+				timer.Stop() // 👈 手动释放内存
 				return
-			case <-time.After(2 * time.Second):
+			case <-timer.C:
 			}
 			continue
 		}
 
 		resp, err := streamClient.Do(req)
 		if err != nil {
+			// 👇 核心修复 2：使用显式的 Timer 替代 time.After
+			timer := time.NewTimer(2 * time.Second)
 			select {
 			case <-ctx.Done():
+				timer.Stop() // 👈 手动释放内存
 				return
-			case <-time.After(2 * time.Second):
+			case <-timer.C:
 			}
 			continue
 		}
@@ -72,6 +84,7 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 		for {
 			var logData map[string]interface{}
 			if err := decoder.Decode(&logData); err != nil {
+				// 发生断流或解码错误，关闭 Body 跳出内层循环进行重连
 				resp.Body.Close()
 				break
 			}

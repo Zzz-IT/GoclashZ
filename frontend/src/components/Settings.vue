@@ -612,6 +612,15 @@
           </div>
 
           <div class="glass-card setting-group scrollable">
+            <!-- 软件图标与名称展示行 -->
+            <div class="setting-item" style="padding: 20px 0;">
+              <div class="info" style="display: flex; align-items: center; gap: 18px;">
+                <img :src="appLogo" style="width: 52px; height: 52px; border-radius: 12px;" />
+                <h4 style="margin: 0; font-weight: 800; font-size: 1.6rem; letter-spacing: -0.01em;">GoclashZ</h4>
+              </div>
+            </div>
+
+            <div class="divider"></div>
             <div class="setting-item">
               <div class="info">
                 <h4>软件版本</h4>
@@ -689,6 +698,15 @@
                 <p>从 .gocz 文件恢复数据，订阅配置将采用智能合并模式</p>
               </div>
               <button class="action-btn accent-btn" @click="openRestoreModal">还原备份</button>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>GitHub 仓库</h4>
+                <a href="javascript:void(0)" @click="openLink('https://github.com/Zzz-IT/GoclashZ')" class="link-item">https://github.com/Zzz-IT/GoclashZ</a>
+              </div>
             </div>
           </div>
         </div>
@@ -830,10 +848,16 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'; // 👈 新增：浏览器打开
 import { showAlert, globalState } from '../store';
 import { ICONS } from '../utils/icons';
+import appLogo from '../assets/logo.ico'; // 👈 切换为 .ico 图标
 import ModernSelect from './ModernSelect.vue';
 import ModernNumberInput from './ModernNumberInput.vue';
+
+const openLink = (url: string) => {
+  BrowserOpenURL(url);
+};
 
 const showResetConfirm = ref(false);
 const resetModule = ref('');
@@ -1756,4 +1780,17 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   max-height: 0;
   transform: translateY(-8px);
 }
-</style>
+
+/* 关于页面的超链接样式 */
+.link-item {
+  color: var(--accent);
+  font-size: 0.85rem;
+  text-decoration: none;
+  transition: opacity 0.2s;
+  cursor: pointer;
+}
+.link-item:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+</style>
