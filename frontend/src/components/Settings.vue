@@ -1245,7 +1245,13 @@ const installDriver = async (force: boolean = false) => {
 watch(() => behavior.value.updateInterval, async (newVal) => {
   if (newVal !== undefined && newVal <= 0) {
     behavior.value.updateInterval = 1;
-    await showAlert("检查更新间隔不能小于 1 天。", "配置提示");
+    
+    // 👇 修复：只有在用户实际启用了定时更新的情况下，才弹出警告。
+    // 如果是旧版本配置缺失导致的 0，则静默修复并保存，不打扰用户。
+    if (behavior.value.autoUpdate && behavior.value.updateMethod === 'scheduled') {
+      await showAlert("检查更新间隔不能小于 1 天。", "配置提示");
+    }
+    
     saveBehavior();
   }
 });
