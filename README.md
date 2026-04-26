@@ -1,6 +1,5 @@
-# GoclashZ
+# <img src="docs/assets/logo.png" width="45" alt="GoclashZ Logo" style="vertical-align: middle; margin-right: 10px;"> GoclashZ
 
-![GoclashZ Logo](docs/assets/logo.png)
 
 基于 Wails 构建的高性能、工业级实色美学 Mihomo (Clash Meta) 桌面控制端
 
