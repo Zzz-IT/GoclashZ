@@ -331,8 +331,14 @@ func (a *App) refreshAutoDelayTest() {
 			}
 		}
 
-		// 🚀 核心修复 3：开启自动测速时，立即执行一次，然后再进入 Ticker 循环
-		runTest()
+		// 🚀 核心修复：不要立即执行！让子弹飞一会儿。
+		// 给前端组件挂载、系统代理启动预留 5 秒的黄金时间窗口
+		select {
+		case <-time.After(5 * time.Second):
+			runTest()
+		case <-quit:
+			return // 如果在这 5 秒内用户又关掉了开关，直接安全退出
+		}
 
 		// 使用用户设定的分钟数作为间隔
 		ticker := time.NewTicker(time.Duration(min) * time.Minute)
@@ -836,13 +842,11 @@ func (a *App) startDaemonTasks() {
 		}
 	}()
 
-	// 设定定时器：比如每 12 小时更新订阅，每 30 分钟测速
+	// 设定定时器：比如每 12 小时更新订阅
 	subTicker := time.NewTicker(12 * time.Hour)
-	speedTicker := time.NewTicker(30 * time.Minute)
 
 	defer func() {
 		subTicker.Stop()
-		speedTicker.Stop()
 	}()
 
 	for {
@@ -860,9 +864,6 @@ func (a *App) startDaemonTasks() {
 					runtime.EventsEmit(a.ctx, "subs-background-updated")
 				}
 			}(updateCtx)
-
-		case <-speedTicker.C:
-			// 预留后台测速占位
 
 		case <-a.ctx.Done(): // 收到软件完全退出信号
 			return // 立刻退出守护协程，绝不拖泥带水

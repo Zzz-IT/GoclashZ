@@ -78,7 +78,15 @@ const isTesting = ref(false);
 
 // 👇 新增：引用用户设置与计时器控制
 const isColorMode = ref(false);
-const delayRetention = ref(false);
+const delayRetention = ref(true);
+// 存储全局倒计时 ID，不放在 reactive 中防止不必要的响应式开销
+const delayTimers: Record<string, number> = {};
+
+// 🎯 修复：声明各个监听器的精准取消函数，防止 EventsOff 误杀全局 Store 监听
+let unsubStart: () => void;
+let unsubUpdate: () => void;
+let unsubChanged: () => void;
+let unsubFinish: () => void;
 const delayRetentionTime = ref('long');
 
 // 计算当前要显示的组的数据
@@ -218,8 +226,8 @@ const getDelayColorClass = (delay: number | null) => {
 };
 
 onMounted(async () => {
-  // 接收到“开始”信号，节点开始转圈
-  EventsOn("proxy-test-start", (nodeName: string) => {
+  // 🎯 接收并保存取消函数
+  unsubStart = EventsOn("proxy-test-start", (nodeName: string) => {
     if (!localGroups.value) return;
     localGroups.value.forEach(g => {
       if (!g.proxies) return;
@@ -231,10 +239,8 @@ onMounted(async () => {
   });
 
   // 接收到“结果”信号，仅负责关掉 UI 上的转圈动画
-  EventsOn("proxy-delay-update", (data: any) => {
-    if (!data) return;
-    
-    if (!localGroups.value) return;
+  unsubUpdate = EventsOn("proxy-delay-update", (data: any) => {
+    if (!data || !localGroups.value) return;
     localGroups.value.forEach(g => {
       if (!g.proxies) return;
       const node = g.proxies.find((n: any) => n.name === data.name);
@@ -244,12 +250,12 @@ onMounted(async () => {
     });
   });
 
-  EventsOn("config-changed", async () => {
+  unsubChanged = EventsOn("config-changed", async () => {
       currentGroup.value = '';
       await loadData();
   });
 
-  EventsOn("proxy-test-finished", () => {
+  unsubFinish = EventsOn("proxy-test-finished", () => {
     isTesting.value = false;
   });
 
@@ -257,10 +263,11 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  EventsOff("proxy-test-start");
-  EventsOff("proxy-delay-update");
-  EventsOff("config-changed");
-  EventsOff("proxy-test-finished");
+  // 🎯 组件销毁时，精准反注册当前组件的监听，绝不误伤 store.ts 的全局监听
+  if (unsubStart) unsubStart();
+  if (unsubUpdate) unsubUpdate();
+  if (unsubChanged) unsubChanged();
+  if (unsubFinish) unsubFinish();
 });
 </script>
 
@@ -358,13 +365,12 @@ onUnmounted(() => {
   color: var(--accent-fg); 
 }
 
-.node-item.active .t-fast,
-.node-item.active .t-mid,
-.node-item.active .t-slow,
-.node-item.active .t-fail,
-.node-item.active .t-unknown { 
-  color: var(--accent-fg); 
-}
+/* 🎯 修复：保持字重一致，仅通过不透明度拉开深浅，避免黑色模式下字体显得过细 */
+.node-item.active .t-fast { color: var(--accent-fg) !important; opacity: 1; font-weight: 700; }
+.node-item.active .t-mid { color: var(--accent-fg) !important; opacity: 0.6; font-weight: 700; }
+.node-item.active .t-slow { color: var(--accent-fg) !important; opacity: 0.3; font-weight: 700; }
+.node-item.active .t-fail { color: var(--accent-fg) !important; opacity: 1; font-weight: 700; }
+.node-item.active .t-unknown { color: var(--accent-fg) !important; opacity: 0.3; font-weight: 700; }
 
 /* 确保选中节点（active）的图标完全不透明且使用反色（白色） */
 .node-item.active .ping-idle {
@@ -506,13 +512,6 @@ onUnmounted(() => {
 .c-fail { color: #ef4444 !important; font-weight: 800; } /* 红，加粗 */
 .c-unknown { color: var(--text-muted); }
 
-/* 只有非彩色模式下，选中的节点才反白 */
-.node-item.active .t-fast,
-.node-item.active .t-mid,
-.node-item.active .t-slow,
-.node-item.active .t-fail { 
-  color: var(--accent-fg) !important; 
-}
 
 @keyframes rotate {
   100% { transform: rotate(360deg); }
