@@ -89,6 +89,7 @@ type App struct {
 type AppBehavior struct {
 	SilentStart bool   `json:"silentStart"` // 静默启动 (不弹窗，直接进托盘)
 	CloseToTray bool   `json:"closeToTray"` // 点击关闭时隐藏到托盘
+	ColorDelay  bool   `json:"colorDelay"`  // 显色彩色延迟数字
 	LogLevel    string `json:"logLevel"`    // 日志等级
 	HideLogs    bool   `json:"hideLogs"`
 	SubUA       string `json:"subUA"` // 订阅更新 User-Agent
@@ -169,6 +170,7 @@ func (a *App) initBehaviorCache() {
 	defaultConfig := AppBehavior{
 		SilentStart:  false,
 		CloseToTray:  false,
+		ColorDelay:   false,
 		LogLevel:     "error",
 		HideLogs:     true,
 		SubUA:        "clash-verge",

@@ -45,14 +45,14 @@
                 </svg>
               </div>
               
-              <div v-else-if="node.delay === null" class="ping-idle">
+              <div v-else-if="globalState.proxyDelays[node.name]?.delay === undefined || globalState.proxyDelays[node.name]?.delay === null" class="ping-idle">
                 <svg class="idle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
               </div>
               
-              <span v-else :class="['n-delay font-mono', getDelayColorClass(node.delay)]">
-                {{ formatDelay(node.delay) }}
+              <span v-else :class="['n-delay font-mono', getDelayColorClass(globalState.proxyDelays[node.name]?.delay ?? null)]">
+                {{ formatDelay(globalState.proxyDelays[node.name]?.delay ?? null) }}
               </span>
             </div>
           </div>
@@ -76,6 +76,12 @@ const localGroups = ref<any[]>([]);
 const currentGroup = ref<string>('');
 const isTesting = ref(false);
 
+// 👇 新增：引用用户设置与计时器控制
+const isColorMode = ref(false);
+const delayRetention = ref(false);
+const delayRetentionTime = ref('long');
+const cleanupTimers = ref<Record<string, number>>({});
+
 // 计算当前要显示的组的数据
 const activeGroupData = computed(() => {
   return localGroups.value.find(g => g.name === currentGroup.value);
@@ -83,6 +89,19 @@ const activeGroupData = computed(() => {
 
 // 加载数据
 const loadData = async () => {
+  // 👇 新增：预加载配置以决定样式和保留逻辑
+  try {
+    const netConf = await (API.GetNetworkConfig as any)();
+    if (netConf) {
+      delayRetention.value = netConf.delayRetention === true;
+      delayRetentionTime.value = netConf.delayRetentionTime || 'long';
+    }
+    const bh = await (API.GetAppBehavior as any)();
+    if (bh) {
+      isColorMode.value = bh.colorDelay === true;
+    }
+  } catch (e) {}
+
   try {
     const data: any = await API.GetInitialData();
     if (data && data.groups) {
@@ -109,7 +128,7 @@ const loadData = async () => {
               // 如果找到了真实详情，就取它的 type (如 vless, hysteria2)，否则回退到 PROXY
               type: detail && detail.type ? detail.type.toUpperCase() : 'PROXY',
               now: item.now,
-              delay: null,
+              // 移除 delay: null, 交由 globalState.proxyDelays 全局接管
               testing: false
             };
           });
@@ -155,7 +174,7 @@ const testAllDelays = () => {
 
   isTesting.value = true;
   const nodesArray = activeGroupData.value.proxies.map((n: any) => {
-      n.delay = null;
+      // n.delay = null; // 移除
       n.testing = true;
       return n.name;
   });
@@ -174,7 +193,7 @@ const testSingleDelay = async (node: any) => {
   // 🚀 核心修复：乐观 UI 更新 (Optimistic UI)
   // 在点击瞬间立刻让图标转起圈来，消除等待 Go 后端事件回传的视觉顿挫
   node.testing = true;
-  node.delay = null;
+  // node.delay = null; // 移除
 
   try {
     // 触发 Go 后端，后续真实结果依旧由事件驱动 (proxy-delay-update)
@@ -192,37 +211,59 @@ const formatDelay = (delay: number | null) => {
   return `${delay}ms`;
 };
 
+// 👇 改写颜色计算逻辑
 const getDelayColorClass = (delay: number | null) => {
-  if (delay === null) return 't-unknown';
-  if (delay <= 0) return 't-fail'; 
-  if (delay < 250) return 't-fast';
-  if (delay < 600) return 't-mid';
-  return 't-slow';
+  if (delay === null) return isColorMode.value ? 'c-unknown' : 't-unknown';
+  if (delay <= 0) return isColorMode.value ? 'c-fail' : 't-fail'; 
+  
+  if (delay <= 300) return isColorMode.value ? 'c-fast' : 't-fast';
+  if (delay <= 600) return isColorMode.value ? 'c-mid' : 't-mid';
+  return isColorMode.value ? 'c-slow' : 't-slow';
 };
 
 onMounted(async () => {
   // 接收到“开始”信号，节点开始转圈
   EventsOn("proxy-test-start", (nodeName: string) => {
+    // 测速开始时，立即中断该节点可能存在的清空计时器
+    if (cleanupTimers.value[nodeName]) {
+      clearTimeout(cleanupTimers.value[nodeName]);
+      delete cleanupTimers.value[nodeName];
+    }
+
     if (!localGroups.value) return;
     localGroups.value.forEach(g => {
       if (!g.proxies) return;
       const node = g.proxies.find((n: any) => n.name === nodeName);
       if (node) {
         node.testing = true;
-        node.delay = null;
+        // node.delay = null;
       }
     });
   });
 
   // 接收到“结果”信号，节点停转并显示真实数字
   EventsOn("proxy-delay-update", (data: any) => {
-    if (!localGroups.value || !data) return;
+    if (!data) return;
+    // 👇 存入全局 Store 实现长时间留存
+    globalState.proxyDelays[data.name] = { delay: data.delay };
+
+    // 👇 启动定时清空机制
+    if (delayRetention.value && delayRetentionTime.value !== 'long') {
+      const ms = parseInt(delayRetentionTime.value) * 1000;
+      cleanupTimers.value[data.name] = window.setTimeout(() => {
+        if (globalState.proxyDelays[data.name]) {
+          globalState.proxyDelays[data.name].delay = null;
+        }
+      }, ms);
+    }
+
+    if (!localGroups.value) return;
     localGroups.value.forEach(g => {
       if (!g.proxies) return;
       const node = g.proxies.find((n: any) => n.name === data.name);
       if (node) {
         node.testing = false;
-        node.delay = data.delay; // 如果 data.status 是 timeout，这里就是 0
+        // node.delay = data.delay; // 如果 data.status 是 timeout，这里就是 0
       }
     });
   });
@@ -240,6 +281,13 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  // 👇 离开页面时的清理：如果没开保留，销毁界面就清空；开了就不动它
+  if (!delayRetention.value) {
+    globalState.proxyDelays = {};
+  }
+  // 必须清理倒计时，防止内存溢出
+  Object.values(cleanupTimers.value).forEach(timer => clearTimeout(timer));
+
   EventsOff("proxy-test-start");
   EventsOff("proxy-delay-update");
   EventsOff("config-changed");
@@ -464,6 +512,9 @@ onUnmounted(() => {
 }
 .idle-icon { width: 14px; height: 14px; }
 
+/* ================================ */
+/* 延迟颜色逻辑: 默认深浅 vs 绿黄红      */
+/* ================================ */
 .n-delay {
   display: flex;
   align-items: center;
@@ -472,10 +523,31 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.t-fast { color: var(--text-main); }
-.t-mid { color: var(--text-sub); }
-.t-slow, .t-fail { color: var(--text-muted); }
+/* 默认：三级深浅逻辑 */
+.t-fast { color: var(--text-main); font-weight: 700; }   /* 0-300ms 最深 */
+.t-mid { color: var(--text-sub); }                      /* 300-600ms 中等 */
+.t-slow { color: var(--text-muted); opacity: 0.7; }     /* >600ms 最浅 */
+.t-fail { color: var(--text-main); font-weight: 700; }  /* 超时 最深 */
 .t-unknown { color: var(--text-muted); }
+
+/* 应用行为设置：开启彩色显示逻辑 */
+.c-fast { color: #10b981; font-weight: 700; } /* 绿 */
+.c-mid { color: #f59e0b; font-weight: 700; }  /* 黄 */
+.c-slow { color: #ef4444; font-weight: 700; } /* 红 */
+.c-fail { color: #ef4444; font-weight: 800; } /* 红，加粗 */
+.c-unknown { color: var(--text-muted); }
+
+/* 修复激活状态反色 */
+.node-item.active .t-fast,
+.node-item.active .t-mid,
+.node-item.active .t-slow,
+.node-item.active .t-fail,
+.node-item.active .c-fast,
+.node-item.active .c-mid,
+.node-item.active .c-slow,
+.node-item.active .c-fail { 
+  color: var(--accent-fg) !important; 
+}
 
 @keyframes rotate {
   100% { transform: rotate(360deg); }

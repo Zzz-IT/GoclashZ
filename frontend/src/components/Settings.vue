@@ -450,6 +450,35 @@
 
             <div class="setting-item">
               <div class="info">
+                <h4>延迟结果保留</h4>
+                <p>开启后将缓存测速结果，可选择定时清空或长时间保留。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="netConfig.delayRetention" @change="saveNet">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-item sub-item" :class="{ 'disabled-fade': !netConfig.delayRetention }">
+              <div class="info">
+                <h4 class="sub-label">保留时间</h4>
+              </div>
+              <ModernSelect 
+                v-model="netConfig.delayRetentionTime" 
+                :options="[
+                  { label: '5 秒', value: '5' },
+                  { label: '10 秒', value: '10' },
+                  { label: '30 秒', value: '30' },
+                  { label: '长时间', value: 'long' }
+                ]" 
+                @change="saveNet" 
+                :disabled="!netConfig.delayRetention" 
+              />
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
                 <h4>TCP 并发连接</h4>
                 <p>同时向所有解析出的 IP 发起连接，取最快响应者。大幅提升首屏加载速度。</p>
               </div>
@@ -555,6 +584,18 @@
               </div>
               <label class="modern-switch">
                 <input type="checkbox" v-model="behavior.closeToTray" @change="saveBehavior">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>显色彩色延迟数字</h4>
+                <p>启用后，节点延迟将以绿黄红三色显示，替代默认的黑白深浅风格。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="behavior.colorDelay" @change="saveBehavior">
                 <span class="slider"></span>
               </label>
             </div>
@@ -1096,6 +1137,9 @@ const dnsConfig = ref<any>({
 const netConfig = ref({
   ipv6: false,
   unifiedDelay: true,
+  // 👇 新增：延迟保留设置
+  delayRetention: false,
+  delayRetentionTime: 'long', 
   tcpConcurrent: true,
   tcpKeepAlive: true,
   tcpKeepAliveInterval: 15,
@@ -1106,6 +1150,8 @@ const netConfig = ref({
 const behavior = ref<any>({
   silentStart: false,
   closeToTray: true,
+  // 👇 新增：显色彩色延迟数字
+  colorDelay: false,
   logLevel: 'info',
   hideLogs: false,
   subUA: '',

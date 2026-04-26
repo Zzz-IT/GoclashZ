@@ -25,6 +25,9 @@ export const globalState = reactive({
   activeConfigName: '',
   activeConfigType: '',
 
+  // 👇 新增：全局延迟缓存池，用于实现跨页面长效保存
+  proxyDelays: {} as Record<string, { delay: number | null }>,
+
   // 全局模态框状态
   modal: {
     show: false,
@@ -127,5 +130,10 @@ export async function initStore() {
   // 2. 保持事件监听，响应来自 Go (托盘或后台) 的实时更新
   EventsOn("app-state-sync", (newState: any) => {
     updateStateFromBackend(newState); 
+  });
+
+  // 👇 新增：监听内核重启/配置切换，强行清空所有延迟历史数据
+  EventsOn("config-changed", () => {
+    globalState.proxyDelays = {};
   });
 }

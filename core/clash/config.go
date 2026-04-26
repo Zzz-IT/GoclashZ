@@ -34,6 +34,8 @@ type NetworkConfig struct {
 	MixedPort            int    `yaml:"mixed-port" json:"mixedPort"`
 	IPv6                 bool   `yaml:"ipv6" json:"ipv6"`
 	UnifiedDelay         bool   `yaml:"unified-delay" json:"unifiedDelay"`
+	DelayRetention       bool   `yaml:"delay-retention" json:"delayRetention"`
+	DelayRetentionTime   string `yaml:"delay-retention-time" json:"delayRetentionTime"`
 	TCPConcurrent        bool   `yaml:"tcp-concurrent" json:"tcpConcurrent"`
 	TCPKeepAlive         bool   `yaml:"tcp-keep-alive" json:"tcpKeepAlive"`
 	TCPKeepAliveInterval int    `yaml:"tcp-keep-alive-interval" json:"tcpKeepAliveInterval"`
@@ -284,6 +286,8 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 		MixedPort:            7890,
 		IPv6:                 false,
 		UnifiedDelay:         true,
+		DelayRetention:       false,
+		DelayRetentionTime:   "long",
 		TCPConcurrent:        true,
 		TCPKeepAlive:         true,
 		TCPKeepAliveInterval: 30,

@@ -86,6 +86,8 @@ export namespace clash {
 	    mixedPort: number;
 	    ipv6: boolean;
 	    unifiedDelay: boolean;
+	    delayRetention: boolean;
+	    delayRetentionTime: string;
 	    tcpConcurrent: boolean;
 	    tcpKeepAlive: boolean;
 	    tcpKeepAliveInterval: number;
@@ -102,6 +104,8 @@ export namespace clash {
 	        this.mixedPort = source["mixedPort"];
 	        this.ipv6 = source["ipv6"];
 	        this.unifiedDelay = source["unifiedDelay"];
+	        this.delayRetention = source["delayRetention"];
+	        this.delayRetentionTime = source["delayRetentionTime"];
 	        this.tcpConcurrent = source["tcpConcurrent"];
 	        this.tcpKeepAlive = source["tcpKeepAlive"];
 	        this.tcpKeepAliveInterval = source["tcpKeepAliveInterval"];
@@ -192,6 +196,7 @@ export namespace main {
 	export class AppBehavior {
 	    silentStart: boolean;
 	    closeToTray: boolean;
+	    colorDelay: boolean;
 	    logLevel: string;
 	    hideLogs: boolean;
 	    subUA: string;
@@ -214,6 +219,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.silentStart = source["silentStart"];
 	        this.closeToTray = source["closeToTray"];
+	        this.colorDelay = source["colorDelay"];
 	        this.logLevel = source["logLevel"];
 	        this.hideLogs = source["hideLogs"];
 	        this.subUA = source["subUA"];
