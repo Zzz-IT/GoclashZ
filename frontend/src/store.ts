@@ -163,10 +163,14 @@ export async function initStore() {
     updateStateFromBackend(newState); 
   });
 
-  // 👇 新增：监听内核重启/配置切换，强行清空所有延迟历史数据
-  EventsOn("config-changed", () => {
+  // 👇 提取出一个清空延迟的通用函数
+  const clearAllDelays = () => {
     globalState.proxyDelays = {};
     Object.values(delayTimers).forEach(clearTimeout);
     for (const key in delayTimers) delete delayTimers[key];
-  });
+  };
+
+  // 👇 监听内核重启/配置切换，强行清空所有延迟历史数据
+  EventsOn("config-changed", clearAllDelays);
+  EventsOn("core-restarted", clearAllDelays);
 }

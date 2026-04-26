@@ -516,14 +516,23 @@
                 <h4>本地 Hosts 映射 (Hosts)</h4>
                 <p>手动指定域名与 IP 的映射关系。对接 DNS 设置中的「使用 Hosts」选项。</p>
               </div>
-              <textarea 
-                class="modern-textarea" 
-                v-model="netConfig.hosts" 
-                @blur="saveNet" 
-                rows="6" 
-                placeholder="'example.com': 127.0.0.1 (请遵循 YAML 键值对格式)"
-                style="margin-top: 10px; font-family: var(--font-mono); font-size: 0.85rem;"
-              ></textarea>
+              <div class="hosts-input-container">
+                <textarea 
+                  class="modern-textarea" 
+                  v-model="netConfig.hosts" 
+                  @blur="saveNet" 
+                  rows="6" 
+                  placeholder="'example.com': 127.0.0.1 (请遵循 YAML 键值对格式)"
+                  style="margin-top: 10px; font-family: var(--font-mono); font-size: 0.85rem; width: 100%;"
+                ></textarea>
+                
+                <div v-show="hostsError" class="validation-error">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="warn-icon" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <span>{{ hostsError }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -911,6 +920,38 @@ const openLink = (url: string) => {
 const showResetConfirm = ref(false);
 const resetModule = ref('');
 const resetModuleName = ref('');
+const hostsError = ref('');
+
+// 👇 新增：校验 Hosts 是否符合 YAML 字典基础格式
+const validateHosts = (val: string) => {
+  if (!val || val.trim() === '') {
+    hostsError.value = ''; // 为空是合法的（代表不配置）
+    return true;
+  }
+
+  const lines = val.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // 跳过空行和以 # 开头的注释行
+    if (line === '' || line.startsWith('#')) continue;
+
+    // 正则解析：必须是 "键: 值" 的形式 (至少包含一个冒号，且冒号后面要有内容)
+    if (!/^[^:]+:\s*.+$/.test(line)) {
+      hostsError.value = `第 ${i + 1} 行格式错误：请使用 "域名: IP" 的格式 (注意冒号为英文且要有值)`;
+      return false;
+    }
+  }
+  
+  hostsError.value = ''; // 校验通过，清空错误
+  return true;
+};
+
+// 👇 实时监听用户的输入
+watch(() => netConfig.value.hosts, (newVal) => {
+  validateHosts(newVal || '');
+});
+
 const checkingAppUpdate = ref(false); // 👈 新增：应用更新专用 Loading
 
 // --- 备份与还原状态 ---
@@ -1852,4 +1893,34 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   opacity: 0.8;
   text-decoration: underline;
 }
-</style>
+/* ================================ */
+/* 验证错误提示样式                    */
+/* ================================ */
+.hosts-input-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.validation-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #f59e0b; /* 橙色警告色 */
+  font-size: 0.85rem;
+  font-weight: 500;
+  animation: fadeIn 0.3s ease;
+  margin-top: 4px;
+}
+
+.warn-icon {
+  width: 16px;
+  height: 16px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+</style>

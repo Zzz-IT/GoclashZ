@@ -481,6 +481,11 @@ func (a *App) stopCoreService() {
 	clash.Stop()
 	a.StopTrafficStream() // 👈 上一步修改的函数，这里会自动触发流量归零
 
+	// 👇 新增：只要内核停机/重启，立刻广播清空缓存的信号
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "core-restarted")
+	}
+
 	// 🚀 新增：内核一经停止，立刻同步状态，消除前端“服务停止”状态的延迟感！
 	a.SyncState()
 }
