@@ -294,6 +294,44 @@ func (a *App) refreshAutoDelayTest() {
 	// 4. 开启新的定时任务
 	a.autoTestQuit = make(chan struct{})
 	go func(quit chan struct{}, min int) {
+		// 封装单次测速逻辑
+		runTest := func() {
+			// 🚀 核心修复 1：使用 a.GetInitialData()，即使内核未启动也能从离线缓存拿到节点！
+			if data, err := a.GetInitialData(); err == nil {
+				
+				// 先获取所有代理组的名称，用于后续过滤
+				groupNames := make(map[string]bool)
+				if groups, ok := data["groups"].(map[string]interface{}); ok {
+					for gName := range groups {
+						groupNames[gName] = true
+					}
+				}
+
+				if proxies, ok := data["proxies"].(map[string]interface{}); ok {
+					var nodeNames []string
+					for name := range proxies {
+						// 过滤全局内置策略
+						if name == "GLOBAL" || name == "DIRECT" || name == "REJECT" {
+							continue
+						}
+						// 🚀 核心修复 2：过滤掉代理组（如 URLTest/Selector），只测真实的底层节点
+						if groupNames[name] {
+							continue
+						}
+						nodeNames = append(nodeNames, name)
+					}
+					
+					// 触发静默并发测速
+					if len(nodeNames) > 0 {
+						a.TestAllProxies(nodeNames)
+					}
+				}
+			}
+		}
+
+		// 🚀 核心修复 3：开启自动测速时，立即执行一次，然后再进入 Ticker 循环
+		runTest()
+
 		// 使用用户设定的分钟数作为间隔
 		ticker := time.NewTicker(time.Duration(min) * time.Minute)
 		defer ticker.Stop()
@@ -301,19 +339,7 @@ func (a *App) refreshAutoDelayTest() {
 		for {
 			select {
 			case <-ticker.C:
-				// 🚀 复用逻辑：获取所有节点并触发测速
-				if data, err := clash.GetInitialData(); err == nil {
-					if proxies, ok := data["proxies"].(map[string]interface{}); ok {
-						var nodeNames []string
-						for name := range proxies {
-							nodeNames = append(nodeNames, name)
-						}
-						if len(nodeNames) > 0 {
-							// 直接调用现有的测速函数，它内部自带了 16 并发限制 (testSemaphore)
-							a.TestAllProxies(nodeNames)
-						}
-					}
-				}
+				runTest() // 每次到点执行
 			case <-quit:
 				return
 			}
