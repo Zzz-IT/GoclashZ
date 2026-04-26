@@ -939,7 +939,7 @@ func (a *App) TestAllProxies(nodeNames []string) {
 		jobs := make(chan string, len(nodeNames))
 		var wg sync.WaitGroup
 
-		// ✅ 2. 启动固定数量的 Worker（根据 a.testSemaphore 的容量决定，通常是 16）
+		// ✅ 2. 启动固定数量的 Worker
 		workerCount := 16
 		if len(nodeNames) < workerCount {
 			workerCount = len(nodeNames)
@@ -951,10 +951,21 @@ func (a *App) TestAllProxies(nodeNames []string) {
 				defer wg.Done()
 				// 从通道中不断获取节点名称进行测速
 				for nName := range jobs {
+					// 🚀【核心修复 1：获取全局限流令牌】
+					// 如果全局并发已经达到 16 个，这里会安全阻塞，排队等待
+					select {
+					case a.testSemaphore <- struct{}{}:
+					case <-a.ctx.Done():
+						return // 软件退出时立刻安全打断
+					}
+
 					// 赋予该节点独立的 5 秒专属超时
 					reqCtx, reqCancel := context.WithTimeout(a.ctx, 5*time.Second)
 					delay, err := clash.GetProxyDelay(reqCtx, nName, testUrl)
 					reqCancel()
+
+					// 🚀【核心修复 2：释放全局限流令牌】
+					<-a.testSemaphore
 
 					if err != nil || delay <= 0 {
 						runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
