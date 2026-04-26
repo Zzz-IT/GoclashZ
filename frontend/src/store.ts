@@ -22,6 +22,8 @@ export const globalState = reactive({
   version: '',
   appVersion: '', // 👈 新增
   tunStatus: { hasWintun: false, isAdmin: false },
+  delayRetention: true,
+  delayRetentionTime: 'long',
 
   // 🚀 核心：使用缓存初始化消除渲染空窗期的闪烁
   activeConfigId: cachedActiveConfigId,
@@ -92,6 +94,12 @@ function updateStateFromBackend(rawData: any) {
 
   if (rawData.activeConfigType !== undefined) globalState.activeConfigType = rawData.activeConfigType;
   else if (rawData.ActiveConfigType !== undefined) globalState.activeConfigType = rawData.ActiveConfigType;
+
+  if (rawData.delayRetention !== undefined) globalState.delayRetention = rawData.delayRetention;
+  else if (rawData.DelayRetention !== undefined) globalState.delayRetention = rawData.DelayRetention;
+
+  if (rawData.delayRetentionTime !== undefined) globalState.delayRetentionTime = rawData.delayRetentionTime;
+  else if (rawData.DelayRetentionTime !== undefined) globalState.delayRetentionTime = rawData.DelayRetentionTime;
 }
 
 /**
@@ -173,4 +181,10 @@ export async function initStore() {
   // 👇 监听内核重启/配置切换，强行清空所有延迟历史数据
   EventsOn("config-changed", clearAllDelays);
   EventsOn("core-restarted", clearAllDelays);
+
+  // 👇 监听测速结果，全局入库（防止切页丢失数据）
+  EventsOn("proxy-delay-update", (data: any) => {
+    if (!data) return;
+    updateProxyDelay(data.name, data.delay, globalState.delayRetention ? globalState.delayRetentionTime : 'long');
+  });
 }

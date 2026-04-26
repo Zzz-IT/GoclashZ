@@ -230,13 +230,10 @@ onMounted(async () => {
     });
   });
 
-  // 接收到“结果”信号，节点停转并显示真实数字
+  // 接收到“结果”信号，仅负责关掉 UI 上的转圈动画
   EventsOn("proxy-delay-update", (data: any) => {
     if (!data) return;
     
-    // 👇 调用 Store 的全局方法实现长效保存与自动清理
-    updateProxyDelay(data.name, data.delay, delayRetention.value ? delayRetentionTime.value : 'long');
-
     if (!localGroups.value) return;
     localGroups.value.forEach(g => {
       if (!g.proxies) return;

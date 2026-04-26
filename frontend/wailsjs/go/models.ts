@@ -208,6 +208,8 @@ export namespace main {
 	    updateMethod: string;
 	    updateInterval: number;
 	    lastUpdateCheck: number;
+	    autoDelayTest: boolean;
+	    autoDelayTestInterval: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppBehavior(source);
@@ -233,6 +235,8 @@ export namespace main {
 	        this.updateMethod = source["updateMethod"];
 	        this.updateInterval = source["updateInterval"];
 	        this.lastUpdateCheck = source["lastUpdateCheck"];
+	        this.autoDelayTest = source["autoDelayTest"];
+	        this.autoDelayTestInterval = source["autoDelayTestInterval"];
 	    }
 	}
 	export class AppState {
@@ -247,6 +251,8 @@ export namespace main {
 	    activeConfig: string;
 	    activeConfigName: string;
 	    activeConfigType: string;
+	    delayRetention: boolean;
+	    delayRetentionTime: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppState(source);
@@ -265,6 +271,8 @@ export namespace main {
 	        this.activeConfig = source["activeConfig"];
 	        this.activeConfigName = source["activeConfigName"];
 	        this.activeConfigType = source["activeConfigType"];
+	        this.delayRetention = source["delayRetention"];
+	        this.delayRetentionTime = source["delayRetentionTime"];
 	    }
 	}
 	export class RuleItem {

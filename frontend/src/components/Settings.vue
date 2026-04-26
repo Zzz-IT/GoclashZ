@@ -575,6 +575,38 @@
 
             <div class="setting-item">
               <div class="info">
+                <h4>自动延迟测速</h4>
+                <p>启用后，将按设定的时间间隔在后台自动更新节点延迟。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="behavior.autoDelayTest" @change="saveBehavior">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <Transition name="dropdown">
+              <div v-if="behavior.autoDelayTest" class="delay-retention-sub-items">
+                <div class="divider"></div>
+                <div class="setting-item">
+                  <div class="info">
+                    <h4>测速间隔</h4>
+                  </div>
+                  <div class="input-with-unit">
+                    <ModernNumberInput 
+                      v-model="behavior.autoDelayTestInterval" 
+                      :min="1"
+                      :max="1440"
+                      @change="saveBehavior"
+                    />
+                    <span class="unit">min</span>
+                  </div>
+                </div>
+              </div>
+            </Transition>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
                 <h4>显色彩色延迟数字</h4>
                 <p>启用后，节点延迟将以绿黄红三色显示，替代默认的黑白深浅风格。</p>
               </div>

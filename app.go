@@ -83,6 +83,9 @@ type App struct {
 	isDownloadingApp bool
 
 	logRestartMu sync.Mutex // 🚀 新增：用于防抖和序列化日志重启
+
+	autoTestQuit chan struct{} // 👇 用于停止旧的定时任务
+	autoTestMu   sync.Mutex    // 保护定时任务的切换
 }
 
 // AppBehavior 定义应用行为设置
@@ -104,11 +107,14 @@ type AppBehavior struct {
 	MmdbLink    string `json:"mmdbLink"`
 	AsnLink     string `json:"asnLink"`
 
-	// 👇 新增：自动更新配置相关字段
 	AutoUpdate      bool   `json:"autoUpdate"`      // 是否开启自动更新
 	UpdateMethod    string `json:"updateMethod"`    // 检查更新方式: "startup" (每次启动) 或 "scheduled" (定时)
 	UpdateInterval  int    `json:"updateInterval"`  // 检查间隔时间 (天)
 	LastUpdateCheck int64  `json:"lastUpdateCheck"` // 🚀 新增：上次检查更新的时间戳 (Unix秒)
+
+	// 👇 新增：自动测速控制
+	AutoDelayTest         bool `json:"autoDelayTest"`
+	AutoDelayTestInterval int  `json:"autoDelayTestInterval"`
 }
 
 // 1. 获取离线节点记忆文件的路径
@@ -118,9 +124,9 @@ func (a *App) getOfflineNodesPath() string {
 
 // 2. 将内存中的节点选择持久化到磁盘
 func (a *App) saveOfflineNodes() {
-	a.offlineMu.RLock()
+	a.offlineMu.Lock() // 改用写锁，独占此过程
+	defer a.offlineMu.Unlock()
 	data, err := json.MarshalIndent(a.offlineNodes, "", "  ")
-	a.offlineMu.RUnlock()
 	if err == nil {
 		os.WriteFile(a.getOfflineNodesPath(), data, 0644)
 	}
@@ -190,6 +196,10 @@ func (a *App) initBehaviorCache() {
 		UpdateMethod:    "startup",
 		UpdateInterval:  1,
 		LastUpdateCheck: 1777227846,
+
+		// 👇 新增：默认不开启自动测速，设为 30 分钟
+		AutoDelayTest:         false,
+		AutoDelayTestInterval: 30,
 	}
 
 	// 自动处理读取、合并和生成默认文件
@@ -254,8 +264,61 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 		}
 	}
 
+	a.refreshAutoDelayTest() // 👈 每次用户修改设置后重新计算定时器
 	a.SyncState()
 	return err
+}
+
+// refreshAutoDelayTest 根据最新配置刷新后台测速任务
+func (a *App) refreshAutoDelayTest() {
+	a.autoTestMu.Lock()
+	defer a.autoTestMu.Unlock()
+
+	// 1. 停止并清理旧的任务
+	if a.autoTestQuit != nil {
+		close(a.autoTestQuit)
+		a.autoTestQuit = nil
+	}
+
+	// 2. 读取配置
+	a.behaviorMu.RLock()
+	enabled := a.behaviorCache.AutoDelayTest
+	interval := a.behaviorCache.AutoDelayTestInterval
+	a.behaviorMu.RUnlock()
+
+	// 3. 如果未开启或间隔无效，直接返回
+	if !enabled || interval <= 0 {
+		return
+	}
+
+	// 4. 开启新的定时任务
+	a.autoTestQuit = make(chan struct{})
+	go func(quit chan struct{}, min int) {
+		// 使用用户设定的分钟数作为间隔
+		ticker := time.NewTicker(time.Duration(min) * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				// 🚀 复用逻辑：获取所有节点并触发测速
+				if data, err := clash.GetInitialData(); err == nil {
+					if proxies, ok := data["proxies"].(map[string]interface{}); ok {
+						var nodeNames []string
+						for name := range proxies {
+							nodeNames = append(nodeNames, name)
+						}
+						if len(nodeNames) > 0 {
+							// 直接调用现有的测速函数，它内部自带了 16 并发限制 (testSemaphore)
+							a.TestAllProxies(nodeNames)
+						}
+					}
+				}
+			case <-quit:
+				return
+			}
+		}
+	}(a.autoTestQuit, interval)
 }
 
 // GetLocalConfigs 获取订阅列表
@@ -282,6 +345,9 @@ type AppState struct {
 	ActiveConfig     string `json:"activeConfig"`
 	ActiveConfigName string `json:"activeConfigName"`
 	ActiveConfigType string `json:"activeConfigType"`
+	// 👇 新增：延迟保留相关
+	DelayRetention     bool   `json:"delayRetention"`
+	DelayRetentionTime string `json:"delayRetentionTime"`
 }
 
 // 1. 在 app.go 任意位置新增这个辅助方法，用于将离线缓存合并到数据源
@@ -690,6 +756,8 @@ func (a *App) startup(ctx context.Context) {
 
 	// 启动后台守护任务 (Goroutine)
 	go a.startDaemonTasks()
+
+	a.refreshAutoDelayTest() // 👈 启动时加载
 
 	// 不要在这里直接执行 systray.Run
 	// 利用 Goroutine 和极短的延迟，避开 WebView2 最消耗资源的初始化瞬间
@@ -1348,6 +1416,8 @@ func (a *App) SyncState() {
 		ActiveConfig:     activeId,
 		ActiveConfigName: activeName,
 		ActiveConfigType: activeType,
+		DelayRetention:     behavior.DelayRetention,
+		DelayRetentionTime: behavior.DelayRetentionTime,
 	}
 
 	// 推送给前端（唯一通道）
@@ -1921,6 +1991,8 @@ func (a *App) GetAppState() AppState {
 		ActiveConfig:     activeId,
 		ActiveConfigName: activeName,
 		ActiveConfigType: activeType,
+		DelayRetention:     behavior.DelayRetention,
+		DelayRetentionTime: behavior.DelayRetentionTime,
 	}
 }
 
