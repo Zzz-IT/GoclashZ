@@ -87,12 +87,14 @@ type App struct {
 
 // AppBehavior 定义应用行为设置
 type AppBehavior struct {
-	SilentStart bool   `json:"silentStart"` // 静默启动 (不弹窗，直接进托盘)
-	CloseToTray bool   `json:"closeToTray"` // 点击关闭时隐藏到托盘
-	ColorDelay  bool   `json:"colorDelay"`  // 显色彩色延迟数字
-	LogLevel    string `json:"logLevel"`    // 日志等级
-	HideLogs    bool   `json:"hideLogs"`
-	SubUA       string `json:"subUA"` // 订阅更新 User-Agent
+	SilentStart        bool   `json:"silentStart"` // 静默启动 (不弹窗，直接进托盘)
+	CloseToTray        bool   `json:"closeToTray"` // 点击关闭时隐藏到托盘
+	ColorDelay         bool   `json:"colorDelay"`  // 显色彩色延迟数字
+	DelayRetention     bool   `json:"delayRetention"`
+	DelayRetentionTime string `json:"delayRetentionTime"`
+	LogLevel           string `json:"logLevel"` // 日志等级
+	HideLogs           bool   `json:"hideLogs"`
+	SubUA              string `json:"subUA"` // 订阅更新 User-Agent
 	// 新增：统持久化字段
 	ActiveConfig string `json:"activeConfig"`
 	ActiveMode   string `json:"activeMode"`
@@ -168,18 +170,20 @@ func (a *App) IsNodeOffline(groupName string) (bool, string) {
 // 内部初始化缓存的方法，在 startup 中调用
 func (a *App) initBehaviorCache() {
 	defaultConfig := AppBehavior{
-		SilentStart:  false,
-		CloseToTray:  false,
-		ColorDelay:   false,
-		LogLevel:     "error",
-		HideLogs:     true,
-		SubUA:        "clash-verge",
-		ActiveConfig: "1776940878659",
-		ActiveMode:   "rule",
-		GeoIpLink:    "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
-		GeoSiteLink:  "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
-		MmdbLink:     "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
-		AsnLink:      "https://ghproxy.net/https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
+		SilentStart:        false,
+		CloseToTray:        false,
+		ColorDelay:         false,
+		DelayRetention:     false,
+		DelayRetentionTime: "long",
+		LogLevel:           "error",
+		HideLogs:           true,
+		SubUA:              "clash-verge",
+		ActiveConfig:       "1776940878659",
+		ActiveMode:         "rule",
+		GeoIpLink:          "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
+		GeoSiteLink:        "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
+		MmdbLink:           "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
+		AsnLink:            "https://ghproxy.net/https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
 		
 		// 👇 新增：默认开启自动更新，方式为每次启动
 		AutoUpdate:     true,

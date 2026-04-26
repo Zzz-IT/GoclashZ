@@ -450,35 +450,6 @@
 
             <div class="setting-item">
               <div class="info">
-                <h4>延迟结果保留</h4>
-                <p>开启后将缓存测速结果，可选择定时清空或长时间保留。</p>
-              </div>
-              <label class="modern-switch">
-                <input type="checkbox" v-model="netConfig.delayRetention" @change="saveNet">
-                <span class="slider"></span>
-              </label>
-            </div>
-
-            <div class="setting-item sub-item" :class="{ 'disabled-fade': !netConfig.delayRetention }">
-              <div class="info">
-                <h4 class="sub-label">保留时间</h4>
-              </div>
-              <ModernSelect 
-                v-model="netConfig.delayRetentionTime" 
-                :options="[
-                  { label: '5 秒', value: '5' },
-                  { label: '10 秒', value: '10' },
-                  { label: '30 秒', value: '30' },
-                  { label: '长时间', value: 'long' }
-                ]" 
-                @change="saveNet" 
-                :disabled="!netConfig.delayRetention" 
-              />
-            </div>
-            <div class="divider"></div>
-
-            <div class="setting-item">
-              <div class="info">
                 <h4>TCP 并发连接</h4>
                 <p>同时向所有解析出的 IP 发起连接，取最快响应者。大幅提升首屏加载速度。</p>
               </div>
@@ -500,22 +471,26 @@
               </label>
             </div>
 
-            <div class="setting-item sub-item" :class="{ 'disabled-fade': !netConfig.tcpKeepAlive }">
-              <div class="info">
-                <h4 class="sub-label">发送时间间隔 (Interval)</h4>
-                <p>单位为秒，建议值 15-30s</p>
+            <Transition name="dropdown">
+              <div v-if="netConfig.tcpKeepAlive" class="tcp-keep-alive-sub-items">
+                <div class="divider"></div>
+                <div class="setting-item">
+                  <div class="info">
+                    <h4>发送时间间隔 (Interval)</h4>
+                    <p>单位为秒，建议值 15-30s</p>
+                  </div>
+                  <div class="input-with-unit">
+                    <ModernNumberInput 
+                      v-model="netConfig.tcpKeepAliveInterval" 
+                      :min="1" 
+                      :max="3600" 
+                      @change="saveNet" 
+                    />
+                    <span class="unit">s</span>
+                  </div>
+                </div>
               </div>
-              <div class="input-with-unit">
-                <ModernNumberInput 
-                  v-model="netConfig.tcpKeepAliveInterval" 
-                  :min="1" 
-                  :max="3600" 
-                  @change="saveNet" 
-                  :disabled="!netConfig.tcpKeepAlive" 
-                />
-                <span class="unit">s</span>
-              </div>
-            </div>
+            </Transition>
 
             <div class="divider"></div>
 
@@ -599,6 +574,39 @@
                 <span class="slider"></span>
               </label>
             </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
+                <h4>延迟结果保留</h4>
+                <p>开启后将缓存测速结果，可选择定时清空或长时间保留。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="behavior.delayRetention" @change="saveBehavior">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <Transition name="dropdown">
+              <div v-if="behavior.delayRetention" class="delay-retention-sub-items">
+                <div class="divider"></div>
+                <div class="setting-item">
+                  <div class="info">
+                    <h4>保留时间</h4>
+                  </div>
+                  <ModernSelect 
+                    v-model="behavior.delayRetentionTime" 
+                    :options="[
+                      { label: '5 秒', value: '5' },
+                      { label: '10 秒', value: '10' },
+                      { label: '30 秒', value: '30' },
+                      { label: '长时间', value: 'long' }
+                    ]" 
+                    @change="saveBehavior" 
+                  />
+                </div>
+              </div>
+            </Transition>
             <div class="divider"></div>
 
             <div class="setting-item">
@@ -1137,9 +1145,6 @@ const dnsConfig = ref<any>({
 const netConfig = ref({
   ipv6: false,
   unifiedDelay: true,
-  // 👇 新增：延迟保留设置
-  delayRetention: false,
-  delayRetentionTime: 'long', 
   tcpConcurrent: true,
   tcpKeepAlive: true,
   tcpKeepAliveInterval: 15,
@@ -1152,6 +1157,8 @@ const behavior = ref<any>({
   closeToTray: true,
   // 👇 新增：显色彩色延迟数字
   colorDelay: false,
+  delayRetention: false,          // 👇 移到了这里
+  delayRetentionTime: 'long',     // 👇 移到了这里
   logLevel: 'info',
   hideLogs: false,
   subUA: '',

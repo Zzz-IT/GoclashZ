@@ -45,7 +45,7 @@
                 </svg>
               </div>
               
-              <div v-else-if="globalState.proxyDelays[node.name]?.delay === undefined || globalState.proxyDelays[node.name]?.delay === null" class="ping-idle">
+              <div v-else-if="!globalState.proxyDelays[node.name] || globalState.proxyDelays[node.name].delay === null" class="ping-idle">
                 <svg class="idle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
@@ -69,7 +69,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
-import { showAlert, globalState } from '../store';
+import { showAlert, globalState, updateProxyDelay } from '../store';
 import { ICONS } from '../utils/icons';
 
 const localGroups = ref<any[]>([]);
@@ -80,7 +80,6 @@ const isTesting = ref(false);
 const isColorMode = ref(false);
 const delayRetention = ref(false);
 const delayRetentionTime = ref('long');
-const cleanupTimers = ref<Record<string, number>>({});
 
 // 计算当前要显示的组的数据
 const activeGroupData = computed(() => {
@@ -91,14 +90,11 @@ const activeGroupData = computed(() => {
 const loadData = async () => {
   // 👇 新增：预加载配置以决定样式和保留逻辑
   try {
-    const netConf = await (API.GetNetworkConfig as any)();
-    if (netConf) {
-      delayRetention.value = netConf.delayRetention === true;
-      delayRetentionTime.value = netConf.delayRetentionTime || 'long';
-    }
     const bh = await (API.GetAppBehavior as any)();
     if (bh) {
       isColorMode.value = bh.colorDelay === true;
+      delayRetention.value = bh.delayRetention === true;
+      delayRetentionTime.value = bh.delayRetentionTime || 'long';
     }
   } catch (e) {}
 
@@ -224,19 +220,12 @@ const getDelayColorClass = (delay: number | null) => {
 onMounted(async () => {
   // 接收到“开始”信号，节点开始转圈
   EventsOn("proxy-test-start", (nodeName: string) => {
-    // 测速开始时，立即中断该节点可能存在的清空计时器
-    if (cleanupTimers.value[nodeName]) {
-      clearTimeout(cleanupTimers.value[nodeName]);
-      delete cleanupTimers.value[nodeName];
-    }
-
     if (!localGroups.value) return;
     localGroups.value.forEach(g => {
       if (!g.proxies) return;
       const node = g.proxies.find((n: any) => n.name === nodeName);
       if (node) {
         node.testing = true;
-        // node.delay = null;
       }
     });
   });
@@ -244,18 +233,9 @@ onMounted(async () => {
   // 接收到“结果”信号，节点停转并显示真实数字
   EventsOn("proxy-delay-update", (data: any) => {
     if (!data) return;
-    // 👇 存入全局 Store 实现长时间留存
-    globalState.proxyDelays[data.name] = { delay: data.delay };
-
-    // 👇 启动定时清空机制
-    if (delayRetention.value && delayRetentionTime.value !== 'long') {
-      const ms = parseInt(delayRetentionTime.value) * 1000;
-      cleanupTimers.value[data.name] = window.setTimeout(() => {
-        if (globalState.proxyDelays[data.name]) {
-          globalState.proxyDelays[data.name].delay = null;
-        }
-      }, ms);
-    }
+    
+    // 👇 调用 Store 的全局方法实现长效保存与自动清理
+    updateProxyDelay(data.name, data.delay, delayRetention.value ? delayRetentionTime.value : 'long');
 
     if (!localGroups.value) return;
     localGroups.value.forEach(g => {
@@ -263,7 +243,6 @@ onMounted(async () => {
       const node = g.proxies.find((n: any) => n.name === data.name);
       if (node) {
         node.testing = false;
-        // node.delay = data.delay; // 如果 data.status 是 timeout，这里就是 0
       }
     });
   });
@@ -281,13 +260,6 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  // 👇 离开页面时的清理：如果没开保留，销毁界面就清空；开了就不动它
-  if (!delayRetention.value) {
-    globalState.proxyDelays = {};
-  }
-  // 必须清理倒计时，防止内存溢出
-  Object.values(cleanupTimers.value).forEach(timer => clearTimeout(timer));
-
   EventsOff("proxy-test-start");
   EventsOff("proxy-delay-update");
   EventsOff("config-changed");
@@ -530,22 +502,18 @@ onUnmounted(() => {
 .t-fail { color: var(--text-main); font-weight: 700; }  /* 超时 最深 */
 .t-unknown { color: var(--text-muted); }
 
-/* 应用行为设置：开启彩色显示逻辑 */
-.c-fast { color: #10b981; font-weight: 700; } /* 绿 */
-.c-mid { color: #f59e0b; font-weight: 700; }  /* 黄 */
-.c-slow { color: #ef4444; font-weight: 700; } /* 红 */
-.c-fail { color: #ef4444; font-weight: 800; } /* 红，加粗 */
+/* 彩色逻辑：必须加更高权重，防止被 .active 覆盖 */
+.c-fast { color: #10b981 !important; font-weight: 700; } /* 绿 */
+.c-mid { color: #f59e0b !important; font-weight: 700; }  /* 黄 */
+.c-slow { color: #ef4444 !important; font-weight: 700; } /* 红 */
+.c-fail { color: #ef4444 !important; font-weight: 800; } /* 红，加粗 */
 .c-unknown { color: var(--text-muted); }
 
-/* 修复激活状态反色 */
+/* 只有非彩色模式下，选中的节点才反白 */
 .node-item.active .t-fast,
 .node-item.active .t-mid,
 .node-item.active .t-slow,
-.node-item.active .t-fail,
-.node-item.active .c-fast,
-.node-item.active .c-mid,
-.node-item.active .c-slow,
-.node-item.active .c-fail { 
+.node-item.active .t-fail { 
   color: var(--accent-fg) !important; 
 }
 

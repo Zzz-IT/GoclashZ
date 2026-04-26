@@ -7,6 +7,9 @@ const cachedHideLogs = localStorage.getItem('goclashz_hideLogs') === 'true';
 const cachedTheme = localStorage.getItem('goclashz_theme') || 'light';
 const cachedActiveConfigId = localStorage.getItem('goclashz_activeConfigId') || ''; // 👈 新增缓存预热
 
+// 存储全局倒计时 ID，不放在 reactive 中防止不必要的响应式开销
+const delayTimers: Record<string, number> = {};
+
 // 定义全局响应式状态
 export const globalState = reactive({
   isRunning: false,
@@ -91,6 +94,34 @@ function updateStateFromBackend(rawData: any) {
   else if (rawData.ActiveConfigType !== undefined) globalState.activeConfigType = rawData.ActiveConfigType;
 }
 
+/**
+ * 更新延迟并处理保留逻辑
+ * @param name 节点名称
+ * @param delay 延迟数值
+ * @param retentionTime 保留时间 (s) 或 'long'
+ */
+export function updateProxyDelay(name: string, delay: number | null, retentionTime: string = 'long') {
+  // 1. 更新数值
+  globalState.proxyDelays[name] = { delay };
+
+  // 2. 清理之前的计时器
+  if (delayTimers[name]) {
+    clearTimeout(delayTimers[name]);
+    delete delayTimers[name];
+  }
+
+  // 3. 如果不是长时间保留且有值，开启全局定时清理
+  if (delay !== null && retentionTime !== 'long') {
+    const ms = parseInt(retentionTime) * 1000;
+    delayTimers[name] = window.setTimeout(() => {
+      if (globalState.proxyDelays[name]) {
+        globalState.proxyDelays[name].delay = null;
+      }
+      delete delayTimers[name];
+    }, ms);
+  }
+}
+
 // 全局 Alert 提示框 (替代原生 alert)
 export function showAlert(message: string, title: string = '提示', isDanger: boolean = false): Promise<void> {
   return new Promise((resolve) => {
@@ -135,5 +166,7 @@ export async function initStore() {
   // 👇 新增：监听内核重启/配置切换，强行清空所有延迟历史数据
   EventsOn("config-changed", () => {
     globalState.proxyDelays = {};
+    Object.values(delayTimers).forEach(clearTimeout);
+    for (const key in delayTimers) delete delayTimers[key];
   });
 }
