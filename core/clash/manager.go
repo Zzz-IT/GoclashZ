@@ -23,6 +23,7 @@ type SubIndexItem struct {
 
 var (
 	IndexLock sync.RWMutex
+	indexIOMu sync.Mutex // 专属 IO 锁，仅用于保护磁盘写入
 	SubIndex  []SubIndexItem
 )
 
@@ -44,23 +45,25 @@ func LoadIndex() error {
 
 // SaveIndex 保存到本地 (原子写入版)
 func SaveIndex() error {
-	// 1. 🚀 优化：使用 RLock，并在极短的内存序列化后立刻释放
+	// 1. 内存极速序列化阶段（仅锁内存）
 	IndexLock.RLock()
 	data, err := json.MarshalIndent(SubIndex, "", "  ")
-	IndexLock.RUnlock() // 尽早释放内存锁，不再阻塞列表读取
+	IndexLock.RUnlock()
 
 	if err != nil {
 		return err
 	}
 
+	// 2. 磁盘写入阶段（严格串行化）
+	indexIOMu.Lock()
+	defer indexIOMu.Unlock()
+
 	indexPath := getIndexPath()
 	tempPath := indexPath + ".tmp"
 
-	// 2. 耗时的磁盘 I/O 移到无锁环境执行
 	if err := os.WriteFile(tempPath, data, 0644); err != nil {
 		return err
 	}
-
 	if err := os.Rename(tempPath, indexPath); err != nil {
 		os.Remove(tempPath)
 		return err
@@ -68,3 +71,4 @@ func SaveIndex() error {
 
 	return nil
 }
+

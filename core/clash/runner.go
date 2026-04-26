@@ -56,8 +56,8 @@ func assignProcessToJobObject(proc *os.Process) error {
 	return windows.AssignProcessToJobObject(job, windows.Handle(proc.Pid))
 }
 
-// killProcessIfClash 安全杀进程：验证 PID 对应进程名是否确为 clash.exe，防止 PID 复用误杀
-func killProcessIfClash(pid int) {
+// killProcessIfClash 安全杀进程：验证 PID 对应进程名是否确为目标执行文件名，防止 PID 复用误杀
+func killProcessIfClash(pid int, expectedExeName string) {
 	// 请求查询进程信息和终止权限
 	hProcess, err := windows.OpenProcess(windows.PROCESS_QUERY_INFORMATION|windows.PROCESS_TERMINATE, false, uint32(pid))
 	if err != nil {
@@ -71,8 +71,8 @@ func killProcessIfClash(pid int) {
 	err = windows.QueryFullProcessImageName(hProcess, 0, &buf[0], &size)
 	if err == nil {
 		imageName := windows.UTF16ToString(buf[:size])
-		// 验证进程名是否确为 clash.exe（忽略大小写验证更安全）
-		if strings.HasSuffix(strings.ToLower(imageName), "clash.exe") {
+		// 👈 动态比对，并且统一转小写防止大小写不一致导致失效
+		if strings.HasSuffix(strings.ToLower(imageName), strings.ToLower(expectedExeName)) {
 			_ = windows.TerminateProcess(hProcess, 1)
 		}
 	}
@@ -89,7 +89,8 @@ func Start(ctx context.Context) error {
 	// ✅ 程序文件路径 (只读)
 	binDir := utils.GetCoreBinDir()
 	exePath := filepath.Join(binDir, "clash.exe")
-	
+	targetExeName := filepath.Base(exePath) // 👈 动态提取出 "clash.exe" 或未来更改的名字
+
 	// ✅ 运行时数据路径 (可写，自定义模式或安全模式)
 	dataDir := utils.GetDataDir()
 	pidFile := filepath.Join(dataDir, "clash.pid")
@@ -99,7 +100,7 @@ func Start(ctx context.Context) error {
 	if pidData, err := os.ReadFile(pidFile); err == nil {
 		pidStr := strings.TrimSpace(string(pidData))
 		if pid, err := strconv.Atoi(pidStr); err == nil && pid > 0 {
-			killProcessIfClash(pid)
+			killProcessIfClash(pid, targetExeName) // 👈 传入动态名字进行校验
 		}
 		os.Remove(pidFile)
 	}

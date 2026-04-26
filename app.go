@@ -331,12 +331,12 @@ func (a *App) loadActiveConfig() string {
 }
 
 // saveActiveMode 记录当前选中的模式到本地
-func (a *App) saveActiveMode(mode string) {
+func (a *App) saveActiveMode(mode string) error {
 	a.behaviorMu.Lock()
 
 	if a.behaviorCache.ActiveMode == mode {
 		a.behaviorMu.Unlock()
-		return
+		return nil
 	}
 
 	a.behaviorCache.ActiveMode = mode
@@ -346,8 +346,8 @@ func (a *App) saveActiveMode(mode string) {
 
 	// 🔐 使用专属 IO 锁确保文件原子性串行写入
 	a.behaviorIOMu.Lock()
-	utils.SaveSetting("behavior", &behaviorToSave)
-	a.behaviorIOMu.Unlock()
+	defer a.behaviorIOMu.Unlock()
+	return utils.SaveSetting("behavior", &behaviorToSave)
 }
 
 // 启动时读取上次选中的模式
@@ -1005,8 +1005,11 @@ func (a *App) UpdateClashMode(mode string) error {
 
 	// 3. 将耗时的磁盘 IO 和 HTTP 通信放入独立协程
 	go func(targetMode string, coreRunning bool) {
-		// 写磁盘保存记忆
-		a.saveActiveMode(targetMode)
+		// 捕获写盘错误
+		if err := a.saveActiveMode(targetMode); err != nil {
+			// 通知前端弹出 Error Toast
+			runtime.EventsEmit(a.ctx, "notify-error", fmt.Sprintf("模式持久化保存失败: %v", err))
+		}
 
 		// 通知内核切换
 		if coreRunning {

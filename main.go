@@ -126,17 +126,19 @@ func main() {
 	
 	// ✅ 使用统一的智能数据目录读取主题
 	themeFile := filepath.Join(utils.GetDataDir(), "theme_setting.txt")
-	// 🎯 修复：使用流式读取并严格限制读取最大字节数
-	if f, err := os.Open(themeFile); err == nil {
-		defer f.Close() // 记得关闭文件句柄
-		
-		buf := make([]byte, 16) // 分配 16 字节的安全缓冲区
-		n, _ := f.Read(buf)     // 最多读取 16 字节
-		
-		if n > 0 && strings.TrimSpace(string(buf[:n])) == "light" {
-			r, g, b = 242, 242, 242 
+	// 🎯 修复：使用匿名函数建立独立的局部作用域，让 defer 立即执行
+	func() {
+		if f, err := os.Open(themeFile); err == nil {
+			defer f.Close() // 现在它会在大括号结束时立刻执行，而不是等待 main() 结束
+
+			buf := make([]byte, 16)
+			n, _ := f.Read(buf)
+
+			if n > 0 && strings.TrimSpace(string(buf[:n])) == "light" {
+				r, g, b = 242, 242, 242
+			}
 		}
-	}
+	}()
 
 	err := wails.Run(&options.App{
 		Title:  "GoclashZ",
