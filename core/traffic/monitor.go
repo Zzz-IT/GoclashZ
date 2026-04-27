@@ -10,6 +10,17 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+func sleepOrDone(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
 // RawConnection 对应 Clash API 返回的原始连接项
 type RawConnection struct {
 	ID       string `json:"id"`
@@ -64,13 +75,25 @@ func StreamTraffic(ctx context.Context, apiURL string, callback func(up, down st
 		// 使用传入的动态 API 地址
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err != nil {
-			time.Sleep(2 * time.Second) // 等待内核重启
+			if !sleepOrDone(ctx, 2*time.Second) {
+				return
+			}
 			continue
 		}
 
 		resp, err := trafficStreamClient.Do(req)
 		if err != nil {
-			time.Sleep(2 * time.Second) // 内核未就绪，2秒后重试
+			if !sleepOrDone(ctx, 2*time.Second) {
+				return
+			}
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			if !sleepOrDone(ctx, 2*time.Second) {
+				return
+			}
 			continue
 		}
 

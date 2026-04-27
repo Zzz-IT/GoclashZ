@@ -29,7 +29,6 @@ type ClashConfig struct {
 	ProxyGroups []map[string]interface{} `yaml:"proxy-groups"`
 }
 
-// NetworkConfig 基础网络配置
 type NetworkConfig struct {
 	Port                 int    `yaml:"port" json:"port"`
 	MixedPort            int    `yaml:"mixed-port" json:"mixedPort"`
@@ -38,9 +37,10 @@ type NetworkConfig struct {
 	TCPConcurrent        bool   `yaml:"tcp-concurrent" json:"tcpConcurrent"`
 	TCPKeepAlive         bool   `yaml:"tcp-keep-alive" json:"tcpKeepAlive"`
 	TCPKeepAliveInterval int    `yaml:"tcp-keep-alive-interval" json:"tcpKeepAliveInterval"`
-	TestURL              string `yaml:"test-url" json:"testUrl"` // 👈 新增
-	ExternalController   string `yaml:"external-controller" json:"externalController"` // 🚀 新增
-	Hosts                string `yaml:"-" json:"hosts"`          // 👈 新增：作为字符串传递给前端
+	TestURL              string `yaml:"test-url" json:"testUrl"`
+	ExternalController   string `yaml:"external-controller" json:"externalController"`
+	AllowLan             bool   `yaml:"allow-lan" json:"allowLan"`
+	Hosts                string `yaml:"-" json:"hosts"`
 }
 
 // OfflineGroup 专供前端在“未启动”状态下展示的节点组结构
@@ -293,6 +293,7 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 		TCPKeepAliveInterval: 30,
 		TestURL:              "http://www.g.cn/generate_204",
 		ExternalController:   "127.0.0.1:9090", // 🚀 默认值
+		AllowLan:             false,
 		Hosts:                "",
 	}
 	return utils.LoadSetting("network", defaultNet)
@@ -407,11 +408,16 @@ func BuildRuntimeConfig(id string, mode string, logLevel string) error {
 	} else {
 		root["mixed-port"] = 7890
 	}
-	root["allow-lan"] = true
+	allowLan := false
+	if userNet != nil {
+		allowLan = userNet.AllowLan
+	}
+	root["allow-lan"] = allowLan
+
 	// 👇 核心注入：控制端口动态化
 	controller := "127.0.0.1:9090"
 	if userNet != nil && strings.TrimSpace(userNet.ExternalController) != "" {
-		controller = strings.TrimSpace(userNet.ExternalController)
+		controller = NormalizeControllerHostPort(userNet.ExternalController)
 	}
 	root["external-controller"] = controller
 	root["secret"] = "" // 确保没有意外的密码阻挡前端 WebSocket

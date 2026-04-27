@@ -13,6 +13,24 @@ import (
 	"goclashz/core/utils"
 )
 
+const (
+	minKernelSize = 1024 * 1024 // 1MB
+	minWintunSize = 32 * 1024   // 32KB
+	maxWintunSize = 5 * 1024 * 1024
+)
+
+func isUsableFile(path string, minSize int64) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	return info.Size() >= minSize
+}
+
+func looksLikePE(data []byte) bool {
+	return len(data) >= 2 && data[0] == 'M' && data[1] == 'Z'
+}
+
 // 🎯 优化：复用 Wintun 风格的缓冲拷贝逻辑，提升大文件处理速度并增加请求稳定性
 func downloadAndExtractKernel(destDir, finalExePath string) error {
 	kernelURL := "https://ghproxy.net/https://github.com/MetaCubeX/mihomo/releases/download/v1.18.3/mihomo-windows-amd64-v1.18.3.zip"
@@ -66,7 +84,9 @@ func downloadAndExtractKernel(destDir, finalExePath string) error {
 				return err
 			}
 
-			outFile, err := os.Create(finalExePath)
+			tmpExePath := finalExePath + ".tmp"
+			_ = os.Remove(tmpExePath)
+			outFile, err := os.Create(tmpExePath)
 			if err != nil {
 				rc.Close()
 				r.Close()
@@ -79,6 +99,19 @@ func downloadAndExtractKernel(destDir, finalExePath string) error {
 			rc.Close()
 
 			if err != nil {
+				_ = os.Remove(tmpExePath)
+				r.Close()
+				return err
+			}
+
+			if !isUsableFile(tmpExePath, minKernelSize) {
+				_ = os.Remove(tmpExePath)
+				r.Close()
+				return fmt.Errorf("内核解压后校验失败：文件过小或损坏")
+			}
+
+			if err := os.Rename(tmpExePath, finalExePath); err != nil {
+				_ = os.Remove(tmpExePath)
 				r.Close()
 				return err
 			}
@@ -108,10 +141,15 @@ func PrepareEnv() error {
 		os.MkdirAll(binDir, 0755)
 	}
 
-	if _, err := os.Stat(exePath); os.IsNotExist(err) {
-		fmt.Println("👉 未检测到内核，正在自动下载至安全目录...")
+	if !isUsableFile(exePath, minKernelSize) {
+		fmt.Println("👉 未检测到内核或内核已损坏，正在自动下载至安全目录...")
+		_ = os.Remove(exePath)
 		if err := downloadAndExtractKernel(binDir, exePath); err != nil {
 			return err
+		}
+		if !isUsableFile(exePath, minKernelSize) {
+			_ = os.Remove(exePath)
+			return fmt.Errorf("内核下载后校验失败：文件过小或损坏")
 		}
 	}
 
@@ -127,8 +165,9 @@ log-level: info
 
 	// 5. 检查并下载 wintun.dll
 	wintunPath := filepath.Join(binDir, "wintun.dll")
-	if _, err := os.Stat(wintunPath); os.IsNotExist(err) {
-		fmt.Println("👉 未检测到 wintun.dll，正在下载以支持 TUN 模式...")
+	if !isUsableFile(wintunPath, minWintunSize) {
+		fmt.Println("👉 未检测到 wintun.dll 或文件已损坏，正在下载以支持 TUN 模式...")
+		_ = os.Remove(wintunPath)
 		if err := downloadWintun(binDir); err != nil {
 			fmt.Printf("⚠️ wintun.dll 下载失败 (TUN 模式将不可用): %v\n", err)
 		} else {
@@ -141,16 +180,12 @@ log-level: info
 
 func downloadWintun(destDir string) error {
 	wintunURL := "https://ghproxy.net/https://github.com/Zzz-IT/GoclashZ/releases/download/v0.0.1/wintun.dll"
-	
-	// ✅ 修复：增加硬超时，防止网络阻塞导致应用启动死锁
 	client := &http.Client{Timeout: 60 * time.Second}
 	req, err := http.NewRequest("GET", wintunURL, nil)
 	if err != nil {
 		return err
 	}
-	// 补齐 UA 防止遭到部分镜像站的 WAF 拦截
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) goclashz")
-
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("下载 Wintun 驱动网络超时或失败: %v", err)
@@ -161,14 +196,27 @@ func downloadWintun(destDir string) error {
 		return fmt.Errorf("下载 Wintun 失败，服务器返回 HTTP %d", resp.StatusCode)
 	}
 
-	out, err := os.Create(filepath.Join(destDir, "wintun.dll"))
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxWintunSize+1))
 	if err != nil {
+		return fmt.Errorf("读取 Wintun 响应失败: %v", err)
+	}
+	if int64(len(bodyBytes)) > maxWintunSize {
+		return fmt.Errorf("Wintun 文件过大，拒绝写入")
+	}
+	if int64(len(bodyBytes)) < minWintunSize || !looksLikePE(bodyBytes) {
+		return fmt.Errorf("Wintun 文件校验失败：大小异常或不是 PE 文件")
+	}
+
+	finalPath := filepath.Join(destDir, "wintun.dll")
+	tmpPath := finalPath + ".tmp"
+	if err := os.WriteFile(tmpPath, bodyBytes, 0644); err != nil {
 		return err
 	}
-	defer out.Close()
-
-	_, err = io.Copy(out, resp.Body)
-	return err
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
 }
 
 // ExtractKernel 纯粹的辅助函数：从 ZIP 中抽取内核 .exe 并保存

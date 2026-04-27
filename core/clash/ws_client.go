@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"goclashz/core/traffic"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,6 +38,11 @@ func StartConnectionMonitor(ctx context.Context) error {
 			case <-ticker.C:
 				resp, err := localAPIClient.Get(APIURL("/connections"))
 				if err != nil {
+					continue
+				}
+
+				if resp.StatusCode != http.StatusOK {
+					resp.Body.Close()
 					continue
 				}
 

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -49,11 +50,35 @@ var apiBase = struct {
 	value: "http://127.0.0.1:9090", // 默认兜底
 }
 
-func normalizeAPIBaseURL(controller string) string {
+func NormalizeControllerHostPort(controller string) string {
 	controller = strings.TrimSpace(controller)
 	if controller == "" {
-		controller = "127.0.0.1:9090"
+		return "127.0.0.1:9090"
 	}
+	// 用户只填端口，比如 9091
+	if _, err := strconv.Atoi(controller); err == nil {
+		return "127.0.0.1:" + controller
+	}
+	// 用户误填 URL，比如 http://127.0.0.1:9090
+	if strings.Contains(controller, "://") {
+		u, err := url.Parse(controller)
+		if err == nil && u.Host != "" {
+			controller = u.Host
+		}
+	}
+	host, port, err := net.SplitHostPort(controller)
+	if err != nil || host == "" || port == "" {
+		return "127.0.0.1:9090"
+	}
+	// external-controller 必须限制在本机，避免管理 API 被局域网暴露
+	if host != "127.0.0.1" && host != "localhost" && host != "::1" && host != "[::1]" {
+		return "127.0.0.1:9090"
+	}
+	return net.JoinHostPort(strings.Trim(host, "[]"), port)
+}
+
+func normalizeAPIBaseURL(controller string) string {
+	controller = NormalizeControllerHostPort(controller)
 
 	// 补全协议头
 	if !strings.HasPrefix(controller, "http://") && !strings.HasPrefix(controller, "https://") {
@@ -150,7 +175,7 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 		default:
 		}
 
-		apiURL := APIURL(fmt.Sprintf("/logs?level=%s", level))
+		apiURL := APIURL("/logs?level=" + url.QueryEscape(level))
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err != nil {
 			// 👇 核心修复 1：使用显式的 Timer 替代 time.After
@@ -171,6 +196,18 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 			select {
 			case <-ctx.Done():
 				timer.Stop() // 👈 手动释放内存
+				return
+			case <-timer.C:
+			}
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			timer := time.NewTimer(2 * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
 				return
 			case <-timer.C:
 			}
