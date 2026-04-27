@@ -10,10 +10,6 @@ export function CheckAndDownloadAppUpdateAsync() {
   return window['go']['main']['App']['CheckAndDownloadAppUpdateAsync']();
 }
 
-export function CheckComponentUpdate() {
-  return window['go']['main']['App']['CheckComponentUpdate']();
-}
-
 export function CheckTunEnv() {
   return window['go']['main']['App']['CheckTunEnv']();
 }

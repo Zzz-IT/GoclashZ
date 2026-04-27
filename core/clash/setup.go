@@ -41,7 +41,7 @@ func downloadAndExtractKernel(ctx context.Context, destDir, finalExePath string)
 
 	// 1. 下载 ZIP (使用统一原子下载器 + GitHub 自动校验)
 	err := downloader.DownloadAtomic(ctx, downloader.Options{
-		URL:             kernelURL,
+		URLs:            []string{kernelURL},
 		DestPath:        zipPath,
 		MaxBytes:        200 * 1024 * 1024,
 		Resume:          true,

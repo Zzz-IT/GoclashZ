@@ -9,8 +9,6 @@ export function ApplyAppUpdate():Promise<void>;
 
 export function CheckAndDownloadAppUpdateAsync():Promise<void>;
 
-export function CheckComponentUpdate():Promise<Record<string, string>>;
-
 export function CheckTunEnv():Promise<Record<string, boolean>>;
 
 export function ClearBaseConfig():Promise<void>;

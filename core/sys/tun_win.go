@@ -65,7 +65,7 @@ func downloadAndExtractWintun(ctx context.Context, finalDllPath string) error {
 
 	// 1. 下载 ZIP (使用统一原子下载器)
 	err = downloader.DownloadAtomic(ctx, downloader.Options{
-		URL:             WintunDownloadURL,
+		URLs:            []string{WintunDownloadURL},
 		DestPath:        zipPath,
 		MaxBytes:        10 * 1024 * 1024,
 		Resume:          true,

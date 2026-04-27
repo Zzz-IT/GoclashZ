@@ -17,8 +17,7 @@ import (
 )
 
 type Options struct {
-	URL             string
-	Mirrors         []string // 🚀 1. 竞速容灾：传入多个镜像站，哪个最快连哪个
+	URLs            []string // 🚀 1. 竞速容灾：传入多个下载地址（含镜像），第一个通常为主站
 	DestPath        string
 	UserAgent       string
 	MaxBytes        int64
@@ -150,7 +149,7 @@ type envProbeResult struct {
 
 // probeFastestEnvironment 并发竞速：寻找最快的链接与最通畅的网络环境
 func probeFastestEnvironment(ctx context.Context, clients []*http.Client, opt Options) (resumeMeta, bool, *http.Client, error) {
-	urls := append([]string{opt.URL}, opt.Mirrors...)
+	urls := opt.URLs
 
 	totalRaces := len(clients) * len(urls)
 	resultCh := make(chan envProbeResult, totalRaces)
@@ -236,10 +235,6 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 	remoteMeta, serverSupportsRange, winningClient, err := probeFastestEnvironment(ctx, clients, opt)
 	if err != nil {
 		return err
-	}
-
-	if remoteMeta.URL == "" {
-		remoteMeta.URL = opt.URL
 	}
 
 	if canResume {
@@ -380,7 +375,8 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 	// 校验逻辑
 	if opt.VerifyGitHubSHA {
 		// 校验也需要使用获胜的 client，确保网络通畅
-		expectedSHA, err := ResolveGitHubAssetSHA256(ctx, winningClient, opt.URL, ua)
+		// 注意：ResolveGitHubAssetSHA256 内部会处理镜像 URL 的归一化
+		expectedSHA, err := ResolveGitHubAssetSHA256(ctx, winningClient, remoteMeta.URL, ua)
 		if err != nil {
 			_ = os.Remove(tmpPath)
 			return fmt.Errorf("获取 GitHub 文件哈希失败: %v", err)

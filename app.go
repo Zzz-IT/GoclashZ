@@ -1677,66 +1677,6 @@ func (a *App) InstallTunDriverAsync(force bool) {
 	})
 }
 
-func (a *App) installTunDriver(force bool) (string, error) {
-	binDir := utils.GetCoreBinDir()
-	dllPath := filepath.Join(binDir, "wintun.dll")
-	backupPath := filepath.Join(binDir, "wintun_backup.dll")
-
-	// 🎯 核心修复：如果是检查更新模式且已存在，直接返回，不触发备份逻辑
-	if !force && sys.IsWintunInstalled() {
-		return "ALREADY_LATEST", nil
-	}
-
-	// 1. 如果当前正在使用 TUN 模式，必须先关闭...
-	a.updateMu.Lock()         // 👈 加上全局组件更新锁
-	defer a.updateMu.Unlock() // 👈 加上全局组件更新锁
-
-	a.mu.RLock()
-	wasTunActive := a.tunActive
-	a.mu.RUnlock()
-
-	if wasTunActive {
-		_ = a.ToggleTunMode(false)
-		time.Sleep(300 * time.Millisecond) // 等待系统解除对 DLL 的文件锁定
-	}
-
-	// 2. 如果存在旧驱动，先将其重命名为备份文件
-	hasOldDll := false
-	if _, err := os.Stat(dllPath); err == nil {
-		os.Remove(backupPath) // 确保备份档无残留
-		if err := os.Rename(dllPath, backupPath); err == nil {
-			hasOldDll = true
-		}
-	}
-
-	// 3. 执行真正的底层下载/解压安装逻辑 (此时 force 必然为 true 或者文件原本就不存在)
-	status, err := sys.InstallWintun(a.ctx, force)
-
-	// 4. 灾难恢复与回滚
-	if err != nil {
-		// 安装失败 -> 摧毁可能损坏的残留文件 -> 还原备份
-		os.Remove(dllPath)
-		if hasOldDll {
-			_ = os.Rename(backupPath, dllPath)
-		}
-
-		// 恢复原有的 TUN 运行状态
-		if wasTunActive {
-			_ = a.ToggleTunMode(true)
-		}
-		return "", fmt.Errorf("Wintun 驱动安装失败，已安全还原旧版本: %v", err)
-	}
-
-	// 5. 更新彻底成功，过河拆桥销毁备份
-	os.Remove(backupPath)
-
-	// 如果用户更新前开着 TUN，更新完帮他自动无缝切回去
-	if wasTunActive {
-		_ = a.ToggleTunMode(true)
-	}
-
-	return status, nil
-}
 func (a *App) GetDNSConfig() (*clash.DNSConfig, error) {
 	return clash.GetDNSConfig()
 }
@@ -2300,14 +2240,6 @@ func (a *App) GetUwpApps() ([]sys.UwpApp, error) {
 }
 
 // --- 软件更新 (新增) ---
-
-// CheckComponentUpdate 模拟检查更新 (未来可对接 GitHub API)
-func (a *App) CheckComponentUpdate() map[string]string {
-	return map[string]string{
-		"core":   "v1.18.3",
-		"wintun": "0.14.1",
-	}
-}
 
 // GetWintunVersion 供前端获取当前 Wintun 驱动的版本
 func (a *App) GetWintunVersion() string {
@@ -3048,7 +2980,7 @@ func downloadFileWithRetry(ctx context.Context, destPath, url string, verifyHash
 	for i := 0; i < 3; i++ {
 		// 🚀 调用 downloader.go 中的核心下载逻辑
 		lastErr = downloader.DownloadAtomic(ctx, downloader.Options{
-			URL:             url,
+			URLs:            []string{url},
 			DestPath:        destPath,
 			MaxBytes:        100 * 1024 * 1024, // 限制最大 100MB
 			Resume:          true,              // 开启断点续传
