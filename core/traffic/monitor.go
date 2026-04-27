@@ -51,7 +51,7 @@ var trafficStreamClient = &http.Client{
 }
 
 // StreamTraffic 建立一个长连接并持续监听内核推送的流量数据
-func StreamTraffic(ctx context.Context, callback func(up, down string)) {
+func StreamTraffic(ctx context.Context, apiURL string, callback func(up, down string)) {
 	// 🚀 核心修复：包裹重连状态机
 	for {
 		// 1. 检查 Wails 应用是否已退出
@@ -61,7 +61,8 @@ func StreamTraffic(ctx context.Context, callback func(up, down string)) {
 		default:
 		}
 
-		req, err := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:9090/traffic", nil)
+		// 使用传入的动态 API 地址
+		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err != nil {
 			time.Sleep(2 * time.Second) // 等待内核重启
 			continue
@@ -73,8 +74,24 @@ func StreamTraffic(ctx context.Context, callback func(up, down string)) {
 			continue
 		}
 
+		const trafficIdleTimeout = 70 * time.Second
 		decoder := json.NewDecoder(resp.Body)
-		
+		idleTimer := time.NewTimer(trafficIdleTimeout)
+		stopIdle := make(chan struct{})
+
+		// 🚀 新增：Idle Watchdog 协程
+		go func() {
+			select {
+			case <-ctx.Done():
+				resp.Body.Close()
+			case <-idleTimer.C:
+				// 超过 70 秒没有收到任何流量推送，主动断开以触发重连
+				resp.Body.Close()
+			case <-stopIdle:
+				// 循环结束，停止监控
+			}
+		}()
+
 		// 2. 内层循环：正常读取数据流
 		for {
 			var data struct {
@@ -83,10 +100,26 @@ func StreamTraffic(ctx context.Context, callback func(up, down string)) {
 			}
 			
 			if err := decoder.Decode(&data); err != nil {
-				// 🚀 核心逻辑：一旦内核重启导致连接 EOF 断开，立刻关闭 Body，跳出内层循环，触发重新连接
+				// 🚀 核心逻辑：一旦内核重启导致连接 EOF 断开或触发 Watchdog，立刻关闭 Body，跳出内层循环，触发重新连接
+				close(stopIdle)
+				if !idleTimer.Stop() {
+					select {
+					case <-idleTimer.C:
+					default:
+					}
+				}
 				resp.Body.Close()
 				break
 			}
+
+			// 收到数据，重置探活计时器
+			if !idleTimer.Stop() {
+				select {
+				case <-idleTimer.C:
+				default:
+				}
+			}
+			idleTimer.Reset(trafficIdleTimeout)
 
 			callback(formatBytes(int64(data.Up)), formatBytes(int64(data.Down)))
 		}

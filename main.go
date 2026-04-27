@@ -14,12 +14,23 @@ import (
 	"goclashz/core/sys"
 	"goclashz/core/utils"
 	syswin "golang.org/x/sys/windows"
+	"os/signal"
+	"syscall"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
 func main() {
+	// 🚀 新增：恐慌恢复逻辑，确保程序因未知 Bug 崩溃时，能最后尝试清理一次代理
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("检测到程序 Panic: %v\n正在紧急清理系统代理...\n", r)
+			sys.ClearOwnedSystemProxy()
+			panic(r) // 继续抛出 Panic 以供日志记录
+		}
+	}()
+
 	// 1. 判断是否为 Wails 开发模式 (模仿 Stelliberty 放行 Debug)
 	// 在 Wails Dev 模式下，通常可执行文件路径包含临时目录或 wails-dev
 	exePath, _ := os.Executable()
@@ -56,6 +67,13 @@ func main() {
 		if mutexHandle != 0 {
 			defer syswin.CloseHandle(mutexHandle)
 		}
+
+		// 🚀 核心自愈：只有确认自己是唯一的“主实例”后，才执行启动清理
+		// 清理上一次由于强制关机、断电或崩溃导致的系统代理残留
+		sys.ClearOwnedSystemProxy()
+
+		// 🚀 核心保护：注册操作系统信号监听
+		installEmergencyProxyCleanup()
 	}
 
 	app := NewApp()
@@ -110,4 +128,17 @@ func main() {
 	if err != nil {
 		println("Error:", err.Error())
 	}
+}
+
+// installEmergencyProxyCleanup 注册系统信号监听
+func installEmergencyProxyCleanup() {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		<-sigCh
+		fmt.Println("检测到退出信号，正在清理 GoclashZ 设置的系统代理...")
+		sys.ClearOwnedSystemProxy()
+		os.Exit(0)
+	}()
 }

@@ -194,12 +194,12 @@ func DeleteConfig(id string) error {
 
 // ReloadConfig 调用内核 API 热重载
 func ReloadConfig() error {
-	req, err := http.NewRequest("PUT", "http://127.0.0.1:9090/configs?force=true", nil)
+	req, err := http.NewRequest("PUT", APIURL("/configs?force=true"), nil)
 	if err != nil {
 		return fmt.Errorf("构建重载请求失败: %v", err)
 	}
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Do(req)
+
+	resp, err := localAPIClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("内核配置重载请求失败: %v", err)
 	}

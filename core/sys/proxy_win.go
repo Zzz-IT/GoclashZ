@@ -97,6 +97,9 @@ func EnableSystemProxy(host string, port int, bypassDomains string) error {
 	// 3. 全局广播，瞬间生效
 	RefreshSystemProxy()
 
+	// 🚀 新增：标记代理所有权，用于异常崩溃后的精准自愈
+	MarkSystemProxyOwned(host, port)
+
 	log.Printf("系统代理设置成功: %s", serverStr)
 
 	// ⚠️ 修复2：GC 护城河！必须保持这些变量在 Syscall 执行完毕前不被回收！
@@ -134,6 +137,9 @@ func DisableSystemProxy() error {
 	setRasProxy(&list)
 
 	RefreshSystemProxy()
+
+	// 🚀 新增：清理代理所有权标记
+	UnmarkSystemProxyOwned()
 
 	log.Println("系统代理已禁用")
 

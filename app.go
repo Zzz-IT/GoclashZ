@@ -1298,7 +1298,7 @@ func (a *App) StartTrafficStream() {
 			}
 		}()
 
-		traffic.StreamTraffic(ctx, func(up, down string) {
+		traffic.StreamTraffic(ctx, clash.APIURL("/traffic"), func(up, down string) {
 			runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": up, "down": down})
 		})
 	}()

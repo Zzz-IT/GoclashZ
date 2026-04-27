@@ -38,6 +38,7 @@ type NetworkConfig struct {
 	TCPKeepAlive         bool   `yaml:"tcp-keep-alive" json:"tcpKeepAlive"`
 	TCPKeepAliveInterval int    `yaml:"tcp-keep-alive-interval" json:"tcpKeepAliveInterval"`
 	TestURL              string `yaml:"test-url" json:"testUrl"` // 👈 新增
+	ExternalController   string `yaml:"external-controller" json:"externalController"` // 🚀 新增
 	Hosts                string `yaml:"-" json:"hosts"`          // 👈 新增：作为字符串传递给前端
 }
 
@@ -290,6 +291,7 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 		TCPKeepAlive:         true,
 		TCPKeepAliveInterval: 30,
 		TestURL:              "http://www.g.cn/generate_204",
+		ExternalController:   "127.0.0.1:9090", // 🚀 默认值
 		Hosts:                "",
 	}
 	return utils.LoadSetting("network", defaultNet)
@@ -405,8 +407,16 @@ func BuildRuntimeConfig(id string, mode string, logLevel string) error {
 		root["mixed-port"] = 7890
 	}
 	root["allow-lan"] = true
-	root["external-controller"] = "127.0.0.1:9090"
+	// 👇 核心注入：控制端口动态化
+	controller := "127.0.0.1:9090"
+	if userNet != nil && strings.TrimSpace(userNet.ExternalController) != "" {
+		controller = strings.TrimSpace(userNet.ExternalController)
+	}
+	root["external-controller"] = controller
 	root["secret"] = "" // 确保没有意外的密码阻挡前端 WebSocket
+
+	// 同步更新 Go API Client 的基准地址
+	UpdateAPIBaseURL(controller)
 
 	// 👇 核心注入：规则接管 (真理只在 JSON 中)
 	customRules, _ := GetCustomRules(id)

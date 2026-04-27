@@ -35,7 +35,7 @@ func StartConnectionMonitor(ctx context.Context) error {
 			case <-pollCtx.Done():
 				return
 			case <-ticker.C:
-				resp, err := localAPIClient.Get("http://127.0.0.1:9090/connections")
+				resp, err := localAPIClient.Get(APIURL("/connections"))
 				if err != nil {
 					continue
 				}

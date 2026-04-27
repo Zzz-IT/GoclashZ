@@ -19,27 +19,77 @@ type LogMessage struct {
 
 // StartLogStream 开启日志监听流
 func StartLogStream(ctx context.Context) {
-	// 监听内核日志接口 (默认级别 info)
-	url := "ws://127.0.0.1:9090/logs?level=info"
+	const (
+		pongWait   = 60 * time.Second
+		pingPeriod = 30 * time.Second
+		writeWait  = 5 * time.Second
+	)
 
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	// 使用动态生成的 WebSocket 地址
+	wsURL := APIWSURLWithRawQuery("/logs", "level=info")
+
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 5 * time.Second,
+	}
+
+	conn, _, err := dialer.Dial(wsURL, nil)
 	if err != nil {
 		fmt.Println("日志连接失败:", err)
 		return
 	}
 	defer conn.Close()
 
-	for {
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			break
+	// 🚀 核心：设置读超时并绑定 Pong 处理，用于探测连接活性
+	_ = conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
+
+	done := make(chan struct{})
+
+	// 读取循环
+	go func() {
+		defer close(done)
+		for {
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+
+			var log LogMessage
+			if err := json.Unmarshal(message, &log); err != nil {
+				continue
+			}
+
+			// ✨ 实时推送事件给前端
+			runtime.EventsEmit(ctx, "clash_log", log)
 		}
+	}()
 
-		var log LogMessage
-		json.Unmarshal(message, &log)
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
 
-		// ✨ 模仿 Stelliberty：实时推送事件给前端
-		runtime.EventsEmit(ctx, "clash_log", log)
+	// 控制循环
+	for {
+		select {
+		case <-ctx.Done():
+			// 优雅关闭 WebSocket 连接
+			_ = conn.WriteControl(
+				websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+				time.Now().Add(writeWait),
+			)
+			return
+
+		case <-done:
+			return
+
+		case <-ticker.C:
+			// 🚀 核心：主动发送 Ping 以维持连接并探测对端状态
+			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait)); err != nil {
+				return
+			}
+		}
 	}
 }
 
@@ -50,19 +100,19 @@ func PatchConfig(settings map[string]interface{}) error {
 		return fmt.Errorf("配置序列化失败: %v", err)
 	}
 
-	req, err := http.NewRequest("PATCH", "http://127.0.0.1:9090/configs", strings.NewReader(string(payload)))
+	// 使用动态 API 地址
+	req, err := http.NewRequest("PATCH", APIURL("/configs"), strings.NewReader(string(payload)))
 	if err != nil {
 		return fmt.Errorf("构建补丁请求失败: %v", err)
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := localAPIClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusNoContent {
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("内核返回错误码: %d", resp.StatusCode)
 	}
 	return nil

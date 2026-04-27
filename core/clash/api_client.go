@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -39,6 +41,101 @@ var streamClient = &http.Client{
 	Transport: noProxyTransport, // 日志流/长连接专用，无超时
 }
 
+// 🚀 3. 统一 API 基准地址管理，彻底消灭 127.0.0.1:9090 硬编码
+var apiBase = struct {
+	sync.RWMutex
+	value string
+}{
+	value: "http://127.0.0.1:9090", // 默认兜底
+}
+
+func normalizeAPIBaseURL(controller string) string {
+	controller = strings.TrimSpace(controller)
+	if controller == "" {
+		controller = "127.0.0.1:9090"
+	}
+
+	// 补全协议头
+	if !strings.HasPrefix(controller, "http://") && !strings.HasPrefix(controller, "https://") {
+		controller = "http://" + controller
+	}
+
+	u, err := url.Parse(controller)
+	if err != nil || u.Host == "" {
+		return "http://127.0.0.1:9090"
+	}
+
+	// 规格化：只保留协议、主机和端口
+	u.Path = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+
+	return strings.TrimRight(u.String(), "/")
+}
+
+// UpdateAPIBaseURL 动态更新内核控制接口的基础地址
+func UpdateAPIBaseURL(controller string) {
+	apiBase.Lock()
+	apiBase.value = normalizeAPIBaseURL(controller)
+	apiBase.Unlock()
+}
+
+// APIURL 构造完整的 HTTP 请求地址
+func APIURL(path string) string {
+	apiBase.RLock()
+	base := apiBase.value
+	apiBase.RUnlock()
+
+	if base == "" {
+		base = "http://127.0.0.1:9090"
+	}
+
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	return base + path
+}
+
+// APIWSURL 构造完整的 WebSocket 请求地址
+func APIWSURL(path string) string {
+	apiBase.RLock()
+	base := apiBase.value
+	apiBase.RUnlock()
+
+	if base == "" {
+		base = "http://127.0.0.1:9090"
+	}
+
+	u, err := url.Parse(base)
+	if err != nil {
+		return "ws://127.0.0.1:9090" + path
+	}
+
+	// 协议转换
+	if u.Scheme == "https" {
+		u.Scheme = "wss"
+	} else {
+		u.Scheme = "ws"
+	}
+
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	u.Path = path
+	u.RawQuery = ""
+
+	return u.String()
+}
+
+// APIWSURLWithRawQuery 构造带参数的 WebSocket 请求地址
+func APIWSURLWithRawQuery(path string, rawQuery string) string {
+	u, _ := url.Parse(APIWSURL(path))
+	u.RawQuery = rawQuery
+	return u.String()
+}
+
 // FetchLogs 获取实时日志流并执行回调（带自动重连）
 func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) {
 	if level == "" {
@@ -53,7 +150,7 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 		default:
 		}
 
-		apiURL := fmt.Sprintf("http://127.0.0.1:9090/logs?level=%s", level)
+		apiURL := APIURL(fmt.Sprintf("/logs?level=%s", level))
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err != nil {
 			// 👇 核心修复 1：使用显式的 Timer 替代 time.After
@@ -80,14 +177,47 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 			continue
 		}
 
+		const logIdleTimeout = 70 * time.Second
 		decoder := json.NewDecoder(resp.Body)
+		idleTimer := time.NewTimer(logIdleTimeout)
+		stopIdle := make(chan struct{})
+
+		// 🚀 新增：Idle Watchdog 协程
+		go func() {
+			select {
+			case <-ctx.Done():
+				resp.Body.Close()
+			case <-idleTimer.C:
+				// 超过 70 秒没有收到任何日志，主动断开以触发重连
+				resp.Body.Close()
+			case <-stopIdle:
+				// 循环结束，停止监控
+			}
+		}()
+
 		for {
 			var logData map[string]interface{}
 			if err := decoder.Decode(&logData); err != nil {
-				// 发生断流或解码错误，关闭 Body 跳出内层循环进行重连
+				close(stopIdle)
+				if !idleTimer.Stop() {
+					select {
+					case <-idleTimer.C:
+					default:
+					}
+				}
 				resp.Body.Close()
 				break
 			}
+
+			// 收到数据，重置探活计时器
+			if !idleTimer.Stop() {
+				select {
+				case <-idleTimer.C:
+				default:
+				}
+			}
+			idleTimer.Reset(logIdleTimeout)
+
 			onLog(logData)
 		}
 	}
@@ -101,8 +231,10 @@ func GetProxyDelay(ctx context.Context, proxyName string, testUrl string) (int, 
 	}
 	timeout := 5000
 
-	apiURL := fmt.Sprintf("http://127.0.0.1:9090/proxies/%s/delay?timeout=%d&url=%s",
-		encodedName, timeout, url.QueryEscape(testUrl))
+	apiURL := fmt.Sprintf("%s?timeout=%d&url=%s",
+		APIURL("/proxies/"+encodedName+"/delay"),
+		timeout,
+		url.QueryEscape(testUrl))
 
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
@@ -135,7 +267,7 @@ func GetProxyDelay(ctx context.Context, proxyName string, testUrl string) (int, 
 // GetInitialData 获取模式和代理组信息
 func GetInitialData() (map[string]interface{}, error) {
 	// 使用 localAPIClient 替换 http.Get
-	respConfig, err := localAPIClient.Get("http://127.0.0.1:9090/configs")
+	respConfig, err := localAPIClient.Get(APIURL("/configs"))
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +278,7 @@ func GetInitialData() (map[string]interface{}, error) {
 		return nil, err
 	}
 
-	respProxies, err := localAPIClient.Get("http://127.0.0.1:9090/proxies")
+	respProxies, err := localAPIClient.Get(APIURL("/proxies"))
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +297,7 @@ func GetInitialData() (map[string]interface{}, error) {
 
 // UpdateMode 切换代理模式
 func UpdateMode(mode string) error {
-	req, err := http.NewRequest("PATCH", "http://127.0.0.1:9090/configs", bytes.NewBuffer([]byte(`{"mode":"`+mode+`"}`)))
+	req, err := http.NewRequest("PATCH", APIURL("/configs"), bytes.NewBuffer([]byte(`{"mode":"`+mode+`"}`)))
 	if err != nil {
 		return err
 	}
@@ -185,7 +317,7 @@ func SelectProxy(groupName, proxyName string) error {
 	body := map[string]string{"name": proxyName}
 	jsonBody, _ := json.Marshal(body)
 
-	req, err := http.NewRequest("PUT", "http://127.0.0.1:9090/proxies/"+encodedGroup, bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequest("PUT", APIURL("/proxies/"+encodedGroup), bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return err
 	}
@@ -201,7 +333,7 @@ func SelectProxy(groupName, proxyName string) error {
 
 // GetConnectionsRaw 获取实时连接原始数据
 func GetConnectionsRaw() ([]byte, error) {
-	resp, err := localAPIClient.Get("http://127.0.0.1:9090/connections")
+	resp, err := localAPIClient.Get(APIURL("/connections"))
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +346,7 @@ func GetConnectionsRaw() ([]byte, error) {
 
 // CloseConnection 断开指定的单个连接
 func CloseConnection(id string) error {
-	req, err := http.NewRequest(http.MethodDelete, "http://127.0.0.1:9090/connections/"+id, nil)
+	req, err := http.NewRequest(http.MethodDelete, APIURL("/connections/"+id), nil)
 	if err != nil {
 		return err
 	}
@@ -228,7 +360,7 @@ func CloseConnection(id string) error {
 
 // CloseAllConnections 断开所有活动连接
 func CloseAllConnections() error {
-	req, err := http.NewRequest(http.MethodDelete, "http://127.0.0.1:9090/connections", nil)
+	req, err := http.NewRequest(http.MethodDelete, APIURL("/connections"), nil)
 	if err != nil {
 		return err
 	}
@@ -242,7 +374,7 @@ func CloseAllConnections() error {
 
 // GetVersion 获取内核版本号
 func GetVersion() string {
-	resp, err := localAPIClient.Get("http://127.0.0.1:9090/version")
+	resp, err := localAPIClient.Get(APIURL("/version"))
 	if err != nil {
 		return ""
 	}
@@ -271,7 +403,7 @@ func FlushFakeIP() error {
 	}
 
 	// 3. 只有确认是 Fake-IP 模式，才真正向内核发送清理请求
-	req, _ := http.NewRequest("POST", "http://127.0.0.1:9090/cache/fakeip/flush", nil)
+	req, _ := http.NewRequest("POST", APIURL("/cache/fakeip/flush"), nil)
 	resp, err := localAPIClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("清理指令未送达内核: %v", err)
