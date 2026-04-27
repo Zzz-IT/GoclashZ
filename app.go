@@ -2600,15 +2600,32 @@ func (a *App) updateAllGeoDatabases(ctx context.Context, types []string) error {
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(tasks))
 
-	// 1. ⚡ 开启多协程，并发无感下载所有文件
+	// 1. ⚡ 开启多协程，并发无感下载所有文件 (限流 2)
+	sem := make(chan struct{}, 2)
 	for _, t := range tasks {
 		wg.Add(1)
 		go func(task dbTask) {
 			defer wg.Done()
+			
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+			}
+
+			runtime.EventsEmit(a.ctx, "geodb-update-"+task.key+"-start")
+
 			tempPath := filepath.Join(binDir, task.file+".temp")
 			if err := downloadFileWithRetry(ctx, tempPath, task.url); err != nil {
+				runtime.EventsEmit(a.ctx, "geodb-update-"+task.key+"-error", err.Error())
 				errChan <- fmt.Errorf("[%s] 下载失败: %v", task.key, err)
+				return
 			}
+			
+			// 此时文件已下载好放在 temp，尚未替换
+			runtime.EventsEmit(a.ctx, "geodb-update-"+task.key+"-success")
 		}(t)
 	}
 

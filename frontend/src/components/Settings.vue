@@ -136,8 +136,8 @@
                   <p v-else style="font-size: 0.75rem; color: var(--red-text); margin-top: 2px;">文件不存在，请点击更新同步</p>
                 </div>
                 <div class="btn-group" style="flex-shrink: 0;">
-                  <button class="action-btn" @click="openDbEditModal(db.key, behavior[db.behaviorKey])" :disabled="isUpdatingAnyDb">编辑链接</button>
-                  <button class="action-btn" @click="handleUpdateDb(db.key)" :disabled="isUpdatingAnyDb">
+                  <button class="action-btn" @click="openDbEditModal(db.key, behavior[db.behaviorKey])" :disabled="updatingDbs[db.key]">编辑链接</button>
+                  <button class="action-btn" @click="handleUpdateDb(db.key)" :disabled="updatingDbs[db.key] || updatingAllDbs">
                     {{ updatingDbs[db.key] ? '同步中...' : '更新同步' }}
                   </button>
                 </div>
