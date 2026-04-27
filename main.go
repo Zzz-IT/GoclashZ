@@ -5,119 +5,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
+	"goclashz/core/sys"
 	"goclashz/core/utils"
-	syswin "golang.org/x/sys/windows" // 👈 引入 windows 底层包并起别名，避免与 Wails 的 windows 冲突
-	"strings"
-	"time"
-	"unsafe"
+	syswin "golang.org/x/sys/windows"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
-
-// 引入 User32.dll 用于唤醒窗口
-var (
-	user32                  = syswin.NewLazySystemDLL("user32.dll")
-	procFindWindow          = user32.NewProc("FindWindowW")
-	procShowWindow          = user32.NewProc("ShowWindow")
-	procBringWindowToTop    = user32.NewProc("BringWindowToTop")    // 🚀 新增
-	procSetForegroundWindow = user32.NewProc("SetForegroundWindow") // 🚀 新增
-	procGetForegroundWindow = user32.NewProc("GetForegroundWindow")
-	procIsWindowVisible     = user32.NewProc("IsWindowVisible")
-	procIsIconic            = user32.NewProc("IsIconic")
-	procFlashWindowEx       = user32.NewProc("FlashWindowEx")
-)
-
-// FLASHWINFO 结构体，用于配置闪烁行为
-type FLASHWINFO struct {
-	CbSize    uint32
-	Hwnd      syswin.Handle
-	DwFlags   uint32
-	UCount    uint32
-	DwTimeout uint32
-}
-
-const (
-	FLASHW_STOP      = 0x00000000 // 🚀 新增：用于强制终止闪烁状态
-	FLASHW_CAPTION   = 0x00000001 // 闪烁标题栏
-	FLASHW_TRAY      = 0x00000002 // 闪烁任务栏按钮
-	FLASHW_ALL       = 0x00000003 // 同时闪烁
-	FLASHW_TIMERNOFG = 0x0000000C // 虽保留定义，但不再使用它组合以避免“红而不退”
-
-	SW_RESTORE = 9 // 🚀 新增：用于恢复最小化的窗口
-)
-
-// 🛡️ 辅助函数：根据窗口标题查找主窗口句柄
-func findMainWindow() uintptr {
-	windowName, _ := syswin.UTF16PtrFromString("GoclashZ")
-	hwnd, _, _ := procFindWindow.Call(0, uintptr(unsafe.Pointer(windowName)))
-	return hwnd
-}
-
-// 🛡️ 辅助函数：强行重置任务栏闪烁状态，彻底消除红点顽疾
-func stopTaskbarFlash(hwnd uintptr) {
-	if hwnd == 0 {
-		return
-	}
-	finfo := FLASHWINFO{
-		CbSize:    uint32(unsafe.Sizeof(FLASHWINFO{})),
-		Hwnd:      syswin.Handle(hwnd),
-		DwFlags:   FLASHW_STOP,
-		UCount:    0,
-		DwTimeout: 0,
-	}
-	procFlashWindowEx.Call(uintptr(unsafe.Pointer(&finfo)))
-}
-
-// 🛡️ 辅助函数：执行标准化的“快速”闪烁并自动清理
-func flashWindowTwice(hwnd uintptr) {
-	if hwnd == 0 {
-		return
-	}
-	// 1. 先清一次旧状态，避免上一次闪烁残留干扰
-	stopTaskbarFlash(hwnd)
-
-	// 2. 节奏加快 (150ms)，次数回归 2 次，且仅针对 TRAY 闪烁以实现“深红到没有”的清爽感
-	finfo := FLASHWINFO{
-		CbSize:    uint32(unsafe.Sizeof(FLASHWINFO{})),
-		Hwnd:      syswin.Handle(hwnd),
-		DwFlags:   FLASHW_TRAY, // 改为仅任务栏，视觉上更干净
-		UCount:    2,
-		DwTimeout: 150, // 节奏加快
-	}
-	procFlashWindowEx.Call(uintptr(unsafe.Pointer(&finfo)))
-
-	// 3. 异步延时等待闪烁动作完成，然后强制清空状态位
-	go func() {
-		time.Sleep(800 * time.Millisecond)
-		stopTaskbarFlash(hwnd)
-	}()
-}
-
-// 🛡️ 辅助函数：将窗口暴力拉到最前台并获取焦点
-func focusWindow(hwnd uintptr) {
-	if hwnd == 0 {
-		return
-	}
-	// 组合拳：恢复窗口 -> 提到顶层 -> 设为前台焦点
-	procShowWindow.Call(hwnd, SW_RESTORE)
-	procBringWindowToTop.Call(hwnd)
-	procSetForegroundWindow.Call(hwnd)
-}
-
-// 🛡️ 终极入口：唤醒主窗口并执行标准的双次闪烁 (供 main.go 和 app.go 共享)
-func focusMainWindowAndFlashTwice() {
-	hwnd := findMainWindow()
-	if hwnd != 0 {
-		focusWindow(hwnd)
-		flashWindowTwice(hwnd)
-	}
-}
 
 func main() {
 	// 1. 判断是否为 Wails 开发模式 (模仿 Stelliberty 放行 Debug)
@@ -137,10 +37,10 @@ func main() {
 		// ✅ 核心修复：直接通过系统调用返回的 err 判断，切勿使用 GetLastError()
 		if err != nil {
 			if err == syswin.ERROR_ALREADY_EXISTS {
-				fmt.Println("⚠️ GoclashZ 已经在后台运行，正在唤醒窗口并闪烁两次...")
+				fmt.Println("⚠️ GoclashZ 已经在后台运行，正在唤醒已有窗口...")
 				
-				// 🚀 核心重构：调用统一的唤醒与闪烁函数
-				focusMainWindowAndFlashTwice()
+				// 🚀 核心重构：调用统一的唤醒与闪烁函数 (由 core/sys 提供)
+				sys.FocusMainWindowAndFlashTwiceWin32Only()
 				
 				// 显式释放内核互斥锁句柄
 				if mutexHandle != 0 {

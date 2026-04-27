@@ -2066,43 +2066,26 @@ func (a *App) onTrayReady() {
 	systray.SetTitle("GoclashZ")
 	systray.SetTooltip("GoclashZ 代理客户端")
 
-	// 1. 抽离显示界面的逻辑
-	showMainUI := func() {
-		runtime.WindowShow(a.ctx)
-		runtime.WindowUnminimise(a.ctx)
-
-		// 🚀 核心对齐：统一调用 main.go 提供的公共函数实现“夺焦 + 闪烁 2 次”
-		focusMainWindowAndFlashTwice()
-
-		a.mu.RLock()
-		ready := a.appUpdateReady
-		ver := a.newAppVersion
-		a.mu.RUnlock()
-		if ready {
-			runtime.EventsEmit(a.ctx, "app-update-ready", ver)
-		}
-	}
-
-	// 2. 核心魔法：使用 energye 提供的独立鼠标事件
+	// 1. 核心魔法：使用 energye 提供的独立鼠标事件
 	// 左键单击 (保持为空，不自动打开窗口)
 	systray.SetOnClick(func(menu systray.IMenu) {
-		// showMainUI() 
+		// 不做任何动作
 	})
 	
-	// 左键双击
+	// 左键双击：执行“显示/隐藏”状态切换
 	systray.SetOnDClick(func(menu systray.IMenu) {
-		showMainUI()
+		go toggleMainWindowFromTray(a)
 	})
 	
-	// 右键单击（注意：接管右键后，必须显式调用 menu.ShowMenu() 才会弹出你添加的菜单）
+	// 右键单击：弹出菜单
 	systray.SetOnRClick(func(menu systray.IMenu) {
 		menu.ShowMenu() 
 	})
 
-	// 3. 菜单定义与点击回调绑定
+	// 2. 菜单定义与点击回调绑定
 	mShow := systray.AddMenuItem("显示主界面", "打开 GoclashZ 面板")
 	mShow.Click(func() {
-		showMainUI()
+		go showMainWindowFromTrayAndFlash(a)
 	})
 	systray.AddSeparator() // ----------------------
 
