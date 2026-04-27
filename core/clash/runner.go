@@ -117,7 +117,7 @@ func Start(ctx context.Context) error {
 	}
 
 	// 准备环境 (检查内核与基础配置)
-	if err := PrepareEnv(); err != nil {
+	if err := PrepareEnv(ctx); err != nil {
 		return err
 	}
 

@@ -2,6 +2,7 @@ package clash
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"goclashz/core/downloader"
 	"goclashz/core/utils"
 )
 
@@ -31,14 +33,18 @@ func looksLikePE(data []byte) bool {
 	return len(data) >= 2 && data[0] == 'M' && data[1] == 'Z'
 }
 
+const (
+	kernelURL    = "https://ghproxy.net/https://github.com/MetaCubeX/mihomo/releases/download/v1.18.3/mihomo-windows-amd64-v1.18.3.zip"
+	kernelZipSHA = "" // 🚀 留空：当前内核源未配置 SHA256 校验，仅作结构预留
+)
+
 // 🎯 优化：复用 Wintun 风格的缓冲拷贝逻辑，提升大文件处理速度并增加请求稳定性
-func downloadAndExtractKernel(destDir, finalExePath string) error {
-	kernelURL := "https://ghproxy.net/https://github.com/MetaCubeX/mihomo/releases/download/v1.18.3/mihomo-windows-amd64-v1.18.3.zip"
+func downloadAndExtractKernel(ctx context.Context, destDir, finalExePath string) error {
 	zipPath := filepath.Join(destDir, "core_temp.zip")
 
 	// 1. 下载 ZIP (优化请求与接收流)
-	client := &http.Client{Timeout: 120 * time.Second} // 内核稍大，给 2 分钟超时
-	req, err := http.NewRequest("GET", kernelURL, nil)
+	client := &http.Client{Timeout: 300 * time.Second} // 内核稍大，给 5 分钟超时
+	req, err := http.NewRequestWithContext(ctx, "GET", kernelURL, nil)
 	if err != nil {
 		return err
 	}
@@ -66,6 +72,14 @@ func downloadAndExtractKernel(destDir, finalExePath string) error {
 	if err != nil {
 		os.Remove(zipPath)
 		return fmt.Errorf("写入压缩包异常中断: %v", err)
+	}
+
+	// 1.5 校验 SHA256
+	if kernelZipSHA != "" {
+		if err := downloader.VerifySHA256(zipPath, kernelZipSHA); err != nil {
+			_ = os.Remove(zipPath)
+			return fmt.Errorf("内核压缩包校验失败: %v", err)
+		}
 	}
 
 	// 2. 解压并提取 (修复解除文件锁定逻辑)
@@ -132,7 +146,7 @@ func downloadAndExtractKernel(destDir, finalExePath string) error {
 }
 
 // PrepareEnv 检查内核并生成基础配置
-func PrepareEnv() error {
+func PrepareEnv(ctx context.Context) error {
 	binDir := utils.GetCoreBinDir() // 取向安全的 DataDir
 	exePath := filepath.Join(binDir, "clash.exe")
 	configPath := filepath.Join(utils.GetDataDir(), "config.yaml")
@@ -144,7 +158,7 @@ func PrepareEnv() error {
 	if !isUsableFile(exePath, minKernelSize) {
 		fmt.Println("👉 未检测到内核或内核已损坏，正在自动下载至安全目录...")
 		_ = os.Remove(exePath)
-		if err := downloadAndExtractKernel(binDir, exePath); err != nil {
+		if err := downloadAndExtractKernel(ctx, binDir, exePath); err != nil {
 			return err
 		}
 		if !isUsableFile(exePath, minKernelSize) {
@@ -168,7 +182,7 @@ log-level: info
 	if !isUsableFile(wintunPath, minWintunSize) {
 		fmt.Println("👉 未检测到 wintun.dll 或文件已损坏，正在下载以支持 TUN 模式...")
 		_ = os.Remove(wintunPath)
-		if err := downloadWintun(binDir); err != nil {
+		if err := downloadWintun(ctx, binDir); err != nil {
 			fmt.Printf("⚠️ wintun.dll 下载失败 (TUN 模式将不可用): %v\n", err)
 		} else {
 			fmt.Println("✅ wintun.dll 准备就绪")
@@ -178,10 +192,10 @@ log-level: info
 	return nil
 }
 
-func downloadWintun(destDir string) error {
+func downloadWintun(ctx context.Context, destDir string) error {
 	wintunURL := "https://ghproxy.net/https://github.com/Zzz-IT/GoclashZ/releases/download/v0.0.1/wintun.dll"
 	client := &http.Client{Timeout: 60 * time.Second}
-	req, err := http.NewRequest("GET", wintunURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", wintunURL, nil)
 	if err != nil {
 		return err
 	}
@@ -228,6 +242,9 @@ func ExtractKernel(zipPath, destExePath string) error {
 	defer r.Close()
 
 	buf := make([]byte, 32*1024)
+	tmpPath := destExePath + ".tmp"
+	_ = os.Remove(tmpPath)
+
 	for _, f := range r.File {
 		if strings.HasSuffix(strings.ToLower(f.Name), ".exe") {
 			rc, err := f.Open()
@@ -235,17 +252,35 @@ func ExtractKernel(zipPath, destExePath string) error {
 				return err
 			}
 
-			outFile, err := os.Create(destExePath)
+			outFile, err := os.Create(tmpPath)
 			if err != nil {
 				rc.Close()
 				return err
 			}
 
-			_, err = io.CopyBuffer(outFile, rc, buf)
-			outFile.Close()
+			_, copyErr := io.CopyBuffer(outFile, rc, buf)
+			closeErr := outFile.Close()
 			rc.Close()
 
-			return err
+			if copyErr != nil {
+				_ = os.Remove(tmpPath)
+				return copyErr
+			}
+			if closeErr != nil {
+				_ = os.Remove(tmpPath)
+				return closeErr
+			}
+
+			if !isUsableFile(tmpPath, minKernelSize) {
+				_ = os.Remove(tmpPath)
+				return fmt.Errorf("内核解压后校验失败：文件过小或损坏")
+			}
+
+			if err := os.Rename(tmpPath, destExePath); err != nil {
+				_ = os.Remove(tmpPath)
+				return err
+			}
+			return nil
 		}
 	}
 	return fmt.Errorf("未在压缩包中找到 .exe 文件")

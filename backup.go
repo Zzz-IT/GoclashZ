@@ -139,9 +139,21 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 	cleanDataDir := filepath.Clean(dataDir)
 	var backupIndex []clash.SubIndexItem
 
-	// 获取全局 IO 锁，防止与后台自动保存冲突
+	// 获取全局 IO LOCK，防止与后台自动保存冲突
 	a.behaviorIOMu.Lock()
 	defer a.behaviorIOMu.Unlock()
+
+	const (
+		maxRestoreFiles  = 1000
+		maxRestoreTotal  = 300 * 1024 * 1024
+		maxRestoreSingle = 50 * 1024 * 1024
+	)
+
+	if len(zr.File) > maxRestoreFiles {
+		return "", fmt.Errorf("备份文件数量过多，拒绝恢复")
+	}
+
+	var totalUncompressed uint64
 
 	for _, f := range zr.File {
 		// 🚀 修复：遇到压缩包中的纯目录节点直接跳过，因为后续文件解压时会通过 MkdirAll 自动创建所需目录
@@ -169,10 +181,24 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 		if f.Name == "profiles/index.json" && (mode == "all" || mode == "subs") {
 			rc, err := f.Open()
 			if err == nil {
-				_ = json.NewDecoder(rc).Decode(&backupIndex)
+				if err := json.NewDecoder(rc).Decode(&backupIndex); err != nil {
+					rc.Close()
+					return "", fmt.Errorf("解析备份索引失败: %v", err)
+				}
 				rc.Close()
+			} else {
+				return "", fmt.Errorf("读取备份索引失败: %v", err)
 			}
 			continue
+		}
+
+		// Zip Bomb 防护
+		if f.UncompressedSize64 > maxRestoreSingle {
+			return "", fmt.Errorf("备份内单文件过大: %s", f.Name)
+		}
+		totalUncompressed += f.UncompressedSize64
+		if totalUncompressed > maxRestoreTotal {
+			return "", fmt.Errorf("备份总体积过大，拒绝恢复")
 		}
 
 		destPath := filepath.Join(dataDir, filepath.FromSlash(f.Name))
@@ -183,17 +209,30 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 		}
 
 		// 无条件覆盖本地，实现“备份是什么样就还原成什么样”
-		os.MkdirAll(filepath.Dir(destPath), 0755)
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return "", err
+		}
 
 		rc, err := f.Open()
 		if err != nil {
-			continue
+			return "", err
 		}
 		
 		dstFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-		if err == nil {
-			io.Copy(dstFile, rc)
+		if err != nil {
+			rc.Close()
+			return "", err
+		}
+
+		if _, err := io.Copy(dstFile, rc); err != nil {
 			dstFile.Close()
+			rc.Close()
+			return "", err
+		}
+
+		if err := dstFile.Close(); err != nil {
+			rc.Close()
+			return "", err
 		}
 		rc.Close()
 	}

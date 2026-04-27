@@ -2,6 +2,7 @@ package sys
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,7 +27,7 @@ func IsWintunInstalled() bool {
 	return err == nil
 }
 
-func InstallWintun(force bool) (string, error) {
+func InstallWintun(ctx context.Context, force bool) (string, error) {
 	if !force && IsWintunInstalled() {
 		return "ALREADY_LATEST", nil
 	}
@@ -39,21 +40,21 @@ func InstallWintun(force bool) (string, error) {
 		return "自动下载官方"
 	}())
 
-	if err := downloadAndExtractWintun(targetPath); err != nil {
+	if err := downloadAndExtractWintun(ctx, targetPath); err != nil {
 		return "", fmt.Errorf("Wintun 驱动安装失败: %v", err)
 	}
 
 	return "SUCCESS", nil
 }
 
-func downloadAndExtractWintun(finalDllPath string) error {
+func downloadAndExtractWintun(ctx context.Context, finalDllPath string) error {
 	destDir := filepath.Dir(finalDllPath)
 	os.MkdirAll(destDir, 0755)
 	zipPath := filepath.Join(destDir, "wintun_temp.zip")
 
 	// 1. 下载 ZIP (优化请求与接收流)
 	client := &http.Client{Timeout: 60 * time.Second}
-	req, err := http.NewRequest("GET", WintunDownloadURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", WintunDownloadURL, nil)
 	if err != nil {
 		return err
 	}
@@ -83,14 +84,13 @@ func downloadAndExtractWintun(finalDllPath string) error {
 		return fmt.Errorf("数据流接收异常中断: %v", err)
 	}
 
-	// 2. 解压并提取 (🚀 核心修复：使用 defer 保证资源释放与清理)
+	// 2. 解压并提取
 	var r *zip.ReadCloser
-
 	defer func() {
 		if r != nil {
-			r.Close() // 释放系统级文件锁
+			r.Close()
 		}
-		os.Remove(zipPath) // 安全删除临时压缩包
+		os.Remove(zipPath)
 	}()
 
 	r, err = zip.OpenReader(zipPath)
@@ -105,17 +105,41 @@ func downloadAndExtractWintun(finalDllPath string) error {
 			if err != nil {
 				return err
 			}
-			outFile, err := os.Create(finalDllPath)
+
+			tmpDllPath := finalDllPath + ".tmp"
+			_ = os.Remove(tmpDllPath)
+
+			outFile, err := os.Create(tmpDllPath)
 			if err != nil {
 				rc.Close()
 				return err
 			}
-			// 再次使用缓冲提升解压释放速度
-			_, err = io.CopyBuffer(outFile, rc, buf)
-			outFile.Close()
+
+			_, copyErr := io.CopyBuffer(outFile, rc, buf)
+			closeErr := outFile.Close()
 			rc.Close()
-			
+
+			if copyErr != nil {
+				_ = os.Remove(tmpDllPath)
+				return copyErr
+			}
+			if closeErr != nil {
+				_ = os.Remove(tmpDllPath)
+				return closeErr
+			}
+
+			data, err := os.ReadFile(tmpDllPath)
 			if err != nil {
+				_ = os.Remove(tmpDllPath)
+				return err
+			}
+			if len(data) < 32*1024 || len(data) > 5*1024*1024 || data[0] != 'M' || data[1] != 'Z' {
+				_ = os.Remove(tmpDllPath)
+				return fmt.Errorf("wintun.dll 校验失败")
+			}
+
+			if err := os.Rename(tmpDllPath, finalDllPath); err != nil {
+				_ = os.Remove(tmpDllPath)
 				return err
 			}
 			found = true

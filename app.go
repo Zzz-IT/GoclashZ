@@ -86,6 +86,9 @@ type App struct {
 
 	autoTestQuit chan struct{} // 👇 用于停止旧的定时任务
 	autoTestMu   sync.Mutex    // 保护定时任务的切换
+
+	taskMu sync.Mutex
+	tasks  map[string]context.CancelFunc
 }
 
 // AppBehavior 定义应用行为设置
@@ -725,9 +728,51 @@ func NewApp() *App {
 		activeMode:     "", // 留空，待 loadActiveMode 加载
 		sysProxyActive: false,
 		tunActive:      false,
+		tasks:          make(map[string]context.CancelFunc),
 	}
 	app.loadOfflineNodes() // 👈 新增：启动时加载离线选择记录
 	return app
+}
+
+func (a *App) runAsyncTask(name string, fn func(ctx context.Context) error) {
+	a.taskMu.Lock()
+
+	if a.tasks == nil {
+		a.tasks = make(map[string]context.CancelFunc)
+	}
+
+	if oldCancel, exists := a.tasks[name]; exists {
+		oldCancel()
+	}
+
+	taskCtx, cancel := context.WithCancel(a.ctx)
+	a.tasks[name] = cancel
+
+	a.taskMu.Unlock()
+
+	go func() {
+		runtime.EventsEmit(a.ctx, name+"-start")
+
+		err := fn(taskCtx)
+
+		a.taskMu.Lock()
+		if current, ok := a.tasks[name]; ok {
+			current()
+			delete(a.tasks, name)
+		}
+		a.taskMu.Unlock()
+
+		if err != nil {
+			if taskCtx.Err() != nil {
+				runtime.EventsEmit(a.ctx, name+"-cancelled")
+				return
+			}
+			runtime.EventsEmit(a.ctx, name+"-error", err.Error())
+			return
+		}
+
+		runtime.EventsEmit(a.ctx, name+"-success")
+	}()
 }
 
 // 清理早期版本遗留的废弃配置文件
@@ -831,7 +876,7 @@ func (a *App) startDaemonTasks() {
 		}
 
 		if shouldCheck {
-			a.CheckAndDownloadAppUpdate()
+			a.CheckAndDownloadAppUpdateAsync()
 
 			// 无论检查成功与否，更新最后检查时间
 			a.behaviorMu.Lock()
@@ -1238,9 +1283,11 @@ func (a *App) updateSingleSub(ctx context.Context, id string) error {
 	return nil
 }
 
-// UpdateAllSubs 导出给前端
-func (a *App) UpdateAllSubs() error {
-	return a.updateAllSubs(a.ctx)
+// UpdateAllSubsAsync 导出给前端的异步方法
+func (a *App) UpdateAllSubsAsync() {
+	a.runAsyncTask("subs-update", func(ctx context.Context) error {
+		return a.updateAllSubs(ctx)
+	})
 }
 
 // updateAllSubs 内部实现
@@ -1627,7 +1674,7 @@ func (a *App) InstallTunDriver(force bool) (string, error) {
 	}
 
 	// 3. 执行真正的底层下载/解压安装逻辑 (此时 force 必然为 true 或者文件原本就不存在)
-	status, err := sys.InstallWintun(force)
+	status, err := sys.InstallWintun(a.ctx, force)
 
 	// 4. 灾难恢复与回滚
 	if err != nil {
@@ -2301,7 +2348,7 @@ func (a *App) UpdateCoreComponent() (string, error) {
 	newExePath := filepath.Join(binDir, "clash_new.exe")
 
 	// 4. 下载到临时压缩包
-	err = downloadFileWithRetry(tempZip, directURL)
+	err = downloadFileWithRetry(a.ctx, tempZip, directURL)
 	if err != nil {
 		return "", fmt.Errorf("下载新内核失败: %v", err)
 	}
@@ -2422,11 +2469,18 @@ func (a *App) FlashWindow() {
 // UpdateGeoDatabase 安全更新单一规则数据库文件
 func (a *App) UpdateGeoDatabase(dbType string) error {
 	// 逻辑合并到并发更新中去执行，复用代码
-	return a.UpdateAllGeoDatabases([]string{dbType})
+	return a.updateAllGeoDatabases(a.ctx, []string{dbType})
 }
 
-// UpdateAllGeoDatabases 一键并发更新所有数据库，利用 Go 协程极速下载，且仅停机一次内核
-func (a *App) UpdateAllGeoDatabases(types []string) error {
+// UpdateAllGeoDatabasesAsync 一键异步更新所有数据库
+func (a *App) UpdateAllGeoDatabasesAsync() {
+	a.runAsyncTask("geodb-update", func(ctx context.Context) error {
+		return a.updateAllGeoDatabases(ctx, nil)
+	})
+}
+
+// updateAllGeoDatabases 内部实现，带上下文与类型过滤
+func (a *App) updateAllGeoDatabases(ctx context.Context, types []string) error {
 	behavior := a.GetAppBehavior()
 
 	type dbTask struct {
@@ -2475,7 +2529,7 @@ func (a *App) UpdateAllGeoDatabases(types []string) error {
 		go func(task dbTask) {
 			defer wg.Done()
 			tempPath := filepath.Join(binDir, task.file+".temp")
-			if err := downloadFileWithRetry(tempPath, task.url); err != nil {
+			if err := downloadFileWithRetry(ctx, tempPath, task.url); err != nil {
 				errChan <- fmt.Errorf("[%s] 下载失败: %v", task.key, err)
 			}
 		}(t)
@@ -2642,23 +2696,30 @@ func getLatestAppReleaseURL(repo, osName, arch, suffix string) (string, string, 
 	return "", "", fmt.Errorf("未找到匹配的安装包")
 }
 
-// CheckAndDownloadAppUpdate 核心逻辑：静默比对、断点下载、分发通知
-func (a *App) CheckAndDownloadAppUpdate() {
+// CheckAndDownloadAppUpdateAsync 异步检查并下载应用更新
+func (a *App) CheckAndDownloadAppUpdateAsync() {
+	a.runAsyncTask("app-update", func(ctx context.Context) error {
+		return a.checkAndDownloadAppUpdate(ctx)
+	})
+}
+
+// checkAndDownloadAppUpdate 核心逻辑：静默比对、断点下载、分发通知
+func (a *App) checkAndDownloadAppUpdate(ctx context.Context) error {
 	directURL, latestVersion, err := getLatestAppReleaseURL("Zzz-IT/GoclashZ", "windows", "amd64", ".exe")
 	if err != nil {
-		return
+		return err
 	}
 
 	// 已经是最新版本，退出
 	if normalizeVersion(CurrentAppVersion) == normalizeVersion(latestVersion) {
-		return
+		return nil
 	}
 
 	// 👇 新增：获取并发锁，防止与手动点击起冲突
 	a.appUpdateTaskMu.Lock()
 	if a.isDownloadingApp {
 		a.appUpdateTaskMu.Unlock()
-		return // 已经在下载中了，直接忽略本次定时任务
+		return nil // 已经在下载中了，直接忽略本次定时任务
 	}
 	a.isDownloadingApp = true
 	a.appUpdateTaskMu.Unlock()
@@ -2684,7 +2745,7 @@ func (a *App) CheckAndDownloadAppUpdate() {
 				a.newAppVersion = latestVersion
 				a.mu.Unlock()
 				runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
-				return
+				return nil
 			} else {
 				// 🔴 版本不匹配（本地是旧包），删除旧包，强制重新下载
 				_ = os.Remove(exePath)
@@ -2694,10 +2755,10 @@ func (a *App) CheckAndDownloadAppUpdate() {
 	}
 
 	// ⚡ 执行静默下载，内含 5 次断线重连/断点续传机制
-	err = downloadAppUpdateWithRetry(directURL, exePath)
+	err = downloadAppUpdateWithRetry(ctx, directURL, exePath)
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "notify-error", "软件本体更新下载失败，请检查网络环境。")
-		return
+		return err
 	}
 
 	// 🚀 新增：下载彻底成功后，写入版本号文件，供下次校验使用
@@ -2711,6 +2772,7 @@ func (a *App) CheckAndDownloadAppUpdate() {
 
 	// 主动向前端广播更新就绪事件 (如果当前窗口是打开的，前端收到后直接弹窗)
 	runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
+	return nil
 }
 
 // ApplyAppUpdate 供前端调用：确认更新后，关闭应用并打开安装包
@@ -2785,7 +2847,7 @@ func (a *App) ManualCheckAppUpdate() (string, error) {
 			}
 		}
 
-		err := downloadAppUpdateWithRetry(directURL, exePath)
+		err := downloadAppUpdateWithRetry(a.ctx, directURL, exePath)
 		if err == nil {
 			// 写入版本校验文件
 			_ = os.WriteFile(versionPath, []byte(latestVersion), 0644)
@@ -2847,16 +2909,18 @@ func getLatestMihomoAssetURL(osName, arch, suffix string) (string, string, error
 }
 
 // downloadFileWithRetry 带有重试机制的文件下载封装
-func downloadFileWithRetry(destPath, url string) error {
+func downloadFileWithRetry(ctx context.Context, destPath, url string) error {
 	var lastErr error
 	for i := 0; i < 3; i++ {
 		// 🚀 调用 downloader.go 中的核心下载逻辑
-		lastErr = DownloadLargeFile(url, destPath)
+		lastErr = DownloadLargeFile(ctx, url, destPath)
 		if lastErr == nil {
 			return nil
 		}
 		// 失败后等待 2 秒再重试，给网络恢复留出时间
-		time.Sleep(2 * time.Second)
+		if !sleepOrDone(ctx, 2*time.Second) {
+			return ctx.Err()
+		}
 	}
 	return fmt.Errorf("三次尝试均失败: %v", lastErr)
 }

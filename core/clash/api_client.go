@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -301,6 +302,41 @@ func GetProxyDelay(ctx context.Context, proxyName string, testUrl string) (int, 
 	return -1, fmt.Errorf("invalid delay format")
 }
 
+func doKernelRequest(method, path string, body any, okStatus ...int) error {
+	var reader io.Reader
+
+	if body != nil {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reader = bytes.NewReader(payload)
+	}
+
+	req, err := http.NewRequest(method, APIURL(path), reader)
+	if err != nil {
+		return err
+	}
+
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := localAPIClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	for _, status := range okStatus {
+		if resp.StatusCode == status {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("内核 API 调用失败: %s %s -> HTTP %d", method, path, resp.StatusCode)
+}
+
 // GetInitialData 获取模式和代理组信息
 func GetInitialData() (map[string]interface{}, error) {
 	// 使用 localAPIClient 替换 http.Get
@@ -334,38 +370,24 @@ func GetInitialData() (map[string]interface{}, error) {
 
 // UpdateMode 切换代理模式
 func UpdateMode(mode string) error {
-	req, err := http.NewRequest("PATCH", APIURL("/configs"), bytes.NewBuffer([]byte(`{"mode":"`+mode+`"}`)))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := localAPIClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	return nil
+	return doKernelRequest(
+		http.MethodPatch,
+		"/configs",
+		map[string]string{"mode": mode},
+		http.StatusOK,
+		http.StatusNoContent,
+	)
 }
 
 // SelectProxy 切换代理节点
 func SelectProxy(groupName, proxyName string) error {
-	encodedGroup := url.PathEscape(groupName)
-	body := map[string]string{"name": proxyName}
-	jsonBody, _ := json.Marshal(body)
-
-	req, err := http.NewRequest("PUT", APIURL("/proxies/"+encodedGroup), bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := localAPIClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	return nil
+	return doKernelRequest(
+		http.MethodPut,
+		"/proxies/"+url.PathEscape(groupName),
+		map[string]string{"name": proxyName},
+		http.StatusOK,
+		http.StatusNoContent,
+	)
 }
 
 // GetConnectionsRaw 获取实时连接原始数据
@@ -383,30 +405,24 @@ func GetConnectionsRaw() ([]byte, error) {
 
 // CloseConnection 断开指定的单个连接
 func CloseConnection(id string) error {
-	req, err := http.NewRequest(http.MethodDelete, APIURL("/connections/"+id), nil)
-	if err != nil {
-		return err
-	}
-	resp, err := localAPIClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	return nil
+	return doKernelRequest(
+		http.MethodDelete,
+		"/connections/"+url.PathEscape(id),
+		nil,
+		http.StatusOK,
+		http.StatusNoContent,
+	)
 }
 
 // CloseAllConnections 断开所有活动连接
 func CloseAllConnections() error {
-	req, err := http.NewRequest(http.MethodDelete, APIURL("/connections"), nil)
-	if err != nil {
-		return err
-	}
-	resp, err := localAPIClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	return nil
+	return doKernelRequest(
+		http.MethodDelete,
+		"/connections",
+		nil,
+		http.StatusOK,
+		http.StatusNoContent,
+	)
 }
 
 // GetVersion 获取内核版本号

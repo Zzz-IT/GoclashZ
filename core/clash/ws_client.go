@@ -24,7 +24,7 @@ func StartConnectionMonitor(ctx context.Context) error {
 
 	connMutex.Lock()
 	var pollCtx context.Context
-	pollCtx, connCancel = context.WithCancel(context.Background())
+	pollCtx, connCancel = context.WithCancel(ctx)
 	connMutex.Unlock()
 
 	go func() {
@@ -36,7 +36,12 @@ func StartConnectionMonitor(ctx context.Context) error {
 			case <-pollCtx.Done():
 				return
 			case <-ticker.C:
-				resp, err := localAPIClient.Get(APIURL("/connections"))
+				req, err := http.NewRequestWithContext(pollCtx, http.MethodGet, APIURL("/connections"), nil)
+				if err != nil {
+					continue
+				}
+
+				resp, err := localAPIClient.Do(req)
 				if err != nil {
 					continue
 				}

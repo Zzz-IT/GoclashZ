@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,12 +11,24 @@ import (
 	"time"
 )
 
+func sleepOrDone(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
 // ==========================================
 // --- 软件本体更新专用下载器 (支持断点续传) ---
 // ==========================================
 
 // DownloadFileResumable 支持断点续传的大文件下载器
-func DownloadFileResumable(url string, destPath string) error {
+func DownloadFileResumable(ctx context.Context, url string, destPath string) error {
 	tmpPath := destPath + ".tmp"
 
 	var downloaded int64
@@ -24,7 +37,7 @@ func DownloadFileResumable(url string, destPath string) error {
 		downloaded = info.Size()
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err
 	}
@@ -76,15 +89,17 @@ func DownloadFileResumable(url string, destPath string) error {
 }
 
 // downloadAppUpdateWithRetry 带自动重连的下载循环封装
-func downloadAppUpdateWithRetry(url, destPath string) error {
+func downloadAppUpdateWithRetry(ctx context.Context, url, destPath string) error {
 	var lastErr error
 	// 断网或异常时，最多尝试续传重连 5 次，总共容忍约 15 秒的网络波动
 	for i := 0; i < 5; i++ {
-		lastErr = DownloadFileResumable(url, destPath)
+		lastErr = DownloadFileResumable(ctx, url, destPath)
 		if lastErr == nil {
 			return nil
 		}
-		time.Sleep(3 * time.Second)
+		if !sleepOrDone(ctx, 3*time.Second) {
+			return ctx.Err()
+		}
 	}
 	return fmt.Errorf("下载多次中断且重连均失败: %v", lastErr)
 }
@@ -100,18 +115,18 @@ var largeFileClient = &http.Client{
 }
 
 // DownloadFile 安全地下载普通文件 (用于订阅)
-func DownloadFile(url string, destPath string) error {
-    return doDownload(httpClient, url, destPath)
+func DownloadFile(ctx context.Context, url string, destPath string) error {
+    return doDownload(ctx, httpClient, url, destPath)
 }
 
 // 🚀 新增：用于 app.go 和 downloader.go 中的 UpdateCore / Geo 数据库下载
-func DownloadLargeFile(url string, destPath string) error {
-    return doDownload(largeFileClient, url, destPath)
+func DownloadLargeFile(ctx context.Context, url string, destPath string) error {
+    return doDownload(ctx, largeFileClient, url, destPath)
 }
 
 // 提取底层的原子下载逻辑
-func doDownload(client *http.Client, url string, destPath string) error {
-	req, err := http.NewRequest("GET", url, nil)
+func doDownload(ctx context.Context, client *http.Client, url string, destPath string) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err
 	}
@@ -148,7 +163,7 @@ func doDownload(client *http.Client, url string, destPath string) error {
 }
 
 // UpdateCore 安全更新内核文件（绕过正在运行的文件锁）
-func UpdateCore(url string, destPath string) error {
+func UpdateCore(ctx context.Context, url string, destPath string) error {
 	// 1. 🚀 核心修复：生成带有时间戳的唯一备份名，彻底避开“上次的 .old 文件仍被系统锁定”的死局
 	oldPath := fmt.Sprintf("%s.%d.old", destPath, time.Now().Unix())
 
@@ -158,7 +173,7 @@ func UpdateCore(url string, destPath string) error {
 	}
 
 	// 2. 此时原位置 destPath 已经空出来了，安全下载新内核
-	err := DownloadLargeFile(url, destPath) // 👈 替换为大文件专用方法
+	err := DownloadLargeFile(ctx, url, destPath) // 👈 替换为大文件专用方法
 	if err != nil {
 		// 🚨 兜底机制：如果新内核下载失败或损坏，把旧内核的名字改回来，保证软件还能用
 		_ = os.Rename(oldPath, destPath)
