@@ -22,22 +22,33 @@ func GetWintunPath() string {
 }
 
 func IsWintunInstalled() bool {
-	_, err := os.Stat(GetWintunPath())
-	return err == nil
+	path := GetWintunPath()
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+
+	// 校验1：大小在合理范围内 (32KB ~ 5MB)，防止 0 字节损坏文件
+	if info.Size() < 32*1024 || info.Size() > 5*1024*1024 {
+		return false
+	}
+
+	// 校验2：验证 PE 文件的特征码 (MZ 标识)
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	header := make([]byte, 2)
+	if _, err := io.ReadFull(f, header); err != nil {
+		return false
+	}
+	return header[0] == 'M' && header[1] == 'Z'
 }
 
 func InstallWintun(ctx context.Context, force bool) (string, error) {
-	if !force && IsWintunInstalled() {
-		return "ALREADY_LATEST", nil
-	}
-
 	targetPath := GetWintunPath()
-	fmt.Printf("👉 正在%s Wintun 驱动...\n", func() string {
-		if force {
-			return "重新下载并覆盖"
-		}
-		return "自动下载官方"
-	}())
+	fmt.Println("👉 正在重新下载并安装官方 Wintun 0.14.1 驱动...")
 
 	if err := downloadAndExtractWintun(ctx, targetPath); err != nil {
 		return "", fmt.Errorf("Wintun 驱动安装失败: %v", err)
@@ -115,9 +126,10 @@ func downloadAndExtractWintun(ctx context.Context, finalDllPath string) error {
 				_ = os.Remove(tmpDllPath)
 				return err
 			}
+			// 🌟 👈 [新增]：提取出来的文件也要过一遍完整性校验，防止下载中途损坏
 			if len(data) < 32*1024 || len(data) > 5*1024*1024 || data[0] != 'M' || data[1] != 'Z' {
 				_ = os.Remove(tmpDllPath)
-				return fmt.Errorf("wintun.dll 校验失败")
+				return fmt.Errorf("解压出的 wintun.dll 校验失败: 文件不完整")
 			}
 
 			if err := downloader.ReplaceFile(tmpDllPath, finalDllPath); err != nil {

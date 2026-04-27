@@ -9,6 +9,7 @@ import (
 	"goclashz/core/logger"
 	"goclashz/core/sys"
 	"goclashz/core/traffic"
+	"goclashz/core/downloader"
 	"goclashz/core/utils"
 	"os"
 	"os/exec"
@@ -1658,15 +1659,20 @@ func (a *App) RenameConfig(id, newName string) error {
 // 3. 提供给前端：安装驱动 (加入安全回滚与防占用机制)
 func (a *App) InstallTunDriverAsync(force bool) {
 	a.runAsyncTaskNoAutoSuccess("tun-driver-install", func(ctx context.Context) error {
-		res, err := sys.InstallWintun(ctx, force)
+		a.updateMu.Lock()
+		defer a.updateMu.Unlock()
+
+		// 强制传入 true 进行覆盖安装，无视前端传来的 force 参数
+		_, err := sys.InstallWintun(ctx, true)
 		if err != nil {
 			return err
 		}
-		if res == "ALREADY_LATEST" {
-			runtime.EventsEmit(a.ctx, "tun-driver-install-latest")
-			return nil
-		}
-		runtime.EventsEmit(a.ctx, "tun-driver-install-updated")
+
+		// 直接发送安装完成事件
+		runtime.EventsEmit(a.ctx, "tun-driver-install-updated", map[string]any{
+			"message": "Wintun 驱动安装完成",
+		})
+
 		return nil
 	})
 }
@@ -2407,95 +2413,95 @@ func (a *App) updateCoreComponent(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	// 3. 拦截：如果已经是最新，直接返回
+	// 🌟 拦截：如果是最新版，直接短路返回，绝不启动下载
+	// (前端监听到 "ALREADY_LATEST" 会触发 "core-update-latest" 并弹出卡片提示)
 	if localVersion != "" && latestVersion != "" && normalizeVersion(localVersion) == normalizeVersion(latestVersion) {
 		return "ALREADY_LATEST", nil
 	}
 
+	// 🚀 新增：为下载链接加上镜像代理，解决国内 GitHub 下载慢/断流导致校验失败的问题
+	if !strings.HasPrefix(directURL, "https://ghproxy.net/") {
+		directURL = "https://ghproxy.net/" + directURL
+	}
+
 	// ==========================================
-	// ⚡ 以下是无感下载阶段 (此时代理仍在正常运行！)
+	// ⚡ 1. 安全下载阶段 (此时旧内核还在正常运行)
 	// ==========================================
 	tempZip := filepath.Join(binDir, "core_temp.zip")
 	newExePath := filepath.Join(binDir, "clash_new.exe")
 
-	// 4. 下载到临时压缩包
+	// 这里会自动拉取 GitHub 的 digest 进行 SHA256 比对。
+	// 如果文件不完整或哈希不对，底层会直接删掉 core_temp.zip 并报错，下面的流程根本不会执行，老内核绝对安全！
 	err = downloadFileWithRetry(ctx, tempZip, directURL)
 	if err != nil {
-		return "", fmt.Errorf("下载新内核失败: %v", err)
+		return "", fmt.Errorf("下载或哈希校验未通过: %v", err)
 	}
 
-	// 5. 提取新 .exe 到一旁备用
+	// 提取新 .exe 到一旁备用
 	err = clash.ExtractKernel(tempZip, newExePath)
-	os.Remove(tempZip) // 解压完直接把 zip 删了
+	os.Remove(tempZip) // 解压完销毁 zip
 	if err != nil {
 		os.Remove(newExePath)
-		return "", fmt.Errorf("解压内核失败，已清理残留: %v", err)
+		return "", fmt.Errorf("解压内核失败，已清理: %v", err)
 	}
 
 	// ==========================================
-	// ⚡ 以下是原子替换阶段 (仅在此刻产生百毫秒级的断流)
+	// ⚡ 2. 原子替换与回滚阶段
 	// ==========================================
-	a.updateMu.Lock()         // 👈 加上全局组件更新锁
-	defer a.updateMu.Unlock() // 👈 加上全局组件更新锁
+	a.updateMu.Lock()         
+	defer a.updateMu.Unlock() 
 
 	a.mu.RLock()
 	wasActive := a.sysProxyActive || a.tunActive
 	a.mu.RUnlock()
 
-	// 🛡️ 修复：锁住整个停机、重命名和重新拉起的生命周期
 	a.coreLifecycleMu.Lock()
 	defer a.coreLifecycleMu.Unlock()
 
-	a.stopCoreService()
+	a.stopCoreService() // 停机
 
 	backupPath := filepath.Join(binDir, "clash_backup.exe")
-	os.Remove(backupPath) // 确保历史备份档为空
+	os.Remove(backupPath) 
 
-	// 6. 重命名：旧版 -> 备份
-	renameErr := safeRename(exePath, backupPath) // 👈 替换这里
+	// 🌟 旧版本加上后缀 (重命名为 clash_backup.exe)
+	renameErr := safeRename(exePath, backupPath) 
 	if renameErr != nil && !os.IsNotExist(renameErr) {
-		// 锁定旧文件失败(极低概率)，立刻取消操作，恢复运行
 		os.Remove(newExePath)
-		if wasActive {
-			a.ensureCoreRunning()
-		}
-		return "", fmt.Errorf("内核文件被锁定无法替换: %v", renameErr)
+		if wasActive { a.ensureCoreRunning() }
+		return "", fmt.Errorf("旧内核被占用无法备份: %v", renameErr)
 	}
 
-	// 7. 重命名：新版 -> 正式服
-	err = safeRename(newExePath, exePath) // 👈 替换这里
+	// 将新下载的版本替换上去
+	err = safeRename(newExePath, exePath) 
 	if err != nil {
-		// 灾难恢复：新版更名失败，立刻把老版换回来！
+		// 🌟 灾难回滚 1：新文件替换失败，删除新文件，用 backup 恢复旧文件
 		os.Remove(newExePath)
 		_ = safeRename(backupPath, exePath)
-		if wasActive {
-			a.ensureCoreRunning()
-		}
+		if wasActive { a.ensureCoreRunning() }
 		return "", fmt.Errorf("部署新内核失败，已安全回滚: %v", err)
 	}
 
-	// 8. 拉起新内核进行可用性验证
+	// 🌟 灾难回滚 2：拉起新内核进行可用性验证，如果内核报错秒退
 	if wasActive {
 		if startErr := a.ensureCoreRunning(); startErr != nil {
-			// ⚠️ 灾难恢复：新内核架构不对或启动报错，立即执行最终回滚！
 			a.stopCoreService()
-			os.Remove(exePath) // 摧毁损坏的新内核
-
-			// ✅ 修复：处理复活老内核失败的绝境
+			os.Remove(exePath) // 摧毁有问题的新内核
+			
+			// 还原旧版本
 			rollbackErr := safeRename(backupPath, exePath)
 			if rollbackErr != nil {
-				errMsg := fmt.Sprintf("严重故障: 新内核损坏且无法还原旧内核！请手动去 %s 目录检查文件。错误: %v", binDir, rollbackErr)
-				runtime.EventsEmit(a.ctx, "notify-error", errMsg) // 通知前端弹强红窗
+				errMsg := fmt.Sprintf("严重故障: 无法还原旧内核！请手动去 %s 检查。错误: %v", binDir, rollbackErr)
+				runtime.EventsEmit(a.ctx, "notify-error", errMsg)
 				return "", fmt.Errorf("%s", errMsg)
 			}
 
-			a.ensureCoreRunning() // 重新启动老内核
+			a.ensureCoreRunning() // 重新启动旧内核
 			a.SyncState()
-			return "", fmt.Errorf("新内核损坏或不兼容，已自动回滚至稳定版: %v", startErr)
+			return "", fmt.Errorf("新内核不兼容，已自动回滚至旧稳定版: %v", startErr)
 		}
 	}
 
-	// 9. 更新彻底成功，过河拆桥销毁备份
+	// 更新彻底成功，过河拆桥销毁备份旧版本
 	os.Remove(backupPath)
 	a.SyncState()
 
@@ -2537,27 +2543,38 @@ func (a *App) FlashWindow() {
 	}
 }
 
-// UpdateGeoDatabase 安全更新单一规则数据库文件
+// UpdateGeoDatabaseAsync 安全更新单一规则数据库文件
 func (a *App) UpdateGeoDatabaseAsync(key string) {
-	a.runAsyncTask("geodb-update-"+key, func(ctx context.Context) error {
-		return a.updateGeoDatabase(ctx, key)
+	// 🌟 使用 NoAutoSuccess，接管成功消息的发送权
+	a.runAsyncTaskNoAutoSuccess("geodb-update-"+key, func(ctx context.Context) error {
+		// false 代表单项更新
+		err := a.updateAllGeoDatabases(ctx, []string{key}, false)
+		if err != nil {
+			return err 
+		}
+		runtime.EventsEmit(a.ctx, "geodb-update-"+key+"-success")
+		return nil
 	})
-}
-
-func (a *App) updateGeoDatabase(ctx context.Context, dbType string) error {
-	// 逻辑合并到并发更新中去执行，复用代码
-	return a.updateAllGeoDatabases(ctx, []string{dbType})
 }
 
 // UpdateAllGeoDatabasesAsync 一键异步更新所有数据库
 func (a *App) UpdateAllGeoDatabasesAsync() {
-	a.runAsyncTask("geodb-update", func(ctx context.Context) error {
-		return a.updateAllGeoDatabases(ctx, nil)
+	a.runAsyncTaskNoAutoSuccess("geodb-update-all", func(ctx context.Context) error {
+		// true 代表批量更新
+		err := a.updateAllGeoDatabases(ctx, nil, true)
+		if err != nil {
+			// 发送聚合错误事件（内容已在底层拼接好）
+			runtime.EventsEmit(a.ctx, "geodb-update-all-error", err.Error())
+			return err
+		}
+		// 完美完成
+		runtime.EventsEmit(a.ctx, "geodb-update-all-success", "全部数据库文件已同步")
+		return nil
 	})
 }
 
-// updateAllGeoDatabases 内部实现，带上下文与类型过滤
-func (a *App) updateAllGeoDatabases(ctx context.Context, types []string) error {
+// updateAllGeoDatabases 内部实现：加入 isBatch 拦截与错误聚合
+func (a *App) updateAllGeoDatabases(ctx context.Context, types []string, isBatch bool) error {
 	behavior := a.GetAppBehavior()
 
 	type dbTask struct {
@@ -2566,6 +2583,7 @@ func (a *App) updateAllGeoDatabases(ctx context.Context, types []string) error {
 		file string
 	}
 
+	// 任务组装
 	var tasks []dbTask
 	allTypes := map[string]dbTask{
 		"geoip":   {"geoip", behavior.GeoIpLink, "geoip.metadb"},
@@ -2574,16 +2592,13 @@ func (a *App) updateAllGeoDatabases(ctx context.Context, types []string) error {
 		"asn":     {"asn", behavior.AsnLink, "GeoLite2-ASN.mmdb"},
 	}
 
-	// 筛选需要更新的任务（若传入空数组，则默认更新全部4个）
 	if len(types) == 0 {
 		types = []string{"geoip", "geosite", "mmdb", "asn"}
 	}
 
 	// 针对 GeoIP 后缀做特殊兼容处理
-	if behavior.GeoIpLink != "" {
-		if strings.HasSuffix(behavior.GeoIpLink, ".dat") {
-			allTypes["geoip"] = dbTask{"geoip", behavior.GeoIpLink, "geoip.dat"}
-		}
+	if behavior.GeoIpLink != "" && strings.HasSuffix(behavior.GeoIpLink, ".dat") {
+		allTypes["geoip"] = dbTask{"geoip", behavior.GeoIpLink, "geoip.dat"}
 	}
 
 	for _, t := range types {
@@ -2600,8 +2615,12 @@ func (a *App) updateAllGeoDatabases(ctx context.Context, types []string) error {
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(tasks))
 
-	// 1. ⚡ 开启多协程，并发无感下载所有文件 (限流 2)
-	sem := make(chan struct{}, 2)
+	// 🌟 新增：安全记录失败的 key，用于最终聚合报错
+	var failedKeysMu sync.Mutex
+	var failedKeys []string
+
+	// 1. ⚡ 开启多协程，并发无感下载所有文件 (限流 4)
+	sem := make(chan struct{}, 4)
 	for _, t := range tasks {
 		wg.Add(1)
 		go func(task dbTask) {
@@ -2615,32 +2634,41 @@ func (a *App) updateAllGeoDatabases(ctx context.Context, types []string) error {
 				return
 			}
 
-			runtime.EventsEmit(a.ctx, "geodb-update-"+task.key+"-start")
+			if !isBatch {
+				runtime.EventsEmit(a.ctx, "geodb-update-"+task.key+"-start")
+			} else {
+				// 批量模式只通知前端开启 Loading 圈圈，不发带弹窗的 start
+				runtime.EventsEmit(a.ctx, "geodb-item-state", map[string]any{"key": task.key, "loading": true})
+			}
 
 			tempPath := filepath.Join(binDir, task.file+".temp")
 			if err := downloadFileWithRetry(ctx, tempPath, task.url); err != nil {
-				runtime.EventsEmit(a.ctx, "geodb-update-"+task.key+"-error", err.Error())
+				// 记录失败名单与详细错误
+				failedKeysMu.Lock()
+				failedKeys = append(failedKeys, fmt.Sprintf("[%s] 下载失败: %v", task.key, err))
+				failedKeysMu.Unlock()
+
+				if !isBatch {
+					runtime.EventsEmit(a.ctx, "geodb-update-"+task.key+"-error", err.Error())
+				} else {
+					// 批量模式下只关闭圈圈，不发单项失败卡片
+					runtime.EventsEmit(a.ctx, "geodb-item-state", map[string]any{"key": task.key, "loading": false})
+				}
 				errChan <- fmt.Errorf("[%s] 下载失败: %v", task.key, err)
 				return
 			}
 			
-			// 此时文件已下载好放在 temp，尚未替换
-			runtime.EventsEmit(a.ctx, "geodb-update-"+task.key+"-success")
+			if !isBatch {
+				runtime.EventsEmit(a.ctx, "geodb-update-"+task.key+"-success")
+			} else {
+				// 批量模式关闭圈圈，拦截单项成功卡片
+				runtime.EventsEmit(a.ctx, "geodb-item-state", map[string]any{"key": task.key, "loading": false})
+			}
 		}(t)
 	}
 
 	wg.Wait()
 	close(errChan)
-
-	var errs []string
-	for err := range errChan {
-		errs = append(errs, err.Error())
-	}
-
-	// 如果所有文件都下载失败，直接打断，不需要停机
-	if len(errs) == len(tasks) {
-		return fmt.Errorf("网络异常，文件下载均失败:\n%s", strings.Join(errs, "\n"))
-	}
 
 	// 2. 🔒 获取全局组件更新锁，开始原子替换
 	a.updateMu.Lock()
@@ -2677,13 +2705,17 @@ func (a *App) updateAllGeoDatabases(ctx context.Context, types []string) error {
 
 		os.Remove(backupPath)
 		if _, err := os.Stat(targetPath); err == nil {
-			_ = safeRename(targetPath, backupPath) // 👈 替换这里
+			_ = safeRename(targetPath, backupPath)
 		}
 
-		if err := safeRename(tempPath, targetPath); err != nil { // 👈 替换这里
+		if err := safeRename(tempPath, targetPath); err != nil {
 			os.Remove(tempPath)
-			_ = safeRename(backupPath, targetPath) // 👈 失败回滚也使用安全替换
-			errs = append(errs, fmt.Sprintf("[%s] 部署失败: %v", task.key, err))
+			_ = safeRename(backupPath, targetPath)
+			
+			// 如果是部署替换失败，也记入失败名单
+			failedKeysMu.Lock()
+			failedKeys = append(failedKeys, fmt.Sprintf("[%s] 部署替换失败: %v", task.key, err))
+			failedKeysMu.Unlock()
 		} else {
 			os.Remove(backupPath)
 		}
@@ -2699,8 +2731,11 @@ func (a *App) updateAllGeoDatabases(ctx context.Context, types []string) error {
 
 	a.SyncState()
 
-	if len(errs) > 0 {
-		return fmt.Errorf("部分文件处理出现警告:\n%s", strings.Join(errs, "\n"))
+	// 🌟 核心：聚合拦截返回
+	if len(failedKeys) > 0 {
+		// 从 errChan 中重新提取详细错误原因（可选，也可以直接用 failedKeys）
+		// 为了简单起见，我们直接在 failedKeysMu 里存详细信息
+		return fmt.Errorf("%s", strings.Join(failedKeys, "\n"))
 	}
 	return nil
 }
@@ -3002,19 +3037,27 @@ func getLatestMihomoAssetURL(osName, arch, suffix string) (string, string, error
 	return "", "", fmt.Errorf("未找到匹配的资产文件: %s-%s%s", osName, arch, suffix)
 }
 
-// downloadFileWithRetry 带有重试机制的文件下载封装
+// downloadFileWithRetry 带有重试机制的文件下载封装 (接入完整的断点续传与哈希校验)
 func downloadFileWithRetry(ctx context.Context, destPath, url string) error {
 	var lastErr error
 	for i := 0; i < 3; i++ {
-		// 🚀 调用 downloader.go 中的核心下载逻辑
-		lastErr = DownloadLargeFile(ctx, url, destPath)
+		// 🚀 调用 downloader.go 中的核心下载逻辑，激活哈希校验
+		lastErr = downloader.DownloadAtomic(ctx, downloader.Options{
+			URL:             url,
+			DestPath:        destPath,
+			MaxBytes:        100 * 1024 * 1024, // 内核一般不超过100MB
+			Resume:          true,              // 开启断点续传
+			VerifyGitHubSHA: downloader.ShouldVerifyGitHubSHA(url), // 智能判断并开启 GitHub SHA256 校验
+		})
 		if lastErr == nil {
 			return nil
 		}
 		// 失败后等待 2 秒再重试，给网络恢复留出时间
-		if !sleepOrDone(ctx, 2*time.Second) {
+		select {
+		case <-ctx.Done():
 			return ctx.Err()
+		case <-time.After(2 * time.Second):
 		}
 	}
-	return fmt.Errorf("三次尝试均失败: %v", lastErr)
+	return fmt.Errorf("下载失败(含哈希校验): %v", lastErr)
 }

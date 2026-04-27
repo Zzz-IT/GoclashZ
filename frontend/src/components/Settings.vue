@@ -105,9 +105,6 @@
                 <button class="action-btn" @click="installDriver(true)" :disabled="isInstalling">
                   {{ isReinstallingDriver ? '处理中...' : '重新安装' }}
                 </button>
-                <button class="action-btn" @click="installDriver(false)" :disabled="isInstalling">
-                  {{ isCheckingUpdate ? '处理中...' : '检查更新' }}
-                </button>
               </div>
             </div>
             
@@ -177,7 +174,7 @@
                   检测状态: <span :class="tunStatus.hasWintun ? 'green-text' : 'red-text'">{{ tunStatus.hasWintun ? 'wintun 已就绪' : '缺失驱动文件' }}</span>
                 </p>
               </div>
-              <button class="action-btn" @click="installDriver(false)" :disabled="isInstalling || tunStatus.hasWintun">
+              <button class="action-btn" @click="installDriver(true)" :disabled="isInstalling || tunStatus.hasWintun">
                 {{ isInstalling ? '处理中...' : (tunStatus.hasWintun ? '已安装' : '安装驱动') }}
               </button>
             </div>
@@ -1073,9 +1070,8 @@ watch(() => props.initialView, (newVal) => { view.value = newVal as any; });
 
 const coreVersion = ref('读取中...');
 const wintunVersion = ref('读取中...');
-const isCheckingUpdate = ref(false);
 const isReinstallingDriver = ref(false);
-const isInstalling = computed(() => isCheckingUpdate.value || isReinstallingDriver.value);
+const isInstalling = computed(() => isReinstallingDriver.value);
 const updatingCore = ref(false);
 
 const dbList = [
@@ -1113,7 +1109,7 @@ const updatingDbs = ref<Record<string, boolean>>({});
 const dbFileInfo = ref<Record<string, any>>({});
 
 const updatingAllDbs = ref(false);
-const isUpdatingAnyDb = computed(() => Object.keys(updatingDbs.value).length > 0 || updatingAllDbs.value);
+const isUpdatingAnyDb = computed(() => Object.values(updatingDbs.value).some(v => v) || updatingAllDbs.value);
 
 const formatSize = (bytes: number) => {
   if (!bytes) return '0 B';
@@ -1343,34 +1339,42 @@ onMounted(() => {
   loadData(); 
 
   // 🚀 核心：监听 Geo 异步任务事件
+  // 🌟 1. 监听全局一键更新的成功与失败
   EventsOn("geodb-update-start", () => {
     updatingAllDbs.value = true;
   });
 
-  EventsOn("geodb-update-success", async () => {
+  EventsOn("geodb-update-all-success", async (msg: string) => {
     updatingAllDbs.value = false;
-    await showAlert("所有规则数据库已极速并发同步至最新！", "完成");
+    await showAlert(msg, "完成");
     const dbInfo = await (API as any).GetGeoDatabaseInfo();
     if (dbInfo) dbFileInfo.value = dbInfo;
   });
 
-  EventsOn("geodb-update-error", async (err: string) => {
+  EventsOn("geodb-update-all-error", async (err: string) => {
     updatingAllDbs.value = false;
-    await showAlert(`一键同步发生异常:\n${err}`, "错误");
+    await showAlert(err, "部分更新失败");
+    const dbInfo = await (API as any).GetGeoDatabaseInfo();
+    if (dbInfo) dbFileInfo.value = dbInfo;
   });
 
-  // 监听单个 Geo 数据库更新事件
+  // 🌟 2. 监听静默单项 Loading 状态 (消除一键更新时的弹窗轰炸)
+  EventsOn("geodb-item-state", (payload: {key: string, loading: boolean}) => {
+    updatingDbs.value[payload.key] = payload.loading;
+  });
+
+  // 3. 监听单个手动触发的 Geo 数据库更新事件 (保持原有带弹窗的交互)
   const dbTypes = ["geoip", "geosite", "mmdb", "asn"];
   dbTypes.forEach(t => {
     EventsOn(`geodb-update-${t}-start`, () => { updatingDbs.value[t] = true; });
     EventsOn(`geodb-update-${t}-success`, async () => {
-      delete updatingDbs.value[t];
+      updatingDbs.value[t] = false;
       await showAlert(`${dbTitles[t] || t} 文件同步成功！`, "完成");
       const dbInfo = await (API as any).GetGeoDatabaseInfo();
       if (dbInfo) dbFileInfo.value = dbInfo;
     });
     EventsOn(`geodb-update-${t}-error`, async (err: string) => {
-      delete updatingDbs.value[t];
+      updatingDbs.value[t] = false;
       await showAlert(`同步异常: ${err}`, "错误");
     });
   });
@@ -1393,17 +1397,9 @@ onMounted(() => {
 
   // 监听 Tun 驱动安装事件
   EventsOn("tun-driver-install-start", () => { 
-    if (!isReinstallingDriver.value && !isCheckingUpdate.value) {
-      isCheckingUpdate.value = true; 
-    }
-  });
-  EventsOn("tun-driver-install-latest", async () => {
-    isCheckingUpdate.value = false;
-    isReinstallingDriver.value = false;
-    await showAlert(`当前 Wintun 驱动已是最新版本！`, '通知');
+    isReinstallingDriver.value = true; 
   });
   EventsOn("tun-driver-install-updated", async () => {
-    isCheckingUpdate.value = false;
     isReinstallingDriver.value = false;
     await loadData();
     const wv = await (API as any).GetWintunVersion();
@@ -1411,7 +1407,6 @@ onMounted(() => {
     await showAlert(`Wintun 驱动安装成功，现在可以开启 TUN 模式了！`, '安装成功');
   });
   EventsOn("tun-driver-install-error", async (err: string) => {
-    isCheckingUpdate.value = false;
     isReinstallingDriver.value = false;
     await showAlert('安装提示: ' + err, '发生错误');
   });
@@ -1419,8 +1414,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   EventsOff("geodb-update-start");
-  EventsOff("geodb-update-success");
-  EventsOff("geodb-update-error");
+  EventsOff("geodb-update-all-success");
+  EventsOff("geodb-update-all-error");
+  EventsOff("geodb-item-state");
   const dbTypes = ["geoip", "geosite", "mmdb", "asn"];
   dbTypes.forEach(t => {
     EventsOff(`geodb-update-${t}-start`);
@@ -1432,7 +1428,6 @@ onUnmounted(() => {
   EventsOff("core-update-updated");
   EventsOff("core-update-error");
   EventsOff("tun-driver-install-start");
-  EventsOff("tun-driver-install-latest");
   EventsOff("tun-driver-install-updated");
   EventsOff("tun-driver-install-error");
 });
@@ -1457,10 +1452,9 @@ const handleTunToggle = async (e: Event) => {
 };
 
 
-const installDriver = async (force: boolean = false) => {
-  if (isReinstallingDriver.value || isCheckingUpdate.value) return;
-  if (force) isReinstallingDriver.value = true;
-  else isCheckingUpdate.value = true;
+const installDriver = async (force: boolean = true) => {
+  if (isReinstallingDriver.value) return;
+  isReinstallingDriver.value = true;
   (API as any).InstallTunDriverAsync(force);
 };
 // 🚀 核心：监听更新间隔时间，防止用户输入 0 或负数
