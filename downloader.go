@@ -27,18 +27,23 @@ func sleepOrDone(ctx context.Context, d time.Duration) bool {
 // --- 软件本体更新专用下载器 (支持断点续传) ---
 // ==========================================
 
-// DownloadFileResumable 支持断点续传的大文件下载器 (目前底层通过重试模拟)
+// DownloadFileResumable 支持 HTTP Range 断点续传。
+// 会将未完成内容保存在 destPath+".tmp"，并用 destPath+".tmp.meta.json" 保存 ETag/Last-Modified。
 func DownloadFileResumable(ctx context.Context, url string, destPath string) error {
-	// 软件本体更新专用：使用 10 分钟超时客户端
-	return downloader.DownloadLargeAtomic(ctx, url, destPath, "", 0)
+	return downloader.DownloadAtomic(ctx, downloader.Options{
+		URL:                 url,
+		DestPath:            destPath,
+		MaxBytes:            500 * 1024 * 1024,
+		Resume:              true,
+		ResolveGitHubDigest: true,
+	})
 }
 
 // downloadAppUpdateWithRetry 带自动重连的下载循环封装
 func downloadAppUpdateWithRetry(ctx context.Context, url, destPath string) error {
 	var lastErr error
-	// 断网或异常时，最多尝试续传重连 5 次，总共容忍约 15 秒的网络波动
 	for i := 0; i < 5; i++ {
-		lastErr = DownloadFileResumable(ctx, url, destPath)
+		lastErr = DownloadCriticalFile(ctx, url, destPath)
 		if lastErr == nil {
 			return nil
 		}
@@ -54,13 +59,32 @@ func DownloadFile(ctx context.Context, url string, destPath string) error {
 	return downloader.DownloadAtomic(ctx, downloader.Options{
 		URL:      url,
 		DestPath: destPath,
-		MaxBytes: 10 * 1024 * 1024, // 订阅文件限制 10MB
+		MaxBytes: 10 * 1024 * 1024,
+		Resume:   false,
 	})
 }
 
 // DownloadLargeFile 用于内核/数据库等大文件的专用下载
 func DownloadLargeFile(ctx context.Context, url string, destPath string) error {
-	return downloader.DownloadLargeAtomic(ctx, url, destPath, "", 0)
+	return downloader.DownloadAtomic(ctx, downloader.Options{
+		URL:                 url,
+		DestPath:            destPath,
+		MaxBytes:            500 * 1024 * 1024,
+		Resume:              true,
+		ResolveGitHubDigest: true,
+	})
+}
+
+// DownloadCriticalFile 用于内核、驱动、更新包等高风险组件，强制要求哈希校验
+func DownloadCriticalFile(ctx context.Context, url string, destPath string) error {
+	return downloader.DownloadAtomic(ctx, downloader.Options{
+		URL:                 url,
+		DestPath:            destPath,
+		MaxBytes:            500 * 1024 * 1024,
+		Resume:              true,
+		ResolveGitHubDigest: true,
+		TrustPolicy:         downloader.TrustRequireHash,
+	})
 }
 
 // UpdateCore 安全更新内核文件（绕过正在运行的文件锁）
@@ -73,8 +97,8 @@ func UpdateCore(ctx context.Context, url string, destPath string) error {
 		return fmt.Errorf("内核文件被系统强力锁定，请手动关闭代理后重试: %v", err)
 	}
 
-	// 2. 此时原位置 destPath 已经空出来了，安全下载新内核
-	err := DownloadLargeFile(ctx, url, destPath) // 👈 替换为大文件专用方法
+	// 2. 此时原位置 destPath 已经空出来，安全下载新内核
+	err := DownloadCriticalFile(ctx, url, destPath) // 👈 强制要求哈希校验
 	if err != nil {
 		// 🚨 兜底机制：如果新内核下载失败或损坏，把旧内核的名字改回来，保证软件还能用
 		_ = os.Rename(oldPath, destPath)

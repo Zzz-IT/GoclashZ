@@ -1644,7 +1644,14 @@ func (a *App) RenameConfig(id, newName string) error {
 }
 
 // 3. 提供给前端：安装驱动 (加入安全回滚与防占用机制)
-func (a *App) InstallTunDriver(force bool) (string, error) {
+func (a *App) InstallTunDriverAsync(force bool) {
+	a.runAsyncTask("tun-driver-install", func(ctx context.Context) error {
+		_, err := sys.InstallWintun(ctx, force)
+		return err
+	})
+}
+
+func (a *App) installTunDriver(force bool) (string, error) {
 	binDir := utils.GetCoreBinDir()
 	dllPath := filepath.Join(binDir, "wintun.dll")
 	backupPath := filepath.Join(binDir, "wintun_backup.dll")
@@ -2326,7 +2333,14 @@ func safeRename(oldpath, newpath string) error {
 }
 
 // UpdateCoreComponent 触发安全更新机制：无缝下载，原子替换
-func (a *App) UpdateCoreComponent() (string, error) {
+func (a *App) UpdateCoreComponentAsync() {
+	a.runAsyncTask("core-update", func(ctx context.Context) error {
+		_, err := a.updateCoreComponent(ctx)
+		return err
+	})
+}
+
+func (a *App) updateCoreComponent(ctx context.Context) (string, error) {
 	binDir := utils.GetCoreBinDir()
 	exePath := filepath.Join(binDir, "clash.exe")
 
@@ -2351,7 +2365,7 @@ func (a *App) UpdateCoreComponent() (string, error) {
 	newExePath := filepath.Join(binDir, "clash_new.exe")
 
 	// 4. 下载到临时压缩包
-	err = downloadFileWithRetry(a.ctx, tempZip, directURL)
+	err = downloadFileWithRetry(ctx, tempZip, directURL)
 	if err != nil {
 		return "", fmt.Errorf("下载新内核失败: %v", err)
 	}
@@ -2470,9 +2484,15 @@ func (a *App) FlashWindow() {
 }
 
 // UpdateGeoDatabase 安全更新单一规则数据库文件
-func (a *App) UpdateGeoDatabase(dbType string) error {
+func (a *App) UpdateGeoDatabaseAsync(key string) {
+	a.runAsyncTask("geodb-update-"+key, func(ctx context.Context) error {
+		return a.updateGeoDatabase(ctx, key)
+	})
+}
+
+func (a *App) updateGeoDatabase(ctx context.Context, dbType string) error {
 	// 逻辑合并到并发更新中去执行，复用代码
-	return a.updateAllGeoDatabases(a.ctx, []string{dbType})
+	return a.updateAllGeoDatabases(ctx, []string{dbType})
 }
 
 // UpdateAllGeoDatabasesAsync 一键异步更新所有数据库

@@ -302,7 +302,14 @@ func GetProxyDelay(ctx context.Context, proxyName string, testUrl string) (int, 
 	return -1, fmt.Errorf("invalid delay format")
 }
 
-func doKernelRequest(method, path string, body any, okStatus ...int) error {
+func require2xx(resp *http.Response, endpoint string) error {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("%s failed: HTTP %d", endpoint, resp.StatusCode)
+	}
+	return nil
+}
+
+func doKernelRequest(ctx context.Context, method, path string, body any, okStatus ...int) error {
 	var reader io.Reader
 
 	if body != nil {
@@ -313,7 +320,7 @@ func doKernelRequest(method, path string, body any, okStatus ...int) error {
 		reader = bytes.NewReader(payload)
 	}
 
-	req, err := http.NewRequest(method, APIURL(path), reader)
+	req, err := http.NewRequestWithContext(ctx, method, APIURL(path), reader)
 	if err != nil {
 		return err
 	}
@@ -339,12 +346,14 @@ func doKernelRequest(method, path string, body any, okStatus ...int) error {
 
 // GetInitialData 获取模式和代理组信息
 func GetInitialData() (map[string]interface{}, error) {
-	// 使用 localAPIClient 替换 http.Get
 	respConfig, err := localAPIClient.Get(APIURL("/configs"))
 	if err != nil {
 		return nil, err
 	}
 	defer respConfig.Body.Close()
+	if err := require2xx(respConfig, "/configs"); err != nil {
+		return nil, err
+	}
 
 	var configData map[string]interface{}
 	if err := json.NewDecoder(respConfig.Body).Decode(&configData); err != nil {
@@ -356,6 +365,9 @@ func GetInitialData() (map[string]interface{}, error) {
 		return nil, err
 	}
 	defer respProxies.Body.Close()
+	if err := require2xx(respProxies, "/proxies"); err != nil {
+		return nil, err
+	}
 
 	var proxiesData map[string]interface{}
 	if err := json.NewDecoder(respProxies.Body).Decode(&proxiesData); err != nil {
@@ -371,6 +383,7 @@ func GetInitialData() (map[string]interface{}, error) {
 // UpdateMode 切换代理模式
 func UpdateMode(mode string) error {
 	return doKernelRequest(
+		context.Background(),
 		http.MethodPatch,
 		"/configs",
 		map[string]string{"mode": mode},
@@ -382,6 +395,7 @@ func UpdateMode(mode string) error {
 // SelectProxy 切换代理节点
 func SelectProxy(groupName, proxyName string) error {
 	return doKernelRequest(
+		context.Background(),
 		http.MethodPut,
 		"/proxies/"+url.PathEscape(groupName),
 		map[string]string{"name": proxyName},
@@ -397,6 +411,9 @@ func GetConnectionsRaw() ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if err := require2xx(resp, "/connections"); err != nil {
+		return nil, err
+	}
 
 	var buf bytes.Buffer
 	_, err = buf.ReadFrom(resp.Body)
@@ -406,6 +423,7 @@ func GetConnectionsRaw() ([]byte, error) {
 // CloseConnection 断开指定的单个连接
 func CloseConnection(id string) error {
 	return doKernelRequest(
+		context.Background(),
 		http.MethodDelete,
 		"/connections/"+url.PathEscape(id),
 		nil,
@@ -417,6 +435,7 @@ func CloseConnection(id string) error {
 // CloseAllConnections 断开所有活动连接
 func CloseAllConnections() error {
 	return doKernelRequest(
+		context.Background(),
 		http.MethodDelete,
 		"/connections",
 		nil,
@@ -432,6 +451,9 @@ func GetVersion() string {
 		return ""
 	}
 	defer resp.Body.Close()
+	if err := require2xx(resp, "/version"); err != nil {
+		return ""
+	}
 
 	var data map[string]string
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
@@ -445,28 +467,21 @@ func FlushFakeIP() error {
 	// 1. 读取当前的 DNS 配置，判断是否是 Fake-IP 模式
 	dnsCfg, err := GetDNSConfig()
 	if err != nil || dnsCfg == nil {
-		// 🚀 核心修复：不再隐瞒，直接抛出，让前端弹窗提示内核异常
 		return fmt.Errorf("通信失败：无法获取当前 DNS 状态，请检查内核是否运行") 
 	}
 
 	// 2. 如果根本不是 Fake-IP 模式，直接返回，不打扰内核
 	if dnsCfg.EnhancedMode != "fake-ip" {
-		// 🚀 核心修复：告知前端当前环境不需要清理
 		return fmt.Errorf("当前为 %s 模式，仅 Fake-IP 模式支持刷新缓存", dnsCfg.EnhancedMode)
 	}
 
 	// 3. 只有确认是 Fake-IP 模式，才真正向内核发送清理请求
-	req, _ := http.NewRequest("POST", APIURL("/cache/fakeip/flush"), nil)
-	resp, err := localAPIClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("清理指令未送达内核: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 检查内核是否真的处理成功了
-	if resp.StatusCode != 200 && resp.StatusCode != 204 {
-		return fmt.Errorf("内核拒绝了清理请求，状态码: %d", resp.StatusCode)
-	}
-
-	return nil
+	return doKernelRequest(
+		context.Background(),
+		http.MethodPost,
+		"/cache/fakeip/flush",
+		nil,
+		http.StatusOK,
+		http.StatusNoContent,
+	)
 }

@@ -54,9 +54,11 @@ func downloadAndExtractWintun(ctx context.Context, finalDllPath string) error {
 
 	// 1. 下载 ZIP (使用统一原子下载器)
 	err = downloader.DownloadAtomic(ctx, downloader.Options{
-		URL:      WintunDownloadURL,
-		DestPath: zipPath,
-		MaxBytes: 10 * 1024 * 1024, // Wintun ZIP 约 5MB
+		URL:         WintunDownloadURL,
+		DestPath:    zipPath,
+		MaxBytes:    10 * 1024 * 1024,
+		Resume:      true,
+		TrustPolicy: downloader.TrustRequireHash,
 	})
 	if err != nil {
 		return fmt.Errorf("下载 Wintun 驱动失败: %v", err)

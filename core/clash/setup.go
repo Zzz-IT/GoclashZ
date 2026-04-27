@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"goclashz/core/downloader"
+	"goclashz/core/sys"
 	"goclashz/core/utils"
 )
 
@@ -182,7 +183,7 @@ log-level: info
 	if !isUsableFile(wintunPath, minWintunSize) {
 		fmt.Println("👉 未检测到 wintun.dll 或文件已损坏，正在下载以支持 TUN 模式...")
 		_ = os.Remove(wintunPath)
-		if err := downloadWintun(ctx, binDir); err != nil {
+		if _, err := sys.InstallWintun(ctx, false); err != nil {
 			fmt.Printf("⚠️ wintun.dll 下载失败 (TUN 模式将不可用): %v\n", err)
 		} else {
 			fmt.Println("✅ wintun.dll 准备就绪")
@@ -192,30 +193,6 @@ log-level: info
 	return nil
 }
 
-func downloadWintun(ctx context.Context, destDir string) error {
-	wintunURL := "https://ghproxy.net/https://github.com/Zzz-IT/GoclashZ/releases/download/v0.0.1/wintun.dll"
-	finalPath := filepath.Join(destDir, "wintun.dll")
-
-	err := downloader.DownloadAtomic(ctx, downloader.Options{
-		URL:      wintunURL,
-		DestPath: finalPath,
-		MaxBytes: maxWintunSize,
-	})
-	if err != nil {
-		return err
-	}
-
-	// 二次校验：确保是 PE 文件
-	content, err := os.ReadFile(finalPath)
-	if err == nil {
-		if !looksLikePE(content) {
-			_ = os.Remove(finalPath)
-			return fmt.Errorf("下载的 Wintun 文件校验失败：不是有效的 PE 文件")
-		}
-	}
-
-	return nil
-}
 
 // ExtractKernel 纯粹的辅助函数：从 ZIP 中抽取内核 .exe 并保存
 func ExtractKernel(zipPath, destExePath string) error {

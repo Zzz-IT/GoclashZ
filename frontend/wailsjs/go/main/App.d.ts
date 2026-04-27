@@ -69,7 +69,7 @@ export function GetUwpApps():Promise<Array<sys.UwpApp>>;
 
 export function GetWintunVersion():Promise<string>;
 
-export function InstallTunDriver(arg1:boolean):Promise<string>;
+export function InstallTunDriverAsync(arg1:boolean):Promise<void>;
 
 export function IsNodeOffline(arg1:string):Promise<boolean|string>;
 
@@ -141,9 +141,9 @@ export function UpdateAllSubsAsync():Promise<void>;
 
 export function UpdateClashMode(arg1:string):Promise<void>;
 
-export function UpdateCoreComponent():Promise<string>;
+export function UpdateCoreComponentAsync():Promise<void>;
 
-export function UpdateGeoDatabase(arg1:string):Promise<void>;
+export function UpdateGeoDatabaseAsync(arg1:string):Promise<void>;
 
 export function UpdateSingleSub(arg1:string):Promise<void>;
 

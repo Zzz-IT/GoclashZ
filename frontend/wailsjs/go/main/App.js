@@ -130,8 +130,8 @@ export function GetWintunVersion() {
   return window['go']['main']['App']['GetWintunVersion']();
 }
 
-export function InstallTunDriver(arg1) {
-  return window['go']['main']['App']['InstallTunDriver'](arg1);
+export function InstallTunDriverAsync(arg1) {
+  return window['go']['main']['App']['InstallTunDriverAsync'](arg1);
 }
 
 export function IsNodeOffline(arg1) {
@@ -274,12 +274,12 @@ export function UpdateClashMode(arg1) {
   return window['go']['main']['App']['UpdateClashMode'](arg1);
 }
 
-export function UpdateCoreComponent() {
-  return window['go']['main']['App']['UpdateCoreComponent']();
+export function UpdateCoreComponentAsync() {
+  return window['go']['main']['App']['UpdateCoreComponentAsync']();
 }
 
-export function UpdateGeoDatabase(arg1) {
-  return window['go']['main']['App']['UpdateGeoDatabase'](arg1);
+export function UpdateGeoDatabaseAsync(arg1) {
+  return window['go']['main']['App']['UpdateGeoDatabaseAsync'](arg1);
 }
 
 export function UpdateSingleSub(arg1) {
