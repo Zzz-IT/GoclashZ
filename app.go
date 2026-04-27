@@ -2430,9 +2430,10 @@ func (a *App) updateCoreComponent(ctx context.Context) (string, error) {
 	tempZip := filepath.Join(binDir, "core_temp.zip")
 	newExePath := filepath.Join(binDir, "clash_new.exe")
 
-	// 这里会自动拉取 GitHub 的 digest 进行 SHA256 比对。
+	// 这里将强制启用 SHA256 比对。
 	// 如果文件不完整或哈希不对，底层会直接删掉 core_temp.zip 并报错，下面的流程根本不会执行，老内核绝对安全！
-	err = downloadFileWithRetry(ctx, tempZip, directURL)
+	// 🌟 仅内核开启哈希校验 (传入 true)
+	err = downloadFileWithRetry(ctx, tempZip, directURL, true)
 	if err != nil {
 		return "", fmt.Errorf("下载或哈希校验未通过: %v", err)
 	}
@@ -2642,7 +2643,8 @@ func (a *App) updateAllGeoDatabases(ctx context.Context, types []string, isBatch
 			}
 
 			tempPath := filepath.Join(binDir, task.file+".temp")
-			if err := downloadFileWithRetry(ctx, tempPath, task.url); err != nil {
+			// 👈 规则库关闭哈希校验 (传入 false)
+			if err := downloadFileWithRetry(ctx, tempPath, task.url, false); err != nil {
 				// 记录失败名单与详细错误
 				failedKeysMu.Lock()
 				failedKeys = append(failedKeys, fmt.Sprintf("[%s] 下载失败: %v", task.key, err))
@@ -2883,8 +2885,9 @@ func (a *App) checkAndDownloadAppUpdate(ctx context.Context) error {
 		}
 	}
 
-	// ⚡ 执行静默下载，内含 5 次断线重连/断点续传机制
-	err = downloadAppUpdateWithRetry(ctx, directURL, exePath)
+	// ⚡ 执行静默下载，内含 3 次断线重连/断点续传机制
+	// 👈 软件本体关闭哈希校验 (传入 false)
+	err = downloadFileWithRetry(ctx, exePath, directURL, false)
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "notify-error", "软件本体更新下载失败，请检查网络环境。")
 		return err
@@ -2976,7 +2979,8 @@ func (a *App) ManualCheckAppUpdate() (string, error) {
 			}
 		}
 
-		err := downloadAppUpdateWithRetry(a.ctx, directURL, exePath)
+		// 👈 软件本体关闭哈希校验 (传入 false)
+		err := downloadFileWithRetry(a.ctx, exePath, directURL, false)
 		if err == nil {
 			// 写入版本校验文件
 			_ = os.WriteFile(versionPath, []byte(latestVersion), 0644)
@@ -3037,17 +3041,18 @@ func getLatestMihomoAssetURL(osName, arch, suffix string) (string, string, error
 	return "", "", fmt.Errorf("未找到匹配的资产文件: %s-%s%s", osName, arch, suffix)
 }
 
-// downloadFileWithRetry 带有重试机制的文件下载封装 (接入完整的断点续传与哈希校验)
-func downloadFileWithRetry(ctx context.Context, destPath, url string) error {
+// 带有重试机制的文件下载封装
+// 参数 verifyHash: 控制是否开启 GitHub SHA256 哈希校验
+func downloadFileWithRetry(ctx context.Context, destPath, url string, verifyHash bool) error {
 	var lastErr error
 	for i := 0; i < 3; i++ {
-		// 🚀 调用 downloader.go 中的核心下载逻辑，激活哈希校验
+		// 🚀 调用 downloader.go 中的核心下载逻辑
 		lastErr = downloader.DownloadAtomic(ctx, downloader.Options{
 			URL:             url,
 			DestPath:        destPath,
-			MaxBytes:        100 * 1024 * 1024, // 内核一般不超过100MB
+			MaxBytes:        100 * 1024 * 1024, // 限制最大 100MB
 			Resume:          true,              // 开启断点续传
-			VerifyGitHubSHA: downloader.ShouldVerifyGitHubSHA(url), // 智能判断并开启 GitHub SHA256 校验
+			VerifyGitHubSHA: verifyHash,        // 👈 动态控制是否校验哈希
 		})
 		if lastErr == nil {
 			return nil
@@ -3059,5 +3064,5 @@ func downloadFileWithRetry(ctx context.Context, destPath, url string) error {
 		case <-time.After(2 * time.Second):
 		}
 	}
-	return fmt.Errorf("下载失败(含哈希校验): %v", lastErr)
+	return fmt.Errorf("三次尝试下载均失败: %v", lastErr)
 }

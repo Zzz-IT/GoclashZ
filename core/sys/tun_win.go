@@ -71,7 +71,7 @@ func downloadAndExtractWintun(ctx context.Context, finalDllPath string) error {
 		Resume:          true,
 		// Wintun 官方源不是 GitHub Release Asset，无法使用 GitHub digest。
 		// 此处保留大小与 PE 头基础校验。
-		VerifyGitHubSHA: downloader.ShouldVerifyGitHubSHA(WintunDownloadURL),
+		VerifyGitHubSHA: false, // 👈 显式关闭哈希校验
 	})
 	if err != nil {
 		return fmt.Errorf("下载 Wintun 驱动失败: %v", err)
