@@ -190,7 +190,7 @@ func (a *App) initBehaviorCache() {
 		GeoSiteLink:        "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
 		MmdbLink:           "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
 		AsnLink:            "https://ghproxy.net/https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
-		
+
 		// 👇 新增：默认开启自动更新，方式为每次启动
 		AutoUpdate:      true,
 		UpdateMethod:    "startup",
@@ -307,10 +307,10 @@ func (a *App) refreshAutoDelayTest() {
 						if name == "GLOBAL" || name == "DIRECT" || name == "REJECT" {
 							continue
 						}
-						
+
 						if infoMap, ok := info.(map[string]interface{}); ok {
 							nodeType, _ := infoMap["type"].(string)
-							
+
 							// 分流：区分策略组和真实节点
 							if nodeType == "Selector" || nodeType == "URLTest" || nodeType == "Fallback" || nodeType == "LoadBalance" {
 								groupNodes = append(groupNodes, name)
@@ -742,7 +742,7 @@ func (a *App) cleanLegacyFiles() {
 	updateExe := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
 	updateVer := filepath.Join(utils.GetDataDir(), "GoclashZ_update.version")
 	_ = os.Remove(updateTmp)
-	
+
 	// 如果本地存在的更新包版本已经等于当前运行的版本，则说明是旧包，清理掉
 	if cachedVer, err := os.ReadFile(updateVer); err == nil {
 		if normalizeVersion(string(cachedVer)) == normalizeVersion(CurrentAppVersion) {
@@ -1028,7 +1028,7 @@ func (a *App) TestAllProxies(nodeNames []string) {
 				if stillInactive && clash.IsRunning() {
 					clash.Stop()
 				}
-				
+
 				// 无论是否关闭，静默测速状态都清空
 				a.testMu.Lock()
 				a.isSilentCore = false
@@ -1434,17 +1434,17 @@ func (a *App) SyncState() {
 
 	// 统一组装当前真实状态
 	state := AppState{
-		IsRunning:        logicalIsRunning, // 👈 修改了这里
-		Mode:             a.getActiveMode(),
-		Theme:            theme,
-		HideLogs:         behavior.HideLogs,
-		SystemProxy:      sysProxy,
-		Tun:              tunActive,
-		Version:          a.GetCoreVersion(),
-		AppVersion:       CurrentAppVersion,
-		ActiveConfig:     activeId,
-		ActiveConfigName: activeName,
-		ActiveConfigType: activeType,
+		IsRunning:          logicalIsRunning, // 👈 修改了这里
+		Mode:               a.getActiveMode(),
+		Theme:              theme,
+		HideLogs:           behavior.HideLogs,
+		SystemProxy:        sysProxy,
+		Tun:                tunActive,
+		Version:            a.GetCoreVersion(),
+		AppVersion:         CurrentAppVersion,
+		ActiveConfig:       activeId,
+		ActiveConfigName:   activeName,
+		ActiveConfigType:   activeType,
 		DelayRetention:     behavior.DelayRetention,
 		DelayRetentionTime: behavior.DelayRetentionTime,
 	}
@@ -1544,10 +1544,14 @@ func (a *App) RenameConfig(id, newName string) error {
 	wasActive := a.sysProxyActive || a.tunActive
 	a.mu.Unlock()
 
-	if isActiveConfig && clash.IsRunning() {
+	// 🛡️ 修复：如果是活跃配置，直接锁死整个过程
+	if isActiveConfig {
 		a.coreLifecycleMu.Lock()
-		a.stopCoreService()
-		a.coreLifecycleMu.Unlock()
+		defer a.coreLifecycleMu.Unlock()
+	}
+
+	if isActiveConfig && clash.IsRunning() {
+		a.stopCoreService() // 现在不需要在这里单独加锁了
 	}
 
 	err := clash.RenameConfig(id, newName)
@@ -1556,18 +1560,17 @@ func (a *App) RenameConfig(id, newName string) error {
 		if err != nil {
 			clash.BuildRuntimeConfig(id, mode, a.GetAppBehavior().LogLevel)
 			if wasActive {
-				a.ensureCoreRunning()
+				a.ensureCoreRunning() // 受到锁的保护
 				a.SyncState()
 			}
 			return fmt.Errorf("文件重命名失败: %v", err)
 		}
 
 		if wasActive {
-			a.ensureCoreRunning()
+			a.ensureCoreRunning() // 受到锁的保护
 			a.SyncState()
 		}
 	}
-
 	return err
 }
 
@@ -1861,10 +1864,11 @@ func (a *App) SelectLocalConfig(id string) error {
 
 	a.saveActiveConfig(id)
 
+	// 🛡️ 修复：使用 defer 锁住全过程，绝不中途松手
 	a.coreLifecycleMu.Lock()
-	a.stopCoreService()
-	a.coreLifecycleMu.Unlock()
+	defer a.coreLifecycleMu.Unlock()
 
+	a.stopCoreService()
 	sys.DisableSystemProxy()
 
 	if err := clash.BuildRuntimeConfig(id, mode, a.GetAppBehavior().LogLevel); err != nil {
@@ -2009,17 +2013,17 @@ func (a *App) GetAppState() AppState {
 	clash.IndexLock.RUnlock()
 
 	return AppState{
-		IsRunning:        clash.IsRunning(),
-		Mode:             a.getActiveMode(),
-		Theme:            theme,
-		HideLogs:         behavior.HideLogs,
-		SystemProxy:      sysProxy,
-		Tun:              tunActive,
-		Version:          a.GetCoreVersion(),
-		AppVersion:       CurrentAppVersion,
-		ActiveConfig:     activeId,
-		ActiveConfigName: activeName,
-		ActiveConfigType: activeType,
+		IsRunning:          clash.IsRunning(),
+		Mode:               a.getActiveMode(),
+		Theme:              theme,
+		HideLogs:           behavior.HideLogs,
+		SystemProxy:        sysProxy,
+		Tun:                tunActive,
+		Version:            a.GetCoreVersion(),
+		AppVersion:         CurrentAppVersion,
+		ActiveConfig:       activeId,
+		ActiveConfigName:   activeName,
+		ActiveConfigType:   activeType,
 		DelayRetention:     behavior.DelayRetention,
 		DelayRetentionTime: behavior.DelayRetentionTime,
 	}
@@ -2309,10 +2313,11 @@ func (a *App) UpdateCoreComponent() (string, error) {
 	wasActive := a.sysProxyActive || a.tunActive
 	a.mu.RUnlock()
 
-	// 停机准备换核
+	// 🛡️ 修复：锁住整个停机、重命名和重新拉起的生命周期
 	a.coreLifecycleMu.Lock()
+	defer a.coreLifecycleMu.Unlock()
+
 	a.stopCoreService()
-	a.coreLifecycleMu.Unlock()
 
 	backupPath := filepath.Join(binDir, "clash_backup.exe")
 	os.Remove(backupPath) // 确保历史备份档为空
@@ -2346,15 +2351,15 @@ func (a *App) UpdateCoreComponent() (string, error) {
 			// ⚠️ 灾难恢复：新内核架构不对或启动报错，立即执行最终回滚！
 			a.stopCoreService()
 			os.Remove(exePath) // 摧毁损坏的新内核
-			
+
 			// ✅ 修复：处理复活老内核失败的绝境
-			rollbackErr := safeRename(backupPath, exePath) 
+			rollbackErr := safeRename(backupPath, exePath)
 			if rollbackErr != nil {
 				errMsg := fmt.Sprintf("严重故障: 新内核损坏且无法还原旧内核！请手动去 %s 目录检查文件。错误: %v", binDir, rollbackErr)
 				runtime.EventsEmit(a.ctx, "notify-error", errMsg) // 通知前端弹强红窗
 				return "", fmt.Errorf("%s", errMsg)
 			}
-			
+
 			a.ensureCoreRunning() // 重新启动老内核
 			a.SyncState()
 			return "", fmt.Errorf("新内核损坏或不兼容，已自动回滚至稳定版: %v", startErr)
@@ -2486,10 +2491,11 @@ func (a *App) UpdateAllGeoDatabases(types []string) error {
 	wasActive := a.sysProxyActive || a.tunActive
 	a.mu.RUnlock()
 
-	// 无论更新1个还是4个文件，内核只停机 1 次！
+	// 🛡️ 修复：闭环锁住内核，不允许中途操作
 	a.coreLifecycleMu.Lock()
+	defer a.coreLifecycleMu.Unlock()
+
 	a.stopCoreService()
-	a.coreLifecycleMu.Unlock()
 
 	for _, task := range tasks {
 		tempPath := filepath.Join(binDir, task.file+".temp")
@@ -2589,7 +2595,7 @@ func (a *App) GetGeoDatabaseInfo() map[string]GeoFileInfo {
 func getLatestAppReleaseURL(repo, osName, arch, suffix string) (string, string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-	
+
 	resp, err := client.Get(url)
 	if err != nil {
 		return "", "", err
@@ -2660,7 +2666,7 @@ func (a *App) CheckAndDownloadAppUpdate() {
 				a.newAppVersion = latestVersion
 				a.mu.Unlock()
 				runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
-				return 
+				return
 			} else {
 				// 🔴 版本不匹配（本地是旧包），删除旧包，强制重新下载
 				_ = os.Remove(exePath)
@@ -2692,7 +2698,7 @@ func (a *App) CheckAndDownloadAppUpdate() {
 // ApplyAppUpdate 供前端调用：确认更新后，关闭应用并打开安装包
 func (a *App) ApplyAppUpdate() error {
 	exePath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
-	
+
 	if _, err := os.Stat(exePath); os.IsNotExist(err) {
 		return fmt.Errorf("安装包不存在，可能被安全软件清理")
 	}
@@ -2700,7 +2706,7 @@ func (a *App) ApplyAppUpdate() error {
 	cmd := exec.Command(exePath)
 	// 使得安装包脱离当前父进程独立运行，防止我们的进程退出导致安装包也退出
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
-	
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("启动安装程序失败: %v", err)
 	}
