@@ -26,6 +26,7 @@ var (
 	isRunning         atomic.Bool
 	isIntentionalStop atomic.Bool
 	processExitCh     chan struct{} // 👈 新增：进程退出信号通道
+	globalJobHandle   windows.Handle // 🚀 新增：用来维持 Job 句柄的生命周期，防止内核被系统秒杀
 )
 
 // assignProcessToJobObject 将进程加入到随主进程退出的 Job 中
@@ -35,9 +36,8 @@ func assignProcessToJobObject(proc *os.Process) error {
 		return err
 	}
 	
-	// 🎯 修复：确保函数退出时释放主进程对 Job 对象的句柄引用
-	// 注意：只要有进程还在 Job 内，Job 内核对象就不会被真正销毁，这是极其安全的做法
-	defer windows.CloseHandle(job)
+	// 🛑 修改前：绝对不能在这里 defer CloseHandle！这会导致内核刚启动就被系统杀掉
+	// defer windows.CloseHandle(job)
 
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
 		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
@@ -53,7 +53,13 @@ func assignProcessToJobObject(proc *os.Process) error {
 	if err != nil {
 		return err
 	}
-	return windows.AssignProcessToJobObject(job, windows.Handle(proc.Pid))
+	
+	err = windows.AssignProcessToJobObject(job, windows.Handle(proc.Pid))
+	if err == nil {
+		// ✅ 修改后：将其赋值给全局变量，使其与主 Go 进程生命周期绑定
+		globalJobHandle = job
+	}
+	return err
 }
 
 // killProcessIfClash 安全杀进程：验证 PID 对应进程名是否确为目标执行文件名，防止 PID 复用误杀
@@ -72,7 +78,9 @@ func killProcessIfClash(pid int, expectedExeName string) {
 	if err == nil {
 		imageName := windows.UTF16ToString(buf[:size])
 		// 👈 动态比对，并且统一转小写防止大小写不一致导致失效
-		if strings.HasSuffix(strings.ToLower(imageName), strings.ToLower(expectedExeName)) {
+		// 强制拼接上一个反斜杠 `\`，确保我们匹配的是完整文件名而非名字的后缀 (防止 PID 复用误杀)
+		targetSuffix := "\\" + strings.ToLower(expectedExeName)
+		if strings.HasSuffix(strings.ToLower(imageName), targetSuffix) {
 			_ = windows.TerminateProcess(hProcess, 1)
 		}
 	}

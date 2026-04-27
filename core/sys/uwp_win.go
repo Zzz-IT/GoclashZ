@@ -4,9 +4,12 @@ package sys
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"syscall"
 
 	"golang.org/x/sys/windows/registry"
@@ -97,7 +100,7 @@ func getExemptedSids() (map[string]bool, error) {
 	return exemptMap, nil
 }
 
-// SaveUwpExemptions 批量保存豁免（增量更新版）
+// SaveUwpExemptions 批量保存豁免（增量更新版，加入并发控制与路径安全加固）
 func SaveUwpExemptions(targetSids []string) error {
 	// 1. 获取当前系统已有的豁免列表
 	currentExempted, err := getExemptedSids()
@@ -111,24 +114,41 @@ func SaveUwpExemptions(targetSids []string) error {
 		targetMap[sid] = true
 	}
 
+	// 🚀 新增：定位真实的系统目录，防劫持
+	sys32 := filepath.Join(os.Getenv("SystemRoot"), "System32", "CheckNetIsolation.exe")
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 10) // 令牌桶：最大允许 10 个并发进程，防止风暴
+
+	// 封装一个并发执行函数
+	runCmdAsync := func(args ...string) {
+		defer wg.Done()
+		sem <- struct{}{}        // 获取令牌
+		defer func() { <-sem }() // 释放令牌
+
+		cmd := exec.Command(sys32, args...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		_ = cmd.Run()
+	}
+
 	// 3. 增量删除：存在于系统但不在目标列表中的
 	for sid := range currentExempted {
 		if !targetMap[sid] {
-			cmd := exec.Command("CheckNetIsolation.exe", "LoopbackExempt", "-d", "-p="+sid)
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-			_ = cmd.Run()
+			wg.Add(1)
+			go runCmdAsync("LoopbackExempt", "-d", "-p="+sid)
 		}
 	}
 
 	// 4. 增量添加：存在于目标列表但不在系统中的
 	for sid := range targetMap {
 		if !currentExempted[sid] {
-			cmd := exec.Command("CheckNetIsolation.exe", "LoopbackExempt", "-a", "-p="+sid)
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-			_ = cmd.Run()
+			wg.Add(1)
+			go runCmdAsync("LoopbackExempt", "-a", "-p="+sid)
 		}
 	}
 
+	// 阻塞等待所有后台进程执行完毕
+	wg.Wait()
 	return nil
 }
 

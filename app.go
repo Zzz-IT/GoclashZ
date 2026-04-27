@@ -22,7 +22,7 @@ import (
 
 	"net/http"
 
-	"github.com/getlantern/systray" // 👈 2. 新增：引入托盘库
+	"github.com/energye/systray" // 👈 2. 切换为支持点击事件的 fork 版本
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -2050,24 +2050,82 @@ func (a *App) onTrayReady() {
 	systray.SetTitle("GoclashZ")
 	systray.SetTooltip("GoclashZ 代理客户端")
 
-	// --- 严格按照图片的 UI 布局 ---
+	// 1. 抽离显示界面的逻辑
+	showMainUI := func() {
+		runtime.WindowShow(a.ctx)
+		runtime.WindowUnminimise(a.ctx)
+
+		a.mu.RLock()
+		ready := a.appUpdateReady
+		ver := a.newAppVersion
+		a.mu.RUnlock()
+		if ready {
+			runtime.EventsEmit(a.ctx, "app-update-ready", ver)
+		}
+	}
+
+	// 2. 核心魔法：使用 energye 提供的独立鼠标事件
+	// 左键单击 (保持为空，不自动打开窗口)
+	systray.SetOnClick(func(menu systray.IMenu) {
+		// showMainUI() 
+	})
+	
+	// 左键双击
+	systray.SetOnDClick(func(menu systray.IMenu) {
+		showMainUI()
+	})
+	
+	// 右键单击（注意：接管右键后，必须显式调用 menu.ShowMenu() 才会弹出你添加的菜单）
+	systray.SetOnRClick(func(menu systray.IMenu) {
+		menu.ShowMenu() 
+	})
+
+	// 3. 菜单定义与点击回调绑定
 	mShow := systray.AddMenuItem("显示主界面", "打开 GoclashZ 面板")
+	mShow.Click(func() {
+		showMainUI()
+	})
 	systray.AddSeparator() // ----------------------
 
-	// 👇 新增：创建出站路由的子菜单
 	mModeMenu := systray.AddMenuItem("出站路由", "切换流量分流模式")
 	a.mModeRule = mModeMenu.AddSubMenuItemCheckbox("规则分流 (Rule)", "", false)
+	a.mModeRule.Click(func() {
+		go a.UpdateClashMode("rule")
+	})
+
 	a.mModeGlobal = mModeMenu.AddSubMenuItemCheckbox("全局代理 (Global)", "", false)
+	a.mModeGlobal.Click(func() {
+		go a.UpdateClashMode("global")
+	})
+
 	a.mModeDirect = mModeMenu.AddSubMenuItemCheckbox("直接连接 (Direct)", "", false)
+	a.mModeDirect.Click(func() {
+		go a.UpdateClashMode("direct")
+	})
 
 	systray.AddSeparator() // ----------------------
 
 	a.mSysProxy = systray.AddMenuItemCheckbox("系统代理", "全局接管 Windows 流量", false)
+	a.mSysProxy.Click(func() {
+		go a.ToggleSystemProxy(!a.sysProxyActive)
+	})
+
 	a.mTun = systray.AddMenuItemCheckbox("虚拟网卡", "虚拟网卡底层接管", false)
+	a.mTun.Click(func() {
+		go a.ToggleTunMode(!a.tunActive)
+	})
 
 	systray.AddSeparator() // ----------------------
 	mRestart := systray.AddMenuItem("重启内核", "热重启 Mihomo 进程")
+	mRestart.Click(func() {
+		go a.RestartCore()
+	})
+
 	mQuit := systray.AddMenuItem("退出程序", "彻底退出客户端")
+	mQuit.Click(func() {
+		systray.Quit()
+		runtime.Quit(a.ctx)
+	})
 
 	// 初始状态同步
 	a.mu.RLock()
@@ -2081,59 +2139,6 @@ func (a *App) onTrayReady() {
 
 	// ⚡ 调用同步方法，给当前的模式打勾
 	a.SyncState()
-
-	// ⚡ 核心：开启常驻监听协程，绝不能阻塞当前函数
-	go func() {
-		for {
-			select {
-			case <-mShow.ClickedCh:
-				// 🚀 修复 2：Windows 11 焦点破解连招
-				// 当 StartHidden: true 时，单靠 WindowShow 有时无法抢占系统前台焦点
-				runtime.WindowShow(a.ctx)
-				runtime.WindowUnminimise(a.ctx)
-
-				// 🚀 新增补充：只要窗口被显示，就去检查一下是不是后台已经下好更新了
-				// 如果有更新，顺手再向前端抛一次事件，触发“下次打开自动弹出”
-				a.mu.RLock()
-				ready := a.appUpdateReady
-				ver := a.newAppVersion
-				a.mu.RUnlock()
-				if ready {
-					runtime.EventsEmit(a.ctx, "app-update-ready", ver)
-				}
-
-			// 👇 修复 3：极其致命的修复！【必须】使用 go 关键字异步执行！
-			// 既然是状态机，托盘和 Vue 前端一样只负责"发送指令"，绝不阻塞自身
-			case <-a.mModeRule.ClickedCh:
-				go a.UpdateClashMode("rule")
-			case <-a.mModeGlobal.ClickedCh:
-				go a.UpdateClashMode("global")
-			case <-a.mModeDirect.ClickedCh:
-				go a.UpdateClashMode("direct")
-
-			case <-a.mSysProxy.ClickedCh:
-				go a.ToggleSystemProxy(!a.sysProxyActive)
-
-			case <-a.mTun.ClickedCh:
-				go a.ToggleTunMode(!a.tunActive)
-
-			case <-mRestart.ClickedCh:
-				go a.RestartCore()
-
-			case <-mQuit.ClickedCh:
-				// 安全退出的标准顺位：先卸载托盘，再通知 Wails 退出
-				systray.Quit()
-				runtime.Quit(a.ctx)
-				return // 退出这个监听死循环
-
-			// 🚀 修复点：新增对 Wails 全局上下文销毁的监听
-			case <-a.ctx.Done():
-				// 当用户从主界面 [X] 按钮强制退出，或者通过快捷键结束应用时，
-				// a.ctx 会发送 Done 信号。此时优雅退出监听协程，防止内存泄露。
-				return
-			}
-		}
-	}()
 }
 
 func (a *App) onTrayExit() {

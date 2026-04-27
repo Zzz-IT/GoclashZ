@@ -54,13 +54,17 @@ func DownloadFileResumable(url string, destPath string) error {
 		return fmt.Errorf("下载请求异常，状态码: %d", resp.StatusCode)
 	}
 
-	out, err := os.OpenFile(tmpPath, flags, 0644)
-	if err != nil {
+	// ✅ 修改后：使用匿名闭包强制进行 defer 释放，防止 io.Copy panic 导致句柄泄露
+	err = func() error {
+		out, err := os.OpenFile(tmpPath, flags, 0644)
+		if err != nil {
+			return err
+		}
+		// 闭包退出时必然执行，即便是 io.Copy 内部发生了 panic
+		defer out.Close()
+		_, err = io.Copy(out, resp.Body)
 		return err
-	}
-
-	_, err = io.Copy(out, resp.Body)
-	out.Close() // 必须先关闭文件，才能在后面执行重命名
+	}()
 
 	if err != nil {
 		return fmt.Errorf("下载流被中断: %v", err)
@@ -125,13 +129,16 @@ func doDownload(client *http.Client, url string, destPath string) error {
 	}
 
 	tmpPath := destPath + ".tmp"
-	out, err := os.Create(tmpPath)
-	if err != nil {
+	// ✅ 修改后：使用匿名闭包强制进行 defer 释放
+	err = func() error {
+		out, err := os.Create(tmpPath)
+		if err != nil {
+			return err
+		}
+		defer out.Close()
+		_, err = io.Copy(out, resp.Body)
 		return err
-	}
-
-	_, err = io.Copy(out, resp.Body)
-	out.Close() 
+	}()
 
 	if err != nil {
 		_ = os.Remove(tmpPath)
