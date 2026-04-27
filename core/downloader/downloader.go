@@ -121,12 +121,25 @@ func probeSingleRemote(ctx context.Context, client *http.Client, testURL string,
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return resumeMeta{}, false, nil
+		return resumeMeta{}, false, err // ✅ 修复：向上抛出真实网络报错
+	}
+
+	// ✅ 修复：很多机场面板屏蔽 HEAD 请求返回 405/403，触发 GET 降级探测
+	if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusForbidden {
+		resp.Body.Close()
+		req, _ = http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
+		req.Header.Set("User-Agent", ua)
+		// 使用 Range 限制只请求一点点数据，避免测速时就下载了整个订阅
+		req.Header.Set("Range", "bytes=0-0")
+		resp, err = client.Do(req)
+		if err != nil {
+			return resumeMeta{}, false, err
+		}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resumeMeta{}, false, nil
+		return resumeMeta{}, false, fmt.Errorf("HTTP请求失败，状态码: %d", resp.StatusCode) // ✅ 修复：抛出具体错误
 	}
 
 	total := resp.ContentLength
@@ -162,7 +175,7 @@ func probeFastestEnvironment(ctx context.Context, clients []*http.Client, opt Op
 		for _, u := range urls {
 			go func(c *http.Client, target string) {
 				meta, partial, err := probeSingleRemote(raceCtx, c, target, opt)
-				if err == nil && meta.TotalSize > 0 {
+				if err == nil { // ✅ 移除 TotalSize > 0 的强制依赖
 					resultCh <- envProbeResult{meta, partial, c, nil}
 				} else {
 					resultCh <- envProbeResult{resumeMeta{}, false, nil, err}
@@ -174,7 +187,7 @@ func probeFastestEnvironment(ctx context.Context, clients []*http.Client, opt Op
 	var lastErr error
 	for i := 0; i < totalRaces; i++ {
 		res := <-resultCh
-		if res.err == nil && res.meta.TotalSize > 0 {
+		if res.err == nil { // ✅ 移除 TotalSize > 0 的强制依赖
 			cancelRace() // 🌟 找到最快的通道，立刻切断其他落后协程
 			return res.meta, res.canPartial, res.client, nil
 		}
