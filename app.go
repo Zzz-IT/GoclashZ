@@ -2584,9 +2584,6 @@ func (a *App) updateAllGeoDatabases(ctx context.Context, types []string, isBatch
 
 				if !isBatch {
 					runtime.EventsEmit(a.ctx, "geodb-update-"+task.key+"-error", err.Error())
-				} else {
-					// 批量模式下只关闭圈圈，不发单项失败卡片
-					runtime.EventsEmit(a.ctx, "geodb-item-state", map[string]any{"key": task.key, "loading": false})
 				}
 				errChan <- fmt.Errorf("[%s] 下载失败: %v", task.key, err)
 				return
@@ -2594,9 +2591,6 @@ func (a *App) updateAllGeoDatabases(ctx context.Context, types []string, isBatch
 			
 			if !isBatch {
 				runtime.EventsEmit(a.ctx, "geodb-update-"+task.key+"-success")
-			} else {
-				// 批量模式关闭圈圈，拦截单项成功卡片
-				runtime.EventsEmit(a.ctx, "geodb-item-state", map[string]any{"key": task.key, "loading": false})
 			}
 		}(t)
 	}
@@ -2625,6 +2619,9 @@ func (a *App) updateAllGeoDatabases(ctx context.Context, types []string, isBatch
 
 		// 跳过那些下载失败的文件
 		if _, err := os.Stat(tempPath); os.IsNotExist(err) {
+			if isBatch {
+				runtime.EventsEmit(a.ctx, "geodb-item-state", map[string]any{"key": task.key, "loading": false})
+			}
 			continue
 		}
 
@@ -2652,6 +2649,11 @@ func (a *App) updateAllGeoDatabases(ctx context.Context, types []string, isBatch
 			failedKeysMu.Unlock()
 		} else {
 			os.Remove(backupPath)
+		}
+
+		// 🌟 批量模式下，在此处统一释放单项 Loading 状态，确保与时间戳更新同步
+		if isBatch {
+			runtime.EventsEmit(a.ctx, "geodb-item-state", map[string]any{"key": task.key, "loading": false})
 		}
 	}
 

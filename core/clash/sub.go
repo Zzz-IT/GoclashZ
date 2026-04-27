@@ -55,10 +55,10 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 	dir := utils.GetSubscriptionsDir()
 	os.MkdirAll(dir, 0755)
 
-	// 🛡️ 防御路径穿越：提取纯文件名
-	safeId := filepath.Base(filepath.Clean(id))
-	if safeId == "." || safeId == "/" || safeId == "\\" {
-		return id, fmt.Errorf("非法的文件 ID 拒绝访问")
+	// 🛡️ 防御路径穿越：利用统一工具函数提取安全文件名
+	safeId, err := utils.SanitizeFilename(id)
+	if err != nil {
+		return id, err
 	}
 
 	finalPath := filepath.Join(dir, safeId+".yaml")
@@ -74,7 +74,7 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 	var upload, download, total, expire int64
 
 	// 🚀 2. 全面拥抱底层 downloader，直接集齐五大神器
-	err := downloader.DownloadAtomic(ctx, downloader.Options{
+	err = downloader.DownloadAtomic(ctx, downloader.Options{
 		URLs:               []string{url},
 		DestPath:           finalPath,
 		UserAgent:          userAgent,
@@ -162,9 +162,9 @@ func RenameConfig(id, newName string) error {
 
 func DeleteConfig(id string) error {
 	// 🛡️ 防御路径穿越：强行提取纯文件名
-	safeId := filepath.Base(filepath.Clean(id))
-	if safeId == "." || safeId == "/" || safeId == "\\" {
-		return fmt.Errorf("非法的文件 ID 拒绝访问")
+	safeId, err := utils.SanitizeFilename(id)
+	if err != nil {
+		return err
 	}
 
 	dir := utils.GetSubscriptionsDir()
@@ -193,21 +193,14 @@ func DeleteConfig(id string) error {
 
 // ReloadConfig 调用内核 API 热重载
 func ReloadConfig() error {
-	req, err := http.NewRequest("PUT", APIURL("/configs?force=true"), nil)
-	if err != nil {
-		return fmt.Errorf("构建重载请求失败: %v", err)
-	}
-
-	resp, err := localAPIClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("内核配置重载请求失败: %v", err)
-	}
-	defer resp.Body.Close() // 规范：即使不需要读取响应内容，也必须释放底层的 TCP 连接
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("内核配置重载失败，状态码: %d", resp.StatusCode)
-	}
-	return nil
+	return doKernelRequest(
+		context.Background(),
+		http.MethodPut,
+		"/configs?force=true",
+		nil,
+		http.StatusOK,
+		http.StatusNoContent,
+	)
 }
 
 // StrictVerifyClashConfig 进行极度严格的 Clash 配置文件语义与结构级校验

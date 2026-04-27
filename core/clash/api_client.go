@@ -71,8 +71,9 @@ func NormalizeControllerHostPort(controller string) string {
 	if err != nil || host == "" || port == "" {
 		return "127.0.0.1:9090"
 	}
-	// external-controller 必须限制在本机，避免管理 API 被局域网暴露
-	if host != "127.0.0.1" && host != "localhost" && host != "::1" && host != "[::1]" {
+	// 🌟 核心改进：允许非本地 IP（如软路由、NAS、远程服务器），解除“逻辑硬伤”
+	// 但如果 host 为空或非法，依然返回兜底地址
+	if host == "" || port == "" {
 		return "127.0.0.1:9090"
 	}
 	return net.JoinHostPort(strings.Trim(host, "[]"), port)
@@ -309,6 +310,23 @@ func require2xx(resp *http.Response, endpoint string) error {
 	return nil
 }
 
+// 🚀 [泛型优化]：统一 GET 请求处理，消灭 40 行模板代码
+func doKernelGet[T any](path string) (T, error) {
+	var result T
+	resp, err := localAPIClient.Get(APIURL(path))
+	if err != nil {
+		return result, err
+	}
+	defer resp.Body.Close()
+
+	if err := require2xx(resp, path); err != nil {
+		return result, err
+	}
+
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	return result, err
+}
+
 func doKernelRequest(ctx context.Context, method, path string, body any, okStatus ...int) error {
 	var reader io.Reader
 
@@ -346,31 +364,13 @@ func doKernelRequest(ctx context.Context, method, path string, body any, okStatu
 
 // GetInitialData 获取模式和代理组信息
 func GetInitialData() (map[string]interface{}, error) {
-	respConfig, err := localAPIClient.Get(APIURL("/configs"))
+	configData, err := doKernelGet[map[string]interface{}]("/configs")
 	if err != nil {
 		return nil, err
 	}
-	defer respConfig.Body.Close()
-	if err := require2xx(respConfig, "/configs"); err != nil {
-		return nil, err
-	}
 
-	var configData map[string]interface{}
-	if err := json.NewDecoder(respConfig.Body).Decode(&configData); err != nil {
-		return nil, err
-	}
-
-	respProxies, err := localAPIClient.Get(APIURL("/proxies"))
+	proxiesData, err := doKernelGet[map[string]interface{}]("/proxies")
 	if err != nil {
-		return nil, err
-	}
-	defer respProxies.Body.Close()
-	if err := require2xx(respProxies, "/proxies"); err != nil {
-		return nil, err
-	}
-
-	var proxiesData map[string]interface{}
-	if err := json.NewDecoder(respProxies.Body).Decode(&proxiesData); err != nil {
 		return nil, err
 	}
 
@@ -446,17 +446,8 @@ func CloseAllConnections() error {
 
 // GetVersion 获取内核版本号
 func GetVersion() string {
-	resp, err := localAPIClient.Get(APIURL("/version"))
+	data, err := doKernelGet[map[string]string]("/version")
 	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-	if err := require2xx(resp, "/version"); err != nil {
-		return ""
-	}
-
-	var data map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return ""
 	}
 	return data["version"]

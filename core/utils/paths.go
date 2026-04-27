@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,4 +109,13 @@ func GetSubscriptionsDir() string {
 // GetSettingsDir 返回设置文件夹的绝对路径
 func GetSettingsDir() string {
 	return filepath.Join(dataDir, "Settings")
+}
+
+// SanitizeFilename 🛡️ 防御路径穿越：确保文件名不会逃逸出目标目录
+func SanitizeFilename(name string) (string, error) {
+	safe := filepath.Base(filepath.Clean(name))
+	if safe == "." || safe == "/" || safe == "\\" {
+		return "", fmt.Errorf("非法的文件名拒绝访问")
+	}
+	return safe, nil
 }

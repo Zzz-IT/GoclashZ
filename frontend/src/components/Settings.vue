@@ -115,7 +115,7 @@
                 <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">路由规则数据库</h3>
               </div>
               <button class="action-btn primary-btn accent-btn" @click="handleUpdateAllDbs" :disabled="isUpdatingAnyDb">
-                {{ updatingAllDbs ? '并发处理中...' : '一键更新全部' }}
+                {{ updatingAllDbs ? '并发处理中...' : '更新全部' }}
               </button>
             </div>
             <div class="divider" style="margin-top: 14px;"></div>
@@ -1345,22 +1345,26 @@ onMounted(() => {
   });
 
   EventsOn("geodb-update-all-success", async (msg: string) => {
-    updatingAllDbs.value = false;
-    await showAlert(msg, "完成");
     const dbInfo = await (API as any).GetGeoDatabaseInfo();
     if (dbInfo) dbFileInfo.value = dbInfo;
+    updatingAllDbs.value = false;
+    await showAlert(msg, "完成");
   });
 
   EventsOn("geodb-update-all-error", async (err: string) => {
-    updatingAllDbs.value = false;
-    await showAlert(err, "部分更新失败");
     const dbInfo = await (API as any).GetGeoDatabaseInfo();
     if (dbInfo) dbFileInfo.value = dbInfo;
+    updatingAllDbs.value = false;
+    await showAlert(err, "部分更新失败");
   });
 
   // 🌟 2. 监听静默单项 Loading 状态 (消除一键更新时的弹窗轰炸)
-  EventsOn("geodb-item-state", (payload: {key: string, loading: boolean}) => {
+  EventsOn("geodb-item-state", async (payload: {key: string, loading: boolean}) => {
     updatingDbs.value[payload.key] = payload.loading;
+    if (!payload.loading) {
+      const dbInfo = await (API as any).GetGeoDatabaseInfo();
+      if (dbInfo) dbFileInfo.value = dbInfo;
+    }
   });
 
   // 3. 监听单个手动触发的 Geo 数据库更新事件 (保持原有带弹窗的交互)
@@ -1368,10 +1372,10 @@ onMounted(() => {
   dbTypes.forEach(t => {
     EventsOn(`geodb-update-${t}-start`, () => { updatingDbs.value[t] = true; });
     EventsOn(`geodb-update-${t}-success`, async () => {
-      updatingDbs.value[t] = false;
-      await showAlert(`${dbTitles[t] || t} 文件同步成功！`, "完成");
       const dbInfo = await (API as any).GetGeoDatabaseInfo();
       if (dbInfo) dbFileInfo.value = dbInfo;
+      updatingDbs.value[t] = false;
+      await showAlert(`${dbTitles[t] || t} 文件同步成功！`, "完成");
     });
     EventsOn(`geodb-update-${t}-error`, async (err: string) => {
       updatingDbs.value[t] = false;
