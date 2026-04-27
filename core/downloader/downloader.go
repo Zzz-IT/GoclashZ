@@ -9,29 +9,19 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 )
 
-type TrustPolicy int
-
-const (
-	TrustAllowNoHash TrustPolicy = iota
-	TrustRequireHash
-)
-
 type Options struct {
-	URL                 string
-	DestPath            string
-	UserAgent           string
-	ExpectedSHA         string
-	MaxBytes            int64
-	Client              *http.Client
-	Resume              bool
-	ResolveGitHubDigest bool
-	TrustPolicy         TrustPolicy
+	URL             string
+	DestPath        string
+	UserAgent       string
+	MaxBytes        int64
+	Client          *http.Client
+	Resume          bool
+	VerifyGitHubSHA bool
 }
 
 type resumeMeta struct {
@@ -39,7 +29,6 @@ type resumeMeta struct {
 	ETag         string `json:"etag"`
 	LastModified string `json:"lastModified"`
 	TotalSize    int64  `json:"totalSize"`
-	ExpectedSHA  string `json:"expectedSha"`
 }
 
 var defaultClient = &http.Client{
@@ -89,7 +78,7 @@ func probeRemote(ctx context.Context, client *http.Client, opt Options) (resumeM
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return resumeMeta{}, false, nil // HEAD 失败不致命
+		return resumeMeta{}, false, nil
 	}
 	defer resp.Body.Close()
 
@@ -105,7 +94,6 @@ func probeRemote(ctx context.Context, client *http.Client, opt Options) (resumeM
 		ETag:         resp.Header.Get("ETag"),
 		LastModified: resp.Header.Get("Last-Modified"),
 		TotalSize:    total,
-		ExpectedSHA:  opt.ExpectedSHA,
 	}, acceptRanges && total > 0, nil
 }
 
@@ -142,23 +130,6 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 		ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GoclashZ/1.0"
 	}
 
-	// 1. 尝试从 manifest 补全哈希
-	if opt.ExpectedSHA == "" {
-		opt.ExpectedSHA = LookupKnownSHA256(filepath.Base(opt.URL))
-	}
-
-	// 2. 尝试从 GitHub Release Asset 获取哈希
-	if opt.ExpectedSHA == "" && opt.ResolveGitHubDigest {
-		if sha, err := ResolveGitHubAssetSHA256(ctx, client, opt.URL, ua); err == nil {
-			opt.ExpectedSHA = sha
-		}
-	}
-
-	// 3. 强制校验检查
-	if opt.TrustPolicy == TrustRequireHash && opt.ExpectedSHA == "" {
-		return fmt.Errorf("高风险组件缺少 SHA256 校验，下载拒绝: %s", opt.URL)
-	}
-
 	tmpPath := opt.DestPath + ".tmp"
 	metaFile := metaPath(tmpPath)
 
@@ -182,14 +153,8 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 	remoteMeta, serverSupportsRange, _ := probeRemote(ctx, client, opt)
 	if remoteMeta.URL == "" {
 		remoteMeta.URL = opt.URL
-		remoteMeta.ExpectedSHA = opt.ExpectedSHA
 	}
 
-	if opt.ExpectedSHA != "" {
-		remoteMeta.ExpectedSHA = opt.ExpectedSHA
-	}
-
-	// 校验元数据是否一致
 	if canResume {
 		if oldMeta.ETag != "" && remoteMeta.ETag != "" && oldMeta.ETag != remoteMeta.ETag {
 			canResume = false
@@ -208,119 +173,117 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 		_ = os.Remove(metaFile)
 	}
 
-	// 如果 tmp 已经下载完且大小匹配，直接完成
+	// 尝试下载或续传
 	if startOffset > 0 && remoteMeta.TotalSize > 0 && startOffset >= remoteMeta.TotalSize {
-		if err := finalizeDownloadedFile(tmpPath, opt.DestPath, remoteMeta.ExpectedSHA); err != nil {
-			_ = os.Remove(tmpPath)
-			_ = os.Remove(metaFile)
+		// 已下载完，跳过下载阶段
+	} else {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, opt.URL, nil)
+		if err != nil {
 			return err
 		}
-		_ = os.Remove(metaFile)
-		return nil
-	}
+		req.Header.Set("User-Agent", ua)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, opt.URL, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", ua)
-
-	if startOffset > 0 {
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", startOffset))
-		if remoteMeta.ETag != "" {
-			req.Header.Set("If-Range", remoteMeta.ETag)
-		} else if remoteMeta.LastModified != "" {
-			req.Header.Set("If-Range", remoteMeta.LastModified)
-		}
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	appendMode := false
-	switch resp.StatusCode {
-	case http.StatusOK:
-		startOffset = 0
-		_ = os.Remove(tmpPath)
-		_ = os.Remove(metaFile)
-	case http.StatusPartialContent:
-		if startOffset <= 0 {
-			return fmt.Errorf("服务器返回 206，但本地没有可续传内容")
-		}
-		appendMode = true
-	default:
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return fmt.Errorf("下载失败: HTTP %d", resp.StatusCode)
-		}
-	}
-
-	if remoteMeta.ETag == "" {
-		remoteMeta.ETag = resp.Header.Get("ETag")
-	}
-	if remoteMeta.LastModified == "" {
-		remoteMeta.LastModified = resp.Header.Get("Last-Modified")
-	}
-	if remoteMeta.TotalSize <= 0 {
-		if resp.StatusCode == http.StatusPartialContent {
-			if total, ok := parseContentRangeTotal(resp.Header.Get("Content-Range")); ok {
-				remoteMeta.TotalSize = total
+		if startOffset > 0 {
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", startOffset))
+			if remoteMeta.ETag != "" {
+				req.Header.Set("If-Range", remoteMeta.ETag)
+			} else if remoteMeta.LastModified != "" {
+				req.Header.Set("If-Range", remoteMeta.LastModified)
 			}
-		} else if resp.ContentLength > 0 {
-			remoteMeta.TotalSize = resp.ContentLength
 		}
-	}
 
-	_ = writeResumeMeta(metaFile, remoteMeta)
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
 
-	flag := os.O_CREATE | os.O_WRONLY
-	if appendMode {
-		flag |= os.O_APPEND
-	} else {
-		flag |= os.O_TRUNC
-	}
+		appendMode := false
+		switch resp.StatusCode {
+		case http.StatusOK:
+			startOffset = 0
+			_ = os.Remove(tmpPath)
+			_ = os.Remove(metaFile)
+		case http.StatusPartialContent:
+			appendMode = true
+		default:
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				return fmt.Errorf("下载失败: HTTP %d", resp.StatusCode)
+			}
+		}
 
-	out, err := os.OpenFile(tmpPath, flag, 0644)
-	if err != nil {
-		return err
-	}
+		if remoteMeta.ETag == "" {
+			remoteMeta.ETag = resp.Header.Get("ETag")
+		}
+		if remoteMeta.LastModified == "" {
+			remoteMeta.LastModified = resp.Header.Get("Last-Modified")
+		}
+		if remoteMeta.TotalSize <= 0 {
+			if resp.StatusCode == http.StatusPartialContent {
+				if total, ok := parseContentRangeTotal(resp.Header.Get("Content-Range")); ok {
+					remoteMeta.TotalSize = total
+				}
+			} else if resp.ContentLength > 0 {
+				remoteMeta.TotalSize = resp.ContentLength
+			}
+		}
 
-	var reader io.Reader = resp.Body
-	if opt.MaxBytes > 0 {
-		remain := opt.MaxBytes - startOffset
-		if remain <= 0 {
-			out.Close()
+		_ = writeResumeMeta(metaFile, remoteMeta)
+
+		flag := os.O_CREATE | os.O_WRONLY
+		if appendMode {
+			flag |= os.O_APPEND
+		} else {
+			flag |= os.O_TRUNC
+		}
+
+		out, err := os.OpenFile(tmpPath, flag, 0644)
+		if err != nil {
+			return err
+		}
+
+		var reader io.Reader = resp.Body
+		if opt.MaxBytes > 0 {
+			remain := opt.MaxBytes - startOffset
+			if remain <= 0 {
+				out.Close()
+				return fmt.Errorf("下载文件超过大小限制")
+			}
+			reader = io.LimitReader(resp.Body, remain+1)
+		}
+
+		n, copyErr := io.Copy(out, reader)
+		closeErr := out.Close()
+
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+
+		if opt.MaxBytes > 0 && startOffset+n > opt.MaxBytes {
+			_ = os.Remove(tmpPath)
+			_ = os.Remove(metaFile)
 			return fmt.Errorf("下载文件超过大小限制")
 		}
-		reader = io.LimitReader(resp.Body, remain+1)
 	}
 
-	n, copyErr := io.Copy(out, reader)
-	closeErr := out.Close()
+	// 校验逻辑
+	if opt.VerifyGitHubSHA {
+		expectedSHA, err := ResolveGitHubAssetSHA256(ctx, client, opt.URL, ua)
+		if err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("获取 GitHub 文件哈希失败: %v", err)
+		}
 
-	if copyErr != nil {
-		return copyErr
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-
-	if opt.MaxBytes > 0 && startOffset+n > opt.MaxBytes {
-		_ = os.Remove(tmpPath)
-		_ = os.Remove(metaFile)
-		return fmt.Errorf("下载文件超过大小限制")
-	}
-
-	if remoteMeta.TotalSize > 0 {
-		info, err := os.Stat(tmpPath)
-		if err == nil && info.Size() < remoteMeta.TotalSize {
-			return fmt.Errorf("下载未完成: %d/%d", info.Size(), remoteMeta.TotalSize)
+		if err := VerifySHA256(tmpPath, expectedSHA); err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("文件 SHA256 校验失败: %v", err)
 		}
 	}
 
-	if err := finalizeDownloadedFile(tmpPath, opt.DestPath, opt.ExpectedSHA); err != nil {
+	if err := replaceFile(tmpPath, opt.DestPath); err != nil {
 		_ = os.Remove(tmpPath)
 		_ = os.Remove(metaFile)
 		return err
@@ -330,13 +293,7 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 	return nil
 }
 
-func finalizeDownloadedFile(tmpPath, destPath, expectedSHA string) error {
-	if expectedSHA != "" {
-		if err := VerifySHA256(tmpPath, expectedSHA); err != nil {
-			return err
-		}
-	}
-
+func replaceFile(tmpPath, destPath string) error {
 	backupPath := destPath + ".bak"
 	_ = os.Remove(backupPath)
 
@@ -353,17 +310,6 @@ func finalizeDownloadedFile(tmpPath, destPath, expectedSHA string) error {
 
 	_ = os.Remove(backupPath)
 	return nil
-}
-
-func DownloadLargeAtomic(ctx context.Context, url, dest, expectedSHA string, maxBytes int64) error {
-	return DownloadAtomic(ctx, Options{
-		URL:         url,
-		DestPath:    dest,
-		ExpectedSHA: expectedSHA,
-		MaxBytes:    maxBytes,
-		Client:      largeClient,
-		Resume:      true,
-	})
 }
 
 func VerifySHA256(path string, expected string) error {

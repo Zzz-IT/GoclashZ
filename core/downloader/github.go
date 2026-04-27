@@ -20,39 +20,54 @@ type githubRelease struct {
 	Assets []githubReleaseAsset `json:"assets"`
 }
 
-var githubReleaseDownloadRe = regexp.MustCompile(
+var githubReleaseAssetRe = regexp.MustCompile(
 	`^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^?#]+)`,
 )
 
+func normalizeGitHubAssetURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+
+	// 兼容 ghproxy:
+	// https://ghproxy.net/https://github.com/owner/repo/releases/download/tag/file.zip
+	if idx := strings.Index(rawURL, "https://github.com/"); idx >= 0 {
+		return rawURL[idx:]
+	}
+
+	return rawURL
+}
+
+func ShouldVerifyGitHubSHA(rawURL string) bool {
+	rawURL = normalizeGitHubAssetURL(rawURL)
+	return githubReleaseAssetRe.MatchString(rawURL)
+}
+
 func ResolveGitHubAssetSHA256(ctx context.Context, client *http.Client, rawURL string, userAgent string) (string, error) {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return "", err
-	}
+	rawURL = normalizeGitHubAssetURL(rawURL)
 
-	// 兼容 ghproxy.net/https://github.com/...
-	if parsed.Host != "github.com" {
-		idx := strings.Index(rawURL, "https://github.com/")
-		if idx >= 0 {
-			rawURL = rawURL[idx:]
-		}
-	}
-
-	m := githubReleaseDownloadRe.FindStringSubmatch(rawURL)
+	m := githubReleaseAssetRe.FindStringSubmatch(rawURL)
 	if len(m) != 5 {
-		return "", fmt.Errorf("不是 GitHub release asset URL")
+		return "", fmt.Errorf("不是 GitHub release asset URL: %s", rawURL)
 	}
 
 	owner := m[1]
 	repo := m[2]
 	tag := m[3]
-	assetName, _ := url.PathUnescape(path.Base(m[4]))
+
+	assetName, err := url.PathUnescape(path.Base(m[4]))
+	if err != nil {
+		return "", err
+	}
 
 	var apiURL string
 	if tag == "latest" {
 		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
 	} else {
-		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/tags/%s", owner, repo, url.PathEscape(tag))
+		apiURL = fmt.Sprintf(
+			"https://api.github.com/repos/%s/%s/releases/tags/%s",
+			owner,
+			repo,
+			url.PathEscape(tag),
+		)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
@@ -63,6 +78,7 @@ func ResolveGitHubAssetSHA256(ctx context.Context, client *http.Client, rawURL s
 	if userAgent == "" {
 		userAgent = "GoclashZ/1.0"
 	}
+
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
@@ -73,7 +89,7 @@ func ResolveGitHubAssetSHA256(ctx context.Context, client *http.Client, rawURL s
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub release API 返回 HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
 	}
 
 	var release githubRelease
@@ -86,15 +102,15 @@ func ResolveGitHubAssetSHA256(ctx context.Context, client *http.Client, rawURL s
 			continue
 		}
 
-		digest := strings.TrimSpace(asset.Digest)
+		digest := strings.TrimSpace(strings.ToLower(asset.Digest))
 		digest = strings.TrimPrefix(digest, "sha256:")
-		digest = strings.ToLower(digest)
 
-		if len(digest) == 64 {
-			return digest, nil
+		if len(digest) != 64 {
+			return "", fmt.Errorf("GitHub asset 未提供有效 sha256 digest: %s", assetName)
 		}
-		return "", fmt.Errorf("asset %s 未提供 sha256 digest", assetName)
+
+		return digest, nil
 	}
 
-	return "", fmt.Errorf("release 中未找到 asset: %s", assetName)
+	return "", fmt.Errorf("GitHub release 中未找到文件: %s", assetName)
 }

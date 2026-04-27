@@ -5,11 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"goclashz/core/downloader"
 	"goclashz/core/sys"
@@ -35,52 +33,22 @@ func looksLikePE(data []byte) bool {
 }
 
 const (
-	kernelURL    = "https://ghproxy.net/https://github.com/MetaCubeX/mihomo/releases/download/v1.18.3/mihomo-windows-amd64-v1.18.3.zip"
-	kernelZipSHA = "" // 🚀 留空：当前内核源未配置 SHA256 校验，仅作结构预留
+	kernelURL = "https://ghproxy.net/https://github.com/MetaCubeX/mihomo/releases/download/v1.18.3/mihomo-windows-amd64-v1.18.3.zip"
 )
 
-// 🎯 优化：复用 Wintun 风格的缓冲拷贝逻辑，提升大文件处理速度并增加请求稳定性
 func downloadAndExtractKernel(ctx context.Context, destDir, finalExePath string) error {
 	zipPath := filepath.Join(destDir, "core_temp.zip")
 
-	// 1. 下载 ZIP (优化请求与接收流)
-	client := &http.Client{Timeout: 300 * time.Second} // 内核稍大，给 5 分钟超时
-	req, err := http.NewRequestWithContext(ctx, "GET", kernelURL, nil)
+	// 1. 下载 ZIP (使用统一原子下载器 + GitHub 自动校验)
+	err := downloader.DownloadAtomic(ctx, downloader.Options{
+		URL:             kernelURL,
+		DestPath:        zipPath,
+		MaxBytes:        200 * 1024 * 1024,
+		Resume:          true,
+		VerifyGitHubSHA: true, // 强制内核校验
+	})
 	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) goclashz")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("下载内核网络错误: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("服务器返回错误状态码: %d", resp.StatusCode)
-	}
-
-	out, err := os.Create(zipPath)
-	if err != nil {
-		return fmt.Errorf("创建临时文件失败: %v", err)
-	}
-
-	// 使用缓冲拷贝提高磁盘写入速度
-	buf := make([]byte, 32*1024)
-	_, err = io.CopyBuffer(out, resp.Body, buf)
-	out.Close()
-	if err != nil {
-		os.Remove(zipPath)
-		return fmt.Errorf("写入压缩包异常中断: %v", err)
-	}
-
-	// 1.5 校验 SHA256
-	if kernelZipSHA != "" {
-		if err := downloader.VerifySHA256(zipPath, kernelZipSHA); err != nil {
-			_ = os.Remove(zipPath)
-			return fmt.Errorf("内核压缩包校验失败: %v", err)
-		}
+		return fmt.Errorf("内核下载或 GitHub 校验失败: %v", err)
 	}
 
 	// 2. 解压并提取 (修复解除文件锁定逻辑)
@@ -109,7 +77,7 @@ func downloadAndExtractKernel(ctx context.Context, destDir, finalExePath string)
 			}
 
 			// 再次使用缓冲提升解压释放速度
-			_, err = io.CopyBuffer(outFile, rc, buf)
+			_, err = io.Copy(outFile, rc)
 			outFile.Close()
 			rc.Close()
 
