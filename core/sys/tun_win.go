@@ -58,6 +58,8 @@ func downloadAndExtractWintun(ctx context.Context, finalDllPath string) error {
 		DestPath:        zipPath,
 		MaxBytes:        10 * 1024 * 1024,
 		Resume:          true,
+		// Wintun 官方源不是 GitHub Release Asset，无法使用 GitHub digest。
+		// 此处保留大小与 PE 头基础校验。
 		VerifyGitHubSHA: downloader.ShouldVerifyGitHubSHA(WintunDownloadURL),
 	})
 	if err != nil {
@@ -118,7 +120,7 @@ func downloadAndExtractWintun(ctx context.Context, finalDllPath string) error {
 				return fmt.Errorf("wintun.dll 校验失败")
 			}
 
-			if err := os.Rename(tmpDllPath, finalDllPath); err != nil {
+			if err := downloader.ReplaceFile(tmpDllPath, finalDllPath); err != nil {
 				_ = os.Remove(tmpDllPath)
 				return err
 			}

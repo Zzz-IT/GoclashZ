@@ -262,10 +262,17 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 			return closeErr
 		}
 
-		if opt.MaxBytes > 0 && startOffset+n > opt.MaxBytes {
-			_ = os.Remove(tmpPath)
-			_ = os.Remove(metaFile)
-			return fmt.Errorf("下载文件超过大小限制")
+		if remoteMeta.TotalSize > 0 {
+			if info, err := os.Stat(tmpPath); err == nil {
+				if info.Size() < remoteMeta.TotalSize {
+					return fmt.Errorf("下载未完成: %d/%d", info.Size(), remoteMeta.TotalSize)
+				}
+				if info.Size() > remoteMeta.TotalSize {
+					_ = os.Remove(tmpPath)
+					_ = os.Remove(metaFile)
+					return fmt.Errorf("下载文件大小异常: %d/%d", info.Size(), remoteMeta.TotalSize)
+				}
+			}
 		}
 	}
 
@@ -274,7 +281,7 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 		expectedSHA, err := ResolveGitHubAssetSHA256(ctx, client, opt.URL, ua)
 		if err != nil {
 			_ = os.Remove(tmpPath)
-			return fmt.Errorf("获取 GitHub 文件哈希失败: %v", err)
+			return err
 		}
 
 		if err := VerifySHA256(tmpPath, expectedSHA); err != nil {
@@ -283,7 +290,7 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 		}
 	}
 
-	if err := replaceFile(tmpPath, opt.DestPath); err != nil {
+	if err := ReplaceFile(tmpPath, opt.DestPath); err != nil {
 		_ = os.Remove(tmpPath)
 		_ = os.Remove(metaFile)
 		return err
@@ -293,13 +300,13 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 	return nil
 }
 
-func replaceFile(tmpPath, destPath string) error {
+func ReplaceFile(tmpPath, destPath string) error {
 	backupPath := destPath + ".bak"
 	_ = os.Remove(backupPath)
 
 	if _, err := os.Stat(destPath); err == nil {
 		if err := os.Rename(destPath, backupPath); err != nil {
-			return fmt.Errorf("备份旧文件失败: %w", err)
+			return fmt.Errorf("目标文件正在使用中，请关闭相关功能后重试: %w", err)
 		}
 	}
 

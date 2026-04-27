@@ -93,7 +93,7 @@ func downloadAndExtractKernel(ctx context.Context, destDir, finalExePath string)
 				return fmt.Errorf("内核解压后校验失败：文件过小或损坏")
 			}
 
-			if err := os.Rename(tmpExePath, finalExePath); err != nil {
+			if err := downloader.ReplaceFile(tmpExePath, finalExePath); err != nil {
 				_ = os.Remove(tmpExePath)
 				r.Close()
 				return err
@@ -205,7 +205,7 @@ func ExtractKernel(zipPath, destExePath string) error {
 				return fmt.Errorf("内核解压后校验失败：文件过小或损坏")
 			}
 
-			if err := os.Rename(tmpPath, destExePath); err != nil {
+			if err := downloader.ReplaceFile(tmpPath, destExePath); err != nil {
 				_ = os.Remove(tmpPath)
 				return err
 			}

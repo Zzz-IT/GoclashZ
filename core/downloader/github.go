@@ -106,7 +106,7 @@ func ResolveGitHubAssetSHA256(ctx context.Context, client *http.Client, rawURL s
 		digest = strings.TrimPrefix(digest, "sha256:")
 
 		if len(digest) != 64 {
-			return "", fmt.Errorf("GitHub asset 未提供有效 sha256 digest: %s", assetName)
+			return "", fmt.Errorf("GitHub release asset %s 未提供有效 sha256 digest，无法执行 SHA256 校验", assetName)
 		}
 
 		return digest, nil

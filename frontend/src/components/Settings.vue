@@ -1136,16 +1136,13 @@ const formatRelativeTime = (timestamp: number) => {
 };
 
 const handleCheckUpdate = async () => {
-  checkingAppUpdate.value = true; // 👈 切换变量
+  checkingAppUpdate.value = true;
   try {
-    const res = await (API as any).ManualCheckAppUpdate();
-    if (res === "ALREADY_LATEST") {
-      await showAlert(`当前版本 (${globalState.appVersion}) 已是最新，无需更新。`, "通知");
-    } else {
-      await showAlert(`发现新版本 ${res}，正在后台为您静默下载中...`, "通知");
-    }
+    // 🚀 已改为异步任务模式
+    API.CheckAndDownloadAppUpdateAsync();
+    await showAlert("正在后台检查并为您静默更新中，您可以继续操作，更新完成后将有弹窗提醒。", "通知");
   } catch (e) {
-    await showAlert("检查更新失败: " + e, "错误", true);
+    await showAlert("发起检查更新失败: " + e, "错误", true);
   } finally {
     checkingAppUpdate.value = false;
   }
@@ -1196,19 +1193,11 @@ const confirmRestore = async () => {
 };
 
 const handleUpdateCore = async () => {
-  updatingCore.value = true;
   try {
-    const res = await (API as any).UpdateCoreComponent();
-    if (res === "ALREADY_LATEST") {
-      await showAlert(`当前内核 (${coreVersion.value}) 已是最新版本，无需更新！`, "通知");
-    } else {
-      await showAlert("内核跨版本更新成功！", "通知");
-      coreVersion.value = await (API as any).GetCoreVersion();
-    }
+    // 🚀 改为异步任务
+    API.UpdateCoreComponentAsync();
   } catch (e) {
-    await showAlert("更新异常: " + e, "错误");
-  } finally {
-    updatingCore.value = false;
+    await showAlert("发起更新异常: " + e, "错误");
   }
 };
 const tunStatus = ref<Record<string, boolean>>({ hasWintun: false, isAdmin: false });
@@ -1353,29 +1342,93 @@ const loadData = async () => {
 
 onMounted(() => { 
   loadData(); 
-
-  // 🚀 核心：监听 Geo 异步任务事件
+ 
+  // 1. Geo 数据库更新监听
   EventsOn("geodb-update-start", () => {
     updatingAllDbs.value = true;
   });
-
   EventsOn("geodb-update-success", async () => {
     updatingAllDbs.value = false;
-    await showAlert("所有规则数据库已极速并发同步至最新！", "完成");
+    await showAlert("规则数据库已极速并发同步至最新！", "完成");
     const dbInfo = await (API as any).GetGeoDatabaseInfo();
     if (dbInfo) dbFileInfo.value = dbInfo;
   });
-
   EventsOn("geodb-update-error", async (err: string) => {
     updatingAllDbs.value = false;
-    await showAlert(`一键同步发生异常:\n${err}`, "错误");
+    await showAlert(`数据库同步发生异常:\n${err}`, "错误");
+  });
+
+  // 2. 内核更新监听
+  EventsOn("core-update-start", () => {
+    updatingCore.value = true;
+  });
+  EventsOn("core-update-success", async () => {
+    updatingCore.value = false;
+    await showAlert("内核跨版本更新成功！", "通知");
+    coreVersion.value = await (API as any).GetCoreVersion();
+  });
+  EventsOn("core-update-error", async (err: string) => {
+    updatingCore.value = false;
+    if (err === "ALREADY_LATEST") {
+      await showAlert(`当前内核 (${coreVersion.value}) 已是最新版本，无需更新！`, "通知");
+    } else {
+      await showAlert(`内核更新失败:\n${err}`, "错误");
+    }
+  });
+
+  // 3. 驱动安装监听
+  EventsOn("tun-driver-install-start", () => {
+    isCheckingUpdate.value = true;
+  });
+  EventsOn("tun-driver-install-success", async () => {
+    isCheckingUpdate.value = false;
+    isReinstallingDriver.value = false;
+    await loadData();
+    const wv = await (API as any).GetWintunVersion();
+    if (wv) wintunVersion.value = wv;
+    await showAlert(`Wintun 驱动 (${wintunVersion.value}) 安装成功！`, "安装成功");
+  });
+  EventsOn("tun-driver-install-error", async (err: string) => {
+    isCheckingUpdate.value = false;
+    isReinstallingDriver.value = false;
+    await showAlert(`驱动操作失败:\n${err}`, "错误");
+  });
+
+  // 4. 软件更新监听
+  EventsOn("app-update-start", () => {
+    checkingAppUpdate.value = true;
+  });
+  EventsOn("app-update-success", async () => {
+    checkingAppUpdate.value = false;
+    await showAlert("新版本下载已完成，将在您下次启动软件时自动应用更新。", "下载成功");
+  });
+  EventsOn("app-update-error", async (err: string) => {
+    checkingAppUpdate.value = false;
+    if (err === "ALREADY_LATEST") {
+       await showAlert(`当前版本 (${globalState.appVersion}) 已是最新，无需更新。`, "通知");
+    } else {
+       await showAlert(`软件更新失败:\n${err}`, "错误");
+    }
   });
 });
+
 
 onUnmounted(() => {
   EventsOff("geodb-update-start");
   EventsOff("geodb-update-success");
   EventsOff("geodb-update-error");
+
+  EventsOff("core-update-start");
+  EventsOff("core-update-success");
+  EventsOff("core-update-error");
+
+  EventsOff("tun-driver-install-start");
+  EventsOff("tun-driver-install-success");
+  EventsOff("tun-driver-install-error");
+
+  EventsOff("app-update-start");
+  EventsOff("app-update-success");
+  EventsOff("app-update-error");
 });
 
 const handleTunToggle = async (e: Event) => {
@@ -1400,26 +1453,12 @@ const handleTunToggle = async (e: Event) => {
 
 const installDriver = async (force: boolean = false) => {
   if (force) isReinstallingDriver.value = true;
-  else isCheckingUpdate.value = true;
-
   try {
-    const res = await (API as any).InstallTunDriver(force);
-    await loadData();
-    
-    const wv = await (API as any).GetWintunVersion();
-    if (wv) wintunVersion.value = wv;
-
-    if (res === "ALREADY_LATEST") {
-       await showAlert(`当前 Wintun 驱动 (${wintunVersion.value}) 已是最新版本！`, '通知');
-    } else {
-       const msg = force ? "驱动已强制重新安装并覆盖成功！" : `Wintun 驱动 (${wintunVersion.value}) 安装成功，现在可以开启 TUN 模式了！`;
-       await showAlert(msg, '安装成功');
-    }
+    // 🚀 改为异步任务
+    API.InstallTunDriverAsync(force);
   } catch (e) {
-    await showAlert('安装提示: ' + e, '发生错误');
-  } finally {
+    await showAlert('发起安装请求失败: ' + e, '发生错误');
     isReinstallingDriver.value = false;
-    isCheckingUpdate.value = false;
   }
 };
 // 🚀 核心：监听更新间隔时间，防止用户输入 0 或负数
@@ -1485,16 +1524,12 @@ const saveDbLink = async () => {
 const handleUpdateDb = async (type: string) => {
   if (updatingDbs.value[type] || updatingAllDbs.value) return; 
   
-  updatingDbs.value[type] = true;
   try {
-    await (API as any).UpdateGeoDatabase(type);
-    await showAlert(`${dbTitles[type]} 文件同步成功！`, "完成");
-    const dbInfo = await (API as any).GetGeoDatabaseInfo();
-    if (dbInfo) dbFileInfo.value = dbInfo;
+    // 🚀 这种针对单项的更新，暂时直接调用 Async。
+    // 注意：后端目前 geodb-update 会携带 key，这里需要确保监听能匹配上
+    API.UpdateGeoDatabaseAsync(type);
   } catch (e) {
-    await showAlert(`同步异常: ${e}`, "错误");
-  } finally {
-    delete updatingDbs.value[type];
+    await showAlert(`发起同步异常: ${e}`, "错误");
   }
 };
 
