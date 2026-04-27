@@ -1646,7 +1646,10 @@ func (a *App) RenameConfig(id, newName string) error {
 // 3. 提供给前端：安装驱动 (加入安全回滚与防占用机制)
 func (a *App) InstallTunDriverAsync(force bool) {
 	a.runAsyncTask("tun-driver-install", func(ctx context.Context) error {
-		_, err := sys.InstallWintun(ctx, force)
+		res, err := sys.InstallWintun(ctx, force)
+		if err == nil && res == "ALREADY_LATEST" {
+			return fmt.Errorf("ALREADY_LATEST")
+		}
 		return err
 	})
 }
@@ -2335,7 +2338,10 @@ func safeRename(oldpath, newpath string) error {
 // UpdateCoreComponent 触发安全更新机制：无缝下载，原子替换
 func (a *App) UpdateCoreComponentAsync() {
 	a.runAsyncTask("core-update", func(ctx context.Context) error {
-		_, err := a.updateCoreComponent(ctx)
+		res, err := a.updateCoreComponent(ctx)
+		if err == nil && res == "ALREADY_LATEST" {
+			return fmt.Errorf("ALREADY_LATEST")
+		}
 		return err
 	})
 }

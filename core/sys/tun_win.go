@@ -122,7 +122,7 @@ func downloadAndExtractWintun(ctx context.Context, finalDllPath string) error {
 
 			if err := downloader.ReplaceFile(tmpDllPath, finalDllPath); err != nil {
 				_ = os.Remove(tmpDllPath)
-				return err
+				return fmt.Errorf("目标文件被占用，请关闭相关功能后重试: %w", err)
 			}
 			found = true
 			break

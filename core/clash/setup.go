@@ -96,7 +96,7 @@ func downloadAndExtractKernel(ctx context.Context, destDir, finalExePath string)
 			if err := downloader.ReplaceFile(tmpExePath, finalExePath); err != nil {
 				_ = os.Remove(tmpExePath)
 				r.Close()
-				return err
+				return fmt.Errorf("目标文件被占用，请关闭相关功能后重试: %w", err)
 			}
 			found = true
 			break
@@ -207,7 +207,7 @@ func ExtractKernel(zipPath, destExePath string) error {
 
 			if err := downloader.ReplaceFile(tmpPath, destExePath); err != nil {
 				_ = os.Remove(tmpPath)
-				return err
+				return fmt.Errorf("目标文件被占用，请关闭相关功能后重试: %w", err)
 			}
 			return nil
 		}
