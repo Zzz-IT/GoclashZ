@@ -362,7 +362,10 @@ func (a *App) refreshAutoDelayTest() {
 func (a *App) GetLocalConfigs() []clash.SubIndexItem {
 	clash.IndexLock.RLock()
 	defer clash.IndexLock.RUnlock()
-	return clash.SubIndex
+
+	result := make([]clash.SubIndexItem, len(clash.SubIndex))
+	copy(result, clash.SubIndex)
+	return result
 }
 
 // ProxyStatus 新增给前端返回的双重状态结构

@@ -194,42 +194,26 @@ log-level: info
 
 func downloadWintun(ctx context.Context, destDir string) error {
 	wintunURL := "https://ghproxy.net/https://github.com/Zzz-IT/GoclashZ/releases/download/v0.0.1/wintun.dll"
-	client := &http.Client{Timeout: 60 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, "GET", wintunURL, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) goclashz")
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("下载 Wintun 驱动网络超时或失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("下载 Wintun 失败，服务器返回 HTTP %d", resp.StatusCode)
-	}
-
-	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxWintunSize+1))
-	if err != nil {
-		return fmt.Errorf("读取 Wintun 响应失败: %v", err)
-	}
-	if int64(len(bodyBytes)) > maxWintunSize {
-		return fmt.Errorf("Wintun 文件过大，拒绝写入")
-	}
-	if int64(len(bodyBytes)) < minWintunSize || !looksLikePE(bodyBytes) {
-		return fmt.Errorf("Wintun 文件校验失败：大小异常或不是 PE 文件")
-	}
-
 	finalPath := filepath.Join(destDir, "wintun.dll")
-	tmpPath := finalPath + ".tmp"
-	if err := os.WriteFile(tmpPath, bodyBytes, 0644); err != nil {
+
+	err := downloader.DownloadAtomic(ctx, downloader.Options{
+		URL:      wintunURL,
+		DestPath: finalPath,
+		MaxBytes: maxWintunSize,
+	})
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmpPath, finalPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
+
+	// 二次校验：确保是 PE 文件
+	content, err := os.ReadFile(finalPath)
+	if err == nil {
+		if !looksLikePE(content) {
+			_ = os.Remove(finalPath)
+			return fmt.Errorf("下载的 Wintun 文件校验失败：不是有效的 PE 文件")
+		}
 	}
+
 	return nil
 }
 

@@ -6,8 +6,8 @@ export function ApplyAppUpdate() {
   return window['go']['main']['App']['ApplyAppUpdate']();
 }
 
-export function CheckAndDownloadAppUpdate() {
-  return window['go']['main']['App']['CheckAndDownloadAppUpdate']();
+export function CheckAndDownloadAppUpdateAsync() {
+  return window['go']['main']['App']['CheckAndDownloadAppUpdateAsync']();
 }
 
 export function CheckComponentUpdate() {
@@ -262,12 +262,12 @@ export function ToggleTunMode(arg1) {
   return window['go']['main']['App']['ToggleTunMode'](arg1);
 }
 
-export function UpdateAllGeoDatabases(arg1) {
-  return window['go']['main']['App']['UpdateAllGeoDatabases'](arg1);
+export function UpdateAllGeoDatabasesAsync() {
+  return window['go']['main']['App']['UpdateAllGeoDatabasesAsync']();
 }
 
-export function UpdateAllSubs() {
-  return window['go']['main']['App']['UpdateAllSubs']();
+export function UpdateAllSubsAsync() {
+  return window['go']['main']['App']['UpdateAllSubsAsync']();
 }
 
 export function UpdateClashMode(arg1) {

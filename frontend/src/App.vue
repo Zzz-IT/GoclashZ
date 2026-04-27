@@ -292,7 +292,8 @@ onMounted(async () => {
       message: `软件更新包下载过程中发生错误: ${err}`,
       type: "alert",
       isDanger: true,
-      onConfirm: () => { globalState.modal.show = false; }
+      onConfirm: () => { globalState.modal.show = false; },
+      onCancel: null
     };
   });
 });

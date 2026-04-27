@@ -438,6 +438,18 @@
 
             <div class="setting-item">
               <div class="info">
+                <h4>允许局域网连接 (Allow LAN)</h4>
+                <p>开启后将允许局域网内其他设备通过此代理上网。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="netConfig.allowLan" @change="saveNet">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
                 <h4>统一延迟测试 (Unified Delay)</h4>
                 <p>开启后将去除握手损耗，显示更真实的节点响应延迟。</p>
               </div>

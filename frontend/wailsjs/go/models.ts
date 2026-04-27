@@ -90,6 +90,8 @@ export namespace clash {
 	    tcpKeepAlive: boolean;
 	    tcpKeepAliveInterval: number;
 	    testUrl: string;
+	    externalController: string;
+	    allowLan: boolean;
 	    hosts: string;
 	
 	    static createFrom(source: any = {}) {
@@ -106,6 +108,8 @@ export namespace clash {
 	        this.tcpKeepAlive = source["tcpKeepAlive"];
 	        this.tcpKeepAliveInterval = source["tcpKeepAliveInterval"];
 	        this.testUrl = source["testUrl"];
+	        this.externalController = source["externalController"];
+	        this.allowLan = source["allowLan"];
 	        this.hosts = source["hosts"];
 	    }
 	}

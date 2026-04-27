@@ -5,12 +5,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
+	"goclashz/core/downloader"
 	"goclashz/core/utils"
 )
 
@@ -51,37 +50,16 @@ func downloadAndExtractWintun(ctx context.Context, finalDllPath string) error {
 	destDir := filepath.Dir(finalDllPath)
 	os.MkdirAll(destDir, 0755)
 	zipPath := filepath.Join(destDir, "wintun_temp.zip")
+	var err error
 
-	// 1. 下载 ZIP (优化请求与接收流)
-	client := &http.Client{Timeout: 60 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, "GET", WintunDownloadURL, nil)
+	// 1. 下载 ZIP (使用统一原子下载器)
+	err = downloader.DownloadAtomic(ctx, downloader.Options{
+		URL:      WintunDownloadURL,
+		DestPath: zipPath,
+		MaxBytes: 10 * 1024 * 1024, // Wintun ZIP 约 5MB
+	})
 	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) goclashz")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("网络请求失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("服务器拒绝了请求，状态码: %d", resp.StatusCode)
-	}
-
-	out, err := os.Create(zipPath)
-	if err != nil {
-		return err
-	}
-	// 使用缓冲拷贝提高磁盘写入速度
-	buf := make([]byte, 32*1024)
-	_, err = io.CopyBuffer(out, resp.Body, buf)
-	out.Close()
-
-	if err != nil {
-		os.Remove(zipPath)
-		return fmt.Errorf("数据流接收异常中断: %v", err)
+		return fmt.Errorf("下载 Wintun 驱动失败: %v", err)
 	}
 
 	// 2. 解压并提取
@@ -115,7 +93,7 @@ func downloadAndExtractWintun(ctx context.Context, finalDllPath string) error {
 				return err
 			}
 
-			_, copyErr := io.CopyBuffer(outFile, rc, buf)
+			_, copyErr := io.Copy(outFile, rc)
 			closeErr := outFile.Close()
 			rc.Close()
 
