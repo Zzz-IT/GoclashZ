@@ -47,32 +47,40 @@ var largeClient = &http.Client{
 	Timeout: 10 * time.Minute,
 }
 
-// createSmartClient 动态生成支持自代理和 SSL 宽容的 HTTP 客户端
-func createSmartClient(opt Options) *http.Client {
+// createClients 生成网络环境矩阵（直连 vs 代理）
+func createClients(opt Options) []*http.Client {
 	if opt.Client != nil {
-		return opt.Client
+		return []*http.Client{opt.Client}
 	}
 
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-	}
+	var clients []*http.Client
+	tlsConfig := &tls.Config{InsecureSkipVerify: opt.InsecureSkipVerify}
 
-	// 🌟 自代理机制：让更新请求强行走系统现有的科学通道
+	// 🚀 [引擎 A]：直连客户端 (System Direct)
+	directTransport := &http.Transport{
+		Proxy:           http.ProxyFromEnvironment, // 走系统默认
+		TLSClientConfig: tlsConfig,
+	}
+	clients = append(clients, &http.Client{
+		Timeout:   10 * time.Minute,
+		Transport: directTransport,
+	})
+
+	// 🚀 [引擎 B]：自代理客户端 (Self-Proxy)
 	if opt.ProxyURL != "" {
 		if pURL, err := url.Parse(opt.ProxyURL); err == nil {
-			transport.Proxy = http.ProxyURL(pURL)
+			proxyTransport := &http.Transport{
+				Proxy:           http.ProxyURL(pURL), // 强行走本地 Clash 端口
+				TLSClientConfig: tlsConfig,
+			}
+			clients = append(clients, &http.Client{
+				Timeout:   10 * time.Minute,
+				Transport: proxyTransport,
+			})
 		}
 	}
 
-	// 🌟 SSL 宽容机制：拯救 50% 证书过期或自签的节点
-	if opt.InsecureSkipVerify {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	}
-
-	return &http.Client{
-		Timeout:   10 * time.Minute,
-		Transport: transport,
-	}
+	return clients
 }
 
 func metaPath(tmpPath string) string {
@@ -133,45 +141,48 @@ func probeSingleRemote(ctx context.Context, client *http.Client, testURL string,
 	}, acceptRanges && total > 0, nil
 }
 
-// 🚀 新增：多镜像并发测速，谁先返回 200 就立刻杀掉其他的
-func probeFastestRemote(ctx context.Context, client *http.Client, opt Options) (resumeMeta, bool, error) {
+type envProbeResult struct {
+	meta       resumeMeta
+	canPartial bool
+	client     *http.Client // 🌟 核心：记录是哪个客户端（环境）赢得了竞速
+	err        error
+}
+
+// probeFastestEnvironment 并发竞速：寻找最快的链接与最通畅的网络环境
+func probeFastestEnvironment(ctx context.Context, clients []*http.Client, opt Options) (resumeMeta, bool, *http.Client, error) {
 	urls := append([]string{opt.URL}, opt.Mirrors...)
-	if len(urls) == 1 {
-		return probeSingleRemote(ctx, client, urls[0], opt)
-	}
 
-	type probeResult struct {
-		meta       resumeMeta
-		canPartial bool
-		err        error
-	}
+	totalRaces := len(clients) * len(urls)
+	resultCh := make(chan envProbeResult, totalRaces)
 
-	resultCh := make(chan probeResult, len(urls))
 	raceCtx, cancelRace := context.WithCancel(ctx)
 	defer cancelRace()
 
-	for _, u := range urls {
-		go func(target string) {
-			meta, partial, err := probeSingleRemote(raceCtx, client, target, opt)
-			if err == nil && meta.TotalSize > 0 {
-				resultCh <- probeResult{meta, partial, nil}
-			} else {
-				resultCh <- probeResult{resumeMeta{}, false, err}
-			}
-		}(u)
+	// 开启 N x M 协程矩阵 (环境 x 镜像)
+	for _, client := range clients {
+		for _, u := range urls {
+			go func(c *http.Client, target string) {
+				meta, partial, err := probeSingleRemote(raceCtx, c, target, opt)
+				if err == nil && meta.TotalSize > 0 {
+					resultCh <- envProbeResult{meta, partial, c, nil}
+				} else {
+					resultCh <- envProbeResult{resumeMeta{}, false, nil, err}
+				}
+			}(client, u)
+		}
 	}
 
 	var lastErr error
-	for i := 0; i < len(urls); i++ {
+	for i := 0; i < totalRaces; i++ {
 		res := <-resultCh
 		if res.err == nil && res.meta.TotalSize > 0 {
-			cancelRace() // 找到了最快的，果断拔掉其他测速管子节约资源
-			return res.meta, res.canPartial, nil
+			cancelRace() // 🌟 找到最快的通道，立刻切断其他落后协程
+			return res.meta, res.canPartial, res.client, nil
 		}
 		lastErr = res.err
 	}
 
-	return resumeMeta{}, false, fmt.Errorf("所有链接及镜像均探测失败: %v", lastErr)
+	return resumeMeta{}, false, nil, fmt.Errorf("所有网络环境与镜像均探测失败: %v", lastErr)
 }
 
 func parseContentRangeTotal(v string) (int64, bool) {
@@ -193,7 +204,8 @@ func parseContentRangeTotal(v string) (int64, bool) {
 }
 
 func DownloadAtomic(ctx context.Context, opt Options) error {
-	client := createSmartClient(opt)
+	// 1. 生成竞速矩阵 (直连 & 代理)
+	clients := createClients(opt)
 
 	ua := opt.UserAgent
 	if ua == "" {
@@ -220,7 +232,8 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 		_ = os.Remove(metaFile)
 	}
 
-	remoteMeta, serverSupportsRange, err := probeFastestRemote(ctx, client, opt)
+	// 2. 发起极限竞速 (环境 x 镜像) 🚀
+	remoteMeta, serverSupportsRange, winningClient, err := probeFastestEnvironment(ctx, clients, opt)
 	if err != nil {
 		return err
 	}
@@ -251,7 +264,7 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 	if startOffset > 0 && remoteMeta.TotalSize > 0 && startOffset >= remoteMeta.TotalSize {
 		// 已下载完，跳过下载阶段
 	} else {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, opt.URL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, remoteMeta.URL, nil)
 		if err != nil {
 			return err
 		}
@@ -266,7 +279,8 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 			}
 		}
 
-		resp, err := client.Do(req)
+		// 🌟 3. 使用赢得竞速的 client 发起正式的大文件下载
+		resp, err := winningClient.Do(req)
 		if err != nil {
 			return err
 		}
@@ -365,7 +379,8 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 
 	// 校验逻辑
 	if opt.VerifyGitHubSHA {
-		expectedSHA, err := ResolveGitHubAssetSHA256(ctx, client, opt.URL, ua)
+		// 校验也需要使用获胜的 client，确保网络通畅
+		expectedSHA, err := ResolveGitHubAssetSHA256(ctx, winningClient, opt.URL, ua)
 		if err != nil {
 			_ = os.Remove(tmpPath)
 			return fmt.Errorf("获取 GitHub 文件哈希失败: %v", err)
