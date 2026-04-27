@@ -141,14 +141,24 @@ log-level: info
 
 func downloadWintun(destDir string) error {
 	wintunURL := "https://ghproxy.net/https://github.com/Zzz-IT/GoclashZ/releases/download/v0.0.1/wintun.dll"
-	resp, err := http.Get(wintunURL)
+	
+	// ✅ 修复：增加硬超时，防止网络阻塞导致应用启动死锁
+	client := &http.Client{Timeout: 60 * time.Second}
+	req, err := http.NewRequest("GET", wintunURL, nil)
 	if err != nil {
 		return err
+	}
+	// 补齐 UA 防止遭到部分镜像站的 WAF 拦截
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) goclashz")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("下载 Wintun 驱动网络超时或失败: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		return fmt.Errorf("下载 Wintun 失败，服务器返回 HTTP %d", resp.StatusCode)
 	}
 
 	out, err := os.Create(filepath.Join(destDir, "wintun.dll"))

@@ -45,8 +45,15 @@ func StartLogStream(ctx context.Context) {
 
 // PatchConfig 修改内核运行特性 (TUN, LAN, IPv6, LogLevel等)
 func PatchConfig(settings map[string]interface{}) error {
-	payload, _ := json.Marshal(settings)
-	req, _ := http.NewRequest("PATCH", "http://127.0.0.1:9090/configs", strings.NewReader(string(payload)))
+	payload, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("配置序列化失败: %v", err)
+	}
+
+	req, err := http.NewRequest("PATCH", "http://127.0.0.1:9090/configs", strings.NewReader(string(payload)))
+	if err != nil {
+		return fmt.Errorf("构建补丁请求失败: %v", err)
+	}
 
 	client := &http.Client{}
 	resp, err := client.Do(req)

@@ -51,10 +51,16 @@ type CustomRuleSet struct {
 }
 
 func GetCustomRules(id string) ([]string, error) {
+	// 🛡️ 防御路径穿越：强行提取纯文件名
+	safeId := filepath.Base(filepath.Clean(id))
+	if safeId == "." || safeId == "/" || safeId == "\\" {
+		return nil, fmt.Errorf("非法的文件 ID 拒绝访问")
+	}
+
 	rulesMutex.RLock() // 加读锁
 	defer rulesMutex.RUnlock()
 
-	path := filepath.Join(utils.GetSubscriptionsDir(), id+"_rules.json")
+	path := filepath.Join(utils.GetSubscriptionsDir(), safeId+"_rules.json")
 	data, err := os.ReadFile(path)
 	if err != nil || len(data) == 0 {
 		return []string{}, nil
@@ -123,7 +129,13 @@ func SaveCustomRules(id string, rules []string) error {
 		sanitizedRules = append(sanitizedRules, strings.Join(cleanedParts, ","))
 	}
 
-	path := filepath.Join(utils.GetSubscriptionsDir(), id+"_rules.json")
+	// 🛡️ 防御路径穿越：强行提取纯文件名
+	safeId := filepath.Base(filepath.Clean(id))
+	if safeId == "." || safeId == "/" || safeId == "\\" {
+		return fmt.Errorf("非法的文件 ID 拒绝访问")
+	}
+
+	path := filepath.Join(utils.GetSubscriptionsDir(), safeId+"_rules.json")
 	tmpPath := path + ".tmp"
 
 	// 使用校验并清洗过的数据落盘
@@ -139,7 +151,13 @@ func SaveCustomRules(id string, rules []string) error {
 
 // GetOriginalRules 读取底层 YAML 文件，提取内置规则
 func GetOriginalRules(id string) ([]string, error) {
-	yamlPath := filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
+	// 🛡️ 防御路径穿越：强行提取纯文件名
+	safeId := filepath.Base(filepath.Clean(id))
+	if safeId == "." || safeId == "/" || safeId == "\\" {
+		return nil, fmt.Errorf("非法的文件 ID 拒绝访问")
+	}
+
+	yamlPath := filepath.Join(utils.GetSubscriptionsDir(), safeId+".yaml")
 	data, err := os.ReadFile(yamlPath)
 	if err != nil {
 		return nil, err

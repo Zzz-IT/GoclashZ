@@ -67,7 +67,7 @@ func (a *App) ExportBackup() (string, error) {
 
 		if info.IsDir() {
 			// 递归压缩文件夹
-			filepath.Walk(fullPath, func(path string, info os.FileInfo, err error) error {
+			if walkErr := filepath.Walk(fullPath, func(path string, info os.FileInfo, err error) error {
 				if err != nil || info.IsDir() {
 					return nil
 				}
@@ -85,7 +85,9 @@ func (a *App) ExportBackup() (string, error) {
 					return fmt.Errorf("写入压缩包失败: %v", err)
 				}
 				return nil
-			})
+			}); walkErr != nil {
+				return "", fmt.Errorf("备份打包 %s 目录时发生错误: %v", target, walkErr)
+			}
 		} else {
 			// 压缩单个文件
 			w, err := zw.Create(filepath.ToSlash(target))

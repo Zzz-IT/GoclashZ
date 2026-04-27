@@ -103,11 +103,15 @@ const selectedConn = ref<any>(null);
 const isMonitoring = ref(false); // 增加一个状态锁，防止重复注册监听
 const isLoading = ref(true); // 🚀 新增：控制初始加载状态
 
+// 🚀 新增：保存专属退订函数
+let unsubMonitor: (() => void) | null = null; 
+
 const startMonitor = async () => {
   if (isMonitoring.value) return;
   isMonitoring.value = true;
   
-  EventsOn("connections-update", (data: any) => {
+  // ✅ 修改后：接住返回的专属销毁函数
+  unsubMonitor = EventsOn("connections-update", (data: any) => {
     if (isPaused.value) return;
 
     if (data && Array.isArray(data.connections)) {
@@ -142,7 +146,13 @@ const startMonitor = async () => {
 const stopMonitor = () => {
   if (!isMonitoring.value) return;
   isMonitoring.value = false;
-  EventsOff("connections-update");
+  
+  // ✅ 修改后：精准狙击，只销毁当前组件刚注册的那个监听器
+  if (unsubMonitor) {
+    unsubMonitor();
+    unsubMonitor = null;
+  }
+  
   (API as any).StopConnectionMonitor();
 };
 

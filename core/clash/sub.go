@@ -93,27 +93,33 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 	}
 	// ==========================================
 
+	// 🛡️ 防御路径穿越：提取纯文件名
+	safeId := filepath.Base(filepath.Clean(id))
+	if safeId == "." || safeId == "/" || safeId == "\\" {
+		return id, fmt.Errorf("非法的文件 ID 拒绝访问")
+	}
+
 	// 校验通过，安全落盘
-	yamlPath := filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
+	yamlPath := filepath.Join(utils.GetSubscriptionsDir(), safeId+".yaml")
 	if err := os.WriteFile(yamlPath, bodyBytes, 0644); err != nil {
-		return id, fmt.Errorf("无法写入配置文件: %v", err)
+		return safeId, fmt.Errorf("无法写入配置文件: %v", err)
 	}
 
 	// 4. 初始化伴生规则文件 (仅在第一次添加订阅时截取原始规则)
-	rulesPath := filepath.Join(utils.GetSubscriptionsDir(), id+"_rules.json")
+	rulesPath := filepath.Join(utils.GetSubscriptionsDir(), safeId+"_rules.json")
 	if _, err := os.Stat(rulesPath); os.IsNotExist(err) {
-		rules, err := GetOriginalRules(id)
+		rules, err := GetOriginalRules(safeId)
 		if err != nil || len(rules) == 0 {
 			rules = []string{"MATCH,DIRECT"}
 		}
-		SaveCustomRules(id, rules)
+		SaveCustomRules(safeId, rules)
 	}
 
 	// 5. 更新全局索引
 	IndexLock.Lock()
 	found := false
 	for i, item := range SubIndex {
-		if item.ID == id {
+		if item.ID == safeId {
 			SubIndex[i].Upload = upload // 更新流量和时间
 			SubIndex[i].Download = download
 			SubIndex[i].Total = total
@@ -125,7 +131,7 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 	}
 	if !found {
 		SubIndex = append(SubIndex, SubIndexItem{
-			ID:       id,
+			ID:       safeId,
 			Name:     name,
 			URL:      url,
 			Type:     "remote",
@@ -138,7 +144,7 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 	}
 	IndexLock.Unlock()
 
-	return id, SaveIndex()
+	return safeId, SaveIndex()
 }
 
 // RenameConfig 重命名配置文件
@@ -156,9 +162,15 @@ func RenameConfig(id, newName string) error {
 }
 
 func DeleteConfig(id string) error {
+	// 🛡️ 防御路径穿越：强行提取纯文件名
+	safeId := filepath.Base(filepath.Clean(id))
+	if safeId == "." || safeId == "/" || safeId == "\\" {
+		return fmt.Errorf("非法的文件 ID 拒绝访问")
+	}
+
 	dir := utils.GetSubscriptionsDir()
-	yamlPath := filepath.Join(dir, id+".yaml")
-	rulesPath := filepath.Join(dir, id+"_rules.json")
+	yamlPath := filepath.Join(dir, safeId+".yaml")
+	rulesPath := filepath.Join(dir, safeId+"_rules.json")
 
 	// 1. 🚀 核心修复：先尝试删除物理文件（或者校验文件锁）
 	if err := os.Remove(yamlPath); err != nil && !os.IsNotExist(err) {
@@ -182,11 +194,19 @@ func DeleteConfig(id string) error {
 
 // ReloadConfig 调用内核 API 热重载
 func ReloadConfig() error {
-	req, _ := http.NewRequest("PUT", "http://127.0.0.1:9090/configs?force=true", nil)
+	req, err := http.NewRequest("PUT", "http://127.0.0.1:9090/configs?force=true", nil)
+	if err != nil {
+		return fmt.Errorf("构建重载请求失败: %v", err)
+	}
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("内核配置重载失败")
+	if err != nil {
+		return fmt.Errorf("内核配置重载请求失败: %v", err)
+	}
+	defer resp.Body.Close() // 规范：即使不需要读取响应内容，也必须释放底层的 TCP 连接
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("内核配置重载失败，状态码: %d", resp.StatusCode)
 	}
 	return nil
 }
