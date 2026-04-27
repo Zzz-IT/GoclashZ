@@ -1282,6 +1282,22 @@ func (a *App) StartTrafficStream() {
 
 	// ⚠️ 修复：移除 Ticker，改用长连接流式读取，彻底解决连接断开/失效问题
 	go func() {
+		// 🚀 核心修复：监听协程退出时的自我清理与状态重置，赋予流量图“断线自愈”的能力
+		defer func() {
+			a.mu.Lock()
+			// 如果当前封锁状态还是自己的，就清理掉，允许下次重连
+			if a.cancelTraffic != nil {
+				a.cancelTraffic() // 确保上下文级联释放
+				a.cancelTraffic = nil
+			}
+			a.mu.Unlock()
+			
+			// 兜底：流断开瞬间，立刻向前端发射归零数据，防止 UI 数值卡在断流前的最后一秒
+			if a.ctx != nil {
+				runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": "0 B", "down": "0 B"})
+			}
+		}()
+
 		traffic.StreamTraffic(ctx, func(up, down string) {
 			runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": up, "down": down})
 		})

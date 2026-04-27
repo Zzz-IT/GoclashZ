@@ -56,7 +56,10 @@ func assignProcessToJobObject(proc *os.Process) error {
 	
 	err = windows.AssignProcessToJobObject(job, windows.Handle(proc.Pid))
 	if err == nil {
-		// ✅ 修改后：将其赋值给全局变量，使其与主 Go 进程生命周期绑定
+		// 🚀 核心修复：释放上一个已死亡进程留下的历史句柄，彻底根治 Handle Leak 隐患
+		if globalJobHandle != 0 {
+			windows.CloseHandle(globalJobHandle)
+		}
 		globalJobHandle = job
 	}
 	return err
