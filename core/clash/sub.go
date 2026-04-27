@@ -74,7 +74,7 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 	var upload, download, total, expire int64
 
 	// 🚀 2. 全面拥抱底层 downloader，直接集齐五大神器
-	err = downloader.DownloadAtomic(ctx, downloader.Options{
+	err = downloader.FetchSmallFileAtomic(ctx, downloader.Options{
 		URLs:               []string{url},
 		DestPath:           finalPath,
 		UserAgent:          userAgent,

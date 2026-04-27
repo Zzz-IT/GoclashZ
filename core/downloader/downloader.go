@@ -215,6 +215,112 @@ func parseContentRangeTotal(v string) (int64, bool) {
 	return total, true
 }
 
+// FetchSmallFileAtomic 🚀 高级并发下载：针对小文件（如订阅、配置）执行“全速体感竞速”
+// 它不仅并发测试连接，还直接并发下载内容。第一个通过 Validator 校验的连接将赢得比赛。
+func FetchSmallFileAtomic(ctx context.Context, opt Options) error {
+	clients := createClients(opt)
+	urls := opt.URLs
+	totalRaces := len(clients) * len(urls)
+
+	type result struct {
+		body   []byte
+		header http.Header
+		err    error
+	}
+	resultCh := make(chan result, totalRaces)
+
+	raceCtx, cancelRace := context.WithCancel(ctx)
+	defer cancelRace()
+
+	ua := opt.UserAgent
+	if ua == "" {
+		ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GoclashZ/1.0"
+	}
+
+	for _, client := range clients {
+		for _, u := range urls {
+			go func(c *http.Client, target string) {
+				req, err := http.NewRequestWithContext(raceCtx, http.MethodGet, target, nil)
+				if err != nil {
+					resultCh <- result{err: err}
+					return
+				}
+				req.Header.Set("User-Agent", ua)
+
+				resp, err := c.Do(req)
+				if err != nil {
+					resultCh <- result{err: err}
+					return
+				}
+				defer resp.Body.Close()
+
+				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+					resultCh <- result{err: fmt.Errorf("HTTP %d", resp.StatusCode)}
+					return
+				}
+
+				var reader io.Reader = resp.Body
+				if opt.MaxBytes > 0 {
+					reader = io.LimitReader(resp.Body, opt.MaxBytes+1)
+				}
+
+				body, err := io.ReadAll(reader)
+				if err != nil {
+					resultCh <- result{err: err}
+					return
+				}
+
+				if opt.MaxBytes > 0 && int64(len(body)) > opt.MaxBytes {
+					resultCh <- result{err: fmt.Errorf("文件超过大小限制")}
+					return
+				}
+
+				resultCh <- result{body: body, header: resp.Header, err: nil}
+			}(client, u)
+		}
+	}
+
+	var lastErr error
+	for i := 0; i < totalRaces; i++ {
+		res := <-resultCh
+		if res.err == nil && len(res.body) > 0 {
+			// 1. 写入临时文件，准备“验毒”
+			tmpPath := opt.DestPath + ".tmp"
+			if err := os.WriteFile(tmpPath, res.body, 0644); err != nil {
+				lastErr = err
+				continue
+			}
+
+			// 🌟 2. 核心修复：先先验毒，后颁奖！
+			// 如果校验不通过，说明该通道可能被 WAF 拦截返回了 HTML，直接丢弃并继续等待其他慢速但正确的通道
+			if opt.Validator != nil {
+				if err := opt.Validator(tmpPath); err != nil {
+					_ = os.Remove(tmpPath)
+					lastErr = fmt.Errorf("探测到无效数据(可能被拦截): %v", err)
+					continue
+				}
+			}
+
+			// 🌟 3. 校验通过，它是真的！
+			cancelRace() // 此时才斩断其他还在跑的协程
+
+			if opt.OnResponse != nil {
+				opt.OnResponse(&http.Response{Header: res.header})
+			}
+
+			return ReplaceFile(tmpPath, opt.DestPath)
+		}
+		if res.err != nil {
+			lastErr = res.err
+		}
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("所有竞速通道均已失效")
+	}
+	return fmt.Errorf("竞速下载失败: %v", lastErr)
+}
+
 func DownloadAtomic(ctx context.Context, opt Options) error {
 	// 1. 生成竞速矩阵 (直连 & 代理)
 	clients := createClients(opt)
