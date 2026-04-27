@@ -398,8 +398,11 @@ func (a *App) mergeOfflineNodes(data map[string]interface{}) {
 				// 兜底：没有当前选中项，默认选中第一项
 				if gMap["now"] == "" {
 					if lenRaw, has := gMap["all"]; has {
-						if allArr, ok3 := lenRaw.([]string); ok3 && len(allArr) > 0 {
-							gMap["now"] = allArr[0]
+						if allArr, ok3 := lenRaw.([]interface{}); ok3 && len(allArr) > 0 {
+							// 再次安全断言第一个元素为字符串
+							if firstNode, ok4 := allArr[0].(string); ok4 {
+								gMap["now"] = firstNode
+							}
 						}
 					}
 				}
@@ -2204,8 +2207,9 @@ func getWintunVersion(dllPath string) string {
 	if _, err := os.Stat(dllPath); os.IsNotExist(err) {
 		return ""
 	}
-	// 使用 PowerShell 获取文件版本号
-	cmd := exec.Command("powershell", "-Command", fmt.Sprintf("(Get-Item '%s').VersionInfo.FileVersion", dllPath))
+	// 使用 PowerShell 获取文件版本号 (通过环境变量安全传递路径，防止命令注入)
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", "(Get-Item -LiteralPath $env:TARGET_DLL_PATH).VersionInfo.FileVersion")
+	cmd.Env = append(os.Environ(), "TARGET_DLL_PATH="+dllPath)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	out, err := cmd.Output()
 	if err != nil {
@@ -2602,6 +2606,13 @@ func getLatestAppReleaseURL(repo, osName, arch, suffix string) (string, string, 
 	}
 	defer resp.Body.Close()
 
+	// 拦截非 200 状态码 (处理速率限制或 API 故障)
+	if resp.StatusCode == 403 {
+		return "", "", fmt.Errorf("触发 GitHub API 速率限制 (60次/小时)，请稍后再试")
+	} else if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("请求 GitHub API 失败，HTTP 状态码: %d", resp.StatusCode)
+	}
+
 	var release struct {
 		TagName string `json:"tag_name"`
 		Assets  []struct {
@@ -2659,7 +2670,7 @@ func (a *App) CheckAndDownloadAppUpdate() {
 	if info, err := os.Stat(exePath); err == nil && info.Size() > 10*1024*1024 {
 		if _, tmpErr := os.Stat(exePath + ".tmp"); os.IsNotExist(tmpErr) {
 			// 读取本地保存的安装包版本号
-			if cachedVer, err := os.ReadFile(versionPath); err == nil && string(cachedVer) == latestVersion {
+			if cachedVer, err := os.ReadFile(versionPath); err == nil && normalizeVersion(string(cachedVer)) == normalizeVersion(latestVersion) {
 				// 版本完全匹配，安全跳过下载
 				a.mu.Lock()
 				a.appUpdateReady = true
@@ -2753,7 +2764,7 @@ func (a *App) ManualCheckAppUpdate() (string, error) {
 		// 🚀 同样拦截重复下载 (带版本校验)
 		if info, err := os.Stat(exePath); err == nil && info.Size() > 10*1024*1024 {
 			if _, tmpErr := os.Stat(exePath + ".tmp"); os.IsNotExist(tmpErr) {
-				if cachedVer, err := os.ReadFile(versionPath); err == nil && string(cachedVer) == latestVersion {
+				if cachedVer, err := os.ReadFile(versionPath); err == nil && normalizeVersion(string(cachedVer)) == normalizeVersion(latestVersion) {
 					a.mu.Lock()
 					a.appUpdateReady = true
 					a.newAppVersion = latestVersion
@@ -2797,6 +2808,13 @@ func getLatestMihomoAssetURL(osName, arch, suffix string) (string, string, error
 		return "", "", err
 	}
 	defer resp.Body.Close()
+
+	// 拦截非 200 状态码 (处理速率限制或 API 故障)
+	if resp.StatusCode == 403 {
+		return "", "", fmt.Errorf("触发 GitHub API 速率限制 (60次/小时)，请稍后再试")
+	} else if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("请求 GitHub API 失败，HTTP 状态码: %d", resp.StatusCode)
+	}
 
 	var release struct {
 		TagName string `json:"tag_name"`

@@ -106,7 +106,10 @@ func main() {
 					}
 				}
 				
-				// 唤醒后立即退出当前这个多余的进程
+				// 显式释放内核互斥锁句柄
+				if mutexHandle != 0 {
+					syswin.CloseHandle(mutexHandle)
+				}
 				os.Exit(0)
 			} else {
 				fmt.Printf("创建互斥锁发生异常: %v\n", err)
