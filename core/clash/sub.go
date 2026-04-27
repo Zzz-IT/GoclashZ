@@ -181,7 +181,7 @@ func DeleteConfig(id string) error {
 	// 2. 物理文件删除成功后，再安全地更新内存与磁盘索引（事务提交）
 	IndexLock.Lock()
 	for i, item := range SubIndex {
-		if item.ID == id {
+		if item.ID == safeId {
 			SubIndex = append(SubIndex[:i], SubIndex[i+1:]...)
 			break
 		}

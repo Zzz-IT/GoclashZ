@@ -57,8 +57,11 @@ func createClients(opt Options) []*http.Client {
 
 	// 🚀 [引擎 A]：直连客户端 (System Direct)
 	directTransport := &http.Transport{
-		Proxy:           http.ProxyFromEnvironment, // 走系统默认
-		TLSClientConfig: tlsConfig,
+		Proxy:               http.ProxyFromEnvironment, // 走系统默认
+		TLSClientConfig:     tlsConfig,
+		TLSHandshakeTimeout: 5 * time.Second,
+		// 🌟 核心修复：彻底禁用 Keep-Alive，防止在“阅后即焚”的竞速场景下产生大量的幽灵协程泄露
+		DisableKeepAlives: true,
 	}
 	clients = append(clients, &http.Client{
 		Timeout:   10 * time.Minute,
@@ -69,8 +72,11 @@ func createClients(opt Options) []*http.Client {
 	if opt.ProxyURL != "" {
 		if pURL, err := url.Parse(opt.ProxyURL); err == nil {
 			proxyTransport := &http.Transport{
-				Proxy:           http.ProxyURL(pURL), // 强行走本地 Clash 端口
-				TLSClientConfig: tlsConfig,
+				Proxy:               http.ProxyURL(pURL), // 强行走本地 Clash 端口
+				TLSClientConfig:     tlsConfig,
+				TLSHandshakeTimeout: 5 * time.Second,
+				// 🌟 核心修复：同样彻底禁用 Keep-Alive
+				DisableKeepAlives: true,
 			}
 			clients = append(clients, &http.Client{
 				Timeout:   10 * time.Minute,

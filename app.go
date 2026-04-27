@@ -30,7 +30,7 @@ import (
 //go:embed build/windows/icon.ico
 var iconData []byte // 👈 3. 新增：将图标编译进二进制文件中给托盘使用
 
-const CurrentAppVersion = "v1.1.2"
+const CurrentAppVersion = "v1.1.3"
 
 type App struct {
 	ctx            context.Context
@@ -90,6 +90,9 @@ type App struct {
 
 	taskMu sync.Mutex
 	tasks  map[string]context.CancelFunc
+
+	trayMu        sync.Mutex // 🌟 用于托盘防抖的独立锁
+	lastTrayClick int64      // 🌟 上次托盘点击的时间戳 (毫秒)
 
 	trayOnce sync.Once // 确保 systray.Run 只执行一次
 }
@@ -192,16 +195,16 @@ func (a *App) initBehaviorCache() {
 		SubUA:              "clash-verge",
 		ActiveConfig:       "",
 		ActiveMode:         "rule",
-		GeoIpLink:          "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
-		GeoSiteLink:        "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
-		MmdbLink:           "https://ghproxy.net/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
-		AsnLink:            "https://ghproxy.net/https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
+		GeoIpLink:          "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
+		GeoSiteLink:        "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
+		MmdbLink:           "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
+		AsnLink:            "https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
 
 		// 👇 新增：默认开启自动更新，方式为每次启动
 		AutoUpdate:      true,
 		UpdateMethod:    "startup",
 		UpdateInterval:  1,
-		LastUpdateCheck: 1777227846,
+		LastUpdateCheck: 0,
 
 		// 👇 新增：默认不开启自动测速，设为 30 分钟
 		AutoDelayTest:         false,
@@ -829,6 +832,11 @@ func (a *App) startup(ctx context.Context) {
 
 	a.cleanLegacyFiles()  // 🚀 新增：静默扫除历史垃圾文件
 	a.initBehaviorCache() // 👈 新增：初始化配置缓存
+	
+	// 🚀 新增：在启动时强制初始化所有设置文件，确保第一次运行时就生成默认 JSON
+	clash.GetDNSConfig()
+	clash.GetNetworkConfig()
+	clash.GetTunConfig()
 
 	// 🚀 初始化主题缓存
 	themeData, err := os.ReadFile(getThemeConfigPath())
@@ -2085,21 +2093,38 @@ func (a *App) SetupSystray() {
 }
 
 // safeTrayAction 包裹所有托盘回调，防止 panic 导致事件链断裂
-func (a *App) safeTrayAction(name string, fn func()) {
+// safeTrayAction 托盘事件的安全包装器（含防抖与防崩机制）
+func (a *App) safeTrayAction(name string, action func()) {
+	// 🌟 1. 极简防抖控制：500 毫秒内直接抛弃同类多余操作，保护系统消息循环
+	now := time.Now().UnixMilli()
+
+	a.trayMu.Lock()
+	if now-a.lastTrayClick < 500 {
+		a.trayMu.Unlock()
+		return // 距离上次点击太近，直接丢弃，防止 UI 线程僵死
+	}
+	a.lastTrayClick = now
+	a.trayMu.Unlock()
+
+	// 🌟 2. 推入后台协程执行，绝不阻塞 systray 的系统消息循环
 	go func() {
+		// 🌟 3. Panic 兜底，防止托盘内某个动作崩溃连累整个软件闪退
 		defer func() {
 			if r := recover(); r != nil {
 				logger.AppLogs.Add(logger.LogEntry{
 					Type:    "error",
-					Payload: fmt.Sprintf("托盘动作 %s panic: %v", name, r),
+					Payload: fmt.Sprintf("托盘操作 %s 发生异常: %v", name, r),
 					Time:    time.Now().Format(time.RFC3339),
 				})
 			}
 		}()
+
 		if a.ctx == nil {
 			return
 		}
-		fn()
+
+		// 真正执行传入的动作（例如 a.showMainWindow）
+		action()
 	}()
 }
 

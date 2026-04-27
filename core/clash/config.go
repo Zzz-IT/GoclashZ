@@ -1,14 +1,13 @@
 package clash
 
 import (
+	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
+	"goclashz/core/downloader"
 	"goclashz/core/utils"
 	"sync"
 
@@ -148,42 +147,28 @@ func GetOfflineData(id string) (map[string]interface{}, error) {
 	}, nil
 }
 
-// DownloadSubscription 下载订阅文件并覆盖本地 config.yaml
-func DownloadSubscription(subUrl string, userAgent string) error {
+// DownloadSubscription 安全地下载远程配置并原子覆盖本地 config.yaml
+func DownloadSubscription(ctx context.Context, subUrl string, userAgent string) error {
 	configMu.Lock()
 	defer configMu.Unlock()
 
-	configPath := GetConfigPath() // 👈 使用绝对路径
+	configPath := GetConfigPath()
 
-	client := &http.Client{Timeout: 60 * time.Second}
-	req, err := http.NewRequest("GET", subUrl, nil)
-	if err != nil {
-		return err
-	}
-
-	if userAgent == "" {
-		userAgent = "clash-verge/1.0"
-	}
-	req.Header.Set("User-Agent", userAgent)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("下载失败: %s", resp.Status)
-	}
-
-	out, err := os.Create(configPath)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, resp.Body)
-	return err
+	// 🚀 全面接入原子防损下载器，杜绝坏文件覆盖核心配置
+	return downloader.FetchSmallFileAtomic(ctx, downloader.Options{
+		URLs:               []string{subUrl},
+		DestPath:           configPath,
+		UserAgent:          userAgent,
+		InsecureSkipVerify: true, // 🛡️ 容忍证书错误
+		Validator: func(tmpPath string) error {
+			// 🛡️ 只有通过严格 YAML 校验的文件才会被最终替换
+			data, err := os.ReadFile(tmpPath)
+			if err != nil {
+				return err
+			}
+			return StrictVerifyClashConfig(data)
+		},
+	})
 }
 
 // TunConfig 映射 yaml 中的 tun 配置块
@@ -201,7 +186,7 @@ type TunConfig struct {
 // ================= TUN 设置 =================
 func GetTunConfig() (*TunConfig, error) {
 	defaultTun := TunConfig{
-		Enable:              true,
+		Enable:              false,
 		Stack:               "gvisor",
 		Device:              "GOCLASHZ",
 		AutoRoute:           true,
