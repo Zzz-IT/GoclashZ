@@ -87,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import * as API from '../wailsjs/go/main/App';
 import { ICONS } from './utils/icons';
 import Sidebar from './components/Sidebar.vue';
@@ -99,6 +99,7 @@ import Rules from './components/Rules.vue';
 import Settings from './components/Settings.vue';
 import {
   EventsOn,
+  EventsOff,
   WindowSetLightTheme,
   WindowSetDarkTheme,
   WindowSetBackgroundColour,
@@ -278,6 +279,32 @@ onMounted(async () => {
       }
     };
   });
+
+  EventsOn("app-update-start", () => {
+    // 可以在这里显示一个小的加载提示，或者静默
+    console.log("App update download started...");
+  });
+
+  EventsOn("app-update-error", (err: string) => {
+    globalState.modal = {
+      show: true,
+      title: "更新下载失败",
+      message: `软件更新包下载过程中发生错误: ${err}`,
+      type: "alert",
+      isDanger: true,
+      onConfirm: () => { globalState.modal.show = false; }
+    };
+  });
+});
+
+onUnmounted(() => {
+  (window as any).runtime.EventsOff("config-changed");
+  EventsOff("traffic-data");
+  EventsOff("log-message");
+  EventsOff("clash-exited");
+  EventsOff("app-update-ready");
+  EventsOff("app-update-start");
+  EventsOff("app-update-error");
 });
 
 watch(currentTab, (newTab) => {

@@ -183,6 +183,7 @@ import * as API from '../../wailsjs/go/main/App';
 import { ICONS } from '../utils/icons';
 import { showAlert, globalState } from '../store';
 import { clash } from '../../wailsjs/go/models';
+import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 
 const activeModal = ref<'import' | 'import_confirm' | 'rename' | 'delete' | null>(null);
 const targetId = ref('');
@@ -277,16 +278,8 @@ const handleUpdateAll = async () => {
     return;
   }
 
-  isUpdating.value = true;
-  try {
-    await API.UpdateAllSubs();
-    await fetchConfigs();
-    await showAlert("全部订阅更新完成！\n\n自定义规则已保留。如需应用机场的最新规则，请前往「规则管理」页面手动同步。", "更新成功");
-  } catch (e) {
-    await showAlert(`更新失败: ${e}`, "更新结果");
-  } finally {
-    isUpdating.value = false;
-  }
+  // 🚀 发起异步任务，具体状态由事件监听器控制
+  API.UpdateAllSubsAsync();
 };
 
 const handleUpdateSingle = async (config: clash.SubIndexItem) => {
@@ -415,6 +408,23 @@ const closeAllModals = () => {
 
 onMounted(() => {
   fetchConfigs();
+  
+  // 🚀 核心：监听异步任务事件
+  EventsOn("subs-update-start", () => {
+    isUpdating.value = true;
+  });
+
+  EventsOn("subs-update-success", async () => {
+    isUpdating.value = false;
+    await fetchConfigs();
+    await showAlert("全部订阅更新完成！\n\n自定义规则已保留。如需应用机场的最新规则，请前往「规则管理」页面手动同步。", "更新成功");
+  });
+
+  EventsOn("subs-update-error", async (err: string) => {
+    isUpdating.value = false;
+    await showAlert(`更新失败: ${err}`, "更新结果");
+  });
+
   (window as any).runtime.EventsOn("config-changed", (newId: string) => {
     if (newId) {
       globalState.activeConfigId = newId;
@@ -425,6 +435,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   (window as any).runtime.EventsOff("config-changed");
+  EventsOff("subs-update-start");
+  EventsOff("subs-update-success");
+  EventsOff("subs-update-error");
 });
 </script>
 

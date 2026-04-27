@@ -508,6 +508,22 @@
                 placeholder="http://www.gstatic.com/generate_204" 
               />
             </div>
+            <div class="divider"></div>
+
+            <div class="setting-item col-item">
+              <div class="info">
+                <h4>外部控制地址 (External Controller)</h4>
+                <p>内核 REST API 的监听地址。默认只允许本机 127.0.0.1 访问，不建议修改。</p>
+              </div>
+              <input 
+                type="text" 
+                class="modern-input" 
+                style="text-align: left; width: 100%; margin-top: 12px; font-size: 0.95rem; padding: 12px 16px;" 
+                v-model="netConfig.externalController" 
+                @blur="saveNet" 
+                placeholder="127.0.0.1:9090" 
+              />
+            </div>
 
             <div class="divider"></div>
 
@@ -936,12 +952,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'; // 👈 新增：浏览器打开
+import { BrowserOpenURL, EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 import { showAlert, globalState } from '../store';
 import { ICONS } from '../utils/icons';
-import appLogo from '../assets/logo.ico'; // 👈 切换为 .ico 图标
+import appLogo from '../assets/logo.ico';
 import ModernSelect from './ModernSelect.vue';
 import ModernNumberInput from './ModernNumberInput.vue';
 
@@ -1217,6 +1233,8 @@ const dnsConfig = ref<any>({
 
 const netConfig = ref({
   ipv6: false,
+  allowLan: false,
+  externalController: '127.0.0.1:9090',
   unifiedDelay: true,
   tcpConcurrent: true,
   tcpKeepAlive: true,
@@ -1321,7 +1339,32 @@ const loadData = async () => {
   }
 };
 
-onMounted(() => { loadData(); });
+onMounted(() => { 
+  loadData(); 
+
+  // 🚀 核心：监听 Geo 异步任务事件
+  EventsOn("geodb-update-start", () => {
+    updatingAllDbs.value = true;
+  });
+
+  EventsOn("geodb-update-success", async () => {
+    updatingAllDbs.value = false;
+    await showAlert("所有规则数据库已极速并发同步至最新！", "完成");
+    const dbInfo = await (API as any).GetGeoDatabaseInfo();
+    if (dbInfo) dbFileInfo.value = dbInfo;
+  });
+
+  EventsOn("geodb-update-error", async (err: string) => {
+    updatingAllDbs.value = false;
+    await showAlert(`一键同步发生异常:\n${err}`, "错误");
+  });
+});
+
+onUnmounted(() => {
+  EventsOff("geodb-update-start");
+  EventsOff("geodb-update-success");
+  EventsOff("geodb-update-error");
+});
 
 const handleTunToggle = async (e: Event) => {
   if (tunConfig.value.enable && !tunStatus.value.hasWintun) {
@@ -1444,17 +1487,8 @@ const handleUpdateDb = async (type: string) => {
 };
 
 const handleUpdateAllDbs = async () => {
-  updatingAllDbs.value = true;
-  try {
-    await (API as any).UpdateAllGeoDatabases([]);
-    await showAlert("所有规则数据库已极速并发同步至最新！", "完成");
-    const dbInfo = await (API as any).GetGeoDatabaseInfo();
-    if (dbInfo) dbFileInfo.value = dbInfo;
-  } catch (e) {
-    await showAlert(`一键同步发生异常:\n${e}`, "错误");
-  } finally {
-    updatingAllDbs.value = false;
-  }
+  // 🚀 发起异步任务
+  API.UpdateAllGeoDatabasesAsync();
 };
 
 const updateDnsArray = (e: Event, key: string) => {
