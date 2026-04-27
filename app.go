@@ -89,6 +89,8 @@ type App struct {
 
 	taskMu sync.Mutex
 	tasks  map[string]context.CancelFunc
+
+	trayOnce sync.Once // 确保 systray.Run 只执行一次
 }
 
 // AppBehavior 定义应用行为设置
@@ -738,6 +740,14 @@ func NewApp() *App {
 }
 
 func (a *App) runAsyncTask(name string, fn func(ctx context.Context) error) {
+	a.runAsyncTaskInternal(name, fn, true)
+}
+
+func (a *App) runAsyncTaskNoAutoSuccess(name string, fn func(ctx context.Context) error) {
+	a.runAsyncTaskInternal(name, fn, false)
+}
+
+func (a *App) runAsyncTaskInternal(name string, fn func(ctx context.Context) error, autoSuccess bool) {
 	a.taskMu.Lock()
 
 	if a.tasks == nil {
@@ -774,7 +784,9 @@ func (a *App) runAsyncTask(name string, fn func(ctx context.Context) error) {
 			return
 		}
 
-		runtime.EventsEmit(a.ctx, name+"-success")
+		if autoSuccess {
+			runtime.EventsEmit(a.ctx, name+"-success")
+		}
 	}()
 }
 
@@ -1645,12 +1657,17 @@ func (a *App) RenameConfig(id, newName string) error {
 
 // 3. 提供给前端：安装驱动 (加入安全回滚与防占用机制)
 func (a *App) InstallTunDriverAsync(force bool) {
-	a.runAsyncTask("tun-driver-install", func(ctx context.Context) error {
+	a.runAsyncTaskNoAutoSuccess("tun-driver-install", func(ctx context.Context) error {
 		res, err := sys.InstallWintun(ctx, force)
-		if err == nil && res == "ALREADY_LATEST" {
-			return fmt.Errorf("ALREADY_LATEST")
+		if err != nil {
+			return err
 		}
-		return err
+		if res == "ALREADY_LATEST" {
+			runtime.EventsEmit(a.ctx, "tun-driver-install-latest")
+			return nil
+		}
+		runtime.EventsEmit(a.ctx, "tun-driver-install-updated")
+		return nil
 	})
 }
 
@@ -2116,8 +2133,28 @@ func (a *App) GetAppState() AppState {
 // 不要在 Wails 的 OnStartup 里直接拉起托盘，会和 WebView2 抢线程
 // 建议在 Wails 的 OnDomReady 钩子里调用此方法，或者在 OnStartup 里包一层 goroutine 并短暂休眠
 func (a *App) SetupSystray() {
-	// 使用独立的 Goroutine 隔离 Windows 事件循环
-	go systray.Run(a.onTrayReady, a.onTrayExit)
+	a.trayOnce.Do(func() {
+		go systray.Run(a.onTrayReady, a.onTrayExit)
+	})
+}
+
+// safeTrayAction 包裹所有托盘回调，防止 panic 导致事件链断裂
+func (a *App) safeTrayAction(name string, fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.AppLogs.Add(logger.LogEntry{
+					Type:    "error",
+					Payload: fmt.Sprintf("托盘动作 %s panic: %v", name, r),
+					Time:    time.Now().Format(time.RFC3339),
+				})
+			}
+		}()
+		if a.ctx == nil {
+			return
+		}
+		fn()
+	}()
 }
 
 func (a *App) onTrayReady() {
@@ -2134,7 +2171,9 @@ func (a *App) onTrayReady() {
 	
 	// 左键双击：执行“显示/隐藏”状态切换
 	systray.SetOnDClick(func(menu systray.IMenu) {
-		go toggleMainWindowFromTray(a)
+		a.safeTrayAction("tray-dclick", func() {
+			toggleMainWindowFromTray(a)
+		})
 	})
 	
 	// 右键单击：弹出菜单
@@ -2145,48 +2184,52 @@ func (a *App) onTrayReady() {
 	// 2. 菜单定义与点击回调绑定
 	mShow := systray.AddMenuItem("显示主界面", "打开 GoclashZ 面板")
 	mShow.Click(func() {
-		go showMainWindowFromTrayAndFlash(a)
+		a.safeTrayAction("show-window", func() {
+			showMainWindowFromTrayAndFlash(a)
+		})
 	})
 	systray.AddSeparator() // ----------------------
 
 	mModeMenu := systray.AddMenuItem("出站路由", "切换流量分流模式")
 	a.mModeRule = mModeMenu.AddSubMenuItemCheckbox("规则分流 (Rule)", "", false)
 	a.mModeRule.Click(func() {
-		go a.UpdateClashMode("rule")
+		a.safeTrayAction("mode-rule", func() { a.UpdateClashMode("rule") })
 	})
 
 	a.mModeGlobal = mModeMenu.AddSubMenuItemCheckbox("全局代理 (Global)", "", false)
 	a.mModeGlobal.Click(func() {
-		go a.UpdateClashMode("global")
+		a.safeTrayAction("mode-global", func() { a.UpdateClashMode("global") })
 	})
 
 	a.mModeDirect = mModeMenu.AddSubMenuItemCheckbox("直接连接 (Direct)", "", false)
 	a.mModeDirect.Click(func() {
-		go a.UpdateClashMode("direct")
+		a.safeTrayAction("mode-direct", func() { a.UpdateClashMode("direct") })
 	})
 
 	systray.AddSeparator() // ----------------------
 
 	a.mSysProxy = systray.AddMenuItemCheckbox("系统代理", "全局接管 Windows 流量", false)
 	a.mSysProxy.Click(func() {
-		go a.ToggleSystemProxy(!a.sysProxyActive)
+		a.safeTrayAction("toggle-sysproxy", func() { a.ToggleSystemProxy(!a.sysProxyActive) })
 	})
 
 	a.mTun = systray.AddMenuItemCheckbox("虚拟网卡", "虚拟网卡底层接管", false)
 	a.mTun.Click(func() {
-		go a.ToggleTunMode(!a.tunActive)
+		a.safeTrayAction("toggle-tun", func() { a.ToggleTunMode(!a.tunActive) })
 	})
 
 	systray.AddSeparator() // ----------------------
 	mRestart := systray.AddMenuItem("重启内核", "热重启 Mihomo 进程")
 	mRestart.Click(func() {
-		go a.RestartCore()
+		a.safeTrayAction("restart-core", func() { a.RestartCore() })
 	})
 
 	mQuit := systray.AddMenuItem("退出程序", "彻底退出客户端")
 	mQuit.Click(func() {
-		systray.Quit()
-		runtime.Quit(a.ctx)
+		a.safeTrayAction("quit", func() {
+			systray.Quit()
+			runtime.Quit(a.ctx)
+		})
 	})
 
 	// 初始状态同步
@@ -2337,12 +2380,17 @@ func safeRename(oldpath, newpath string) error {
 
 // UpdateCoreComponent 触发安全更新机制：无缝下载，原子替换
 func (a *App) UpdateCoreComponentAsync() {
-	a.runAsyncTask("core-update", func(ctx context.Context) error {
+	a.runAsyncTaskNoAutoSuccess("core-update", func(ctx context.Context) error {
 		res, err := a.updateCoreComponent(ctx)
-		if err == nil && res == "ALREADY_LATEST" {
-			return fmt.Errorf("ALREADY_LATEST")
+		if err != nil {
+			return err
 		}
-		return err
+		if res == "ALREADY_LATEST" {
+			runtime.EventsEmit(a.ctx, "core-update-latest", a.GetCoreVersion())
+			return nil
+		}
+		runtime.EventsEmit(a.ctx, "core-update-updated")
+		return nil
 	})
 }
 

@@ -9,6 +9,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 type githubReleaseAsset struct {
@@ -23,6 +24,15 @@ type githubRelease struct {
 var githubReleaseAssetRe = regexp.MustCompile(
 	`^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^?#]+)`,
 )
+
+// githubDigestCache 按 owner/repo/tag 缓存整个 release 的所有 asset digest，
+// 一键更新多个同 release 文件时只请求一次 GitHub API。
+var githubDigestCache = struct {
+	sync.Mutex
+	data map[string]map[string]string
+}{
+	data: make(map[string]map[string]string),
+}
 
 func normalizeGitHubAssetURL(rawURL string) string {
 	rawURL = strings.TrimSpace(rawURL)
@@ -58,6 +68,37 @@ func ResolveGitHubAssetSHA256(ctx context.Context, client *http.Client, rawURL s
 		return "", err
 	}
 
+	cacheKey := owner + "/" + repo + "/" + tag
+
+	// 先查缓存
+	githubDigestCache.Lock()
+	if assets, ok := githubDigestCache.data[cacheKey]; ok {
+		if digest := assets[assetName]; digest != "" {
+			githubDigestCache.Unlock()
+			return digest, nil
+		}
+	}
+	githubDigestCache.Unlock()
+
+	// 缓存未命中，请求 GitHub API 获取整个 release 的 digest map
+	assets, err := fetchGitHubReleaseDigests(ctx, client, owner, repo, tag, userAgent)
+	if err != nil {
+		return "", err
+	}
+
+	githubDigestCache.Lock()
+	githubDigestCache.data[cacheKey] = assets
+	digest := assets[assetName]
+	githubDigestCache.Unlock()
+
+	if digest == "" {
+		return "", fmt.Errorf("GitHub release asset %s 未提供 digest，无法执行 SHA256 校验", assetName)
+	}
+
+	return digest, nil
+}
+
+func fetchGitHubReleaseDigests(ctx context.Context, client *http.Client, owner, repo, tag, userAgent string) (map[string]string, error) {
 	var apiURL string
 	if tag == "latest" {
 		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
@@ -72,7 +113,7 @@ func ResolveGitHubAssetSHA256(ctx context.Context, client *http.Client, rawURL s
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if userAgent == "" {
@@ -84,33 +125,28 @@ func ResolveGitHubAssetSHA256(ctx context.Context, client *http.Client, rawURL s
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
 	}
 
 	var release githubRelease
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", err
+		return nil, err
 	}
 
+	result := make(map[string]string)
 	for _, asset := range release.Assets {
-		if asset.Name != assetName {
-			continue
-		}
-
 		digest := strings.TrimSpace(strings.ToLower(asset.Digest))
 		digest = strings.TrimPrefix(digest, "sha256:")
 
-		if len(digest) != 64 {
-			return "", fmt.Errorf("GitHub asset 未提供有效 sha256 digest: %s", assetName)
+		if len(digest) == 64 {
+			result[asset.Name] = digest
 		}
-
-		return digest, nil
 	}
 
-	return "", fmt.Errorf("GitHub release 中未找到文件: %s", assetName)
+	return result, nil
 }

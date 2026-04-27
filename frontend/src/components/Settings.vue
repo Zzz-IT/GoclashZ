@@ -1377,18 +1377,18 @@ onMounted(() => {
 
   // 监听 Core 更新事件
   EventsOn("core-update-start", () => { updatingCore.value = true; });
-  EventsOn("core-update-success", async () => {
+  EventsOn("core-update-latest", async (version: string) => {
     updatingCore.value = false;
-    await showAlert("内核更新成功！", "通知");
+    await showAlert(`当前内核 (${version || coreVersion.value}) 已是最新版本，无需更新！`, "通知");
+  });
+  EventsOn("core-update-updated", async () => {
+    updatingCore.value = false;
     coreVersion.value = await (API as any).GetCoreVersion();
+    await showAlert("内核更新成功！", "通知");
   });
   EventsOn("core-update-error", async (err: string) => {
     updatingCore.value = false;
-    if (err === "ALREADY_LATEST") {
-      await showAlert(`当前内核已是最新版本，无需更新！`, "通知");
-    } else {
-      await showAlert("更新异常: " + err, "错误");
-    }
+    await showAlert("更新异常: " + err, "错误");
   });
 
   // 监听 Tun 驱动安装事件
@@ -1397,7 +1397,12 @@ onMounted(() => {
       isCheckingUpdate.value = true; 
     }
   });
-  EventsOn("tun-driver-install-success", async () => {
+  EventsOn("tun-driver-install-latest", async () => {
+    isCheckingUpdate.value = false;
+    isReinstallingDriver.value = false;
+    await showAlert(`当前 Wintun 驱动已是最新版本！`, '通知');
+  });
+  EventsOn("tun-driver-install-updated", async () => {
     isCheckingUpdate.value = false;
     isReinstallingDriver.value = false;
     await loadData();
@@ -1408,11 +1413,7 @@ onMounted(() => {
   EventsOn("tun-driver-install-error", async (err: string) => {
     isCheckingUpdate.value = false;
     isReinstallingDriver.value = false;
-    if (err === "ALREADY_LATEST") {
-      await showAlert(`当前 Wintun 驱动已是最新版本！`, '通知');
-    } else {
-      await showAlert('安装提示: ' + err, '发生错误');
-    }
+    await showAlert('安装提示: ' + err, '发生错误');
   });
 });
 
@@ -1427,10 +1428,12 @@ onUnmounted(() => {
     EventsOff(`geodb-update-${t}-error`);
   });
   EventsOff("core-update-start");
-  EventsOff("core-update-success");
+  EventsOff("core-update-latest");
+  EventsOff("core-update-updated");
   EventsOff("core-update-error");
   EventsOff("tun-driver-install-start");
-  EventsOff("tun-driver-install-success");
+  EventsOff("tun-driver-install-latest");
+  EventsOff("tun-driver-install-updated");
   EventsOff("tun-driver-install-error");
 });
 
