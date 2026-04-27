@@ -2071,6 +2071,9 @@ func (a *App) onTrayReady() {
 		runtime.WindowShow(a.ctx)
 		runtime.WindowUnminimise(a.ctx)
 
+		// 🚀 核心对齐：统一调用 main.go 提供的公共函数实现“夺焦 + 闪烁 2 次”
+		focusMainWindowAndFlashTwice()
+
 		a.mu.RLock()
 		ready := a.appUpdateReady
 		ver := a.newAppVersion

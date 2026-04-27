@@ -44,14 +44,26 @@ type FLASHWINFO struct {
 
 const (
 	FLASHW_STOP      = 0x00000000 // 🚀 新增：用于强制终止闪烁状态
-	FLASHW_ALL       = 0x00000003
+	FLASHW_CAPTION   = 0x00000001 // 闪烁标题栏
+	FLASHW_TRAY      = 0x00000002 // 闪烁任务栏按钮
+	FLASHW_ALL       = 0x00000003 // 同时闪烁
 	FLASHW_TIMERNOFG = 0x0000000C // 虽保留定义，但不再使用它组合以避免“红而不退”
 
 	SW_RESTORE = 9 // 🚀 新增：用于恢复最小化的窗口
 )
 
+// 🛡️ 辅助函数：根据窗口标题查找主窗口句柄
+func findMainWindow() uintptr {
+	windowName, _ := syswin.UTF16PtrFromString("GoclashZ")
+	hwnd, _, _ := procFindWindow.Call(0, uintptr(unsafe.Pointer(windowName)))
+	return hwnd
+}
+
 // 🛡️ 辅助函数：强行重置任务栏闪烁状态，彻底消除红点顽疾
 func stopTaskbarFlash(hwnd uintptr) {
+	if hwnd == 0 {
+		return
+	}
 	finfo := FLASHWINFO{
 		CbSize:    uint32(unsafe.Sizeof(FLASHWINFO{})),
 		Hwnd:      syswin.Handle(hwnd),
@@ -62,34 +74,49 @@ func stopTaskbarFlash(hwnd uintptr) {
 	procFlashWindowEx.Call(uintptr(unsafe.Pointer(&finfo)))
 }
 
-// 🛡️ 辅助函数：执行标准化的双次闪烁并自动清理
-func flashTaskbarTwice(hwnd uintptr) {
+// 🛡️ 辅助函数：执行标准化的“快速”闪烁并自动清理
+func flashWindowTwice(hwnd uintptr) {
+	if hwnd == 0 {
+		return
+	}
 	// 1. 先清一次旧状态，避免上一次闪烁残留干扰
 	stopTaskbarFlash(hwnd)
 
-	// 2. 严格指定只闪烁 2 次，不使用 TIMERNOFG 这样无限循环的危险标志
+	// 2. 节奏加快 (150ms)，次数回归 2 次，且仅针对 TRAY 闪烁以实现“深红到没有”的清爽感
 	finfo := FLASHWINFO{
 		CbSize:    uint32(unsafe.Sizeof(FLASHWINFO{})),
 		Hwnd:      syswin.Handle(hwnd),
-		DwFlags:   FLASHW_ALL,
+		DwFlags:   FLASHW_TRAY, // 改为仅任务栏，视觉上更干净
 		UCount:    2,
-		DwTimeout: 120, // 闪烁间隔(ms)
+		DwTimeout: 150, // 节奏加快
 	}
 	procFlashWindowEx.Call(uintptr(unsafe.Pointer(&finfo)))
 
-	// 3. 延时等待 2 次闪烁动作完成，然后强制清空状态位
+	// 3. 异步延时等待闪烁动作完成，然后强制清空状态位
 	go func() {
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(800 * time.Millisecond)
 		stopTaskbarFlash(hwnd)
 	}()
 }
 
 // 🛡️ 辅助函数：将窗口暴力拉到最前台并获取焦点
-func focusExistingWindow(hwnd uintptr) {
+func focusWindow(hwnd uintptr) {
+	if hwnd == 0 {
+		return
+	}
 	// 组合拳：恢复窗口 -> 提到顶层 -> 设为前台焦点
 	procShowWindow.Call(hwnd, SW_RESTORE)
 	procBringWindowToTop.Call(hwnd)
 	procSetForegroundWindow.Call(hwnd)
+}
+
+// 🛡️ 终极入口：唤醒主窗口并执行标准的双次闪烁 (供 main.go 和 app.go 共享)
+func focusMainWindowAndFlashTwice() {
+	hwnd := findMainWindow()
+	if hwnd != 0 {
+		focusWindow(hwnd)
+		flashWindowTwice(hwnd)
+	}
 }
 
 func main() {
@@ -110,39 +137,10 @@ func main() {
 		// ✅ 核心修复：直接通过系统调用返回的 err 判断，切勿使用 GetLastError()
 		if err != nil {
 			if err == syswin.ERROR_ALREADY_EXISTS {
-				fmt.Println("⚠️ GoclashZ 已经在后台运行！")
+				fmt.Println("⚠️ GoclashZ 已经在后台运行，正在唤醒窗口并闪烁两次...")
 				
-				// 🎯 模仿 Stelliberty 的 UX：试图唤醒已经隐藏的窗口
-				// 这里的 "GoclashZ" 必须与 wails.Run 里的 Title 完全一致
-				windowName, _ := syswin.UTF16PtrFromString("GoclashZ")
-				hwnd, _, _ := procFindWindow.Call(0, uintptr(unsafe.Pointer(windowName)))
-				
-				if hwnd != 0 {
-					isVisible, _, _ := procIsWindowVisible.Call(hwnd)
-					isMinimized, _, _ := procIsIconic.Call(hwnd)
-					fgHwnd, _, _ := procGetForegroundWindow.Call()
-
-					if isVisible == 0 || isMinimized != 0 {
-						// 情况 A：窗口不可见（托盘）或处于最小化
-						// 动作：恢复显示 -> 强行夺取焦点 -> 闪烁两次提示
-						fmt.Println("👉 已有窗口在后台/最小化，恢复并执行标准闪烁...")
-						focusExistingWindow(hwnd)
-						flashTaskbarTwice(hwnd)
-
-					} else if hwnd != fgHwnd {
-						// 情况 B：窗口已在桌面，但不是当前活动焦点
-						// 动作：夺取焦点 -> 闪烁两次
-						fmt.Println("👉 窗口已在桌面但非焦点，夺取焦点并闪烁...")
-						focusExistingWindow(hwnd)
-						flashTaskbarTwice(hwnd)
-
-					} else {
-						// 情况 C：窗口已经是当前最前台的活动窗口
-						// 动作：仅闪烁两次起震动提示作用
-						fmt.Println("👉 窗口已在最前台，仅闪烁提示...")
-						flashTaskbarTwice(hwnd)
-					}
-				}
+				// 🚀 核心重构：调用统一的唤醒与闪烁函数
+				focusMainWindowAndFlashTwice()
 				
 				// 显式释放内核互斥锁句柄
 				if mutexHandle != 0 {
