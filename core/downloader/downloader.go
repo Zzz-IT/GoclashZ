@@ -3,11 +3,13 @@ package downloader
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -16,12 +18,18 @@ import (
 
 type Options struct {
 	URL             string
+	Mirrors         []string // 🚀 1. 竞速容灾：传入多个镜像站，哪个最快连哪个
 	DestPath        string
 	UserAgent       string
 	MaxBytes        int64
 	Client          *http.Client
 	Resume          bool
 	VerifyGitHubSHA bool
+
+	ProxyURL           string                     // 🚀 2. 自代理加速：指定本地 Clash 代理地址
+	InsecureSkipVerify bool                       // 🚀 3. SSL宽容：无视野鸡机场的过期证书
+	OnResponse         func(resp *http.Response)  // 拦截器：供外部提取 subscription-userinfo 头
+	Validator          func(tmpPath string) error // 🚀 4. 防损屏障：替换前执行验证逻辑 (杜绝坏文件)
 }
 
 type resumeMeta struct {
@@ -37,6 +45,34 @@ var defaultClient = &http.Client{
 
 var largeClient = &http.Client{
 	Timeout: 10 * time.Minute,
+}
+
+// createSmartClient 动态生成支持自代理和 SSL 宽容的 HTTP 客户端
+func createSmartClient(opt Options) *http.Client {
+	if opt.Client != nil {
+		return opt.Client
+	}
+
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+	}
+
+	// 🌟 自代理机制：让更新请求强行走系统现有的科学通道
+	if opt.ProxyURL != "" {
+		if pURL, err := url.Parse(opt.ProxyURL); err == nil {
+			transport.Proxy = http.ProxyURL(pURL)
+		}
+	}
+
+	// 🌟 SSL 宽容机制：拯救 50% 证书过期或自签的节点
+	if opt.InsecureSkipVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+
+	return &http.Client{
+		Timeout:   10 * time.Minute,
+		Transport: transport,
+	}
 }
 
 func metaPath(tmpPath string) string {
@@ -64,8 +100,8 @@ func writeResumeMeta(path string, meta resumeMeta) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-func probeRemote(ctx context.Context, client *http.Client, opt Options) (resumeMeta, bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, opt.URL, nil)
+func probeSingleRemote(ctx context.Context, client *http.Client, testURL string, opt Options) (resumeMeta, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, testURL, nil)
 	if err != nil {
 		return resumeMeta{}, false, err
 	}
@@ -90,11 +126,52 @@ func probeRemote(ctx context.Context, client *http.Client, opt Options) (resumeM
 	acceptRanges := strings.Contains(strings.ToLower(resp.Header.Get("Accept-Ranges")), "bytes")
 
 	return resumeMeta{
-		URL:          opt.URL,
+		URL:          resp.Request.URL.String(), // 记录实际起效的重定向真实地址
 		ETag:         resp.Header.Get("ETag"),
 		LastModified: resp.Header.Get("Last-Modified"),
 		TotalSize:    total,
 	}, acceptRanges && total > 0, nil
+}
+
+// 🚀 新增：多镜像并发测速，谁先返回 200 就立刻杀掉其他的
+func probeFastestRemote(ctx context.Context, client *http.Client, opt Options) (resumeMeta, bool, error) {
+	urls := append([]string{opt.URL}, opt.Mirrors...)
+	if len(urls) == 1 {
+		return probeSingleRemote(ctx, client, urls[0], opt)
+	}
+
+	type probeResult struct {
+		meta       resumeMeta
+		canPartial bool
+		err        error
+	}
+
+	resultCh := make(chan probeResult, len(urls))
+	raceCtx, cancelRace := context.WithCancel(ctx)
+	defer cancelRace()
+
+	for _, u := range urls {
+		go func(target string) {
+			meta, partial, err := probeSingleRemote(raceCtx, client, target, opt)
+			if err == nil && meta.TotalSize > 0 {
+				resultCh <- probeResult{meta, partial, nil}
+			} else {
+				resultCh <- probeResult{resumeMeta{}, false, err}
+			}
+		}(u)
+	}
+
+	var lastErr error
+	for i := 0; i < len(urls); i++ {
+		res := <-resultCh
+		if res.err == nil && res.meta.TotalSize > 0 {
+			cancelRace() // 找到了最快的，果断拔掉其他测速管子节约资源
+			return res.meta, res.canPartial, nil
+		}
+		lastErr = res.err
+	}
+
+	return resumeMeta{}, false, fmt.Errorf("所有链接及镜像均探测失败: %v", lastErr)
 }
 
 func parseContentRangeTotal(v string) (int64, bool) {
@@ -116,14 +193,7 @@ func parseContentRangeTotal(v string) (int64, bool) {
 }
 
 func DownloadAtomic(ctx context.Context, opt Options) error {
-	if opt.URL == "" || opt.DestPath == "" {
-		return fmt.Errorf("下载参数缺失")
-	}
-
-	client := opt.Client
-	if client == nil {
-		client = defaultClient
-	}
+	client := createSmartClient(opt)
 
 	ua := opt.UserAgent
 	if ua == "" {
@@ -133,13 +203,13 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 	tmpPath := opt.DestPath + ".tmp"
 	metaFile := metaPath(tmpPath)
 
-	var startOffset int64
 	var oldMeta resumeMeta
 	var canResume bool
+	var startOffset int64
 
 	if opt.Resume {
 		if info, err := os.Stat(tmpPath); err == nil && !info.IsDir() && info.Size() > 0 {
-			if meta, ok := readResumeMeta(metaFile); ok && meta.URL == opt.URL {
+			if meta, ok := readResumeMeta(metaFile); ok {
 				oldMeta = meta
 				startOffset = info.Size()
 				canResume = true
@@ -150,7 +220,11 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 		_ = os.Remove(metaFile)
 	}
 
-	remoteMeta, serverSupportsRange, _ := probeRemote(ctx, client, opt)
+	remoteMeta, serverSupportsRange, err := probeFastestRemote(ctx, client, opt)
+	if err != nil {
+		return err
+	}
+
 	if remoteMeta.URL == "" {
 		remoteMeta.URL = opt.URL
 	}
@@ -197,6 +271,11 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 			return err
 		}
 		defer resp.Body.Close()
+
+		// 🚀 在 resp 获取成功后，立刻暴露出 Header 供外部解析
+		if opt.OnResponse != nil {
+			opt.OnResponse(resp)
+		}
 
 		appendMode := false
 		switch resp.StatusCode {
@@ -295,6 +374,14 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 		if err := VerifySHA256(tmpPath, expectedSHA); err != nil {
 			_ = os.Remove(tmpPath)
 			return fmt.Errorf("文件 SHA256 校验失败: %v", err)
+		}
+	}
+
+	// 🚀 在 tmp 文件写入完毕，马上要执行 ReplaceFile 之前：
+	if opt.Validator != nil {
+		if err := opt.Validator(tmpPath); err != nil {
+			_ = os.Remove(tmpPath) // 校验失败毁尸灭迹，保护系统配置安全
+			return fmt.Errorf("安全校验拦截, 文件存在损坏或格式错误: %v", err)
 		}
 	}
 

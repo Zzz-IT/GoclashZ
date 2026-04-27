@@ -3,7 +3,6 @@ package clash
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"goclashz/core/downloader"
 	"goclashz/core/utils"
 
 	"gopkg.in/yaml.v3"
@@ -52,46 +52,8 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 		id = fmt.Sprintf("%d", time.Now().UnixMilli())
 	}
 
-	client := &http.Client{}
-	// 🛡️ 修复：必须加上硬超时！防止机场服务器假死导致前端 UI 的 loading 圈永远转下去
-	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(reqCtx, "GET", url, nil)
-	if err != nil {
-		return id, err
-	}
-
-	if userAgent == "" {
-		userAgent = "clash-verge/1.0"
-	}
-	req.Header.Set("User-Agent", userAgent)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return id, fmt.Errorf("订阅下载失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return id, fmt.Errorf("订阅服务器异常: HTTP %d", resp.StatusCode)
-	}
-
-	upload, download, total, expire := parseSubUserInfo(resp.Header.Get("Subscription-Userinfo"))
-
-	// ==========================================
-	// 🛡️ 终极护城河：YAML 格式与结构语义极严校验
-	// ==========================================
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return id, fmt.Errorf("读取订阅内容失败: %v", err)
-	}
-
-	if err := StrictVerifyClashConfig(bodyBytes); err != nil {
-		// 直接将极严校验的详细报错抛出，阻断落盘
-		return id, fmt.Errorf("订阅配置校验失败: %v", err)
-	}
-	// ==========================================
+	dir := utils.GetSubscriptionsDir()
+	os.MkdirAll(dir, 0755)
 
 	// 🛡️ 防御路径穿越：提取纯文件名
 	safeId := filepath.Base(filepath.Clean(id))
@@ -99,10 +61,47 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 		return id, fmt.Errorf("非法的文件 ID 拒绝访问")
 	}
 
-	// 校验通过，安全落盘
-	yamlPath := filepath.Join(utils.GetSubscriptionsDir(), safeId+".yaml")
-	if err := os.WriteFile(yamlPath, bodyBytes, 0644); err != nil {
-		return safeId, fmt.Errorf("无法写入配置文件: %v", err)
+	finalPath := filepath.Join(dir, safeId+".yaml")
+
+	// 🚀 1. 动态探测本地 Clash 混合端口，拿来实现“自代理更新”
+	var proxyURL string
+	if IsRunning() {
+		if netCfg, err := GetNetworkConfig(); err == nil && netCfg.MixedPort != 0 {
+			proxyURL = fmt.Sprintf("http://127.0.0.1:%d", netCfg.MixedPort)
+		}
+	}
+
+	var upload, download, total, expire int64
+
+	// 🚀 2. 全面拥抱底层 downloader，直接集齐五大神器
+	err := downloader.DownloadAtomic(ctx, downloader.Options{
+		URL:                url,
+		DestPath:           finalPath,
+		UserAgent:          userAgent,
+		MaxBytes:           50 * 1024 * 1024,
+		ProxyURL:           proxyURL, // 🛡️ [自代理] 被墙也能下载
+		InsecureSkipVerify: true,     // 🛡️ [SSL宽容] 机场证书烂也能下载
+		OnResponse: func(resp *http.Response) {
+			// 🛡️ [流量提取] 解析 Subscription-Userinfo
+			if info := resp.Header.Get("Subscription-Userinfo"); info != "" {
+				upload, download, total, expire = parseSubUserInfo(info)
+			}
+		},
+		Validator: func(tmpPath string) error {
+			// 🛡️ [原子防损] 只有通过极严 YAML 结构校验的文件才会被最终替换
+			data, err := os.ReadFile(tmpPath)
+			if err != nil {
+				return err
+			}
+			if err := StrictVerifyClashConfig(data); err != nil {
+				return fmt.Errorf("订阅配置校验失败: %v (可能下载到了网页、HTML 或乱码)", err)
+			}
+			return nil
+		},
+	})
+
+	if err != nil {
+		return safeId, err
 	}
 
 	// 4. 初始化伴生规则文件 (仅在第一次添加订阅时截取原始规则)
