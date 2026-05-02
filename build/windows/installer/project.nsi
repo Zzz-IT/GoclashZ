@@ -1,9 +1,9 @@
-Unicode true
+﻿Unicode true
 
 ; --- Compression Settings ---
 ; Use LZMA solid compression
-SetCompressor /SOLID lzma
-SetCompressorDictSize 64
+SetCompressor /SOLID lzma2
+SetCompressorDictSize 65536  ; 64 MB
 
 ; Request user execution level (no UAC prompt)
 !define REQUEST_EXECUTION_LEVEL "user"

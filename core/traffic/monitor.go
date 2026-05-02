@@ -7,8 +7,10 @@ import (
 	"net"
 	"net/http"
 	"time"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// ConnectionCallback 连接数据回调类型
+type ConnectionCallback func(vos []ConnectionVO)
 
 func sleepOrDone(ctx context.Context, d time.Duration) bool {
 	timer := time.NewTimer(d)
@@ -65,7 +67,7 @@ var trafficStreamClient = &http.Client{
 func StreamTraffic(ctx context.Context, apiURL string, callback func(up, down string)) {
 	// 🚀 核心修复：包裹重连状态机
 	for {
-		// 1. 检查 Wails 应用是否已退出
+		// 1. 检查应用是否已退出
 		select {
 		case <-ctx.Done():
 			return
@@ -185,11 +187,10 @@ func ProcessConnections(rawConnections []RawConnection) []ConnectionVO {
 	return vos
 }
 
-// EmitConnections 处理并向前端推送格式化后的连接数据
-func EmitConnections(ctx context.Context, rawConnections []RawConnection) {
+// EmitConnections 处理连接数据（通过回调推送，不再依赖 Wails）
+func EmitConnections(ctx context.Context, rawConnections []RawConnection, callback ConnectionCallback) {
 	vos := ProcessConnections(rawConnections)
-	// 发送组装好的 VO 数组给前端
-	runtime.EventsEmit(ctx, "connections-update", map[string]interface{}{
-		"connections": vos,
-	})
+	if callback != nil {
+		callback(vos)
+	}
 }

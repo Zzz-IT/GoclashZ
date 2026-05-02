@@ -1,3 +1,94 @@
+export namespace appcore {
+	
+	export class AppBehavior {
+	    silentStart: boolean;
+	    closeToTray: boolean;
+	    colorDelay: boolean;
+	    delayRetention: boolean;
+	    delayRetentionTime: string;
+	    logLevel: string;
+	    hideLogs: boolean;
+	    subUA: string;
+	    activeConfig: string;
+	    activeMode: string;
+	    geoIpLink: string;
+	    geoSiteLink: string;
+	    mmdbLink: string;
+	    asnLink: string;
+	    autoUpdate: boolean;
+	    updateMethod: string;
+	    updateInterval: number;
+	    lastUpdateCheck: number;
+	    autoDelayTest: boolean;
+	    autoDelayTestInterval: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AppBehavior(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.silentStart = source["silentStart"];
+	        this.closeToTray = source["closeToTray"];
+	        this.colorDelay = source["colorDelay"];
+	        this.delayRetention = source["delayRetention"];
+	        this.delayRetentionTime = source["delayRetentionTime"];
+	        this.logLevel = source["logLevel"];
+	        this.hideLogs = source["hideLogs"];
+	        this.subUA = source["subUA"];
+	        this.activeConfig = source["activeConfig"];
+	        this.activeMode = source["activeMode"];
+	        this.geoIpLink = source["geoIpLink"];
+	        this.geoSiteLink = source["geoSiteLink"];
+	        this.mmdbLink = source["mmdbLink"];
+	        this.asnLink = source["asnLink"];
+	        this.autoUpdate = source["autoUpdate"];
+	        this.updateMethod = source["updateMethod"];
+	        this.updateInterval = source["updateInterval"];
+	        this.lastUpdateCheck = source["lastUpdateCheck"];
+	        this.autoDelayTest = source["autoDelayTest"];
+	        this.autoDelayTestInterval = source["autoDelayTestInterval"];
+	    }
+	}
+	export class AppState {
+	    isRunning: boolean;
+	    mode: string;
+	    theme: string;
+	    hideLogs: boolean;
+	    systemProxy: boolean;
+	    tun: boolean;
+	    version: string;
+	    appVersion: string;
+	    activeConfig: string;
+	    activeConfigName: string;
+	    activeConfigType: string;
+	    delayRetention: boolean;
+	    delayRetentionTime: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AppState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.isRunning = source["isRunning"];
+	        this.mode = source["mode"];
+	        this.theme = source["theme"];
+	        this.hideLogs = source["hideLogs"];
+	        this.systemProxy = source["systemProxy"];
+	        this.tun = source["tun"];
+	        this.version = source["version"];
+	        this.appVersion = source["appVersion"];
+	        this.activeConfig = source["activeConfig"];
+	        this.activeConfigName = source["activeConfigName"];
+	        this.activeConfigType = source["activeConfigType"];
+	        this.delayRetention = source["delayRetention"];
+	        this.delayRetentionTime = source["delayRetentionTime"];
+	    }
+	}
+
+}
+
 export namespace clash {
 	
 	export class FallbackFilterConfig {
@@ -193,147 +284,12 @@ export namespace logger {
 
 export namespace main {
 	
-	export class AppBehavior {
-	    silentStart: boolean;
-	    closeToTray: boolean;
-	    colorDelay: boolean;
-	    delayRetention: boolean;
-	    delayRetentionTime: string;
-	    logLevel: string;
-	    hideLogs: boolean;
-	    subUA: string;
-	    activeConfig: string;
-	    activeMode: string;
-	    geoIpLink: string;
-	    geoSiteLink: string;
-	    mmdbLink: string;
-	    asnLink: string;
-	    autoUpdate: boolean;
-	    updateMethod: string;
-	    updateInterval: number;
-	    lastUpdateCheck: number;
-	    autoDelayTest: boolean;
-	    autoDelayTestInterval: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new AppBehavior(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.silentStart = source["silentStart"];
-	        this.closeToTray = source["closeToTray"];
-	        this.colorDelay = source["colorDelay"];
-	        this.delayRetention = source["delayRetention"];
-	        this.delayRetentionTime = source["delayRetentionTime"];
-	        this.logLevel = source["logLevel"];
-	        this.hideLogs = source["hideLogs"];
-	        this.subUA = source["subUA"];
-	        this.activeConfig = source["activeConfig"];
-	        this.activeMode = source["activeMode"];
-	        this.geoIpLink = source["geoIpLink"];
-	        this.geoSiteLink = source["geoSiteLink"];
-	        this.mmdbLink = source["mmdbLink"];
-	        this.asnLink = source["asnLink"];
-	        this.autoUpdate = source["autoUpdate"];
-	        this.updateMethod = source["updateMethod"];
-	        this.updateInterval = source["updateInterval"];
-	        this.lastUpdateCheck = source["lastUpdateCheck"];
-	        this.autoDelayTest = source["autoDelayTest"];
-	        this.autoDelayTestInterval = source["autoDelayTestInterval"];
-	    }
-	}
-	export class AppState {
-	    isRunning: boolean;
-	    mode: string;
-	    theme: string;
-	    hideLogs: boolean;
-	    systemProxy: boolean;
-	    tun: boolean;
-	    version: string;
-	    appVersion: string;
-	    activeConfig: string;
-	    activeConfigName: string;
-	    activeConfigType: string;
-	    delayRetention: boolean;
-	    delayRetentionTime: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new AppState(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.isRunning = source["isRunning"];
-	        this.mode = source["mode"];
-	        this.theme = source["theme"];
-	        this.hideLogs = source["hideLogs"];
-	        this.systemProxy = source["systemProxy"];
-	        this.tun = source["tun"];
-	        this.version = source["version"];
-	        this.appVersion = source["appVersion"];
-	        this.activeConfig = source["activeConfig"];
-	        this.activeConfigName = source["activeConfigName"];
-	        this.activeConfigType = source["activeConfigType"];
-	        this.delayRetention = source["delayRetention"];
-	        this.delayRetentionTime = source["delayRetentionTime"];
-	    }
-	}
-	export class RuleItem {
-	    index: number;
-	    text: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new RuleItem(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.index = source["index"];
-	        this.text = source["text"];
-	    }
-	}
-	export class PagedRules {
-	    total: number;
-	    items: RuleItem[];
-	    isEditable: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new PagedRules(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.total = source["total"];
-	        this.items = this.convertValues(source["items"], RuleItem);
-	        this.isEditable = source["isEditable"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
-	export class SelectedFile {
+	export class FileInfo {
 	    path: string;
 	    name: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new SelectedFile(source);
+	        return new FileInfo(source);
 	    }
 	
 	    constructor(source: any = {}) {

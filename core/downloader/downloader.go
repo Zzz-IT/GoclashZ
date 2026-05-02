@@ -573,3 +573,58 @@ func VerifySHA256(path string, expected string) error {
 	}
 	return nil
 }
+type AppUpdateInfo struct {
+	HasUpdate bool   `json:"hasUpdate"`
+	Version   string `json:"version"`
+	Body      string `json:"body"`
+	URL       string `json:"url"`
+}
+
+func CheckAppUpdate(ctx context.Context, currentVersion string) (*AppUpdateInfo, error) {
+	// 请求 GitHub API 获取最新 Release
+	apiURL := "https://api.github.com/repos/Zzz-IT/GoclashZ/releases/latest"
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	req.Header.Set("User-Agent", "GoclashZ-Updater")
+
+	resp, err := defaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
+	}
+
+	var release struct {
+		TagName string `json:"tag_name"`
+		Body    string `json:"body"`
+		Assets  []struct {
+			BrowserDownloadURL string `json:"browser_download_url"`
+			Name               string `json:"name"`
+		} `json:"assets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return nil, err
+	}
+
+	hasUpdate := normalizeVersion(release.TagName) != normalizeVersion(currentVersion)
+	updateURL := ""
+	for _, asset := range release.Assets {
+		if strings.HasSuffix(asset.Name, ".exe") {
+			updateURL = asset.BrowserDownloadURL
+			break
+		}
+	}
+
+	return &AppUpdateInfo{
+		HasUpdate: hasUpdate,
+		Version:   release.TagName,
+		Body:      release.Body,
+		URL:       updateURL,
+	}, nil
+}
+
+func normalizeVersion(v string) string {
+	return strings.TrimSpace(strings.ToLower(strings.TrimPrefix(v, "v")))
+}

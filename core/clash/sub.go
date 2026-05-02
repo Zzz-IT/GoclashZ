@@ -273,3 +273,45 @@ func StrictVerifyClashConfig(data []byte) error {
 	// 校验通过，确认为高纯度合规的 Clash 配置
 	return nil
 }
+// ImportLocalConfig 导入本地配置文件
+func ImportLocalConfig(srcPath, name string) (string, error) {
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return "", err
+	}
+
+	if err := StrictVerifyClashConfig(data); err != nil {
+		return "", err
+	}
+
+	id := fmt.Sprintf("%d", time.Now().UnixMilli())
+	safeId, _ := utils.SanitizeFilename(id)
+
+	dir := utils.GetSubscriptionsDir()
+	os.MkdirAll(dir, 0755)
+	destPath := filepath.Join(dir, safeId+".yaml")
+
+	if err := os.WriteFile(destPath, data, 0644); err != nil {
+		return "", err
+	}
+
+	// 初始化规则
+	rules, err := GetOriginalRules(safeId)
+	if err != nil || len(rules) == 0 {
+		rules = []string{"MATCH,DIRECT"}
+	}
+	SaveCustomRules(safeId, rules)
+
+	// 更新索引
+	IndexLock.Lock()
+	SubIndex = append(SubIndex, SubIndexItem{
+		ID:      safeId,
+		Name:    name,
+		URL:     "",
+		Type:    "local",
+		Updated: time.Now().Unix(),
+	})
+	IndexLock.Unlock()
+
+	return safeId, SaveIndex()
+}

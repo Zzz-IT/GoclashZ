@@ -289,7 +289,7 @@ func UpdateNetworkConfig(newCfg *NetworkConfig) error {
 }
 
 // ==========================================
-// --- 运行时参数注入器 (借鉴 Stelliberty) ---
+// --- 运行时参数注入器 ---
 // ==========================================
 
 // BuildRuntimeConfig 核心流水线：基础配置 + 用户设置 = 最终运行配置

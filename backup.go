@@ -47,10 +47,7 @@ func (a *App) ExportBackup() (string, error) {
 	zw := zip.NewWriter(f)
 	defer zw.Close()
 
-	a.behaviorIOMu.Lock()
-	defer a.behaviorIOMu.Unlock()
-
-	// 🚀 修复：2. 跨包调用并锁定订阅索引文件的 IO，确保备份期间节点列表绝对静止！
+	// 🚀 核心修复：通过锁定订阅索引和配置目录，确保备份期间状态静止
 	clash.IndexLock.RLock()
 	defer clash.IndexLock.RUnlock()
 
@@ -139,9 +136,9 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 	cleanDataDir := filepath.Clean(dataDir)
 	var backupIndex []clash.SubIndexItem
 
-	// 获取全局 IO LOCK，防止与后台自动保存冲突
-	a.behaviorIOMu.Lock()
-	defer a.behaviorIOMu.Unlock()
+	// 🚀 核心修复：还原前锁定订阅索引，防止与后台任务冲突
+	clash.IndexLock.Lock()
+	defer clash.IndexLock.Unlock()
 
 	const (
 		maxRestoreFiles  = 1000
@@ -240,7 +237,6 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 	// 核心逻辑：强力合并订阅索引
 	if (mode == "all" || mode == "subs") && len(backupIndex) > 0 {
 		clash.LoadIndex()
-		clash.IndexLock.Lock()
 
 		// 记录本地订阅的索引位置
 		localIndexMap := make(map[string]int)
@@ -260,7 +256,6 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 				changed = true
 			}
 		}
-		clash.IndexLock.Unlock()
 
 		if changed {
 			clash.SaveIndex()
@@ -268,7 +263,7 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 	}
 
 	// 热重载内存与系统状态
-	a.initBehaviorCache()
+	a.core.Behavior.Load()
 
 	// 🚀 核心修复：重新读取并刷新主题内存缓存，避免 UI 状态滞后
 	themeData, err := os.ReadFile(filepath.Join(dataDir, "theme_setting.txt"))
@@ -278,10 +273,10 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 		a.mu.Unlock()
 	}
 
-	active := a.getActiveConfig()
-	if active != "" {
-		clash.BuildRuntimeConfig(active, a.getActiveMode(), a.GetAppBehavior().LogLevel)
-		if clash.IsRunning() {
+	state := a.core.GetAppState()
+	if state.ActiveConfig != "" {
+		clash.BuildRuntimeConfig(state.ActiveConfig, state.Mode, a.core.Behavior.Get().LogLevel)
+		if state.IsRunning {
 			clash.ReloadConfig()
 		}
 	}

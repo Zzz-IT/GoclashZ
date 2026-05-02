@@ -16,9 +16,17 @@ import (
 
 	"goclashz/core/utils"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/sys/windows"
 )
+
+// ExitEvent 描述内核退出事件
+type ExitEvent struct {
+	Intentional bool
+	Message     string
+}
+
+// OnExitFunc 是内核异常退出时的回调函数类型
+type OnExitFunc func(event ExitEvent)
 
 var (
 	mu                sync.Mutex
@@ -27,7 +35,15 @@ var (
 	isIntentionalStop atomic.Bool
 	processExitCh     chan struct{} // 👈 新增：进程退出信号通道
 	globalJobHandle   windows.Handle // 🚀 新增：用来维持 Job 句柄的生命周期，防止内核被系统秒杀
+	onExitCallback    OnExitFunc     // 🚀 新增：退出回调，替代直接引用 Wails
 )
+
+// SetOnExitCallback 注册内核异常退出的回调（由 appcore 层在启动时设置）
+func SetOnExitCallback(fn OnExitFunc) {
+	mu.Lock()
+	defer mu.Unlock()
+	onExitCallback = fn
+}
 
 // assignProcessToJobObject 将进程加入到随主进程退出的 Job 中
 func assignProcessToJobObject(proc *os.Process) error {
@@ -155,13 +171,15 @@ func Start(ctx context.Context) error {
 			clashCmd = nil
 			os.Remove(pidFile)
 		}
+		// 捕获回调的引用
+		cb := onExitCallback
 		mu.Unlock() // 🚀 关键：必须先释放锁，再发送信号
 		
 		// 🎯 修复：关闭的是与此进程绑定的局部 channel，而不是全局 channel
 		close(ch) // 👈 发送进程彻底退出的广播信号
 
-		if !isIntentionalStop.Load() {
-			runtime.EventsEmit(ctx, "clash-exited", "内核已异常退出")
+		if !isIntentionalStop.Load() && cb != nil {
+			cb(ExitEvent{Intentional: false, Message: "内核已异常退出"})
 		}
 	}(cmd, localExitCh) // 👈 闭包传参
 

@@ -14,14 +14,6 @@ export function CheckTunEnv() {
   return window['go']['main']['App']['CheckTunEnv']();
 }
 
-export function ClearBaseConfig() {
-  return window['go']['main']['App']['ClearBaseConfig']();
-}
-
-export function ClearOfflineNodes() {
-  return window['go']['main']['App']['ClearOfflineNodes']();
-}
-
 export function CloseAllConnections() {
   return window['go']['main']['App']['CloseAllConnections']();
 }
@@ -62,10 +54,6 @@ export function FlushFakeIP() {
   return window['go']['main']['App']['FlushFakeIP']();
 }
 
-export function GetAllRules(arg1, arg2) {
-  return window['go']['main']['App']['GetAllRules'](arg1, arg2);
-}
-
 export function GetAppBehavior() {
   return window['go']['main']['App']['GetAppBehavior']();
 }
@@ -76,10 +64,6 @@ export function GetAppState() {
 
 export function GetAppVersion() {
   return window['go']['main']['App']['GetAppVersion']();
-}
-
-export function GetConnections() {
-  return window['go']['main']['App']['GetConnections']();
 }
 
 export function GetCoreVersion() {
@@ -94,10 +78,6 @@ export function GetDNSConfig() {
   return window['go']['main']['App']['GetDNSConfig']();
 }
 
-export function GetGeoDatabaseInfo() {
-  return window['go']['main']['App']['GetGeoDatabaseInfo']();
-}
-
 export function GetInitialData() {
   return window['go']['main']['App']['GetInitialData']();
 }
@@ -108,6 +88,10 @@ export function GetLocalConfigs() {
 
 export function GetNetworkConfig() {
   return window['go']['main']['App']['GetNetworkConfig']();
+}
+
+export function GetProxyDelay(arg1, arg2) {
+  return window['go']['main']['App']['GetProxyDelay'](arg1, arg2);
 }
 
 export function GetRecentLogs() {
@@ -130,16 +114,8 @@ export function InstallTunDriverAsync(arg1) {
   return window['go']['main']['App']['InstallTunDriverAsync'](arg1);
 }
 
-export function IsNodeOffline(arg1) {
-  return window['go']['main']['App']['IsNodeOffline'](arg1);
-}
-
 export function ManualCheckAppUpdate() {
   return window['go']['main']['App']['ManualCheckAppUpdate']();
-}
-
-export function MarkNodeOffline(arg1, arg2) {
-  return window['go']['main']['App']['MarkNodeOffline'](arg1, arg2);
 }
 
 export function OpenConfigFile(arg1) {
@@ -214,20 +190,12 @@ export function StartClash(arg1) {
   return window['go']['main']['App']['StartClash'](arg1);
 }
 
-export function StartConnectionMonitor() {
-  return window['go']['main']['App']['StartConnectionMonitor']();
-}
-
 export function StartStreamingLogs() {
   return window['go']['main']['App']['StartStreamingLogs']();
 }
 
 export function StartTrafficStream() {
   return window['go']['main']['App']['StartTrafficStream']();
-}
-
-export function StopConnectionMonitor() {
-  return window['go']['main']['App']['StopConnectionMonitor']();
 }
 
 export function StopStreamingLogs() {

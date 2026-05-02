@@ -31,7 +31,7 @@ func main() {
 		}
 	}()
 
-	// 1. 判断是否为 Wails 开发模式 (模仿 Stelliberty 放行 Debug)
+	// 1. 判断是否为 Wails 开发模式 (放行 Debug)
 	// 在 Wails Dev 模式下，通常可执行文件路径包含临时目录或 wails-dev
 	exePath, _ := os.Executable()
 	isDebugMode := false

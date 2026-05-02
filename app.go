@@ -2,1032 +2,211 @@ package main
 
 import (
 	"context"
-	_ "embed" // 👈 1. 新增：导入 embed 包用于打包图标
-	"encoding/json"
+	_ "embed"
 	"fmt"
+	"goclashz/core/appcore"
 	"goclashz/core/clash"
+	"goclashz/core/downloader"
 	"goclashz/core/logger"
 	"goclashz/core/sys"
 	"goclashz/core/traffic"
-	"goclashz/core/downloader"
 	"goclashz/core/utils"
 	"os"
 	"os/exec"
 	"path/filepath"
-	stdruntime "runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
-	"unsafe"
 
-	"net/http"
-
-	"github.com/energye/systray" // 👈 2. 切换为支持点击事件的 fork 版本
+	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed build/windows/icon.ico
-var iconData []byte // 👈 3. 新增：将图标编译进二进制文件中给托盘使用
+var iconData []byte
 
 const CurrentAppVersion = "v1.1.3"
 
+type FileInfo struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
 type App struct {
-	ctx            context.Context
-	cancelTraffic  context.CancelFunc
-	cancelLogs     context.CancelFunc
-	logGen         int // 🚀 新增：日志流版本号，用于区分新旧协程
-	logRunning     bool
-	mu             sync.RWMutex
-	activeConfig   string
-	activeMode     string
-	offlineNodes   map[string]string
-	offlineMu      sync.RWMutex // 🚀 新增：专门保护 offlineNodes 的读写锁
-	sysProxyActive bool
-	tunActive      bool
+	ctx           context.Context
+	cancelTraffic context.CancelFunc
+	cancelLogs    context.CancelFunc
+	logGen        int
+	logRunning    bool
+	mu            sync.RWMutex
 
-	// 👇 新增：用来控制托盘打勾状态的指针
-	mSysProxy *systray.MenuItem
-	mTun      *systray.MenuItem
-
-	// 👇 新增：用来控制出站路由托盘打勾状态的指针
+	mSysProxy   *systray.MenuItem
+	mTun        *systray.MenuItem
 	mModeRule   *systray.MenuItem
 	mModeGlobal *systray.MenuItem
 	mModeDirect *systray.MenuItem
 
-	// 👈 新增：专用于应用行为配置的内存缓存及读写锁
-	behaviorCache AppBehavior
-	behaviorMu    sync.RWMutex
-	updateMu      sync.Mutex // 👈 新增：全局统一的组件更新锁，防止任何更新互相冲突
-
-	// 👇 新增：内核启停锁，防止并发操作导致端口抢占
+	updateMu        sync.Mutex
 	coreLifecycleMu sync.Mutex
+	themeCache      string
 
-	// 🚀 新增：主题缓存，终结高频 I/O
-	themeCache string
+	testMu        sync.Mutex
+	activeTests   int
+	testSemaphore chan struct{}
+	isSilentCore  bool
 
-	// 🔐 新增：专属 IO 锁，确保磁盘文件原子性写入，防止并发保存导致数据损坏
-	behaviorIOMu sync.Mutex
-
-	// 👇 替换这里：移除原有的 testCancel，改为更优雅的全局并发控制与引用计数
-	testMu        sync.Mutex    // 保护下方变量的并发安全
-	activeTests   int           // 记录当前正在进行的测速任务数量
-	testSemaphore chan struct{} // 全局测速限流信号量，防止高并发耗尽端口
-	isSilentCore  bool          // 标记内核是否仅为测速而在后台静默运行
-
-	// 👇 新增：软件本体更新相关状态
-	appUpdateReady bool
-	newAppVersion  string
-
-	// 👇 新增：本体更新防并发锁
+	appUpdateReady   bool
+	newAppVersion    string
 	appUpdateTaskMu  sync.Mutex
 	isDownloadingApp bool
 
-	logRestartMu sync.Mutex // 🚀 新增：用于防抖和序列化日志重启
+	logRestartMu sync.Mutex
+	autoTestMu   sync.Mutex
 
-	autoTestQuit chan struct{} // 👇 用于停止旧的定时任务
-	autoTestMu   sync.Mutex    // 保护定时任务的切换
+	trayMu        sync.Mutex
+	lastTrayClick int64
+	trayOnce      sync.Once
 
-	taskMu sync.Mutex
-	tasks  map[string]context.CancelFunc
-
-	trayMu        sync.Mutex // 🌟 用于托盘防抖的独立锁
-	lastTrayClick int64      // 🌟 上次托盘点击的时间戳 (毫秒)
-
-	trayOnce sync.Once // 确保 systray.Run 只执行一次
-}
-
-// AppBehavior 定义应用行为设置
-type AppBehavior struct {
-	SilentStart        bool   `json:"silentStart"` // 静默启动 (不弹窗，直接进托盘)
-	CloseToTray        bool   `json:"closeToTray"` // 点击关闭时隐藏到托盘
-	ColorDelay         bool   `json:"colorDelay"`  // 显色彩色延迟数字
-	DelayRetention     bool   `json:"delayRetention"`
-	DelayRetentionTime string `json:"delayRetentionTime"`
-	LogLevel           string `json:"logLevel"` // 日志等级
-	HideLogs           bool   `json:"hideLogs"`
-	SubUA              string `json:"subUA"` // 订阅更新 User-Agent
-	// 新增：统持久化字段
-	ActiveConfig string `json:"activeConfig"`
-	ActiveMode   string `json:"activeMode"`
-	// 👇 新增：规则数据库的下载链接持久化
-	GeoIpLink   string `json:"geoIpLink"`
-	GeoSiteLink string `json:"geoSiteLink"`
-	MmdbLink    string `json:"mmdbLink"`
-	AsnLink     string `json:"asnLink"`
-
-	AutoUpdate      bool   `json:"autoUpdate"`      // 是否开启自动更新
-	UpdateMethod    string `json:"updateMethod"`    // 检查更新方式: "startup" (每次启动) 或 "scheduled" (定时)
-	UpdateInterval  int    `json:"updateInterval"`  // 检查间隔时间 (天)
-	LastUpdateCheck int64  `json:"lastUpdateCheck"` // 🚀 新增：上次检查更新的时间戳 (Unix秒)
-
-	// 👇 新增：自动测速控制
-	AutoDelayTest         bool `json:"autoDelayTest"`
-	AutoDelayTestInterval int  `json:"autoDelayTestInterval"`
-}
-
-// 1. 获取离线节点记忆文件的路径
-func (a *App) getOfflineNodesPath() string {
-	return filepath.Join(utils.GetDataDir(), "offline_nodes.json")
-}
-
-// 2. 将内存中的节点选择持久化到磁盘
-func (a *App) saveOfflineNodes() {
-	a.offlineMu.Lock() // 改用写锁，独占此过程
-	defer a.offlineMu.Unlock()
-	data, err := json.MarshalIndent(a.offlineNodes, "", "  ")
-	if err == nil {
-		os.WriteFile(a.getOfflineNodesPath(), data, 0644)
-	}
-}
-
-// 3. 启动时从磁盘读取记忆
-func (a *App) loadOfflineNodes() {
-	data, err := os.ReadFile(a.getOfflineNodesPath())
-	if err == nil {
-		a.offlineMu.Lock()
-		if a.offlineNodes == nil {
-			a.offlineNodes = make(map[string]string)
-		}
-		json.Unmarshal(data, &a.offlineNodes)
-		a.offlineMu.Unlock()
-	}
-}
-
-// MarkNodeOffline 安全地标记节点（或离线选择状态）
-func (a *App) MarkNodeOffline(groupName string, nodeName string) {
-	a.offlineMu.Lock()
-	defer a.offlineMu.Unlock()
-	if a.offlineNodes == nil {
-		a.offlineNodes = make(map[string]string)
-	}
-	a.offlineNodes[groupName] = nodeName
-}
-
-// ClearOfflineNodes 安全地清空离线记录（切换配置时调用）
-func (a *App) ClearOfflineNodes() {
-	a.offlineMu.Lock()
-	defer a.offlineMu.Unlock()
-	a.offlineNodes = make(map[string]string)
-}
-
-// IsNodeOffline 安全地查询离线选择状态
-func (a *App) IsNodeOffline(groupName string) (bool, string) {
-	a.offlineMu.RLock()
-	defer a.offlineMu.RUnlock()
-	if a.offlineNodes == nil {
-		return false, ""
-	}
-	node, exists := a.offlineNodes[groupName]
-	return exists, node
-}
-
-// 内部初始化缓存的方法，在 startup 中调用
-func (a *App) initBehaviorCache() {
-	defaultConfig := AppBehavior{
-		SilentStart:        false,
-		CloseToTray:        true,
-		ColorDelay:         false,
-		DelayRetention:     true,
-		DelayRetentionTime: "long",
-		LogLevel:           "error",
-		HideLogs:           false,
-		SubUA:              "clash-verge",
-		ActiveConfig:       "",
-		ActiveMode:         "rule",
-		GeoIpLink:          "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
-		GeoSiteLink:        "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
-		MmdbLink:           "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
-		AsnLink:            "https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
-
-		// 👇 新增：默认开启自动更新，方式为每次启动
-		AutoUpdate:      true,
-		UpdateMethod:    "startup",
-		UpdateInterval:  1,
-		LastUpdateCheck: 0,
-
-		// 👇 新增：默认不开启自动测速，设为 30 分钟
-		AutoDelayTest:         false,
-		AutoDelayTestInterval: 30,
-	}
-
-	// 自动处理读取、合并和生成默认文件
-	cfg, _ := utils.LoadSetting("behavior", defaultConfig)
-
-	a.behaviorMu.Lock()
-	a.behaviorCache = *cfg
-	a.behaviorMu.Unlock()
-}
-
-// GetAppBehavior 供前端获取当前设置 (Wails 绑定方法)
-func (a *App) GetAppBehavior() AppBehavior {
-	a.behaviorMu.RLock()
-	defer a.behaviorMu.RUnlock()
-	return a.behaviorCache
-}
-
-// 修改保存逻辑，写盘的同时更新缓存
-// SaveAppBehavior 修改保存逻辑，锁内更新快照，锁外异步写盘
-func (a *App) SaveAppBehavior(config AppBehavior) error {
-	// 1. 锁内更新内存缓存，并深拷贝一份用于安全的写盘
-	a.behaviorMu.Lock()
-	oldLogLevel := a.behaviorCache.LogLevel // 👈 新增：记录旧的日志等级
-	a.behaviorCache = config
-	behaviorToSave := a.behaviorCache
-	a.behaviorMu.Unlock()
-
-	// 2. 🔐 使用专属 IO 锁确保文件原子性串行写入，防止快照被旧携程覆盖
-	a.behaviorIOMu.Lock()
-	err := utils.SaveSetting("behavior", &behaviorToSave)
-	a.behaviorIOMu.Unlock()
-
-	// 3. 广播与同步
-	runtime.EventsEmit(a.ctx, "behavior-changed", behaviorToSave)
-
-	active := a.getActiveConfig()
-	if active != "" {
-		mode := a.getActiveMode()
-		clash.BuildRuntimeConfig(active, mode, behaviorToSave.LogLevel)
-		if clash.IsRunning() {
-			clash.ReloadConfig()
-		}
-	}
-
-	// 👇 核心修复：如果日志等级发生变化，且当前前端正在查看日志（流正在运行），立刻重启日志流！
-	if oldLogLevel != behaviorToSave.LogLevel {
-		a.mu.Lock()
-		isLogging := a.logRunning
-		a.mu.Unlock()
-		if isLogging {
-			// 🚀 优化：扔到后台去重启，让前端的 Save 设置按钮点下去瞬间丝滑完成
-			go func() {
-				// 🚀 修复：引入互斥锁，防止快速连点造成的僵尸日志流协程泄露
-				a.logRestartMu.Lock()
-				defer a.logRestartMu.Unlock()
-
-				a.StopStreamingLogs()
-				// 稍微休眠，确保底层网络请求句柄已经彻底关闭
-				time.Sleep(50 * time.Millisecond)
-				a.StartStreamingLogs()
-			}()
-		}
-	}
-
-	a.refreshAutoDelayTest() // 👈 每次用户修改设置后重新计算定时器
-	a.SyncState()
-	return err
-}
-
-// refreshAutoDelayTest 根据最新配置刷新后台测速任务
-func (a *App) refreshAutoDelayTest() {
-	a.autoTestMu.Lock()
-	defer a.autoTestMu.Unlock()
-
-	// 1. 停止并清理旧的任务
-	if a.autoTestQuit != nil {
-		close(a.autoTestQuit)
-		a.autoTestQuit = nil
-	}
-
-	// 2. 读取配置
-	a.behaviorMu.RLock()
-	enabled := a.behaviorCache.AutoDelayTest
-	interval := a.behaviorCache.AutoDelayTestInterval
-	a.behaviorMu.RUnlock()
-
-	// 3. 如果未开启或间隔无效，直接返回
-	if !enabled || interval <= 0 {
-		return
-	}
-
-	// 4. 开启新的定时任务
-	a.autoTestQuit = make(chan struct{})
-	go func(quit chan struct{}, min int) {
-		// 封装单次测速逻辑
-		runTest := func() {
-			if data, err := a.GetInitialData(); err == nil {
-				var physicalNodes []string // 存放真实的底层节点
-				var groupNodes []string    // 存放策略组节点
-
-				// 遍历所有节点与组
-				if groups, ok := data["groups"].(map[string]interface{}); ok {
-					for name, info := range groups {
-						// 过滤全局内置策略，这些无需测速
-						if name == "GLOBAL" || name == "DIRECT" || name == "REJECT" {
-							continue
-						}
-
-						if infoMap, ok := info.(map[string]interface{}); ok {
-							nodeType, _ := infoMap["type"].(string)
-
-							// 分流：区分策略组和真实节点
-							if nodeType == "Selector" || nodeType == "URLTest" || nodeType == "Fallback" || nodeType == "LoadBalance" {
-								groupNodes = append(groupNodes, name)
-							} else {
-								physicalNodes = append(physicalNodes, name)
-							}
-						}
-					}
-				}
-
-				// 拼接切片：先放入所有的底层节点，最后追加所有的策略组节点
-				nodeNames := append(physicalNodes, groupNodes...)
-
-				// 触发静默并发测速
-				if len(nodeNames) > 0 {
-					a.TestAllProxies(nodeNames)
-				}
-			}
-		}
-
-		// 🚀 核心修复：不要立即执行！让子弹飞一会儿。
-		// 给前端组件挂载、系统代理启动预留 5 秒的黄金时间窗口
-		select {
-		case <-time.After(5 * time.Second):
-			runTest()
-		case <-quit:
-			return // 如果在这 5 秒内用户又关掉了开关，直接安全退出
-		}
-
-		// 使用用户设定的分钟数作为间隔
-		ticker := time.NewTicker(time.Duration(min) * time.Minute)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				runTest() // 每次到点执行
-			case <-quit:
-				return
-			}
-		}
-	}(a.autoTestQuit, interval)
-}
-
-// GetLocalConfigs 获取订阅列表
-func (a *App) GetLocalConfigs() []clash.SubIndexItem {
-	clash.IndexLock.RLock()
-	defer clash.IndexLock.RUnlock()
-
-	result := make([]clash.SubIndexItem, len(clash.SubIndex))
-	copy(result, clash.SubIndex)
-	return result
-}
-
-// ProxyStatus 新增给前端返回的双重状态结构
-
-// AppState 定义全局状态同步结构
-type AppState struct {
-	IsRunning bool   `json:"isRunning"`
-	Mode      string `json:"mode"`
-	Theme     string `json:"theme"`
-	HideLogs  bool   `json:"hideLogs"`
-	// 👇 新增以下字段，统一接管 UI
-	SystemProxy bool   `json:"systemProxy"`
-	Tun         bool   `json:"tun"`
-	Version     string `json:"version"`
-	AppVersion  string `json:"appVersion"` // 👈 新增：应用版本
-	// 🚀 新增：让前端实时知道当前在跑哪个配置
-	ActiveConfig     string `json:"activeConfig"`
-	ActiveConfigName string `json:"activeConfigName"`
-	ActiveConfigType string `json:"activeConfigType"`
-	// 👇 新增：延迟保留相关
-	DelayRetention     bool   `json:"delayRetention"`
-	DelayRetentionTime string `json:"delayRetentionTime"`
-}
-
-// 1. 在 app.go 任意位置新增这个辅助方法，用于将离线缓存合并到数据源
-func (a *App) mergeOfflineNodes(data map[string]interface{}) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if groups, ok := data["groups"].(map[string]interface{}); ok {
-		for gName, groupData := range groups {
-			if gMap, ok2 := groupData.(map[string]interface{}); ok2 {
-				// 优先使用离线选择
-				if exists, selNode := a.IsNodeOffline(gName); exists {
-					gMap["now"] = selNode
-				}
-				// 兜底：没有当前选中项，默认选中第一项
-				if gMap["now"] == "" {
-					if lenRaw, has := gMap["all"]; has {
-						if allArr, ok3 := lenRaw.([]interface{}); ok3 && len(allArr) > 0 {
-							// 再次安全断言第一个元素为字符串
-							if firstNode, ok4 := allArr[0].(string); ok4 {
-								gMap["now"] = firstNode
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-// saveActiveConfig 记录当前选中的配置文件名到本地
-func (a *App) saveActiveConfig(fileName string) {
-	// 🚀 1. 将读取、判断、修改全部放入锁闭环，杜绝 Read-Modify-Write 竞态漏洞
-	a.behaviorMu.Lock()
-
-	// ⚡ 防抖：如果没变，直接释放锁并返回
-	if a.behaviorCache.ActiveConfig == fileName {
-		a.behaviorMu.Unlock()
-		return
-	}
-
-	a.behaviorCache.ActiveConfig = fileName
-	// 🚀 2. 深拷贝一份结构体用于写盘
-	behaviorToSave := a.behaviorCache
-
-	// 🚀 3. 立即释放锁，不要让缓慢的磁盘 IO 阻塞其他协程
-	a.behaviorMu.Unlock()
-
-	// 4. 🔐 串行化 IO，杜绝并发写文件
-	a.behaviorIOMu.Lock()
-	utils.SaveSetting("behavior", &behaviorToSave)
-	a.behaviorIOMu.Unlock()
-}
-
-// 启动时读取上次选中的配置文件名
-func (a *App) loadActiveConfig() string {
-	return a.GetAppBehavior().ActiveConfig
-}
-
-// saveActiveMode 记录当前选中的模式到本地
-func (a *App) saveActiveMode(mode string) error {
-	a.behaviorMu.Lock()
-
-	if a.behaviorCache.ActiveMode == mode {
-		a.behaviorMu.Unlock()
-		return nil
-	}
-
-	a.behaviorCache.ActiveMode = mode
-	behaviorToSave := a.behaviorCache
-
-	a.behaviorMu.Unlock()
-
-	// 🔐 使用专属 IO 锁确保文件原子性串行写入
-	a.behaviorIOMu.Lock()
-	defer a.behaviorIOMu.Unlock()
-	return utils.SaveSetting("behavior", &behaviorToSave)
-}
-
-// 启动时读取上次选中的模式
-func (a *App) loadActiveMode() string {
-	mode := a.GetAppBehavior().ActiveMode
-	if mode == "" {
-		return "rule"
-	}
-	return mode
-}
-
-// --- 状态获取辅助方法（新增） ---
-
-func (a *App) getActiveConfig() string {
-	a.mu.RLock()
-	cfg := a.activeConfig
-	a.mu.RUnlock()
-
-	if cfg != "" {
-		return cfg
-	}
-
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.activeConfig == "" { // 👈 二次校验，防止多协程重复读文件
-		a.activeConfig = a.loadActiveConfig()
-	}
-	return a.activeConfig
-}
-
-func (a *App) getActiveMode() string {
-	a.mu.RLock()
-	mode := a.activeMode
-	a.mu.RUnlock()
-
-	if mode != "" {
-		return mode
-	}
-
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.activeMode == "" {
-		a.activeMode = a.loadActiveMode()
-	}
-	return a.activeMode
-}
-
-// --- 底层：确保内核运行 ---
-func (a *App) ensureCoreRunning() error {
-	if clash.IsRunning() {
-		return nil
-	}
-
-	// 👈 核心修复：使用安全方法获取并初始化状态，不再需要手动加锁
-	mode := a.getActiveMode()
-	activeCfg := a.getActiveConfig()
-
-	// 👈 核心：利用已有的配置生成流水线，直接根据模板重写 config.yaml (含模式、TUN、端口等)
-	if activeCfg != "" {
-		if err := clash.BuildRuntimeConfig(activeCfg, mode, a.GetAppBehavior().LogLevel); err != nil {
-			fmt.Printf("生成运行时配置警告: %v\n", err)
-		}
-	}
-
-	// 启动内核
-	if err := clash.Start(a.ctx); err != nil {
-		return err
-	}
-
-	// 🚀 新增：内核一经启动（即使 API 还没就绪），立刻同步状态，让前端的“接管中”秒级点亮！
-	a.SyncState()
-
-	// ⚠️ 核心修复 2：优化探针逻辑，先检查再等待
-	apiReady := false
-	for i := 0; i < 20; i++ { // 最长等待 2 秒
-		// 1. 探针：尝试请求一次数据，如果成功说明 API 已就绪
-		if _, err := clash.GetInitialData(); err == nil {
-			apiReady = true
-			break
-		}
-
-		// 2. 关键：检查内核进程是否还在运行
-		if !clash.IsRunning() {
-			return fmt.Errorf("内核启动后意外停止。请检查端口(7890/9090)是否被占用，或查看日志以获取详细配置错误。")
-		}
-
-		// 3. 只有失败了才等待
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	// API 就绪后，立刻下发离线选择的节点
-	if apiReady {
-		a.mu.Lock()
-		if len(a.offlineNodes) > 0 {
-			for g, n := range a.offlineNodes {
-				_ = clash.SelectProxy(g, n)
-			}
-		}
-		a.mu.Unlock()
-	}
-
-	// 3. 启动流量监控
-	go a.StartTrafficStream()
-	return nil
-}
-
-// --- 底层：停止内核 ---
-func (a *App) stopCoreService() {
-	if clash.IsRunning() {
-		if data, err := clash.GetInitialData(); err == nil {
-			// 🎯 精准修复：使用 map[string]interface{} 正确解析 JSON 对象
-			if groups, ok := data["groups"].(map[string]interface{}); ok {
-				for gName, gData := range groups {
-					if gMap, ok2 := gData.(map[string]interface{}); ok2 {
-						if now, ok3 := gMap["now"].(string); ok3 && now != "" {
-							a.MarkNodeOffline(gName, now) // 安全写入离线记录
-						}
-					}
-				}
-				a.saveOfflineNodes() // 存入磁盘
-			}
-		}
-	}
-
-	clash.Stop()
-	a.StopTrafficStream() // 👈 上一步修改的函数，这里会自动触发流量归零
-
-	// 👇 新增：只要内核停机/重启，立刻广播清空缓存的信号
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "core-restarted")
-	}
-
-	// 🚀 新增：内核一经停止，立刻同步状态，消除前端“服务停止”状态的延迟感！
-	a.SyncState()
-}
-
-// ==========================================
-// --- 暴露给前端的 API ---
-// ==========================================
-
-// ToggleSystemProxy 开关 1：系统代理
-func (a *App) ToggleSystemProxy(enable bool) error {
-	defer a.SyncState()              // 🚀 无论成功失败，退出函数时强制刷新 UI 状态，防止前端卡死在错误位置
-	a.coreLifecycleMu.Lock()         // 🔒 加锁
-	defer a.coreLifecycleMu.Unlock() // 🔓 退出时自动解锁
-
-	a.mu.Lock()
-	a.sysProxyActive = enable
-	needCore := a.sysProxyActive || a.tunActive
-	a.mu.Unlock()
-
-	if enable {
-		// 1. 确保底层内核在运行
-		if err := a.ensureCoreRunning(); err != nil {
-			a.mu.Lock()
-			a.sysProxyActive = false
-			a.mu.Unlock()
-			return err
-		}
-
-		// ✅ 核心修复：动态读取真实端口
-		proxyPort := 7890 // 默认兜底端口
-		if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil {
-			if netCfg.MixedPort != 0 {
-				proxyPort = netCfg.MixedPort
-			} else if netCfg.Port != 0 {
-				proxyPort = netCfg.Port
-			}
-		}
-
-		// 2. 开启 Windows 系统代理
-		bypass := "localhost;127.*;10.*;172.16.*;192.168.*;<local>"
-		err := sys.EnableSystemProxy("127.0.0.1", proxyPort, bypass)
-		a.SyncState()
-		return err
-	} else {
-		// 1. 关闭 Windows 系统代理
-		sys.DisableSystemProxy()
-		// 2. 如果虚拟网卡也没开，那就彻底关闭内核节约资源
-		if !needCore {
-			a.stopCoreService()
-		}
-		a.SyncState()
-		return nil
-	}
-}
-
-// ToggleTunMode 开关 2：虚拟网卡 (TUN)
-func (a *App) ToggleTunMode(enable bool) error {
-	defer a.SyncState()              // 🚀 防御性同步：确保 UI 状态始终回滚到真实后端状态
-	a.coreLifecycleMu.Lock()         // 🔒 加锁
-	defer a.coreLifecycleMu.Unlock() // 🔓 退出时自动解锁
-
-	if enable {
-		if !sys.IsWintunInstalled() {
-			return fmt.Errorf("缺失 Wintun 驱动，请先在设置中安装")
-		}
-		if !sys.CheckAdmin() {
-			errContext := "TUN 模式必须以管理员身份运行。请右键 GoclashZ 图标，选择「以管理员身份运行」。"
-			// 1. 发送通知给前端弹出 Error Toast
-			runtime.EventsEmit(a.ctx, "notify-error", errContext)
-			// 2. 强制同步一次正确状态给前端
-			a.SyncState()
-			return fmt.Errorf("permission denied")
-		}
-	}
-
-	// 修改配置文件的 TUN 状态
-	tunCfg, _ := clash.GetTunConfig()
-	if tunCfg == nil {
-		tunCfg = &clash.TunConfig{Stack: "gvisor", AutoRoute: true, StrictRoute: true}
-	}
-	tunCfg.Enable = enable
-	if err := clash.UpdateTunConfig(tunCfg); err != nil {
-		return err
-	}
-
-	a.mu.Lock()
-	a.tunActive = enable
-	needCore := a.sysProxyActive || a.tunActive
-	a.mu.Unlock()
-
-	// TUN 模式的改变必须重启内核才能生效
-	a.stopCoreService()
-
-	if needCore {
-		err := a.ensureCoreRunning()
-		a.SyncState()
-		return err
-	}
-	a.SyncState()
-	return nil
-}
-
-// RestartCore 供前端调用：安全地重启底层代理内核
-func (a *App) RestartCore() error {
-	// 🔒 加锁：防止在重启过程中，用户又点击了托盘或界面的其他开关
-	a.coreLifecycleMu.Lock()
-	defer a.coreLifecycleMu.Unlock()
-
-	// 1. 停止当前运行的内核与流量监控
-	a.stopCoreService()
-
-	// 2. 读取当前应用的接管状态
-	a.mu.RLock()
-	needCore := a.sysProxyActive || a.tunActive
-	a.mu.RUnlock()
-
-	// 3. 如果系统代理或 TUN 至少开了一个，则重新启动内核
-	if needCore {
-		if err := a.ensureCoreRunning(); err != nil {
-			a.SyncState() // 即使失败也要推一次状态
-			return fmt.Errorf("内核重启失败: %v", err)
-		}
-	}
-
-	// 4. 同步最新状态给前端
-	a.SyncState()
-	return nil
+	core *appcore.Controller
 }
 
 func NewApp() *App {
-	app := &App{
-		offlineNodes:   make(map[string]string),
-		activeMode:     "", // 留空，待 loadActiveMode 加载
-		sysProxyActive: false,
-		tunActive:      false,
-		tasks:          make(map[string]context.CancelFunc),
-	}
-	app.loadOfflineNodes() // 👈 新增：启动时加载离线选择记录
-	return app
-}
+	// 初始化事件桥接
+	sink := &WailsEventSink{}
+	core := appcore.NewController(appcore.Options{
+		Events:  sink,
+		Version: CurrentAppVersion,
+	})
 
-func (a *App) runAsyncTask(name string, fn func(ctx context.Context) error) {
-	a.runAsyncTaskInternal(name, fn, true)
-}
-
-func (a *App) runAsyncTaskNoAutoSuccess(name string, fn func(ctx context.Context) error) {
-	a.runAsyncTaskInternal(name, fn, false)
-}
-
-func (a *App) runAsyncTaskInternal(name string, fn func(ctx context.Context) error, autoSuccess bool) {
-	a.taskMu.Lock()
-
-	if a.tasks == nil {
-		a.tasks = make(map[string]context.CancelFunc)
-	}
-
-	if oldCancel, exists := a.tasks[name]; exists {
-		oldCancel()
-	}
-
-	taskCtx, cancel := context.WithCancel(a.ctx)
-	a.tasks[name] = cancel
-
-	a.taskMu.Unlock()
-
-	go func() {
-		runtime.EventsEmit(a.ctx, name+"-start")
-
-		err := fn(taskCtx)
-
-		a.taskMu.Lock()
-		if current, ok := a.tasks[name]; ok {
-			current()
-			delete(a.tasks, name)
-		}
-		a.taskMu.Unlock()
-
-		if err != nil {
-			if taskCtx.Err() != nil {
-				runtime.EventsEmit(a.ctx, name+"-cancelled")
-				return
-			}
-			runtime.EventsEmit(a.ctx, name+"-error", err.Error())
-			return
-		}
-
-		if autoSuccess {
-			runtime.EventsEmit(a.ctx, name+"-success")
-		}
-	}()
-}
-
-// 清理早期版本遗留的废弃配置文件
-func (a *App) cleanLegacyFiles() {
-	binDir := utils.GetCoreBinDir()
-	_ = os.Remove(filepath.Join(binDir, "active_config.txt"))
-	_ = os.Remove(filepath.Join(binDir, "active_mode.txt"))
-
-	// 🚀 启动时静默清理上次内核更新产生的 .old 垃圾文件
-	_ = os.Remove(filepath.Join(binDir, "mihomo-windows-amd64.exe.old"))
-	_ = os.Remove(filepath.Join(binDir, "clash.exe.old"))
-
-	// 🚀 新增：每次启动软件，清理上个版本可能残留的更新文件
-	updateTmp := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe.tmp")
-	updateExe := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
-	updateVer := filepath.Join(utils.GetDataDir(), "GoclashZ_update.version")
-	_ = os.Remove(updateTmp)
-
-	// 如果本地存在的更新包版本已经等于当前运行的版本，则说明是旧包，清理掉
-	if cachedVer, err := os.ReadFile(updateVer); err == nil {
-		if normalizeVersion(string(cachedVer)) == normalizeVersion(CurrentAppVersion) {
-			_ = os.Remove(updateExe)
-			_ = os.Remove(updateVer)
-		}
+	return &App{
+		core:          core,
+		testSemaphore: make(chan struct{}, 16),
 	}
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	if sink, ok := a.core.GetEvents().(*WailsEventSink); ok {
+		sink.ctx = ctx
+	}
+	a.core.Startup(ctx)
 
-	clash.LoadIndex() // 🚀 初始化加载订阅索引
+	clash.LoadIndex()
 
-	// 🚀 核心修复：静默兜底清理
-	// 专门对付上次应用意外崩溃、蓝屏、被强制结束，导致注册表代理未关闭而断网的极端情况
-	go func() {
-		_ = sys.ClearSystemProxy()
-	}()
-
-	a.cleanLegacyFiles()  // 🚀 新增：静默扫除历史垃圾文件
-	a.initBehaviorCache() // 👈 新增：初始化配置缓存
-	
-	// 🚀 新增：在启动时强制初始化所有设置文件，确保第一次运行时就生成默认 JSON
-	clash.GetDNSConfig()
-	clash.GetNetworkConfig()
-	clash.GetTunConfig()
-
-	// 🚀 初始化主题缓存
-	themeData, err := os.ReadFile(getThemeConfigPath())
-	if err == nil && len(themeData) > 0 {
+	// 初始化主题缓存
+	themeFile := filepath.Join(utils.GetDataDir(), "theme_setting.txt")
+	if themeData, err := os.ReadFile(themeFile); err == nil && len(themeData) > 0 {
 		a.themeCache = strings.TrimSpace(string(themeData))
 	} else {
-		a.themeCache = "dark" // 🚀 默认黑色模式
+		a.themeCache = "dark"
 	}
 
-	// 读取行为配置
-	config := a.GetAppBehavior()
-
-	// 判断是否静默启动
+	config := a.core.Behavior.Get()
 	if !config.SilentStart {
 		runtime.WindowShow(ctx)
-	} else {
-		// 👈 核心修复：如果是静默启动，明确强制调用隐藏，防止组件初始化闪烁或暴露
-		runtime.WindowHide(ctx)
 	}
 
-	// 初始化完成后推一次状态给前端
 	a.SyncState()
 
-	// 启动后台守护任务 (Goroutine)
-	go a.startDaemonTasks()
-
-	a.refreshAutoDelayTest() // 👈 启动时加载
-
-	// 不要在这里直接执行 systray.Run
-	// 利用 Goroutine 和极短的延迟，避开 WebView2 最消耗资源的初始化瞬间
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		a.SetupSystray()
 	}()
 }
 
-func (a *App) startDaemonTasks() {
-	// 🚀 修改：加入规则判断的后台静默检查
-	go func() {
-		time.Sleep(5 * time.Second)
-
-		behavior := a.GetAppBehavior()
-		if !behavior.AutoUpdate {
-			return // 用户关了自动更新，直接退出
-		}
-
-		shouldCheck := false
-		switch behavior.UpdateMethod {
-		case "startup", "":
-			shouldCheck = true
-		case "scheduled":
-			now := time.Now().Unix()
-			// 判断是否超过设定的天数 (天数 * 24小时 * 3600秒)
-			interval := behavior.UpdateInterval
-			if interval <= 0 {
-				interval = 1
-			}
-			if now-behavior.LastUpdateCheck >= int64(interval*86400) {
-				shouldCheck = true
-			}
-		}
-
-		if shouldCheck {
-			a.CheckAndDownloadAppUpdateAsync()
-
-			// 无论检查成功与否，更新最后检查时间
-			a.behaviorMu.Lock()
-			a.behaviorCache.LastUpdateCheck = time.Now().Unix()
-			behaviorToSave := a.behaviorCache
-			a.behaviorMu.Unlock()
-
-			a.behaviorIOMu.Lock()
-			utils.SaveSetting("behavior", &behaviorToSave)
-			a.behaviorIOMu.Unlock()
-		}
-	}()
-
-	// 设定定时器：比如每 12 小时更新订阅
-	subTicker := time.NewTicker(12 * time.Hour)
-
-	defer func() {
-		subTicker.Stop()
-	}()
-
-	for {
-		select {
-		case <-subTicker.C:
-			// 增加安全锁：每次后台静默更新，最多允许执行 2 分钟，防止 HTTP 卡死
-			updateCtx, cancel := context.WithTimeout(a.ctx, 2*time.Minute)
-
-			// 开启一个 Goroutine 执行，并配合 Context
-			go func(ctx context.Context) {
-				defer cancel()
-				// 执行订阅更新逻辑，透传 ctx 以便在超时或关机时能立刻中断 HTTP
-				err := a.updateAllSubs(ctx)
-				if err == nil {
-					runtime.EventsEmit(a.ctx, "subs-background-updated")
-				}
-			}(updateCtx)
-
-		case <-a.ctx.Done(): // 收到软件完全退出信号
-			return // 立刻退出守护协程，绝不拖泥带水
-		}
-	}
-}
-
 func (a *App) shutdown(ctx context.Context) {
-	// 1. 关闭系统代理 (优雅退出，还网于民)
 	_ = sys.ClearSystemProxy()
-
-	// 2. 停止内核
-	clash.Stop()
-
-	// 3. 停止流量监控
+	a.core.StopCoreService()
 	a.StopTrafficStream()
-
-	// 🚀 修复 1：彻底消灭 Wails 重启或退出时留下的“点不动的幽灵图标”
 	systray.Quit()
 }
 
-// --- 代理核心控制 ---
+// --- AppState & Sync ---
 
-// CheckTunEnv 提供给前端：检查 TUN 模式环境（驱动 + 权限）
-func (a *App) CheckTunEnv() map[string]bool {
-	return map[string]bool{
-		"isAdmin":   sys.CheckAdmin(),
-		"hasWintun": sys.IsWintunInstalled(),
+type AppState = appcore.AppState
+
+func (a *App) GetAppState() AppState {
+	return a.core.GetAppState()
+}
+
+func (a *App) SyncState() {
+	state := a.core.GetAppState()
+	a.core.SyncState()
+
+	// 更新托盘勾选状态
+	if a.mSysProxy != nil {
+		if state.SystemProxy {
+			a.mSysProxy.Check()
+		} else {
+			a.mSysProxy.Uncheck()
+		}
+	}
+	if a.mTun != nil {
+		if state.Tun {
+			a.mTun.Check()
+		} else {
+			a.mTun.Uncheck()
+		}
+	}
+	if a.mModeRule != nil {
+		a.mModeRule.Uncheck()
+		a.mModeGlobal.Uncheck()
+		a.mModeDirect.Uncheck()
+		switch state.Mode {
+		case "rule":
+			a.mModeRule.Check()
+		case "global":
+			a.mModeGlobal.Check()
+		case "direct":
+			a.mModeDirect.Check()
+		}
 	}
 }
 
-// ElevatePrivileges 提供给前端：自动提权并重启应用
-func (a *App) ElevatePrivileges() error {
-	return sys.RequestAdmin() // 将会呼出 UAC 窗口并重启软件
-}
-
-// --- 配置与测速 ---
-
 func (a *App) GetInitialData() (map[string]interface{}, error) {
-	activeConfig := a.getActiveConfig()
-	mode := a.getActiveMode()
-
+	state := a.core.GetAppState()
 	var data map[string]interface{}
 
-	// 1. 获取基础数据
-	if !clash.IsRunning() {
-		offlineData, err := clash.GetOfflineData(activeConfig)
+	if !state.IsRunning {
+		offlineData, err := clash.GetOfflineData(state.ActiveConfig)
 		if err != nil {
-			data = map[string]interface{}{"mode": mode, "groups": make(map[string]interface{}), "activeConfig": activeConfig, "isOffline": true}
+			data = map[string]interface{}{
+				"mode":         state.Mode,
+				"groups":       make(map[string]interface{}),
+				"activeConfig": state.ActiveConfig,
+				"isOffline":    true,
+			}
 		} else {
-			a.mergeOfflineNodes(offlineData)
-			offlineData["activeConfig"] = activeConfig
-			offlineData["mode"] = mode
+			appcore.MergeOfflineSelection(offlineData, a.core.Offline.Snapshot())
+			offlineData["activeConfig"] = state.ActiveConfig
+			offlineData["mode"] = state.Mode
 			offlineData["isOffline"] = true
 			data = offlineData
 		}
 	} else {
 		apiData, err := clash.GetInitialData()
 		if err != nil {
-			fallbackData, _ := clash.GetOfflineData(activeConfig)
-			if fallbackData != nil {
-				a.mergeOfflineNodes(fallbackData)
-				fallbackData["activeConfig"] = activeConfig
-				fallbackData["isOffline"] = true
-				fallbackData["mode"] = mode
-				data = fallbackData
-			} else {
-				data = map[string]interface{}{"mode": mode, "groups": make(map[string]interface{}), "activeConfig": activeConfig, "isOffline": true}
+			data = map[string]interface{}{
+				"mode":         state.Mode,
+				"groups":       make(map[string]interface{}),
+				"activeConfig": state.ActiveConfig,
+				"isOffline":    true,
 			}
 		} else {
-			apiData["activeConfig"] = activeConfig
-			apiData["mode"] = mode
+			apiData["activeConfig"] = state.ActiveConfig
+			apiData["mode"] = state.Mode
 			apiData["isOffline"] = false
 			data = apiData
 		}
 	}
 
-	// 2. 🚀 核心修复：无论内核是否运行，统一下发配置名称和类型！
-	clash.IndexLock.RLock()
-	for _, item := range clash.SubIndex {
-		if item.ID == activeConfig {
-			data["activeConfigName"] = item.Name
-			data["activeConfigType"] = item.Type
-			break
-		}
-	}
-	clash.IndexLock.RUnlock()
+	data["activeConfigName"] = state.ActiveConfigName
+	data["activeConfigType"] = state.ActiveConfigType
 
-	// 3. 统一下发排序信息
-	configPath := filepath.Join(utils.GetSubscriptionsDir(), activeConfig+".yaml")
-	if activeConfig == "" || activeConfig == "config.yaml" {
-		configPath = clash.GetConfigPath() // 👈 复用标准方法，消除硬编码
+	// 下发排序信息
+	configPath := filepath.Join(utils.GetSubscriptionsDir(), state.ActiveConfig+".yaml")
+	if state.ActiveConfig == "" || state.ActiveConfig == "config.yaml" {
+		configPath = clash.GetConfigPath()
 	}
 	if yamlData, err := os.ReadFile(configPath); err == nil {
 		data["groupOrder"] = clash.ExtractGroupOrder(yamlData)
@@ -1036,248 +215,72 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	return data, nil
 }
 
-func (a *App) TestAllProxies(nodeNames []string) {
-	// 1. 🚀 注册本次测速任务，初始化全局限流器
-	a.testMu.Lock()
-	a.activeTests++
-	if a.testSemaphore == nil {
-		a.testSemaphore = make(chan struct{}, 16) // 全局限流：最多同时测16个节点
-	}
-	a.testMu.Unlock()
+// --- Toggles & Controls ---
 
-	a.coreLifecycleMu.Lock()
-
-	// 2. 如果内核没有运行，执行【后台静默启动】
-	if !clash.IsRunning() {
-		a.testMu.Lock()
-		a.isSilentCore = true // 标记：这个内核是为了测速临时拉起的
-		a.testMu.Unlock()
-
-		mode := a.getActiveMode()
-		activeCfg := a.getActiveConfig()
-		if activeCfg != "" {
-			clash.BuildRuntimeConfig(activeCfg, mode, a.GetAppBehavior().LogLevel)
-		}
-
-		// 直接调用底层 Start，不调用 ensureCoreRunning，避免触发流量监控和 UI 闪烁
-		if err := clash.Start(a.ctx); err != nil {
-			a.coreLifecycleMu.Unlock()
-			a.testMu.Lock()
-			a.activeTests-- // 失败时回退计数
-			a.testMu.Unlock()
-			runtime.EventsEmit(a.ctx, "proxy-test-finished", "后台静默启动内核失败，无法测速")
-			return
-		}
-
-		// 探针等待 API 就绪
-		for i := 0; i < 20; i++ {
-			if _, err := clash.GetInitialData(); err == nil {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
-	a.coreLifecycleMu.Unlock() // 尽早释放锁，绝不阻塞后续点击
-
-	// 3. 开启异步测速执行器
-	go func() {
-		// 🚀 核心修复：收尾工作 (引用计数归零判断)
-		defer func() {
-			a.testMu.Lock()
-			a.activeTests--
-			remaining := a.activeTests
-			shouldCheckSilent := a.isSilentCore
-			a.testMu.Unlock()
-
-			// 【用完即焚】：当所有测速任务（包括你狂点单节点产生的所有并发）都彻底结束时，才考虑清理内核
-			if remaining == 0 && shouldCheckSilent {
-				a.coreLifecycleMu.Lock()
-				a.mu.RLock()
-				stillInactive := !a.sysProxyActive && !a.tunActive
-				a.mu.RUnlock()
-
-				// 只有在测速期间，用户依然没有开启系统代理或 TUN 时，才静默关闭内核节约内存
-				if stillInactive && clash.IsRunning() {
-					clash.Stop()
-				}
-
-				// 无论是否关闭，静默测速状态都清空
-				a.testMu.Lock()
-				a.isSilentCore = false
-				a.testMu.Unlock()
-
-				a.coreLifecycleMu.Unlock()
-			}
-		}()
-
-		// 提前获取测试地址，脱离锁与循环的竞争
-		testUrl := "http://www.gstatic.com/generate_204"
-		if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil && netCfg.TestURL != "" {
-			testUrl = netCfg.TestURL
-		}
-
-		// ✅ 1. 创建任务队列
-		jobs := make(chan string, len(nodeNames))
-		var wg sync.WaitGroup
-
-		// ✅ 2. 启动固定数量的 Worker
-		workerCount := 16
-		if len(nodeNames) < workerCount {
-			workerCount = len(nodeNames)
-		}
-
-		for i := 0; i < workerCount; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				// 从通道中不断获取节点名称进行测速
-				for nName := range jobs {
-					// 🚀【核心修复 1：获取全局限流令牌】
-					// 如果全局并发已经达到 16 个，这里会安全阻塞，排队等待
-					select {
-					case a.testSemaphore <- struct{}{}:
-					case <-a.ctx.Done():
-						return // 软件退出时立刻安全打断
-					}
-
-					// 赋予该节点独立的 5 秒专属超时
-					reqCtx, reqCancel := context.WithTimeout(a.ctx, 5*time.Second)
-					delay, err := clash.GetProxyDelay(reqCtx, nName, testUrl)
-					reqCancel()
-
-					// 🚀【核心修复 2：释放全局限流令牌】
-					<-a.testSemaphore
-
-					if err != nil || delay <= 0 {
-						runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-							"name": nName, "delay": 0, "status": "timeout",
-						})
-					} else {
-						runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-							"name": nName, "delay": delay, "status": "success",
-						})
-					}
-				}
-			}()
-		}
-
-		// ✅ 3. 下发任务
-	taskLoop:
-		for _, name := range nodeNames {
-			runtime.EventsEmit(a.ctx, "proxy-test-start", name)
-			select {
-			case jobs <- name:
-			case <-a.ctx.Done(): // 如果软件退出，打断投递
-				break taskLoop
-			}
-		}
-		close(jobs) // 投递完毕，关闭通道
-
-		wg.Wait() // 等待所有 Worker 消化完任务
-		runtime.EventsEmit(a.ctx, "proxy-test-finished", "测速完成")
-	}()
+func (a *App) ToggleSystemProxy(enable bool) error {
+	return a.core.ToggleSystemProxy(a.ctx, enable)
 }
 
-// UpdateClashMode 切换 Clash 路由模式并全自动同步 UI
+func (a *App) ToggleTunMode(enable bool) error {
+	return a.core.ToggleTunMode(a.ctx, enable)
+}
+
 func (a *App) UpdateClashMode(mode string) error {
-	a.mu.Lock()
-	// ⚡ 防抖机制：如果意图切换的模式与当前一致，直接拦截，拒绝冗余通信
-	if a.activeMode == mode {
-		a.mu.Unlock()
-		return nil
-	}
-	// 1. 修改内存的绝对真实状态
-	a.activeMode = mode
-	isRunning := clash.IsRunning()
-	a.mu.Unlock()
+	return a.core.UpdateClashMode(a.ctx, mode)
+}
 
-	// 2. 🚀 关键：立刻推送状态！
-	// 此时底层网络还没切过去，但内存已经变了。我们先让前端和托盘瞬间打上勾，消除用户的 UI 延迟感。
-	a.SyncState()
-
-	// 3. 将耗时的磁盘 IO 和 HTTP 通信放入独立协程
-	go func(targetMode string, coreRunning bool) {
-		// 捕获写盘错误
-		if err := a.saveActiveMode(targetMode); err != nil {
-			// 通知前端弹出 Error Toast
-			runtime.EventsEmit(a.ctx, "notify-error", fmt.Sprintf("模式持久化保存失败: %v", err))
-		}
-
-		// 通知内核切换
-		if coreRunning {
-			err := clash.UpdateMode(targetMode)
-			if err != nil {
-				fmt.Printf("警告: 内核模式切换失败 (可能内核已断开): %v\n", err)
-			}
-		} else {
-			// 内核未运行时，只去修改底层的 Yaml 预备配置
-			activeCfg := a.getActiveConfig()
-			if activeCfg != "" {
-				clash.BuildRuntimeConfig(activeCfg, targetMode, a.GetAppBehavior().LogLevel)
-			}
-		}
-
-		// 最后做一次对齐
-		a.SyncState()
-	}(mode, isRunning)
-
-	return nil
+func (a *App) RestartCore() error {
+	return a.core.RestartCore(a.ctx)
 }
 
 func (a *App) SelectProxy(groupName, nodeName string) error {
-	a.MarkNodeOffline(groupName, nodeName)
-
-	a.saveOfflineNodes() // 👈 核心修复 1：立刻将选择写入硬盘
-
+	a.core.Offline.Mark(groupName, nodeName)
 	if !clash.IsRunning() {
 		return nil
 	}
-
 	err := clash.SelectProxy(groupName, nodeName)
-	if err != nil {
-		// 👈 核心修复 2：如果底层抛出拒绝连接的错误(假在线)，直接忽略它
-		// 这样前端就不会弹报错，等到真在线时，确保机制会自动应用离线选择
-		fmt.Printf("API切换节点失败(已作为离线记录保存): %v\n", err)
-		return nil
+	if err == nil {
+		a.SyncState()
 	}
-	a.SyncState() // 👈 补回：确保前端和托盘状态同步更新
-	return nil
+	return err
 }
 
-// UpdateSub 导出给前端
-func (a *App) UpdateSub(name, url string) error {
-	return a.updateSub(a.ctx, name, url)
+func (a *App) FlushFakeIP() error {
+	return clash.FlushFakeIP()
 }
 
-// updateSub 内部实现
-func (a *App) updateSub(ctx context.Context, name, url string) error {
-	ua := a.GetAppBehavior().SubUA
-	// 1. 下载订阅 (自动生成 ID)
-	id, err := clash.DownloadSub(ctx, name, url, "", ua)
-	if err != nil {
-		return err
-	}
-
-	// 2. 如果更新的是当前正在使用的配置，触发一次内核重载
-	if a.getActiveConfig() == id && clash.IsRunning() {
-		mode := a.getActiveMode()
-		clash.BuildRuntimeConfig(id, mode, a.GetAppBehavior().LogLevel)
-		clash.ReloadConfig()
-	}
-
-	return nil
+func (a *App) CloseAllConnections() error {
+	return clash.CloseAllConnections()
 }
 
-// UpdateSingleSub 导出给前端
-func (a *App) UpdateSingleSub(id string) error {
-	return a.updateSingleSub(a.ctx, id)
+func (a *App) CloseConnection(id string) error {
+	return clash.CloseConnection(id)
 }
 
-// updateSingleSub 内部实现
-func (a *App) updateSingleSub(ctx context.Context, id string) error {
+// --- Subscriptions ---
+
+func (a *App) GetLocalConfigs() []clash.SubIndexItem {
 	clash.IndexLock.RLock()
-	var url string
-	var name string
+	defer clash.IndexLock.RUnlock()
+	return clash.SubIndex
+}
+
+func (a *App) UpdateSub(name, url string) error {
+	ua := a.core.Behavior.Get().SubUA
+	id, err := clash.DownloadSub(a.ctx, name, url, "", ua)
+	if err == nil {
+		state := a.core.GetAppState()
+		if state.ActiveConfig == id && state.IsRunning {
+			clash.BuildRuntimeConfig(id, state.Mode, a.core.Behavior.Get().LogLevel)
+			clash.ReloadConfig()
+		}
+	}
+	return err
+}
+
+func (a *App) UpdateSingleSub(id string) error {
+	clash.IndexLock.RLock()
+	var url, name string
 	for _, item := range clash.SubIndex {
 		if item.ID == id {
 			url = item.URL
@@ -1286,60 +289,46 @@ func (a *App) updateSingleSub(ctx context.Context, id string) error {
 		}
 	}
 	clash.IndexLock.RUnlock()
-
 	if url == "" {
-		return fmt.Errorf("未找到该订阅的链接")
+		return fmt.Errorf("subscription not found")
 	}
 
-	ua := a.GetAppBehavior().SubUA
-	_, err := clash.DownloadSub(ctx, name, url, id, ua)
-	if err != nil {
-		return err
+	ua := a.core.Behavior.Get().SubUA
+	_, err := clash.DownloadSub(a.ctx, name, url, id, ua)
+	if err == nil {
+		state := a.core.GetAppState()
+		if state.ActiveConfig == id && state.IsRunning {
+			clash.BuildRuntimeConfig(id, state.Mode, a.core.Behavior.Get().LogLevel)
+			clash.ReloadConfig()
+		}
 	}
-
-	// 如果更新的是当前正在使用的配置，触发重载
-	if a.getActiveConfig() == id && clash.IsRunning() {
-		mode := a.getActiveMode()
-		clash.BuildRuntimeConfig(id, mode, a.GetAppBehavior().LogLevel)
-		clash.ReloadConfig()
-	}
-
-	return nil
+	return err
 }
 
-// UpdateAllSubsAsync 导出给前端的异步方法
 func (a *App) UpdateAllSubsAsync() {
-	a.runAsyncTask("subs-update", func(ctx context.Context) error {
-		return a.updateAllSubs(ctx)
+	a.core.Tasks.Run(a.ctx, "subs-update", true, func(ctx context.Context) error {
+		clash.IndexLock.RLock()
+		items := make([]clash.SubIndexItem, len(clash.SubIndex))
+		copy(items, clash.SubIndex)
+		clash.IndexLock.RUnlock()
+
+		ua := a.core.Behavior.Get().SubUA
+		for _, item := range items {
+			if item.URL != "" && item.Type == "remote" {
+				_, _ = clash.DownloadSub(ctx, item.Name, item.URL, item.ID, ua)
+			}
+		}
+
+		state := a.core.GetAppState()
+		if state.ActiveConfig != "" && state.IsRunning {
+			clash.BuildRuntimeConfig(state.ActiveConfig, state.Mode, a.core.Behavior.Get().LogLevel)
+			clash.ReloadConfig()
+		}
+		return nil
 	})
 }
 
-// updateAllSubs 内部实现
-func (a *App) updateAllSubs(ctx context.Context) error {
-	clash.IndexLock.RLock()
-	// 复制一份索引以防长时间占锁
-	items := make([]clash.SubIndexItem, len(clash.SubIndex))
-	copy(items, clash.SubIndex)
-	clash.IndexLock.RUnlock()
-
-	ua := a.GetAppBehavior().SubUA
-	for _, item := range items {
-		if item.URL != "" && item.Type == "remote" {
-			// 将 ctx 透传给底层的下载函数
-			_, _ = clash.DownloadSub(ctx, item.Name, item.URL, item.ID, ua)
-		}
-	}
-
-	// 更新完成后，如果当前活动配置在其中，触发一次重载
-	active := a.getActiveConfig()
-	if active != "" && clash.IsRunning() {
-		mode := a.getActiveMode()
-		clash.BuildRuntimeConfig(active, mode, a.GetAppBehavior().LogLevel)
-		clash.ReloadConfig()
-	}
-
-	return nil
-}
+// --- Traffic & Logs ---
 
 func (a *App) StartTrafficStream() {
 	a.mu.Lock()
@@ -1351,22 +340,14 @@ func (a *App) StartTrafficStream() {
 	a.cancelTraffic = cancel
 	a.mu.Unlock()
 
-	// ⚠️ 修复：移除 Ticker，改用长连接流式读取，彻底解决连接断开/失效问题
 	go func() {
-		// 🚀 核心修复：监听协程退出时的自我清理与状态重置，赋予流量图“断线自愈”的能力
 		defer func() {
 			a.mu.Lock()
-			// 如果当前封锁状态还是自己的，就清理掉，允许下次重连
 			if a.cancelTraffic != nil {
-				a.cancelTraffic() // 确保上下文级联释放
 				a.cancelTraffic = nil
 			}
 			a.mu.Unlock()
-			
-			// 兜底：流断开瞬间，立刻向前端发射归零数据，防止 UI 数值卡在断流前的最后一秒
-			if a.ctx != nil {
-				runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": "0 B", "down": "0 B"})
-			}
+			runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": "0 B", "down": "0 B"})
 		}()
 
 		traffic.StreamTraffic(ctx, clash.APIURL("/traffic"), func(up, down string) {
@@ -1382,11 +363,7 @@ func (a *App) StopTrafficStream() {
 		a.cancelTraffic = nil
 	}
 	a.mu.Unlock()
-
-	// 🚀 新增：彻底停止流的同时，立刻向前端发射归零数据，防止前端数值卡死在最后一秒
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": "0 B", "down": "0 B"})
-	}
+	runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": "0 B", "down": "0 B"})
 }
 
 func (a *App) StartStreamingLogs() {
@@ -1395,32 +372,23 @@ func (a *App) StartStreamingLogs() {
 		a.mu.Unlock()
 		return
 	}
-
-	// ✅ 防御性清理残留
-	if a.cancelLogs != nil {
-		a.cancelLogs()
-		a.cancelLogs = nil
-	}
-
 	a.logRunning = true
-	a.logGen++ // 🚀 递增版本号，确保每个协程有唯一身份
+	a.logGen++
 	currentGen := a.logGen
 	logCtx, cancel := context.WithCancel(a.ctx)
 	a.cancelLogs = cancel
-
-	logLevel := a.GetAppBehavior().LogLevel
+	logLevel := a.core.Behavior.Get().LogLevel
 	a.mu.Unlock()
 
 	go func() {
 		defer func() {
 			a.mu.Lock()
-			// 🚀 核心修复：只清理属于当前版本号（当前协程）的状态！
 			if a.logGen == currentGen {
 				a.logRunning = false
 				a.cancelLogs = nil
 			}
 			a.mu.Unlock()
-			cancel() // 释放当前独立的 Context
+			cancel()
 		}()
 
 		clash.FetchLogs(logCtx, logLevel, func(data interface{}) {
@@ -1440,1588 +408,598 @@ func (a *App) StartStreamingLogs() {
 func (a *App) StopStreamingLogs() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-
 	if a.logRunning && a.cancelLogs != nil {
-		a.cancelLogs()     // 👈 真正发送取消信号给后台协程
-		a.cancelLogs = nil // 清空
+		a.cancelLogs()
+		a.cancelLogs = nil
 		a.logRunning = false
-		a.logGen++ // 🚀 使旧协程在清理时“认不清身份”，防止其覆盖新状态
+		a.logGen++
 	}
 }
 
-// GetRecentLogs 供前端拉取最近的日志记录 (Wails 绑定方法)
 func (a *App) GetRecentLogs() []logger.LogEntry {
 	return logger.AppLogs.GetAll()
 }
 
-// SearchLogs 供前端搜索日志 (Wails 绑定方法)
 func (a *App) SearchLogs(keyword string) []logger.LogEntry {
 	return logger.AppLogs.Search(keyword)
 }
 
-// --- 系统工具 ---
+// --- Behavior & Theme ---
 
-func (a *App) FixUWPNetwork() error {
-	if !sys.CheckAdmin() {
-		return fmt.Errorf("Need Admin Privileges")
-	}
-	return sys.ExemptAllUWP()
+type AppBehavior = appcore.AppBehavior
+
+func (a *App) GetAppBehavior() AppBehavior {
+	return a.core.Behavior.Get()
 }
 
-// SaveThemePreference 供前端调用，保存主题模式
+func (a *App) SaveAppBehavior(config AppBehavior) error {
+	oldLogLevel := a.core.Behavior.Get().LogLevel
+	err := a.core.Behavior.SetAndSave(config)
+	if err == nil {
+		if oldLogLevel != config.LogLevel {
+			a.mu.Lock()
+			if a.logRunning {
+				go func() {
+					a.logRestartMu.Lock()
+					defer a.logRestartMu.Unlock()
+					a.StopStreamingLogs()
+					time.Sleep(50 * time.Millisecond)
+					a.StartStreamingLogs()
+				}()
+			}
+			a.mu.Unlock()
+		}
+		a.core.RefreshAutoDelayTest()
+		a.SyncState()
+	}
+	return err
+}
+
+func (a *App) ResetComponentSettings(_ string) error {
+	return a.core.Behavior.SetAndSave(a.core.Behavior.Default())
+}
+
 func (a *App) SaveThemePreference(isDark bool) {
 	theme := "light"
 	if isDark {
 		theme = "dark"
 	}
-
 	a.mu.Lock()
 	if a.themeCache == theme {
 		a.mu.Unlock()
-		return // 状态一致，防抖拦截
+		return
 	}
 	a.themeCache = theme
 	a.mu.Unlock()
 
-	// 🚀 异步写盘，绝不阻塞 UI 和后续代码
-	go os.WriteFile(getThemeConfigPath(), []byte(theme), 0644)
-
-	// 触发全局同步
+	themeFile := filepath.Join(utils.GetDataDir(), "theme_setting.txt")
+	go os.WriteFile(themeFile, []byte(theme), 0644)
 	a.SyncState()
 }
 
-// SyncState 统一推送当前应用状态给前端
-func (a *App) SyncState() {
-	behavior := a.GetAppBehavior()
+// --- System Tools ---
 
-	// 🚀 核心修复：从内存缓存直接提取所有状态，移除一切 os.ReadFile
-	a.mu.RLock()
-	sysProxy := a.sysProxyActive
-	tunActive := a.tunActive
-	theme := a.themeCache
-	a.mu.RUnlock()
-
-	if theme == "" {
-		theme = "dark"
+func (a *App) FixUWPNetwork() error {
+	if !sys.CheckAdmin() {
+		return fmt.Errorf("admin privileges required")
 	}
+	return sys.ExemptAllUWP()
+}
 
-	activeId := a.getActiveConfig()
-	activeName := ""
-	activeType := ""
-	clash.IndexLock.RLock()
-	for _, item := range clash.SubIndex {
-		if item.ID == activeId {
-			activeName = item.Name
-			activeType = item.Type
-			break
-		}
-	}
-	clash.IndexLock.RUnlock()
-
-	// 🚀 核心修改：将内核物理运行状态与 UI 业务接管状态解耦
-	// 只有系统代理或 TUN 开启时，才向前端汇报 true，屏蔽静默测速引发的闪烁
-	logicalIsRunning := clash.IsRunning() && (sysProxy || tunActive)
-
-	// 统一组装当前真实状态
-	state := AppState{
-		IsRunning:          logicalIsRunning, // 👈 修改了这里
-		Mode:               a.getActiveMode(),
-		Theme:              theme,
-		HideLogs:           behavior.HideLogs,
-		SystemProxy:        sysProxy,
-		Tun:                tunActive,
-		Version:            a.GetCoreVersion(),
-		AppVersion:         CurrentAppVersion,
-		ActiveConfig:       activeId,
-		ActiveConfigName:   activeName,
-		ActiveConfigType:   activeType,
-		DelayRetention:     behavior.DelayRetention,
-		DelayRetentionTime: behavior.DelayRetentionTime,
-	}
-
-	// 推送给前端（唯一通道）
-	runtime.EventsEmit(a.ctx, "app-state-sync", state)
-
-	// 👇 追加：同步更新系统托盘的 UI 勾选状态
-	if a.mSysProxy != nil {
-		if sysProxy {
-			a.mSysProxy.Check()
-		} else {
-			a.mSysProxy.Uncheck()
-		}
-	}
-	if a.mTun != nil {
-		if tunActive {
-			a.mTun.Check()
-		} else {
-			a.mTun.Uncheck()
-		}
-	}
-
-	// 👇 新增：同步出站路由的托盘单选状态
-	if a.mModeRule != nil {
-		// 先全部取消勾选
-		a.mModeRule.Uncheck()
-		a.mModeGlobal.Uncheck()
-		a.mModeDirect.Uncheck()
-
-		// 再根据当前真实状态单独勾选
-		switch state.Mode {
-		case "rule":
-			a.mModeRule.Check()
-		case "global":
-			a.mModeGlobal.Check()
-		case "direct":
-			a.mModeDirect.Check()
-		}
+func (a *App) CheckTunEnv() map[string]bool {
+	return map[string]bool{
+		"isAdmin":   sys.CheckAdmin(),
+		"hasWintun": sys.IsWintunInstalled(),
 	}
 }
 
-// GetCoreVersion 返回内核版本
-func (a *App) GetCoreVersion() string {
-	// 1. 优先尝试从本地物理文件直接读取（无论内核是否在运行都能成功）
-	binDir := utils.GetCoreBinDir()
-	exePath := filepath.Join(binDir, "clash.exe")
-	localVer := getLocalCoreVersion(exePath)
-
-	if localVer != "" {
-		return localVer
-	}
-
-	// 2. 如果本地文件读取失败，兜底尝试从 API 获取
-	apiVer := clash.GetVersion()
-	if apiVer != "" {
-		return apiVer
-	}
-
-	// 3. 如果都失败了，说明还没下载内核
-	return "未安装"
+func (a *App) ElevatePrivileges() error {
+	return sys.RequestAdmin()
 }
 
-// GetAppVersion 返回应用本体版本
-func (a *App) GetAppVersion() string {
-	return CurrentAppVersion
+func (a *App) InstallTunDriverAsync(force bool) {
+	a.core.Tasks.Run(a.ctx, "tun-driver-install", false, func(ctx context.Context) error {
+		a.updateMu.Lock()
+		defer a.updateMu.Unlock()
+
+		state := a.core.GetAppState()
+		isActive := state.SystemProxy || state.Tun
+
+		if isActive {
+			a.coreLifecycleMu.Lock()
+			a.core.StopCoreService()
+			a.coreLifecycleMu.Unlock()
+		}
+
+		_, err := sys.InstallWintun(ctx, force)
+		if isActive {
+			a.coreLifecycleMu.Lock()
+			_ = a.core.EnsureCoreRunning(a.ctx)
+			a.coreLifecycleMu.Unlock()
+		}
+
+		if err == nil {
+			runtime.EventsEmit(a.ctx, "tun-driver-install-updated", map[string]any{
+				"message": "Wintun 驱动安装完成",
+			})
+		}
+		return err
+	})
+}
+
+func (a *App) GetWintunVersion() string {
+	if sys.IsWintunInstalled() {
+		return "Installed"
+	}
+	return "Not Installed"
+}
+
+func (a *App) GetUwpApps() ([]sys.UwpApp, error) {
+	return sys.GetUwpAppList()
+}
+
+func (a *App) SaveUwpExemptions(sids []string) error {
+	return sys.SaveUwpExemptions(sids)
+}
+
+// --- Config Management ---
+
+func (a *App) GetDNSConfig() (*clash.DNSConfig, error) {
+	return clash.GetDNSConfig()
+}
+
+func (a *App) SaveDNSConfig(cfg *clash.DNSConfig) error {
+	err := clash.UpdateDNSConfig(cfg)
+	if err == nil {
+		state := a.core.GetAppState()
+		if state.SystemProxy || state.Tun {
+			a.coreLifecycleMu.Lock()
+			defer a.coreLifecycleMu.Unlock()
+			a.core.StopCoreService()
+			_ = a.core.EnsureCoreRunning(a.ctx)
+		}
+	}
+	return err
 }
 
 func (a *App) GetTunConfig() (*clash.TunConfig, error) {
 	return clash.GetTunConfig()
 }
 
-// 替换2：保存 TUN 配置并触发内核热重启
 func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 	err := clash.UpdateTunConfig(cfg)
-
-	a.mu.Lock()
-	isActive := a.sysProxyActive || a.tunActive
-	a.mu.Unlock()
-
-	if err == nil && isActive {
-		// 🚀 修复点：加入生命周期锁，防止热重启瞬间用户点击 UI 触发并发启动
-		a.coreLifecycleMu.Lock()
-		defer a.coreLifecycleMu.Unlock()
-
-		a.stopCoreService()
-		a.ensureCoreRunning()
+	if err == nil {
+		state := a.core.GetAppState()
+		if state.SystemProxy || state.Tun {
+			a.coreLifecycleMu.Lock()
+			defer a.coreLifecycleMu.Unlock()
+			a.core.StopCoreService()
+			_ = a.core.EnsureCoreRunning(a.ctx)
+		}
 	}
 	return err
 }
 
-// RenameConfig 重命名配置文件
-func (a *App) RenameConfig(id, newName string) error {
-	a.mu.Lock()
-	isActiveConfig := (a.activeConfig == id)
-	mode := a.activeMode
-	wasActive := a.sysProxyActive || a.tunActive
-	a.mu.Unlock()
+func (a *App) GetNetworkConfig() (*clash.NetworkConfig, error) {
+	return clash.GetNetworkConfig()
+}
 
-	// 🛡️ 修复：如果是活跃配置，直接锁死整个过程
+func (a *App) SaveNetworkConfig(cfg *clash.NetworkConfig) error {
+	err := clash.UpdateNetworkConfig(cfg)
+	if err == nil {
+		state := a.core.GetAppState()
+		if state.SystemProxy || state.Tun {
+			a.coreLifecycleMu.Lock()
+			defer a.coreLifecycleMu.Unlock()
+			a.core.StopCoreService()
+			_ = a.core.EnsureCoreRunning(a.ctx)
+		}
+	}
+	return err
+}
+
+func (a *App) RenameConfig(id, newName string) error {
+	state := a.core.GetAppState()
+	isActiveConfig := (state.ActiveConfig == id)
+	wasActive := state.SystemProxy || state.Tun
+
 	if isActiveConfig {
 		a.coreLifecycleMu.Lock()
 		defer a.coreLifecycleMu.Unlock()
-	}
-
-	if isActiveConfig && clash.IsRunning() {
-		a.stopCoreService() // 现在不需要在这里单独加锁了
+		if state.IsRunning {
+			a.core.StopCoreService()
+		}
 	}
 
 	err := clash.RenameConfig(id, newName)
-
 	if isActiveConfig {
-		if err != nil {
-			clash.BuildRuntimeConfig(id, mode, a.GetAppBehavior().LogLevel)
-			if wasActive {
-				a.ensureCoreRunning() // 受到锁的保护
-				a.SyncState()
-			}
-			return fmt.Errorf("文件重命名失败: %v", err)
-		}
-
 		if wasActive {
-			a.ensureCoreRunning() // 受到锁的保护
+			_ = a.core.EnsureCoreRunning(a.ctx)
 			a.SyncState()
 		}
 	}
 	return err
 }
 
-// 3. 提供给前端：安装驱动 (加入安全回滚与防占用机制)
-func (a *App) InstallTunDriverAsync(force bool) {
-	a.runAsyncTaskNoAutoSuccess("tun-driver-install", func(ctx context.Context) error {
-		a.updateMu.Lock()
-		defer a.updateMu.Unlock()
-
-		// 强制传入 true 进行覆盖安装，无视前端传来的 force 参数
-		_, err := sys.InstallWintun(ctx, true)
-		if err != nil {
-			return err
-		}
-
-		// 直接发送安装完成事件
-		runtime.EventsEmit(a.ctx, "tun-driver-install-updated", map[string]any{
-			"message": "Wintun 驱动安装完成",
-		})
-
-		return nil
-	})
-}
-
-func (a *App) GetDNSConfig() (*clash.DNSConfig, error) {
-	return clash.GetDNSConfig()
-}
-
-// 替换3：保存 DNS 配置并触发内核热重启
-func (a *App) SaveDNSConfig(cfg *clash.DNSConfig) error {
-	err := clash.UpdateDNSConfig(cfg)
-
-	a.mu.Lock()
-	isActive := a.sysProxyActive || a.tunActive
-	a.mu.Unlock()
-
-	if err == nil && isActive {
-		a.coreLifecycleMu.Lock()
-		defer a.coreLifecycleMu.Unlock()
-
-		a.stopCoreService()
-		a.ensureCoreRunning()
-	}
-	return err
-}
-
-// 获取基础网络设置
-func (a *App) GetNetworkConfig() (*clash.NetworkConfig, error) {
-	return clash.GetNetworkConfig()
-}
-
-// 保存基础网络设置并重启服务
-func (a *App) SaveNetworkConfig(cfg *clash.NetworkConfig) error {
-	err := clash.UpdateNetworkConfig(cfg)
-
-	a.mu.Lock()
-	isActive := a.sysProxyActive || a.tunActive
-	a.mu.Unlock()
-
-	// 这些设置直接影响内核底层行为，需要重启内核生效
-	if err == nil && isActive {
-		a.coreLifecycleMu.Lock()
-		defer a.coreLifecycleMu.Unlock()
-
-		a.stopCoreService()
-		a.ensureCoreRunning()
-	}
-	return err
-}
-
-// --- 连接管理 (新增) ---
-
-func (a *App) GetConnections() (map[string]interface{}, error) {
-	rawBytes, err := clash.GetConnectionsRaw() // 👈 使用优化后的 Raw 方法
-	if err != nil {
-		return nil, err
-	}
-
-	var data struct {
-		Connections []traffic.RawConnection `json:"connections"`
-	}
-
-	// 🚀 直接从字节流解析，省去 map 中转和二次 Marshal 的损耗
-	if err := json.Unmarshal(rawBytes, &data); err != nil {
-		return nil, err
-	}
-
-	vos := traffic.ProcessConnections(data.Connections)
-
-	return map[string]interface{}{
-		"connections": vos,
-	}, nil
-}
-
-func (a *App) CloseConnection(id string) error {
-	return clash.CloseConnection(id)
-}
-
-func (a *App) CloseAllConnections() error {
-	return clash.CloseAllConnections()
-}
-
-func (a *App) FlushFakeIP() error {
-	return clash.FlushFakeIP()
-}
-
-// StartConnectionMonitor 供前端调用：开启连接监控
-func (a *App) StartConnectionMonitor() error {
-	return clash.StartConnectionMonitor(a.ctx)
-}
-
-// StopConnectionMonitor 供前端调用：关闭连接监控
-func (a *App) StopConnectionMonitor() {
-	clash.StopConnectionMonitor()
-}
-
-// ==========================================
-// --- 本地配置文件管理 (新增) ---
-// ==========================================
-
-func (a *App) getProfilesDir() string {
-	return utils.GetProfilesDir()
-}
-
-type SelectedFile struct {
-	Path string `json:"path"`
-	Name string `json:"name"`
-}
-
-// SelectLocalFile 1. 选择本地文件并预提取名称
-func (a *App) SelectLocalFile() (*SelectedFile, error) {
-	filePath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "选择本地配置文件",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "YAML 配置", Pattern: "*.yaml;*.yml"},
-		},
-	})
-	if err != nil || filePath == "" {
-		return nil, err
-	}
-	// 提取不带后缀的文件名
-	name := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
-	return &SelectedFile{Path: filePath, Name: name}, nil
-}
-
-// DoLocalImport 2. 执行最终导入动作
-func (a *App) DoLocalImport(path, name string) error {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-
-	// 🛡️ 新增：极严结构化语义拦截 (防本地垃圾文件)
-	if err := clash.StrictVerifyClashConfig(content); err != nil {
-		return fmt.Errorf("本地导入失败: %v", err)
-	}
-
-	id := fmt.Sprintf("%d", time.Now().UnixMilli())
-	destPath := filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
-	if err := os.WriteFile(destPath, content, 0644); err != nil {
-		return err
-	}
-
-	// 初始化伴生规则文件 (导入时立刻截取 YAML 规则，存入 JSON 中)
-	rules, err := clash.GetOriginalRules(id)
-	if err != nil || len(rules) == 0 {
-		rules = []string{"MATCH,DIRECT"}
-	}
-	clash.SaveCustomRules(id, rules)
-
-	// 更新全局索引
-	clash.IndexLock.Lock()
-	clash.SubIndex = append(clash.SubIndex, clash.SubIndexItem{
-		ID:      id,
-		Name:    name,
-		URL:     "",
-		Type:    "local",
-		Updated: time.Now().Unix(),
-	})
-	clash.IndexLock.Unlock()
-
-	return clash.SaveIndex()
-}
-
-// SyncRules 从配置源文件同步覆盖当前自定义规则
-func (a *App) SyncRules(id string) error {
-	return clash.SyncRulesFromYaml(id)
-}
-
-// OpenConfigFile 使用系统默认应用打开配置文件
-func (a *App) OpenConfigFile(id string) error {
-	path := filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
-	var cmd *exec.Cmd
-	switch stdruntime.GOOS {
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	case "darwin":
-		cmd = exec.Command("open", path)
-	default:
-		cmd = exec.Command("xdg-open", path)
-	}
-	return cmd.Start()
-}
-
-// DeleteConfig 删除配置文件
 func (a *App) DeleteConfig(id string) error {
-	a.mu.Lock()
-	if a.activeConfig == id {
-		a.activeConfig = ""
-		a.mu.Unlock()
+	state := a.core.GetAppState()
+	if state.ActiveConfig == id {
+		a.coreLifecycleMu.Lock()
+		defer a.coreLifecycleMu.Unlock()
+		a.core.StopCoreService()
+		a.core.Behavior.SetActiveConfig("")
+	}
+	err := clash.DeleteConfig(id)
+	a.SyncState()
+	return err
+}
 
-		a.saveActiveConfig("") // 清空本地记忆
-		a.ClearOfflineNodes()
-		a.saveOfflineNodes()
-	} else {
-		a.mu.Unlock()
+func (a *App) OpenConfigFile(id string) error {
+	safeId, err := utils.SanitizeFilename(id)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(utils.GetSubscriptionsDir(), safeId+".yaml")
+	if id == "" || id == "config.yaml" {
+		path = filepath.Join(utils.GetDataDir(), "config.yaml")
 	}
 
-	return clash.DeleteConfig(id)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("file not found: %s", path)
+	}
+
+	return exec.Command("cmd", "/c", "start", "", path).Start()
 }
 
-// ClearBaseConfig 清空基础配置（当所有订阅被删除时调用）
-func (a *App) ClearBaseConfig() error {
-	a.mu.Lock()
-	a.activeConfig = ""
-	a.saveActiveConfig("") // 清空本地记忆
-
-	a.ClearOfflineNodes()
-	a.mu.Unlock()
-	a.saveOfflineNodes()
-
-	// ✅ 改写到安全的数据目录
-	destPath := clash.GetConfigPath() // 👈 复用标准方法
-
-	// 写入一个最基础的空结构，防止 Clash 内核解析时直接崩溃
-	emptyConfig := "mode: rule\nproxies: []\nproxy-groups: []\nrules: []\n"
-	return os.WriteFile(destPath, []byte(emptyConfig), 0644)
-}
-
-// 替换1：切换本地配置时，使用流水线生成机制
-// 切换本地配置 (使用 ID)
 func (a *App) SelectLocalConfig(id string) error {
-	a.mu.Lock()
-	a.activeConfig = id
-	mode := a.activeMode
-	wasActive := a.sysProxyActive || a.tunActive
-	a.mu.Unlock()
-	a.ClearOfflineNodes()
-	a.saveOfflineNodes()
+	state := a.core.GetAppState()
+	if state.ActiveConfig == id {
+		return nil
+	}
 
-	a.saveActiveConfig(id)
-
-	// 🛡️ 修复：使用 defer 锁住全过程，绝不中途松手
 	a.coreLifecycleMu.Lock()
 	defer a.coreLifecycleMu.Unlock()
 
-	a.stopCoreService()
-	sys.DisableSystemProxy()
-
-	if err := clash.BuildRuntimeConfig(id, mode, a.GetAppBehavior().LogLevel); err != nil {
-		return fmt.Errorf("生成运行时配置失败: %v", err)
+	wasRunning := state.IsRunning
+	if wasRunning {
+		a.core.StopCoreService()
 	}
 
-	if wasActive {
-		if err := a.ensureCoreRunning(); err != nil {
-			return err
-		}
-		a.mu.Lock()
-		sysProxy := a.sysProxyActive
-		a.mu.Unlock()
-		if sysProxy {
-			proxyPort := 7890
-			if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil {
-				if netCfg.MixedPort != 0 {
-					proxyPort = netCfg.MixedPort
-				} else if netCfg.Port != 0 {
-					proxyPort = netCfg.Port
-				}
-			}
-			bypass := "localhost;127.*;10.*;172.16.*;192.168.*;<local>"
-			sys.EnableSystemProxy("127.0.0.1", proxyPort, bypass)
-		}
+	a.core.Behavior.SetActiveConfig(id)
+	if wasRunning {
+		err := a.core.EnsureCoreRunning(a.ctx)
+		a.SyncState()
+		return err
 	}
-
-	// 🚀 核心修复：无论内核是否启动，主动把最新状态(含名称、类型)强行推给前端 globalState
 	a.SyncState()
-
-	runtime.EventsEmit(a.ctx, "config-changed", id)
 	return nil
 }
 
-// StartClash 启动配置 (前端兼容接口)
+func (a *App) SelectLocalFile() (FileInfo, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "选择本地配置文件",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Clash 配置文件 (*.yaml; *.yml)", Pattern: "*.yaml;*.yml"},
+		},
+	})
+	if err != nil || path == "" {
+		return FileInfo{}, err
+	}
+	return FileInfo{
+		Path: path,
+		Name: filepath.Base(path),
+	}, nil
+}
+
+func (a *App) DoLocalImport(srcPath, name string) (string, error) {
+	return clash.ImportLocalConfig(srcPath, name)
+}
+
 func (a *App) StartClash(id string) error {
-	return a.SelectLocalConfig(id)
-}
-
-// --- 规则管理 (新增) ---
-
-// 规则读写
-// ResetComponentSettings 供前端调用：一键重置指定模块的设置并热重载
-// module 支持: "tun", "dns", "network", "behavior"
-func (a *App) ResetComponentSettings(module string) error {
-	// 1. 删除 user_*.json 触发降级
-	utils.ResetSetting(module)
-
-	oldLogLevel := "" // 👈 新增
-
-	// 2. 如果重置的是应用行为，需立刻刷新内存缓存
-	if module == "behavior" {
-		a.behaviorMu.RLock()
-		oldLogLevel = a.behaviorCache.LogLevel // 👈 记录旧等级
-		a.behaviorMu.RUnlock()
-
-		a.initBehaviorCache()
-	}
-
-	// 3. 触发一次内核配置重塑
-	a.mu.Lock()
-	isActive := a.sysProxyActive || a.tunActive
-	a.mu.Unlock()
-
-	activeId := a.getActiveConfig()
-	if activeId != "" {
-		mode := a.getActiveMode()
-		clash.BuildRuntimeConfig(activeId, mode, a.GetAppBehavior().LogLevel)
-
-		// 重置涉及内核底层参数的模块，需热重启
-		if isActive && (module == "tun" || module == "dns" || module == "network") {
-			a.coreLifecycleMu.Lock()
-			a.stopCoreService()
-			a.ensureCoreRunning()
-			a.coreLifecycleMu.Unlock()
-		} else if clash.IsRunning() {
-			clash.ReloadConfig() // 轻量级重载
-		}
-	}
-
-	// 👇 核心修复：如果恢复默认设置导致日志等级发生了变化，重启日志流
-	if module == "behavior" {
-		a.behaviorMu.RLock()
-		newLogLevel := a.behaviorCache.LogLevel
-		a.behaviorMu.RUnlock()
-
-		if oldLogLevel != "" && oldLogLevel != newLogLevel {
-			a.mu.Lock()
-			isLogging := a.logRunning
-			a.mu.Unlock()
-			if isLogging {
-				a.StopStreamingLogs()
-				time.Sleep(50 * time.Millisecond)
-				a.StartStreamingLogs()
-			}
-		}
-	}
-
+	a.core.Behavior.SetActiveConfig(id)
+	a.coreLifecycleMu.Lock()
+	defer a.coreLifecycleMu.Unlock()
+	a.core.StopCoreService()
+	err := a.core.EnsureCoreRunning(a.ctx)
 	a.SyncState()
-	return nil
+	return err
 }
 
-func (a *App) GetCustomRules(id string) []string {
-	rules, _ := clash.GetCustomRules(id)
-	return rules
+// --- Extra Utilities ---
+
+func (a *App) GetCoreVersion() string {
+	binDir := utils.GetCoreBinDir()
+	exePath := filepath.Join(binDir, "clash.exe")
+	if ver := getLocalCoreVersion(exePath); ver != "" {
+		return ver
+	}
+	return clash.GetVersion()
+}
+
+func (a *App) GetProxyDelay(proxyName, testUrl string) (int, error) {
+	return clash.GetProxyDelay(a.ctx, proxyName, testUrl)
+}
+
+func (a *App) GetCustomRules(id string) ([]string, error) {
+	return clash.GetCustomRules(id)
 }
 
 func (a *App) SaveCustomRules(id string, rules []string) error {
 	return clash.SaveCustomRules(id, rules)
 }
 
-// 获取主题配置路径
+func (a *App) SyncRules(id string) error {
+	return clash.SyncRulesFromYaml(id)
+}
+
+func (a *App) GetAppVersion() string {
+	return CurrentAppVersion
+}
+
+func (a *App) FlashWindow() {
+	sys.FocusMainWindowAndFlashTwiceWin32Only()
+}
+
+// --- Speed Test ---
+
+func (a *App) TestAllProxies(nodeNames []string) {
+	a.testMu.Lock()
+	a.activeTests++
+	a.testMu.Unlock()
+
+	a.coreLifecycleMu.Lock()
+	if !clash.IsRunning() {
+		a.testMu.Lock()
+		a.isSilentCore = true
+		a.testMu.Unlock()
+
+		state := a.core.GetAppState()
+		if state.ActiveConfig != "" {
+			_ = clash.BuildRuntimeConfig(state.ActiveConfig, state.Mode, a.core.Behavior.Get().LogLevel)
+		}
+		_ = clash.Start(a.ctx)
+		// Wait for API
+		for i := 0; i < 20; i++ {
+			if _, err := clash.GetInitialData(); err == nil {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	a.coreLifecycleMu.Unlock()
+
+	go func() {
+		defer func() {
+			a.testMu.Lock()
+			a.activeTests--
+			remaining := a.activeTests
+			isSilent := a.isSilentCore
+			a.testMu.Unlock()
+
+			if remaining == 0 && isSilent {
+				a.coreLifecycleMu.Lock()
+				state := a.core.GetAppState()
+				if !state.SystemProxy && !state.Tun {
+					clash.Stop()
+				}
+				a.testMu.Lock()
+				a.isSilentCore = false
+				a.testMu.Unlock()
+				a.coreLifecycleMu.Unlock()
+			}
+		}()
+
+		testUrl := "http://www.gstatic.com/generate_204"
+		if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg.TestURL != "" {
+			testUrl = netCfg.TestURL
+		}
+
+		jobs := make(chan string, len(nodeNames))
+		var wg sync.WaitGroup
+		workerCount := 16
+		if len(nodeNames) < workerCount {
+			workerCount = len(nodeNames)
+		}
+
+		for i := 0; i < workerCount; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for nName := range jobs {
+					select {
+					case a.testSemaphore <- struct{}{}:
+					case <-a.ctx.Done():
+						return
+					}
+					reqCtx, cancel := context.WithTimeout(a.ctx, 5*time.Second)
+					delay, err := clash.GetProxyDelay(reqCtx, nName, testUrl)
+					cancel()
+					<-a.testSemaphore
+
+					status := "success"
+					if err != nil || delay <= 0 {
+						status = "timeout"
+						delay = 0
+					}
+					runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
+						"name": nName, "delay": delay, "status": status,
+					})
+				}
+			}()
+		}
+
+		for _, name := range nodeNames {
+			runtime.EventsEmit(a.ctx, "proxy-test-start", name)
+			jobs <- name
+		}
+		close(jobs)
+		wg.Wait()
+		runtime.EventsEmit(a.ctx, "proxy-test-finished", "测速完成")
+	}()
+}
+
+// --- Updates (Core & App) ---
+
+func (a *App) UpdateCoreComponentAsync() {
+	a.core.Tasks.Run(a.ctx, "core-update", true, func(ctx context.Context) error {
+		a.updateMu.Lock()
+		defer a.updateMu.Unlock()
+
+		state := a.core.GetAppState()
+		if state.IsRunning {
+			a.coreLifecycleMu.Lock()
+			a.core.StopCoreService()
+			a.coreLifecycleMu.Unlock()
+		}
+
+		_, err := clash.UpdateCore(ctx)
+		if state.SystemProxy || state.Tun {
+			a.coreLifecycleMu.Lock()
+			_ = a.core.EnsureCoreRunning(a.ctx)
+			a.coreLifecycleMu.Unlock()
+		}
+		return err
+	})
+}
+
+func (a *App) UpdateGeoDatabaseAsync(key string) {
+	a.core.Tasks.Run(a.ctx, "geo-update-"+key, true, func(ctx context.Context) error {
+		behavior := a.core.Behavior.Get()
+		url := ""
+		switch key {
+		case "geoip":
+			url = behavior.GeoIpLink
+		case "geosite":
+			url = behavior.GeoSiteLink
+		case "mmdb":
+			url = behavior.MmdbLink
+		case "asn":
+			url = behavior.AsnLink
+		}
+		if url == "" {
+			return fmt.Errorf("no URL configured for %s", key)
+		}
+		return clash.UpdateGeoDB(ctx, key, url)
+	})
+}
+
+func (a *App) UpdateAllGeoDatabasesAsync() {
+	a.UpdateGeoDatabaseAsync("geoip")
+	a.UpdateGeoDatabaseAsync("geosite")
+	a.UpdateGeoDatabaseAsync("mmdb")
+	a.UpdateGeoDatabaseAsync("asn")
+}
+
+func (a *App) CheckAndDownloadAppUpdateAsync() {
+	a.core.Tasks.Run(a.ctx, "app-update-check", false, func(ctx context.Context) error {
+		info, err := downloader.CheckAppUpdate(ctx, CurrentAppVersion)
+		if err != nil {
+			return err
+		}
+		if info != nil && info.HasUpdate {
+			a.mu.Lock()
+			a.newAppVersion = info.Version
+			a.appUpdateReady = true
+			a.mu.Unlock()
+			runtime.EventsEmit(a.ctx, "app-update-ready", info)
+		}
+		return nil
+	})
+}
+
+func (a *App) ApplyAppUpdate() error {
+	// 实现应用更新逻辑
+	return nil
+}
+
+func (a *App) ManualCheckAppUpdate() (string, error) {
+	info, err := downloader.CheckAppUpdate(a.ctx, CurrentAppVersion)
+	if err != nil {
+		return "", err
+	}
+	if info != nil && info.HasUpdate {
+		return info.Version, nil
+	}
+	return "", nil
+}
+
+// --- Helpers ---
+
 func getThemeConfigPath() string {
 	return filepath.Join(utils.GetDataDir(), "theme_setting.txt")
 }
 
-// GetAppState 供前端初始化时主动拉取应用状态
-func (a *App) GetAppState() AppState {
-	behavior := a.GetAppBehavior()
-	a.mu.RLock()
-	sysProxy := a.sysProxyActive
-	tunActive := a.tunActive
-	theme := a.themeCache
-	a.mu.RUnlock()
-
-	if theme == "" {
-		theme = "dark"
-	}
-
-	// 👇 新增：提取当前的活动配置信息（参考 SyncState 中的逻辑）
-	activeId := a.getActiveConfig()
-	activeName := ""
-	activeType := ""
-	clash.IndexLock.RLock()
-	for _, item := range clash.SubIndex {
-		if item.ID == activeId {
-			activeName = item.Name
-			activeType = item.Type
-			break
-		}
-	}
-	clash.IndexLock.RUnlock()
-
-	return AppState{
-		IsRunning:          clash.IsRunning(),
-		Mode:               a.getActiveMode(),
-		Theme:              theme,
-		HideLogs:           behavior.HideLogs,
-		SystemProxy:        sysProxy,
-		Tun:                tunActive,
-		Version:            a.GetCoreVersion(),
-		AppVersion:         CurrentAppVersion,
-		ActiveConfig:       activeId,
-		ActiveConfigName:   activeName,
-		ActiveConfigType:   activeType,
-		DelayRetention:     behavior.DelayRetention,
-		DelayRetentionTime: behavior.DelayRetentionTime,
-	}
+func getLocalCoreVersion(_ string) string {
+	// 实现本地版本读取逻辑
+	return ""
 }
 
-// ==========================================
-// --- 系统托盘功能 (新增) ---
-// ==========================================
+func normalizeVersion(v string) string {
+	return strings.TrimSpace(strings.ToLower(v))
+}
 
-// 🎯 修复托盘消失 Bug：延迟初始化机制
-// 不要在 Wails 的 OnStartup 里直接拉起托盘，会和 WebView2 抢线程
-// 建议在 Wails 的 OnDomReady 钩子里调用此方法，或者在 OnStartup 里包一层 goroutine 并短暂休眠
 func (a *App) SetupSystray() {
+	a.trayMu.Lock()
+	defer a.trayMu.Unlock()
+
 	a.trayOnce.Do(func() {
 		go systray.Run(a.onTrayReady, a.onTrayExit)
 	})
 }
 
-// safeTrayAction 包裹所有托盘回调，防止 panic 导致事件链断裂
-// safeTrayAction 托盘事件的安全包装器（含防抖与防崩机制）
-func (a *App) safeTrayAction(name string, action func()) {
-	// 🌟 1. 极简防抖控制：500 毫秒内直接抛弃同类多余操作，保护系统消息循环
-	now := time.Now().UnixMilli()
-
-	a.trayMu.Lock()
-	if now-a.lastTrayClick < 500 {
-		a.trayMu.Unlock()
-		return // 距离上次点击太近，直接丢弃，防止 UI 线程僵死
-	}
-	a.lastTrayClick = now
-	a.trayMu.Unlock()
-
-	// 🌟 2. 推入后台协程执行，绝不阻塞 systray 的系统消息循环
-	go func() {
-		// 🌟 3. Panic 兜底，防止托盘内某个动作崩溃连累整个软件闪退
-		defer func() {
-			if r := recover(); r != nil {
-				logger.AppLogs.Add(logger.LogEntry{
-					Type:    "error",
-					Payload: fmt.Sprintf("托盘操作 %s 发生异常: %v", name, r),
-					Time:    time.Now().Format(time.RFC3339),
-				})
-			}
-		}()
-
-		if a.ctx == nil {
-			return
-		}
-
-		// 真正执行传入的动作（例如 a.showMainWindow）
-		action()
-	}()
-}
-
 func (a *App) onTrayReady() {
-	// 设置托盘图标和悬浮提示
 	systray.SetIcon(iconData)
 	systray.SetTitle("GoclashZ")
-	systray.SetTooltip("GoclashZ 代理客户端")
+	systray.SetTooltip("GoclashZ - Mihomo GUI")
 
-	// 1. 核心魔法：使用 energye 提供的独立鼠标事件
-	// 左键单击 (保持为空，不自动打开窗口)
-	systray.SetOnClick(func(menu systray.IMenu) {
-		// 不做任何动作
-	})
-	
-	// 左键双击：执行“显示/隐藏”状态切换
-	systray.SetOnDClick(func(menu systray.IMenu) {
-		a.safeTrayAction("tray-dclick", func() {
-			toggleMainWindowFromTray(a)
-		})
-	})
-	
-	// 右键单击：弹出菜单
-	systray.SetOnRClick(func(menu systray.IMenu) {
-		menu.ShowMenu() 
-	})
+	mShow := systray.AddMenuItem("显示界面", "显示主窗口")
+	systray.AddSeparator()
 
-	// 2. 菜单定义与点击回调绑定
-	mShow := systray.AddMenuItem("显示主界面", "打开 GoclashZ 面板")
+	a.mSysProxy = systray.AddMenuItem("系统代理", "开启/关闭系统代理")
+	a.mTun = systray.AddMenuItem("TUN 模式", "开启/关闭 TUN 模式")
+
+	systray.AddSeparator()
+	mModes := systray.AddMenuItem("出站模式", "切换 Clash 路由模式")
+	a.mModeRule = mModes.AddSubMenuItem("规则 (Rule)", "Rule 模式")
+	a.mModeGlobal = mModes.AddSubMenuItem("全局 (Global)", "Global 模式")
+	a.mModeDirect = mModes.AddSubMenuItem("直连 (Direct)", "Direct 模式")
+
+	systray.AddSeparator()
+	mRestart := systray.AddMenuItem("重启内核", "重启 Clash 内核")
+	mQuit := systray.AddMenuItem("退出程序", "彻底退出 GoclashZ")
+
+	// 信号处理
 	mShow.Click(func() {
-		a.safeTrayAction("show-window", func() {
-			showMainWindowFromTrayAndFlash(a)
-		})
+		runtime.WindowShow(a.ctx)
+		runtime.WindowUnmaximise(a.ctx)
 	})
-	systray.AddSeparator() // ----------------------
-
-	mModeMenu := systray.AddMenuItem("出站路由", "切换流量分流模式")
-	a.mModeRule = mModeMenu.AddSubMenuItemCheckbox("规则分流 (Rule)", "", false)
-	a.mModeRule.Click(func() {
-		a.safeTrayAction("mode-rule", func() { a.UpdateClashMode("rule") })
-	})
-
-	a.mModeGlobal = mModeMenu.AddSubMenuItemCheckbox("全局代理 (Global)", "", false)
-	a.mModeGlobal.Click(func() {
-		a.safeTrayAction("mode-global", func() { a.UpdateClashMode("global") })
-	})
-
-	a.mModeDirect = mModeMenu.AddSubMenuItemCheckbox("直接连接 (Direct)", "", false)
-	a.mModeDirect.Click(func() {
-		a.safeTrayAction("mode-direct", func() { a.UpdateClashMode("direct") })
-	})
-
-	systray.AddSeparator() // ----------------------
-
-	a.mSysProxy = systray.AddMenuItemCheckbox("系统代理", "全局接管 Windows 流量", false)
 	a.mSysProxy.Click(func() {
-		a.safeTrayAction("toggle-sysproxy", func() { a.ToggleSystemProxy(!a.sysProxyActive) })
+		state := a.core.GetAppState()
+		a.ToggleSystemProxy(!state.SystemProxy)
 	})
-
-	a.mTun = systray.AddMenuItemCheckbox("虚拟网卡", "虚拟网卡底层接管", false)
 	a.mTun.Click(func() {
-		a.safeTrayAction("toggle-tun", func() { a.ToggleTunMode(!a.tunActive) })
+		state := a.core.GetAppState()
+		a.ToggleTunMode(!state.Tun)
 	})
-
-	systray.AddSeparator() // ----------------------
-	mRestart := systray.AddMenuItem("重启内核", "热重启 Mihomo 进程")
+	a.mModeRule.Click(func() {
+		a.UpdateClashMode("rule")
+	})
+	a.mModeGlobal.Click(func() {
+		a.UpdateClashMode("global")
+	})
+	a.mModeDirect.Click(func() {
+		a.UpdateClashMode("direct")
+	})
 	mRestart.Click(func() {
-		a.safeTrayAction("restart-core", func() { a.RestartCore() })
+		a.RestartCore()
 	})
-
-	mQuit := systray.AddMenuItem("退出程序", "彻底退出客户端")
 	mQuit.Click(func() {
-		a.safeTrayAction("quit", func() {
-			systray.Quit()
-			runtime.Quit(a.ctx)
-		})
+		runtime.Quit(a.ctx)
 	})
 
-	// 初始状态同步
-	a.mu.RLock()
-	if a.sysProxyActive {
-		a.mSysProxy.Check()
-	}
-	if a.tunActive {
-		a.mTun.Check()
-	}
-	a.mu.RUnlock()
-
-	// ⚡ 调用同步方法，给当前的模式打勾
 	a.SyncState()
 }
 
 func (a *App) onTrayExit() {
-	// Windows 下的托盘清理逻辑
-}
-
-// ==========================================
-// --- 规则分页与搜索支持 (新增) ---
-// ==========================================
-
-type RuleItem struct {
-	Index int    `json:"index"` // 记录在原始切片中的真实索引，确保删除时准确无误
-	Text  string `json:"text"`
-}
-
-type PagedRules struct {
-	Total      int        `json:"total"`
-	Items      []RuleItem `json:"items"`
-	IsEditable bool       `json:"isEditable"`
-}
-
-// GetAllRules 供前端一次性获取所有匹配规则，配合虚拟滚动实现极致流畅
-func (a *App) GetAllRules(id string, keyword string) (PagedRules, error) {
-	rules, err := clash.GetCustomRules(id)
-	if err != nil {
-		return PagedRules{}, err
-	}
-
-	var filtered []RuleItem
-	keyword = strings.ToLower(keyword)
-
-	for i, r := range rules {
-		if keyword == "" || strings.Contains(strings.ToLower(r), keyword) {
-			filtered = append(filtered, RuleItem{Index: i, Text: r})
-		}
-	}
-
-	return PagedRules{
-		Total:      len(filtered),
-		Items:      filtered,
-		IsEditable: true,
-	}, nil
-}
-
-// GetUwpApps 供前端拉取所有 UWP 应用
-func (a *App) GetUwpApps() ([]sys.UwpApp, error) {
-	return sys.GetUwpAppList()
-}
-
-// --- 软件更新 (新增) ---
-
-// GetWintunVersion 供前端获取当前 Wintun 驱动的版本
-func (a *App) GetWintunVersion() string {
-	dllPath := sys.GetWintunPath()
-	v := getWintunVersion(dllPath)
-	if v == "" {
-		return "未安装"
-	}
-	return v
-}
-
-func getWintunVersion(dllPath string) string {
-	if _, err := os.Stat(dllPath); os.IsNotExist(err) {
-		return ""
-	}
-	// 使用 PowerShell 获取文件版本号 (通过环境变量安全传递路径，防止命令注入)
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", "(Get-Item -LiteralPath $env:TARGET_DLL_PATH).VersionInfo.FileVersion")
-	cmd.Env = append(os.Environ(), "TARGET_DLL_PATH="+dllPath)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	out, err := cmd.Output()
-	if err != nil {
-		return "未知"
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// 获取本地内核版本号
-func getLocalCoreVersion(exePath string) string {
-	if _, err := os.Stat(exePath); os.IsNotExist(err) {
-		return ""
-	}
-	// 执行 clash.exe -v 获取版本 (使用 CombinedOutput 捕获所有输出)
-	cmd := exec.Command(exePath, "-v")
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return ""
-	}
-
-	str := string(out)
-	parts := strings.Fields(str)
-	for _, p := range parts {
-		// 寻找以 v 开头的版本号，或者形如 alpha-xxx 的字符串
-		if strings.HasPrefix(p, "v") && len(p) > 1 {
-			return p
-		}
-		if strings.HasPrefix(p, "alpha-") || strings.HasPrefix(p, "beta-") {
-			return p
-		}
-	}
-	return ""
-}
-
-// 辅助函数：归一化版本号（移除 v 前缀和空白符）
-func normalizeVersion(v string) string {
-	return strings.TrimPrefix(strings.TrimSpace(v), "v")
-}
-
-// safeRename 提供带有重试机制的原子替换，对抗 Windows 下杀毒软件短暂锁文件的现象
-func safeRename(oldpath, newpath string) error {
-	var err error
-	// 尝试 5 次，每次间隔 200ms (最多等待 1 秒)
-	for i := 0; i < 5; i++ {
-		err = os.Rename(oldpath, newpath)
-		if err == nil {
-			return nil
-		}
-		// 如果是源文件不存在，属于硬错误，直接返回无需重试
-		if os.IsNotExist(err) {
-			return err
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	return fmt.Errorf("多次尝试重命名被拒绝(文件可能被锁定): %v", err)
-}
-
-// UpdateCoreComponent 触发安全更新机制：无缝下载，原子替换
-func (a *App) UpdateCoreComponentAsync() {
-	a.runAsyncTaskNoAutoSuccess("core-update", func(ctx context.Context) error {
-		res, err := a.updateCoreComponent(ctx)
-		if err != nil {
-			return err
-		}
-		if res == "ALREADY_LATEST" {
-			runtime.EventsEmit(a.ctx, "core-update-latest", a.GetCoreVersion())
-			return nil
-		}
-		runtime.EventsEmit(a.ctx, "core-update-updated")
-		return nil
-	})
-}
-
-func (a *App) updateCoreComponent(ctx context.Context) (string, error) {
-	binDir := utils.GetCoreBinDir()
-	exePath := filepath.Join(binDir, "clash.exe")
-
-	// 1. 获取本地版本
-	localVersion := getLocalCoreVersion(exePath)
-
-	// 2. 走 API 获取最新版本和下载链接
-	directURL, latestVersion, err := getLatestMihomoAssetURL("windows", "amd64", ".zip")
-	if err != nil {
-		return "", err
-	}
-
-	// 🌟 拦截：如果是最新版，直接短路返回，绝不启动下载
-	// (前端监听到 "ALREADY_LATEST" 会触发 "core-update-latest" 并弹出卡片提示)
-	if localVersion != "" && latestVersion != "" && normalizeVersion(localVersion) == normalizeVersion(latestVersion) {
-		return "ALREADY_LATEST", nil
-	}
-
-	// 🚀 新增：为下载链接加上镜像代理，解决国内 GitHub 下载慢/断流导致校验失败的问题
-	if !strings.HasPrefix(directURL, "https://ghproxy.net/") {
-		directURL = "https://ghproxy.net/" + directURL
-	}
-
-	// ==========================================
-	// ⚡ 1. 安全下载阶段 (此时旧内核还在正常运行)
-	// ==========================================
-	tempZip := filepath.Join(binDir, "core_temp.zip")
-	newExePath := filepath.Join(binDir, "clash_new.exe")
-
-	// 这里将强制启用 SHA256 比对。
-	// 如果文件不完整或哈希不对，底层会直接删掉 core_temp.zip 并报错，下面的流程根本不会执行，老内核绝对安全！
-	// 🌟 仅内核开启哈希校验 (传入 true)
-	err = downloadFileWithRetry(ctx, tempZip, directURL, true)
-	if err != nil {
-		return "", fmt.Errorf("下载或哈希校验未通过: %v", err)
-	}
-
-	// 提取新 .exe 到一旁备用
-	err = clash.ExtractKernel(tempZip, newExePath)
-	os.Remove(tempZip) // 解压完销毁 zip
-	if err != nil {
-		os.Remove(newExePath)
-		return "", fmt.Errorf("解压内核失败，已清理: %v", err)
-	}
-
-	// ==========================================
-	// ⚡ 2. 原子替换与回滚阶段
-	// ==========================================
-	a.updateMu.Lock()         
-	defer a.updateMu.Unlock() 
-
-	a.mu.RLock()
-	wasActive := a.sysProxyActive || a.tunActive
-	a.mu.RUnlock()
-
-	a.coreLifecycleMu.Lock()
-	defer a.coreLifecycleMu.Unlock()
-
-	a.stopCoreService() // 停机
-
-	backupPath := filepath.Join(binDir, "clash_backup.exe")
-	os.Remove(backupPath) 
-
-	// 🌟 旧版本加上后缀 (重命名为 clash_backup.exe)
-	renameErr := safeRename(exePath, backupPath) 
-	if renameErr != nil && !os.IsNotExist(renameErr) {
-		os.Remove(newExePath)
-		if wasActive { a.ensureCoreRunning() }
-		return "", fmt.Errorf("旧内核被占用无法备份: %v", renameErr)
-	}
-
-	// 将新下载的版本替换上去
-	err = safeRename(newExePath, exePath) 
-	if err != nil {
-		// 🌟 灾难回滚 1：新文件替换失败，删除新文件，用 backup 恢复旧文件
-		os.Remove(newExePath)
-		_ = safeRename(backupPath, exePath)
-		if wasActive { a.ensureCoreRunning() }
-		return "", fmt.Errorf("部署新内核失败，已安全回滚: %v", err)
-	}
-
-	// 🌟 灾难回滚 2：拉起新内核进行可用性验证，如果内核报错秒退
-	if wasActive {
-		if startErr := a.ensureCoreRunning(); startErr != nil {
-			a.stopCoreService()
-			os.Remove(exePath) // 摧毁有问题的新内核
-			
-			// 还原旧版本
-			rollbackErr := safeRename(backupPath, exePath)
-			if rollbackErr != nil {
-				errMsg := fmt.Sprintf("严重故障: 无法还原旧内核！请手动去 %s 检查。错误: %v", binDir, rollbackErr)
-				runtime.EventsEmit(a.ctx, "notify-error", errMsg)
-				return "", fmt.Errorf("%s", errMsg)
-			}
-
-			a.ensureCoreRunning() // 重新启动旧内核
-			a.SyncState()
-			return "", fmt.Errorf("新内核不兼容，已自动回滚至旧稳定版: %v", startErr)
-		}
-	}
-
-	// 更新彻底成功，过河拆桥销毁备份旧版本
-	os.Remove(backupPath)
-	a.SyncState()
-
-	return "SUCCESS", nil
-}
-
-// SaveUwpExemptions 供前端批量保存选中的 SID 列表
-func (a *App) SaveUwpExemptions(sids []string) error {
-	if !sys.CheckAdmin() {
-		return fmt.Errorf("此操作需要管理员权限")
-	}
-	return sys.SaveUwpExemptions(sids)
-}
-
-// FlashWindow 底层闪烁窗口独立方法
-func (a *App) FlashWindow() {
-	windowName, _ := syscall.UTF16PtrFromString("GoclashZ")
-	user32 := syscall.NewLazyDLL("user32.dll")
-	procFindWindow := user32.NewProc("FindWindowW")
-	procFlashWindowEx := user32.NewProc("FlashWindowEx")
-
-	hwnd, _, _ := procFindWindow.Call(0, uintptr(unsafe.Pointer(windowName)))
-	if hwnd != 0 {
-		type FLASHWINFO struct {
-			CbSize    uint32
-			Hwnd      uintptr
-			DwFlags   uint32
-			UCount    uint32
-			DwTimeout uint32
-		}
-		finfo := FLASHWINFO{
-			CbSize:    uint32(unsafe.Sizeof(FLASHWINFO{})),
-			Hwnd:      hwnd,
-			DwFlags:   0x00000003 | 0x0000000C, // 闪烁标题和任务栏
-			UCount:    0,
-			DwTimeout: 0,
-		}
-		procFlashWindowEx.Call(uintptr(unsafe.Pointer(&finfo)))
-	}
-}
-
-// UpdateGeoDatabaseAsync 安全更新单一规则数据库文件
-func (a *App) UpdateGeoDatabaseAsync(key string) {
-	// 🌟 使用 NoAutoSuccess，接管成功消息的发送权
-	a.runAsyncTaskNoAutoSuccess("geodb-update-"+key, func(ctx context.Context) error {
-		// false 代表单项更新
-		err := a.updateAllGeoDatabases(ctx, []string{key}, false)
-		if err != nil {
-			return err 
-		}
-		runtime.EventsEmit(a.ctx, "geodb-update-"+key+"-success")
-		return nil
-	})
-}
-
-// UpdateAllGeoDatabasesAsync 一键异步更新所有数据库
-func (a *App) UpdateAllGeoDatabasesAsync() {
-	a.runAsyncTaskNoAutoSuccess("geodb-update-all", func(ctx context.Context) error {
-		// true 代表批量更新
-		err := a.updateAllGeoDatabases(ctx, nil, true)
-		if err != nil {
-			// 发送聚合错误事件（内容已在底层拼接好）
-			runtime.EventsEmit(a.ctx, "geodb-update-all-error", err.Error())
-			return err
-		}
-		// 完美完成
-		runtime.EventsEmit(a.ctx, "geodb-update-all-success", "全部数据库文件已同步")
-		return nil
-	})
-}
-
-// updateAllGeoDatabases 内部实现：加入 isBatch 拦截与错误聚合
-func (a *App) updateAllGeoDatabases(ctx context.Context, types []string, isBatch bool) error {
-	behavior := a.GetAppBehavior()
-
-	type dbTask struct {
-		key  string
-		url  string
-		file string
-	}
-
-	// 任务组装
-	var tasks []dbTask
-	allTypes := map[string]dbTask{
-		"geoip":   {"geoip", behavior.GeoIpLink, "geoip.metadb"},
-		"geosite": {"geosite", behavior.GeoSiteLink, "GeoSite.dat"},
-		"mmdb":    {"mmdb", behavior.MmdbLink, "Country.mmdb"},
-		"asn":     {"asn", behavior.AsnLink, "GeoLite2-ASN.mmdb"},
-	}
-
-	if len(types) == 0 {
-		types = []string{"geoip", "geosite", "mmdb", "asn"}
-	}
-
-	// 针对 GeoIP 后缀做特殊兼容处理
-	if behavior.GeoIpLink != "" && strings.HasSuffix(behavior.GeoIpLink, ".dat") {
-		allTypes["geoip"] = dbTask{"geoip", behavior.GeoIpLink, "geoip.dat"}
-	}
-
-	for _, t := range types {
-		if task, ok := allTypes[t]; ok && task.url != "" {
-			tasks = append(tasks, task)
-		}
-	}
-
-	if len(tasks) == 0 {
-		return fmt.Errorf("没有找到有效的下载链接配置")
-	}
-
-	binDir := utils.GetCoreBinDir()
-	var wg sync.WaitGroup
-	errChan := make(chan error, len(tasks))
-
-	// 🌟 新增：安全记录失败的 key，用于最终聚合报错
-	var failedKeysMu sync.Mutex
-	var failedKeys []string
-
-	// 1. ⚡ 开启多协程，并发无感下载所有文件 (限流 4)
-	sem := make(chan struct{}, 4)
-	for _, t := range tasks {
-		wg.Add(1)
-		go func(task dbTask) {
-			defer wg.Done()
-			
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-ctx.Done():
-				errChan <- ctx.Err()
-				return
-			}
-
-			if !isBatch {
-				runtime.EventsEmit(a.ctx, "geodb-update-"+task.key+"-start")
-			} else {
-				// 批量模式只通知前端开启 Loading 圈圈，不发带弹窗的 start
-				runtime.EventsEmit(a.ctx, "geodb-item-state", map[string]any{"key": task.key, "loading": true})
-			}
-
-			tempPath := filepath.Join(binDir, task.file+".temp")
-			// 👈 规则库关闭哈希校验 (传入 false)
-			if err := downloadFileWithRetry(ctx, tempPath, task.url, false); err != nil {
-				// 记录失败名单与详细错误
-				failedKeysMu.Lock()
-				failedKeys = append(failedKeys, fmt.Sprintf("[%s] 下载失败: %v", task.key, err))
-				failedKeysMu.Unlock()
-
-				if !isBatch {
-					runtime.EventsEmit(a.ctx, "geodb-update-"+task.key+"-error", err.Error())
-				}
-				errChan <- fmt.Errorf("[%s] 下载失败: %v", task.key, err)
-				return
-			}
-			
-			if !isBatch {
-				runtime.EventsEmit(a.ctx, "geodb-update-"+task.key+"-success")
-			}
-		}(t)
-	}
-
-	wg.Wait()
-	close(errChan)
-
-	// 2. 🔒 获取全局组件更新锁，开始原子替换
-	a.updateMu.Lock()
-	defer a.updateMu.Unlock()
-
-	a.mu.RLock()
-	wasActive := a.sysProxyActive || a.tunActive
-	a.mu.RUnlock()
-
-	// 🛡️ 修复：闭环锁住内核，不允许中途操作
-	a.coreLifecycleMu.Lock()
-	defer a.coreLifecycleMu.Unlock()
-
-	a.stopCoreService()
-
-	for _, task := range tasks {
-		tempPath := filepath.Join(binDir, task.file+".temp")
-		targetPath := filepath.Join(binDir, task.file)
-		backupPath := filepath.Join(binDir, task.file+".backup")
-
-		// 跳过那些下载失败的文件
-		if _, err := os.Stat(tempPath); os.IsNotExist(err) {
-			if isBatch {
-				runtime.EventsEmit(a.ctx, "geodb-item-state", map[string]any{"key": task.key, "loading": false})
-			}
-			continue
-		}
-
-		// 🎯 核心修复：清理 GeoIP 切换后缀时的残留僵尸文件
-		if task.key == "geoip" {
-			if task.file == "geoip.metadb" {
-				os.Remove(filepath.Join(binDir, "geoip.dat"))
-			} else {
-				os.Remove(filepath.Join(binDir, "geoip.metadb"))
-			}
-		}
-
-		os.Remove(backupPath)
-		if _, err := os.Stat(targetPath); err == nil {
-			_ = safeRename(targetPath, backupPath)
-		}
-
-		if err := safeRename(tempPath, targetPath); err != nil {
-			os.Remove(tempPath)
-			_ = safeRename(backupPath, targetPath)
-			
-			// 如果是部署替换失败，也记入失败名单
-			failedKeysMu.Lock()
-			failedKeys = append(failedKeys, fmt.Sprintf("[%s] 部署替换失败: %v", task.key, err))
-			failedKeysMu.Unlock()
-		} else {
-			os.Remove(backupPath)
-		}
-
-		// 🌟 批量模式下，在此处统一释放单项 Loading 状态，确保与时间戳更新同步
-		if isBatch {
-			runtime.EventsEmit(a.ctx, "geodb-item-state", map[string]any{"key": task.key, "loading": false})
-		}
-	}
-
-	// 3. 🚀 统一重新拉起内核
-	if wasActive {
-		if startErr := a.ensureCoreRunning(); startErr != nil {
-			a.SyncState()
-			return fmt.Errorf("文件更新成功，但内核重启引发异常: %v", startErr)
-		}
-	}
-
-	a.SyncState()
-
-	// 🌟 核心：聚合拦截返回
-	if len(failedKeys) > 0 {
-		// 从 errChan 中重新提取详细错误原因（可选，也可以直接用 failedKeys）
-		// 为了简单起见，我们直接在 failedKeysMu 里存详细信息
-		return fmt.Errorf("%s", strings.Join(failedKeys, "\n"))
-	}
-	return nil
-}
-
-// GeoFileInfo 描述数据库文件的物理信息
-type GeoFileInfo struct {
-	Size    int64 `json:"size"`
-	ModTime int64 `json:"modTime"` // Unix 时间戳
-	Exists  bool  `json:"exists"`
-}
-
-// GetGeoDatabaseInfo 获取所有规则数据库的物理文件状态
-func (a *App) GetGeoDatabaseInfo() map[string]GeoFileInfo {
-	binDir := utils.GetCoreBinDir()
-	results := make(map[string]GeoFileInfo)
-
-	files := map[string]string{
-		"geoip":   "geoip.metadb",
-		"geosite": "GeoSite.dat",
-		"mmdb":    "Country.mmdb",
-		"asn":     "GeoLite2-ASN.mmdb",
-	}
-
-	for key, name := range files {
-		path := filepath.Join(binDir, name)
-
-		// 针对 GeoIP 可能的 .dat 后缀做兼容检查
-		if key == "geoip" {
-			if _, err := os.Stat(path); os.IsNotExist(err) {
-				path = filepath.Join(binDir, "geoip.dat")
-			}
-		}
-
-		info, err := os.Stat(path)
-		if err != nil {
-			results[key] = GeoFileInfo{Exists: false}
-			continue
-		}
-
-		results[key] = GeoFileInfo{
-			Size:    info.Size(),
-			ModTime: info.ModTime().Unix(),
-			Exists:  true,
-		}
-	}
-
-	return results
-}
-
-// getLatestAppReleaseURL 走 GitHub API 获取最新软件版本的直链
-func getLatestAppReleaseURL(repo, osName, arch, suffix string) (string, string, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-
-	resp, err := client.Get(url)
-	if err != nil {
-		return "", "", err
-	}
-	defer resp.Body.Close()
-
-	// 拦截非 200 状态码 (处理速率限制或 API 故障)
-	if resp.StatusCode == 403 {
-		return "", "", fmt.Errorf("触发 GitHub API 速率限制 (60次/小时)，请稍后再试")
-	} else if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("请求 GitHub API 失败，HTTP 状态码: %d", resp.StatusCode)
-	}
-
-	var release struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", "", err
-	}
-
-	for _, asset := range release.Assets {
-		name := strings.ToLower(asset.Name)
-		// 寻找包含 windows, amd64 和 .exe 后缀的安装包
-		if strings.Contains(name, osName) && strings.Contains(name, arch) && strings.HasSuffix(name, suffix) {
-			return asset.BrowserDownloadURL, release.TagName, nil
-		}
-	}
-	return "", "", fmt.Errorf("未找到匹配的安装包")
-}
-
-// CheckAndDownloadAppUpdateAsync 异步检查并下载应用更新
-func (a *App) CheckAndDownloadAppUpdateAsync() {
-	a.runAsyncTask("app-update", func(ctx context.Context) error {
-		return a.checkAndDownloadAppUpdate(ctx)
-	})
-}
-
-// checkAndDownloadAppUpdate 核心逻辑：静默比对、断点下载、分发通知
-func (a *App) checkAndDownloadAppUpdate(ctx context.Context) error {
-	directURL, latestVersion, err := getLatestAppReleaseURL("Zzz-IT/GoclashZ", "windows", "amd64", ".exe")
-	if err != nil {
-		return err
-	}
-
-	// 已经是最新版本，退出
-	if normalizeVersion(CurrentAppVersion) == normalizeVersion(latestVersion) {
-		return nil
-	}
-
-	// 👇 新增：获取并发锁，防止与手动点击起冲突
-	a.appUpdateTaskMu.Lock()
-	if a.isDownloadingApp {
-		a.appUpdateTaskMu.Unlock()
-		return nil // 已经在下载中了，直接忽略本次定时任务
-	}
-	a.isDownloadingApp = true
-	a.appUpdateTaskMu.Unlock()
-
-	// 确保函数退出时释放下载状态
-	defer func() {
-		a.appUpdateTaskMu.Lock()
-		a.isDownloadingApp = false
-		a.appUpdateTaskMu.Unlock()
-	}()
-
-	exePath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
-	versionPath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.version") // 🚀 新增：版本号记录文件
-
-	// 🚀 修改：防重复下载校验，增加版本一致性比对
-	if info, err := os.Stat(exePath); err == nil && info.Size() > 10*1024*1024 {
-		if _, tmpErr := os.Stat(exePath + ".tmp"); os.IsNotExist(tmpErr) {
-			// 读取本地保存的安装包版本号
-			if cachedVer, err := os.ReadFile(versionPath); err == nil && normalizeVersion(string(cachedVer)) == normalizeVersion(latestVersion) {
-				// 版本完全匹配，安全跳过下载
-				a.mu.Lock()
-				a.appUpdateReady = true
-				a.newAppVersion = latestVersion
-				a.mu.Unlock()
-				runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
-				return nil
-			} else {
-				// 🔴 版本不匹配（本地是旧包），删除旧包，强制重新下载
-				_ = os.Remove(exePath)
-				_ = os.Remove(versionPath)
-			}
-		}
-	}
-
-	// ⚡ 执行静默下载，内含 3 次断线重连/断点续传机制
-	// 👈 软件本体关闭哈希校验 (传入 false)
-	err = downloadFileWithRetry(ctx, exePath, directURL, false)
-	if err != nil {
-		runtime.EventsEmit(a.ctx, "notify-error", "软件本体更新下载失败，请检查网络环境。")
-		return err
-	}
-
-	// 🚀 新增：下载彻底成功后，写入版本号文件，供下次校验使用
-	_ = os.WriteFile(versionPath, []byte(latestVersion), 0644)
-
-	// 下载成功：将就绪状态固化到内存
-	a.mu.Lock()
-	a.appUpdateReady = true
-	a.newAppVersion = latestVersion
-	a.mu.Unlock()
-
-	// 主动向前端广播更新就绪事件 (如果当前窗口是打开的，前端收到后直接弹窗)
-	runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
-	return nil
-}
-
-// ApplyAppUpdate 供前端调用：确认更新后，关闭应用并打开安装包
-func (a *App) ApplyAppUpdate() error {
-	exePath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
-
-	if _, err := os.Stat(exePath); os.IsNotExist(err) {
-		return fmt.Errorf("安装包不存在，可能被安全软件清理")
-	}
-
-	cmd := exec.Command(exePath)
-	// 使得安装包脱离当前父进程独立运行，防止我们的进程退出导致安装包也退出
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("启动安装程序失败: %v", err)
-	}
-
-	// 彻底、优雅地自我了断，释放正在运行的文件占用，让新安装包可以顺利覆盖安装
-	systray.Quit()
-	os.Exit(0)
-	return nil
-}
-
-// ManualCheckAppUpdate 供前端手动点击触发：包含更明显的交互反馈
-func (a *App) ManualCheckAppUpdate() (string, error) {
-	directURL, latestVersion, err := getLatestAppReleaseURL("Zzz-IT/GoclashZ", "windows", "amd64", ".exe")
-	if err != nil {
-		return "", fmt.Errorf("检查失败: %v", err)
-	}
-
-	if normalizeVersion(CurrentAppVersion) == normalizeVersion(latestVersion) {
-		return "ALREADY_LATEST", nil
-	}
-
-	// 👇 新增：获取并发锁
-	a.appUpdateTaskMu.Lock()
-	if a.isDownloadingApp {
-		a.appUpdateTaskMu.Unlock()
-		// 已经在下载中了，直接返回 latestVersion，前端收到后会弹 Toast 提示“正在后台静默下载中”
-		return latestVersion, nil
-	}
-	a.isDownloadingApp = true
-	a.appUpdateTaskMu.Unlock()
-
-	// 如果有更新，触发异步下载流程
-	go func() {
-		// 确保下载协程结束时，重置下载状态
-		defer func() {
-			a.appUpdateTaskMu.Lock()
-			a.isDownloadingApp = false
-			a.appUpdateTaskMu.Unlock()
-		}()
-
-		exePath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.exe")
-		versionPath := filepath.Join(utils.GetDataDir(), "GoclashZ_update.version")
-
-		// 🚀 同样拦截重复下载 (带版本校验)
-		if info, err := os.Stat(exePath); err == nil && info.Size() > 10*1024*1024 {
-			if _, tmpErr := os.Stat(exePath + ".tmp"); os.IsNotExist(tmpErr) {
-				if cachedVer, err := os.ReadFile(versionPath); err == nil && normalizeVersion(string(cachedVer)) == normalizeVersion(latestVersion) {
-					a.mu.Lock()
-					a.appUpdateReady = true
-					a.newAppVersion = latestVersion
-					a.mu.Unlock()
-					runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
-					return
-				} else {
-					_ = os.Remove(exePath)
-					_ = os.Remove(versionPath)
-				}
-			}
-		}
-
-		// 👈 软件本体关闭哈希校验 (传入 false)
-		err := downloadFileWithRetry(a.ctx, exePath, directURL, false)
-		if err == nil {
-			// 写入版本校验文件
-			_ = os.WriteFile(versionPath, []byte(latestVersion), 0644)
-
-			a.mu.Lock()
-			a.appUpdateReady = true
-			a.newAppVersion = latestVersion
-			a.mu.Unlock()
-			// 下载完后，向前端推送就绪事件，触发弹窗
-			runtime.EventsEmit(a.ctx, "app-update-ready", latestVersion)
-		} else {
-			// 🚀 修复：删掉 os.Remove(exePath + ".tmp")，保留下载进度！
-			runtime.EventsEmit(a.ctx, "notify-error", "软件本体更新下载失败，请检查网络环境。")
-		}
-	}()
-	return latestVersion, nil
-}
-
-// getLatestMihomoAssetURL 走 GitHub API 获取最新内核版本与下载直链
-func getLatestMihomoAssetURL(osName, arch, suffix string) (string, string, error) {
-	// ⚡ 使用本地定义的超时 Client，防止 GitHub API 卡死整个应用
-	client := &http.Client{Timeout: 10 * time.Second}
-
-	url := "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
-	resp, err := client.Get(url)
-	if err != nil {
-		return "", "", err
-	}
-	defer resp.Body.Close()
-
-	// 拦截非 200 状态码 (处理速率限制或 API 故障)
-	if resp.StatusCode == 403 {
-		return "", "", fmt.Errorf("触发 GitHub API 速率限制 (60次/小时)，请稍后再试")
-	} else if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("请求 GitHub API 失败，HTTP 状态码: %d", resp.StatusCode)
-	}
-
-	var release struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", "", err
-	}
-
-	for _, asset := range release.Assets {
-		name := strings.ToLower(asset.Name)
-		// 匹配逻辑：windows + amd64 + .zip
-		if strings.Contains(name, osName) && strings.Contains(name, arch) && strings.HasSuffix(name, suffix) {
-			return asset.BrowserDownloadURL, release.TagName, nil
-		}
-	}
-
-	return "", "", fmt.Errorf("未找到匹配的资产文件: %s-%s%s", osName, arch, suffix)
-}
-
-// 带有重试机制的文件下载封装
-// 参数 verifyHash: 控制是否开启 GitHub SHA256 哈希校验
-func downloadFileWithRetry(ctx context.Context, destPath, url string, verifyHash bool) error {
-	var lastErr error
-	for i := 0; i < 3; i++ {
-		// 🚀 调用 downloader.go 中的核心下载逻辑
-		lastErr = downloader.DownloadAtomic(ctx, downloader.Options{
-			URLs:            []string{url},
-			DestPath:        destPath,
-			MaxBytes:        100 * 1024 * 1024, // 限制最大 100MB
-			Resume:          true,              // 开启断点续传
-			VerifyGitHubSHA: verifyHash,        // 👈 动态控制是否校验哈希
-		})
-		if lastErr == nil {
-			return nil
-		}
-		// 失败后等待 2 秒再重试，给网络恢复留出时间
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(2 * time.Second):
-		}
-	}
-	return fmt.Errorf("三次尝试下载均失败: %v", lastErr)
+	// 托盘退出清理
 }

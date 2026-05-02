@@ -214,3 +214,30 @@ func ExtractKernel(zipPath, destExePath string) error {
 	}
 	return fmt.Errorf("未在压缩包中找到 .exe 文件")
 }
+// UpdateCore 供外部（如 app.go）手动触发内核更新
+func UpdateCore(ctx context.Context) (string, error) {
+	binDir := utils.GetCoreBinDir()
+	exePath := filepath.Join(binDir, "clash.exe")
+	if err := downloadAndExtractKernel(ctx, binDir, exePath); err != nil {
+		return "", err
+	}
+	return GetVersion(), nil
+}
+
+// UpdateGeoDB 更新指定的 Geo 数据库
+func UpdateGeoDB(ctx context.Context, key string, url string) error {
+	destName := key + ".dat"
+	if strings.Contains(strings.ToLower(key), "mmdb") || strings.Contains(strings.ToLower(key), "geoip") {
+		destName = key + ".metadb"
+		if key == "mmdb" {
+			destName = "country.mmdb"
+		}
+	}
+	destPath := filepath.Join(utils.GetDataDir(), destName)
+
+	return downloader.DownloadAtomic(ctx, downloader.Options{
+		URLs:     []string{url},
+		DestPath: destPath,
+		Resume:   true,
+	})
+}

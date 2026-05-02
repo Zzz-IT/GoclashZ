@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // LogMessage 内核日志结构
@@ -18,8 +17,11 @@ type LogMessage struct {
 	Payload string `json:"payload"`
 }
 
-// StartLogStream 开启日志监听流
-func StartLogStream(ctx context.Context) {
+// LogCallback 日志回调类型
+type LogCallback func(log LogMessage)
+
+// StartLogStream 开启日志监听流（通过回调推送，不再依赖 Wails）
+func StartLogStream(ctx context.Context, onLog LogCallback) {
 	const (
 		pongWait   = 60 * time.Second
 		pingPeriod = 30 * time.Second
@@ -62,8 +64,10 @@ func StartLogStream(ctx context.Context) {
 				continue
 			}
 
-			// ✨ 实时推送事件给前端
-			runtime.EventsEmit(ctx, "clash_log", log)
+			// ✨ 通过回调推送日志
+			if onLog != nil {
+				onLog(log)
+			}
 		}
 	}()
 
