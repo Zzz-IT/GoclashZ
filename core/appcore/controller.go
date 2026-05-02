@@ -39,15 +39,18 @@ type Controller struct {
 }
 
 func NewController(opts Options) *Controller {
-	return &Controller{
+	c := &Controller{
 		events:       opts.Events,
 		version:      opts.Version,
 		runDelayTest: opts.RunDelayTest,
 		Behavior:     NewBehaviorStore(),
 		Offline:      NewOfflineNodeStore(),
 		Tasks:        tasks.NewManager(opts.Events),
-		traffic:      NewTrafficStreamManager(opts.Events),
 	}
+	c.traffic = NewTrafficStreamManager(opts.Events, func() string {
+		return c.Behavior.Get().LogLevel
+	})
+	return c
 }
 
 func (c *Controller) Startup(ctx context.Context) {

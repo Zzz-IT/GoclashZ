@@ -3,7 +3,9 @@ package traffic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"time"
@@ -64,7 +66,7 @@ var trafficStreamClient = &http.Client{
 }
 
 // StreamTraffic 建立一个长连接并持续监听内核推送的流量数据
-func StreamTraffic(ctx context.Context, apiURL string, callback func(up, down string)) {
+func StreamTraffic(ctx context.Context, apiURL string, callback func(up, down string), onError func(error)) {
 	// 🚀 核心修复：包裹重连状态机
 	for {
 		// 1. 检查应用是否已退出
@@ -85,7 +87,9 @@ func StreamTraffic(ctx context.Context, apiURL string, callback func(up, down st
 
 		resp, err := trafficStreamClient.Do(req)
 		if err != nil {
-			fmt.Printf("Traffic Stream Error: %v\n", err)
+			if onError != nil && ctx.Err() == nil {
+				onError(fmt.Errorf("traffic stream request failed: %w", err))
+			}
 			if !sleepOrDone(ctx, 2*time.Second) {
 				return
 			}
@@ -93,7 +97,11 @@ func StreamTraffic(ctx context.Context, apiURL string, callback func(up, down st
 		}
 
 		if resp.StatusCode != http.StatusOK {
+			err := fmt.Errorf("traffic stream unexpected status: %s", resp.Status)
 			resp.Body.Close()
+			if onError != nil && ctx.Err() == nil {
+				onError(err)
+			}
 			if !sleepOrDone(ctx, 2*time.Second) {
 				return
 			}
@@ -135,6 +143,11 @@ func StreamTraffic(ctx context.Context, apiURL string, callback func(up, down st
 					}
 				}
 				resp.Body.Close()
+
+				if ctx.Err() == nil && !errors.Is(err, io.EOF) && onError != nil {
+					onError(fmt.Errorf("traffic stream decode failed: %w", err))
+				}
+
 				break
 			}
 
