@@ -12,6 +12,8 @@ export function CheckAndDownloadAppUpdateAsync():Promise<void>;
 
 export function CheckTunEnv():Promise<Record<string, boolean>>;
 
+export function ClearLogs():Promise<void>;
+
 export function CloseAllConnections():Promise<void>;
 
 export function CloseConnection(arg1:string):Promise<void>;
@@ -102,17 +104,15 @@ export function StartClash(arg1:string):Promise<void>;
 
 export function StartStreamingLogs():Promise<void>;
 
-export function StartTrafficStream():Promise<void>;
-
 export function StopStreamingLogs():Promise<void>;
-
-export function StopTrafficStream():Promise<void>;
 
 export function SyncRules(arg1:string):Promise<void>;
 
 export function SyncState():Promise<void>;
 
 export function TestAllProxies(arg1:Array<string>):Promise<void>;
+
+export function TestProxy(arg1:string):Promise<number>;
 
 export function ToggleSystemProxy(arg1:boolean):Promise<void>;
 

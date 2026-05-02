@@ -37,10 +37,11 @@ type Controller struct {
 	autoTestQuit chan struct{}
 	autoTestMu   sync.Mutex
 
-	traffic *TrafficStreamManager
-	logs    *LogStreamManager
-	Delay   *DelayTestManager
-	ctx     context.Context
+	traffic     *TrafficStreamManager
+	logs        *LogStreamManager
+	Delay       *DelayTestManager
+	connections *ConnectionMonitorManager
+	ctx         context.Context
 
 	updateReady   bool
 	newAppVersion string
@@ -60,6 +61,7 @@ func NewController(opts Options) *Controller {
 	})
 	c.logs = NewLogStreamManager(opts.Events)
 	c.Delay = NewDelayTestManager(opts.Events, c)
+	c.connections = NewConnectionMonitorManager(opts.Events)
 	return c
 }
 
@@ -473,6 +475,18 @@ func (c *Controller) ClearLogs() {
 
 func (c *Controller) IsLogStreaming() bool {
 	return c.logs.IsRunning()
+}
+
+func (c *Controller) GetConnections() (ConnectionsSnapshot, error) {
+	return c.connections.GetSnapshot()
+}
+
+func (c *Controller) StartConnectionMonitor(ctx context.Context) {
+	c.connections.Start(ctx)
+}
+
+func (c *Controller) StopConnectionMonitor() {
+	c.connections.Stop()
 }
 
 func (c *Controller) AppUpdateStatus() (bool, string) {

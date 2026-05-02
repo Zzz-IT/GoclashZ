@@ -633,5 +633,17 @@ func (a *App) onTrayReady() {
 	a.SyncState()
 }
 
+func (a *App) GetConnections() (appcore.ConnectionsSnapshot, error) {
+	return a.core.GetConnections()
+}
+
+func (a *App) StartConnectionMonitor() {
+	a.core.StartConnectionMonitor(a.ctx)
+}
+
+func (a *App) StopConnectionMonitor() {
+	a.core.StopConnectionMonitor()
+}
+
 func (a *App) onTrayExit() {
 }

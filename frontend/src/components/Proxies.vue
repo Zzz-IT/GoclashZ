@@ -194,18 +194,18 @@ const testAllDelays = () => {
 const testSingleDelay = async (node: any) => {
   if (node.testing) return;
   
-  // 🚀 核心修复：乐观 UI 更新 (Optimistic UI)
-  // 在点击瞬间立刻让图标转起圈来，消除等待 Go 后端事件回传的视觉顿挫
+  // 🚀 核心修复：单点测速直接调用 API.TestProxy，并由前端负责 Finally 复位
   node.testing = true;
-  // node.delay = null; // 移除
 
   try {
-    // 触发 Go 后端，后续真实结果依旧由事件驱动 (proxy-delay-update)
-    await API.TestAllProxies([node.name]);
+    const delay = await API.TestProxy(node.name);
+    // 延迟同步到全局 store，UI 渲染会自动跟随 globalState
+    updateProxyDelay(node.name, delay, delay > 0 ? 'success' : 'timeout');
   } catch (e) {
-    // 只有在 Wails 请求彻底发送失败时，才把状态重置回来
+    console.error("单点测速失败:", e);
+    updateProxyDelay(node.name, 0, 'timeout');
+  } finally {
     node.testing = false;
-    console.error("测速请求发送失败:", e);
   }
 };
 

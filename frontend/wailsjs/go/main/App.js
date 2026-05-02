@@ -14,6 +14,10 @@ export function CheckTunEnv() {
   return window['go']['main']['App']['CheckTunEnv']();
 }
 
+export function ClearLogs() {
+  return window['go']['main']['App']['ClearLogs']();
+}
+
 export function CloseAllConnections() {
   return window['go']['main']['App']['CloseAllConnections']();
 }
@@ -194,16 +198,8 @@ export function StartStreamingLogs() {
   return window['go']['main']['App']['StartStreamingLogs']();
 }
 
-export function StartTrafficStream() {
-  return window['go']['main']['App']['StartTrafficStream']();
-}
-
 export function StopStreamingLogs() {
   return window['go']['main']['App']['StopStreamingLogs']();
-}
-
-export function StopTrafficStream() {
-  return window['go']['main']['App']['StopTrafficStream']();
 }
 
 export function SyncRules(arg1) {
@@ -216,6 +212,10 @@ export function SyncState() {
 
 export function TestAllProxies(arg1) {
   return window['go']['main']['App']['TestAllProxies'](arg1);
+}
+
+export function TestProxy(arg1) {
+  return window['go']['main']['App']['TestProxy'](arg1);
 }
 
 export function ToggleSystemProxy(arg1) {

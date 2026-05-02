@@ -18,7 +18,10 @@
       </div>
 
       <div class="scroll-content">
-        <div class="conn-grid" v-if="connections.length > 0">
+        <div v-if="isLoading" class="empty-state">
+          <p>正在获取连接列表...</p>
+        </div>
+        <div class="conn-grid" v-else-if="connections.length > 0">
           <div v-for="conn in connections" :key="conn.id" class="conn-card" @click="openDetail(conn)">
             <div class="conn-header">
               <span class="host" :title="conn.metadata.host || conn.metadata.destinationIP">
@@ -130,15 +133,15 @@ const startMonitor = async () => {
     isLoading.value = true;
     
     // 🚀 核心修复：在建立监听后，立即主动请求一次连接快照，消除初始延迟
-    const initData = await (API as any).GetConnections();
+    const initData = await API.GetConnections();
     if (initData && Array.isArray(initData.connections)) {
       connections.value = initData.connections;
-      isLoading.value = false;
     }
 
-    await (API as any).StartConnectionMonitor();
+    await API.StartConnectionMonitor();
   } catch (e) {
     console.error("启动连接监控失败:", e);
+  } finally {
     isLoading.value = false;
   }
 };
@@ -153,7 +156,7 @@ const stopMonitor = () => {
     unsubMonitor = null;
   }
   
-  (API as any).StopConnectionMonitor();
+  API.StopConnectionMonitor();
 };
 
 // 配合 KeepAlive 的生命周期控制
@@ -185,7 +188,7 @@ const closeAll = async () => {
   const ok = await showConfirm('确定要强行切断当前所有的网络连接吗？', '强行断开全部', true);
   if (ok) {
     try {
-      await (API as any).CloseAllConnections();
+      await API.CloseAllConnections();
       if (selectedConn.value) closeDetail();
     } catch (e) { 
       await showAlert("操作失败: " + e, '错误'); 
@@ -198,7 +201,7 @@ const closeSingleConnection = async (id: string) => {
   if (!ok) return;
   
   try {
-    await (API as any).CloseConnection(id);
+    await API.CloseConnection(id);
     closeDetail();
   } catch (e) { 
     await showAlert("断开失败: " + e, '错误'); 

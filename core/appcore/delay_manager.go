@@ -25,6 +25,16 @@ func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []strin
 	m.mu.Lock()
 	if m.running {
 		m.mu.Unlock()
+
+		// 🛡️ 核心修复：忙碌时也要对请求的节点发通知，防止前端一直转圈
+		for _, name := range nodeNames {
+			m.emit.Emit("proxy-delay-update", map[string]interface{}{
+				"name":   name,
+				"delay":  0,
+				"status": "busy",
+			})
+		}
+		m.emit.Emit("proxy-test-finished", "当前已有测速任务正在运行")
 		return
 	}
 	m.running = true
