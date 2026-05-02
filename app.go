@@ -509,11 +509,9 @@ func (a *App) InstallTunDriverAsync(force bool) {
 			}
 		}
 
-		if err == nil {
-			runtime.EventsEmit(a.ctx, "tun-driver-install-updated", map[string]any{
-				"message": "Wintun 驱动安装完成",
-			})
-		}
+		runtime.EventsEmit(a.ctx, "tun-driver-install-updated", map[string]any{
+			"message": "Wintun 驱动安装完成",
+		})
 		return err
 	})
 }
