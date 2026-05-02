@@ -290,7 +290,7 @@ onUnmounted(() => {
   EventsOff("traffic-data");
   EventsOff("log-message");
   EventsOff("clash-exited");
-  EventsOff("app-update-ready");
+  EventsOff("app-update-available");
   EventsOff("app-update-start");
   EventsOff("app-update-error");
 });

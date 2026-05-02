@@ -271,7 +271,6 @@ func (a *App) UpdateSub(name, url string) error {
 		if state.ActiveConfig == id && state.IsRunning {
 			return a.core.RestartCore(a.ctx)
 		}
-		return a.core.EnsureCoreRunning(a.ctx)
 	}
 	return err
 }
@@ -298,7 +297,6 @@ func (a *App) UpdateSingleSub(id string) error {
 		if state.ActiveConfig == id && state.IsRunning {
 			return a.core.RestartCore(a.ctx)
 		}
-		return a.core.EnsureCoreRunning(a.ctx)
 	}
 	return err
 }
@@ -321,7 +319,7 @@ func (a *App) UpdateAllSubsAsync() {
 		if state.ActiveConfig != "" && state.IsRunning {
 			return a.core.RestartCore(a.ctx)
 		}
-		return a.core.EnsureCoreRunning(a.ctx)
+		return nil
 	})
 }
 

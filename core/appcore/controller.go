@@ -319,8 +319,16 @@ func (c *Controller) RestartCore(ctx context.Context) error {
 	c.coreLifecycleMu.Lock()
 	defer c.coreLifecycleMu.Unlock()
 
-	c.stopCoreProcessLocked()
-	return c.ensureCoreRunningLocked(ctx)
+	_ = c.stopCoreProcessLocked()
+
+	if err := c.ensureCoreRunningLocked(ctx); err != nil {
+		c.SyncState()
+		return err
+	}
+
+	c.events.Emit("core-restarted", nil)
+	c.SyncState()
+	return nil
 }
 
 // UpdateClashMode 切换 Clash 路由模式
@@ -339,7 +347,8 @@ func (c *Controller) UpdateClashMode(ctx context.Context, mode string) error {
 	// 2. 如果内核正在运行，尝试通过 API 热切换
 	if clash.IsRunning() {
 		if err := clash.UpdateMode(mode); err != nil {
-			// 如果 API 切换失败，可能需要重启内核（可选）
+			c.SyncState()
+			return fmt.Errorf("内核模式切换失败: %v", err)
 		}
 	}
 

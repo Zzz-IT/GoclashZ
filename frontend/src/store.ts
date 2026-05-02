@@ -156,7 +156,11 @@ export function showConfirm(message: string, title: string = '操作确认', isD
   });
 }
 
+let storeInited = false;
+
 export async function initStore() {
+  if (storeInited) return;
+  storeInited = true;
   // 1. 初始化时进行一次真理同步，获取后端当前所有真实状态
   try {
     const { GetAppState } = await import('../wailsjs/go/main/App');
