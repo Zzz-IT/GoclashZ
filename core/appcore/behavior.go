@@ -1,7 +1,6 @@
 package appcore
 
 import (
-	"encoding/json"
 	"goclashz/core/utils"
 	"os"
 	"path/filepath"
@@ -39,14 +38,25 @@ type AppBehavior struct {
 type BehaviorStore struct {
 	mu    sync.RWMutex
 	cache AppBehavior
-	path  string
 }
 
 func NewBehaviorStore() *BehaviorStore {
-	store := &BehaviorStore{
-		path: filepath.Join(utils.GetDataDir(), "behavior.json"),
+	// 1. 旧版本配置文件平滑迁移逻辑
+	oldPath := filepath.Join(utils.GetDataDir(), "behavior.json")
+	if _, err := os.Stat(oldPath); err == nil {
+		newPath := filepath.Join(utils.GetSettingsDir(), "user_behavior.json")
+		// 如果旧文件存在，且新文件不存在，则将其移动过去
+		if _, err := os.Stat(newPath); os.IsNotExist(err) {
+			_ = os.MkdirAll(utils.GetSettingsDir(), 0755)
+			_ = os.Rename(oldPath, newPath)
+		} else {
+			// 如果新文件已存在，直接删掉废弃的旧文件
+			_ = os.Remove(oldPath)
+		}
 	}
-	store.Load()
+
+	store := &BehaviorStore{}
+	_ = store.Load()
 	return store
 }
 
@@ -90,40 +100,30 @@ func (s *BehaviorStore) GetActiveMode() string {
 }
 
 func (s *BehaviorStore) Load() error {
-	// 1. 先获取带完整默认值的对象
 	defaults := s.Default()
 
-	data, err := os.ReadFile(s.path)
+	// 使用统一的 LoadSetting 机制 (注意这里传入指针)
+	cfg, err := utils.LoadSetting("behavior", defaults)
 	if err != nil {
 		s.mu.Lock()
 		s.cache = defaults
-		s.mu.Unlock()
-		return nil
-	}
-
-	// 2. 将本地 JSON 覆盖到 defaults 上，缺失的字段会保留 defaults 的值
-	if err := json.Unmarshal(data, &defaults); err != nil {
-		// 如果反序列化失败，仍然回退到默认值
-		s.mu.Lock()
-		s.cache = s.Default()
 		s.mu.Unlock()
 		return err
 	}
 
 	s.mu.Lock()
-	s.cache = defaults
+	s.cache = *cfg
 	s.mu.Unlock()
 	return nil
 }
 
 func (s *BehaviorStore) Save() error {
 	s.mu.RLock()
-	data, err := json.MarshalIndent(s.cache, "", "  ")
+	cfg := s.cache
 	s.mu.RUnlock()
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, data, 0644)
+
+	// 使用统一的 SaveSetting 机制
+	return utils.SaveSetting("behavior", &cfg)
 }
 
 func (s *BehaviorStore) Default() AppBehavior {

@@ -124,6 +124,13 @@ func (a *App) SyncState() {
 	state := a.core.GetAppState()
 	a.core.SyncState()
 
+	// 🚀 核心修复：将流量监控生命周期挂载到全局同步逻辑中
+	if state.IsRunning {
+		a.StartTrafficStream()
+	} else {
+		a.StopTrafficStream()
+	}
+
 	if a.mSysProxy != nil {
 		if state.SystemProxy {
 			a.mSysProxy.Check()
@@ -225,7 +232,17 @@ func (a *App) UpdateClashMode(mode string) error {
 }
 
 func (a *App) RestartCore() error {
+	return a.restartCoreAndSync()
+}
+
+func (a *App) restartCoreAndSync() error {
+	// 1. 重启前先主动切断旧的流量监控
+	a.StopTrafficStream()
+
+	// 2. 执行内核重启
 	err := a.core.RestartCore(a.ctx)
+
+	// 3. 全局状态与流量流同步
 	a.SyncState()
 	return err
 }
@@ -269,7 +286,7 @@ func (a *App) UpdateSub(name, url string) error {
 		state := a.core.GetAppState()
 		// 🛡️ 核心修复：如果更新的是当前活动配置且内核在跑，必须重启以加载新内容
 		if state.ActiveConfig == id && state.IsRunning {
-			return a.core.RestartCore(a.ctx)
+			return a.restartCoreAndSync()
 		}
 	}
 	return err
@@ -295,7 +312,7 @@ func (a *App) UpdateSingleSub(id string) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.ActiveConfig == id && state.IsRunning {
-			return a.core.RestartCore(a.ctx)
+			return a.restartCoreAndSync()
 		}
 	}
 	return err
@@ -317,7 +334,7 @@ func (a *App) UpdateAllSubsAsync() {
 
 		state := a.core.GetAppState()
 		if state.ActiveConfig != "" && state.IsRunning {
-			return a.core.RestartCore(a.ctx)
+			return a.restartCoreAndSync()
 		}
 		return nil
 	})
@@ -342,11 +359,14 @@ func (a *App) StartTrafficStream() {
 				a.cancelTraffic = nil
 			}
 			a.mu.Unlock()
-			runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": "0 B", "down": "0 B"})
+			runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": "0 B/s", "down": "0 B/s"})
 		}()
 
 		traffic.StreamTraffic(ctx, clash.APIURL("/traffic"), func(up, down string) {
-			runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": up, "down": down})
+			runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{
+				"up":   up + "/s",
+				"down": down + "/s",
+			})
 		})
 	}()
 }
@@ -358,7 +378,7 @@ func (a *App) StopTrafficStream() {
 		a.cancelTraffic = nil
 	}
 	a.mu.Unlock()
-	runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": "0 B", "down": "0 B"})
+	runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": "0 B/s", "down": "0 B/s"})
 }
 
 func (a *App) StartStreamingLogs() {
@@ -540,7 +560,7 @@ func (a *App) SaveDNSConfig(cfg *clash.DNSConfig) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.SystemProxy || state.Tun {
-			return a.core.RestartCore(a.ctx)
+			return a.restartCoreAndSync()
 		}
 	}
 	return err
@@ -555,7 +575,7 @@ func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.SystemProxy || state.Tun {
-			return a.core.RestartCore(a.ctx)
+			return a.restartCoreAndSync()
 		}
 	}
 	return err
@@ -570,7 +590,7 @@ func (a *App) SaveNetworkConfig(cfg *clash.NetworkConfig) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.SystemProxy || state.Tun {
-			return a.core.RestartCore(a.ctx)
+			return a.restartCoreAndSync()
 		}
 	}
 	return err
