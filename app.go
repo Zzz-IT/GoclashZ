@@ -468,7 +468,7 @@ func (a *App) GetCoreVersion() string {
 }
 
 func (a *App) GetProxyDelay(proxyName, testUrl string) (int, error) {
-	return clash.GetProxyDelay(a.ctx, proxyName, testUrl)
+	return clash.GetProxyDelay(a.ctx, proxyName, testUrl, 8000)
 }
 
 func (a *App) GetCustomRules(id string) ([]string, error) {
@@ -498,7 +498,11 @@ func (a *App) TestAllProxies(nodeNames []string) {
 }
 
 func (a *App) TestProxy(name string) (int, error) {
-	return a.core.Delay.TestProxy(name)
+	// 🛡️ 核心修复：为单节点测速增加超时控制，并走统一的 DelayTestManager 逻辑
+	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
+	defer cancel()
+
+	return a.core.Delay.TestProxy(ctx, name)
 }
 
 // --- Updates (Core & App) ---

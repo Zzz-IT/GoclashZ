@@ -37,7 +37,11 @@
               </div>
             </div>
 
-            <div class="n-latency-box" @click.stop="testSingleDelay(node)">
+            <div 
+              class="n-latency-box" 
+              :class="{ disabled: isTesting }"
+              @click.stop="testSingleDelay(node)"
+            >
               <div v-if="node.testing" class="scanner-container">
                 <svg class="scanner-svg" viewBox="0 0 24 24">
                   <circle class="scanner-track" cx="12" cy="12" r="10"></circle>
@@ -173,18 +177,24 @@ const selectNode = async (groupName: string, nodeName: string) => {
 };
 
 // 测速当前选中的组
-const testAllDelays = () => {
-  if (!activeGroupData.value) return;
+const testAllDelays = async () => {
+  if (!activeGroupData.value || isTesting.value) return;
 
   isTesting.value = true;
   const nodesArray = activeGroupData.value.proxies.map((n: any) => {
-      // n.delay = null; // 移除
       n.testing = true;
       return n.name;
   });
 
   if (nodesArray.length > 0) {
-    API.TestAllProxies(nodesArray);
+    try {
+      await API.TestAllProxies(nodesArray);
+    } catch (e) {
+      isTesting.value = false;
+      activeGroupData.value.proxies.forEach((n: any) => {
+          n.testing = false;
+      });
+    }
   } else {
     isTesting.value = false;
   }
@@ -192,9 +202,8 @@ const testAllDelays = () => {
 
 // 单点测速
 const testSingleDelay = async (node: any) => {
-  if (node.testing) return;
+  if (node.testing || isTesting.value) return;
   
-  // 🚀 核心修复：单点测速直接调用 API.TestProxy，并由前端负责 Finally 复位
   node.testing = true;
 
   try {
@@ -202,6 +211,12 @@ const testSingleDelay = async (node: any) => {
     const retention = globalState.delayRetention ? globalState.delayRetentionTime : 'long';
     updateProxyDelay(node.name, delay, retention);
   } catch (e) {
+    const msg = String(e);
+    // 🛡️ 核心修复：如果是 busy 状态（说明已在批量测速中），则静默退出，不要覆盖已有结果为 0
+    if (msg.includes('DELAY_TEST_BUSY') || msg.includes('已有测速任务')) {
+      return;
+    }
+
     console.error("单点测速失败:", e);
     const retention = globalState.delayRetention ? globalState.delayRetentionTime : 'long';
     updateProxyDelay(node.name, 0, retention);
@@ -453,6 +468,10 @@ onUnmounted(() => {
 }
 .n-latency-box:hover {
   opacity: 0.6;
+}
+.n-latency-box.disabled {
+  pointer-events: none;
+  opacity: 0.55;
 }
 
 .scanner-container {

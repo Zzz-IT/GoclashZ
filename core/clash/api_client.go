@@ -263,16 +263,18 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 }
 
 // GetProxyDelay 调用内核 API 测试节点延迟
-func GetProxyDelay(ctx context.Context, proxyName string, testUrl string) (int, error) {
+func GetProxyDelay(ctx context.Context, proxyName string, testUrl string, timeoutMs int) (int, error) {
 	encodedName := url.PathEscape(proxyName)
 	if testUrl == "" {
 		testUrl = "http://www.gstatic.com/generate_204"
 	}
-	timeout := 5000
+	if timeoutMs <= 0 {
+		timeoutMs = 5000
+	}
 
 	apiURL := fmt.Sprintf("%s?timeout=%d&url=%s",
 		APIURL("/proxies/"+encodedName+"/delay"),
-		timeout,
+		timeoutMs,
 		url.QueryEscape(testUrl))
 
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
@@ -287,7 +289,7 @@ func GetProxyDelay(ctx context.Context, proxyName string, testUrl string) (int, 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return -1, fmt.Errorf("http error: %d", resp.StatusCode)
 	}
 
@@ -303,17 +305,19 @@ func GetProxyDelay(ctx context.Context, proxyName string, testUrl string) (int, 
 	return -1, fmt.Errorf("invalid delay format")
 }
 
-// TestProxy 简易测速工具：单次测速，使用 5秒 超时和默认 URL
+// TestProxy 简易测速工具：单次测速，使用 8秒 超时和默认 URL
 func TestProxy(name string) (int, error) {
 	testUrl := "http://www.gstatic.com/generate_204"
 	if netCfg, err := GetNetworkConfig(); err == nil && netCfg.TestURL != "" {
 		testUrl = netCfg.TestURL
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	timeoutMs := 8000
+	// 🚀 核心优化：Go context 超时应略大于 mihomo timeout，给网络栈留一点收尾时间
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMs+1500)*time.Millisecond)
 	defer cancel()
 
-	return GetProxyDelay(ctx, name, testUrl)
+	return GetProxyDelay(ctx, name, testUrl, timeoutMs)
 }
 
 func require2xx(resp *http.Response, endpoint string) error {
