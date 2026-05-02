@@ -65,18 +65,22 @@ func (m *TrafficStreamManager) Start(parent context.Context, apiURL string) {
 }
 
 func (m *TrafficStreamManager) Stop() {
+	stopped := false
 	m.mu.Lock()
 	if m.cancel != nil {
 		m.cancel()
 		m.cancel = nil
 		m.gen++
+		stopped = true
 	}
 	m.mu.Unlock()
 
-	m.emit.Emit("traffic-data", map[string]string{
-		"up":   "0 B/s",
-		"down": "0 B/s",
-	})
+	if stopped {
+		m.emit.Emit("traffic-data", map[string]string{
+			"up":   "0 B/s",
+			"down": "0 B/s",
+		})
+	}
 }
 
 func (m *TrafficStreamManager) Restart(parent context.Context, apiURL string) {

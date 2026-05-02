@@ -85,6 +85,7 @@ func StreamTraffic(ctx context.Context, apiURL string, callback func(up, down st
 
 		resp, err := trafficStreamClient.Do(req)
 		if err != nil {
+			fmt.Printf("Traffic Stream Error: %v\n", err)
 			if !sleepOrDone(ctx, 2*time.Second) {
 				return
 			}

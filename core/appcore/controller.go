@@ -268,7 +268,7 @@ func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
 		}
 
 		if err := sys.EnableSystemProxy("127.0.0.1", port, "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>"); err != nil {
-			return err
+			return fmt.Errorf("设置 Windows 系统代理失败: %v", err)
 		}
 	} else {
 		_ = sys.DisableSystemProxy()
@@ -320,6 +320,16 @@ func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
 	c.stopCoreProcessLocked()
 	if needCore {
 		if err := c.ensureCoreRunningLocked(ctx); err != nil {
+			// 🛡️ 核心修复：开启失败时回滚状态
+			if enable {
+				c.mu.Lock()
+				c.tunActive = false
+				c.mu.Unlock()
+
+				tunCfg.Enable = false
+				_ = clash.UpdateTunConfig(tunCfg)
+			}
+			c.SyncState()
 			return err
 		}
 	}

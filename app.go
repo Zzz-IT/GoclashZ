@@ -596,18 +596,14 @@ func (a *App) SelectLocalConfig(id string) error {
 		return nil
 	}
 
-	wasRunning := state.IsRunning
-	if wasRunning {
-		a.core.StopCoreProcess()
+	if err := a.core.Behavior.SetActiveConfig(id); err != nil {
+		return err
 	}
 
-	a.core.Behavior.SetActiveConfig(id)
-	if wasRunning {
-		if err := a.core.EnsureCoreRunning(a.ctx); err != nil {
-			a.SyncState()
-			return err
-		}
+	if state.IsRunning {
+		return a.restartCoreAndSync()
 	}
+
 	a.SyncState()
 	return nil
 }
