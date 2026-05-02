@@ -544,10 +544,7 @@ func (a *App) UpdateGeoDatabaseAsync(key string) {
 }
 
 func (a *App) UpdateAllGeoDatabasesAsync() {
-	a.UpdateGeoDatabaseAsync("geoip")
-	a.UpdateGeoDatabaseAsync("geosite")
-	a.UpdateGeoDatabaseAsync("mmdb")
-	a.UpdateGeoDatabaseAsync("asn")
+	a.core.UpdateAllGeoDatabasesAsync(a.ctx)
 }
 
 func (a *App) CheckAndDownloadAppUpdateAsync() {

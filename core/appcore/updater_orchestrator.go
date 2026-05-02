@@ -49,6 +49,13 @@ func (c *Controller) UpdateGeoDatabaseAsync(ctx context.Context, key string) {
 	})
 }
 
+func (c *Controller) UpdateAllGeoDatabasesAsync(ctx context.Context) {
+	c.UpdateGeoDatabaseAsync(ctx, "geoip")
+	c.UpdateGeoDatabaseAsync(ctx, "geosite")
+	c.UpdateGeoDatabaseAsync(ctx, "mmdb")
+	c.UpdateGeoDatabaseAsync(ctx, "asn")
+}
+
 func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
 	c.Tasks.Run(ctx, "app-update-check", false, func(ctx context.Context) error {
 		info, err := downloader.CheckAppUpdate(ctx, currentVersion)

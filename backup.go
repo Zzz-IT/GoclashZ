@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -24,6 +25,10 @@ func (a *App) ExportBackup() (string, error) {
 	}
 	if savePath == "" {
 		return "CANCELLED", nil
+	}
+
+	if !strings.HasSuffix(strings.ToLower(savePath), ".gocz") {
+		savePath += ".gocz"
 	}
 
 	err = backup.Export(utils.GetDataDir(), savePath)
@@ -56,6 +61,9 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	// 🚀 核心修复：还原后显式重新加载订阅索引
+	_ = clash.LoadIndex()
 
 	// 热重载内存与系统状态
 	a.core.Behavior.Load()
