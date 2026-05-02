@@ -76,7 +76,6 @@ func NewApp() *App {
 			state := a.core.GetAppState()
 			if state.IsRunning {
 				// 获取所有非系统节点的名称（简化处理，触发全量测速）
-				// 注意：这里暂时直接调用 TestAllProxies([]) 触发逻辑，实际可能需要更细致的节点提取
 				go a.TestAllProxies(nil)
 			}
 		},
@@ -269,8 +268,7 @@ func (a *App) UpdateSub(name, url string) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.ActiveConfig == id && state.IsRunning {
-			// 🛡️ 核心修复：不吞错误
-			err = a.core.EnsureCoreRunning(a.ctx)
+			return a.core.EnsureCoreRunning(a.ctx)
 		}
 	}
 	return err
@@ -296,7 +294,7 @@ func (a *App) UpdateSingleSub(id string) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.ActiveConfig == id && state.IsRunning {
-			err = a.core.EnsureCoreRunning(a.ctx)
+			return a.core.EnsureCoreRunning(a.ctx)
 		}
 	}
 	return err
@@ -495,7 +493,7 @@ func (a *App) InstallTunDriverAsync(force bool) {
 
 		_, err := sys.InstallWintun(ctx, force)
 		if isActive {
-			_ = a.core.EnsureCoreRunning(a.ctx)
+			return a.core.EnsureCoreRunning(a.ctx)
 		}
 
 		if err == nil {
@@ -706,6 +704,38 @@ func (a *App) FlashWindow() {
 // --- Speed Test ---
 
 func (a *App) TestAllProxies(nodeNames []string) {
+	// 1. 如果未传节点，先从内核获取并补全
+	if len(nodeNames) == 0 {
+		if data, err := clash.GetInitialData(); err == nil {
+			// 🛡️ 核心修复：获取节点的 key 必须是 "groups" (这是 api_client.go 中的映射)
+			if groups, ok := data["groups"].(map[string]interface{}); ok {
+				for name, raw := range groups {
+					m, ok := raw.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					typ, _ := m["type"].(string)
+
+					// 排除策略组和内置节点，只测真实节点
+					switch typ {
+					case "Selector", "URLTest", "Fallback", "LoadBalance":
+						continue
+					}
+					if name == "GLOBAL" || name == "DIRECT" || name == "REJECT" {
+						continue
+					}
+					nodeNames = append(nodeNames, name)
+				}
+			}
+		}
+	}
+
+	// 2. 补全后再次校验，如果没有可测节点直接返回
+	if len(nodeNames) == 0 {
+		runtime.EventsEmit(a.ctx, "proxy-test-finished", "没有可测速节点")
+		return
+	}
+
 	a.testMu.Lock()
 	a.activeTests++
 	a.testMu.Unlock()
@@ -741,6 +771,7 @@ func (a *App) TestAllProxies(nodeNames []string) {
 			testUrl = netCfg.TestURL
 		}
 
+		// 🚀 核心修复：此时 len(nodeNames) 绝对大于 0，安全创建 channel
 		jobs := make(chan string, len(nodeNames))
 		var wg sync.WaitGroup
 		workerCount := 16
@@ -775,17 +806,6 @@ func (a *App) TestAllProxies(nodeNames []string) {
 			}()
 		}
 
-		if len(nodeNames) == 0 {
-			// 如果没传节点，尝试从内核拉取（自动测速场景）
-			if data, err := clash.GetInitialData(); err == nil {
-				if proxies, ok := data["proxies"].(map[string]interface{}); ok {
-					for name := range proxies {
-						nodeNames = append(nodeNames, name)
-					}
-				}
-			}
-		}
-
 		for _, name := range nodeNames {
 			runtime.EventsEmit(a.ctx, "proxy-test-start", name)
 			jobs <- name
@@ -808,10 +828,15 @@ func (a *App) UpdateCoreComponentAsync() {
 		}
 
 		_, err := clash.UpdateCore(ctx)
-		if isActive {
-			_ = a.core.EnsureCoreRunning(a.ctx)
+		if err != nil {
+			return err
 		}
-		return err
+
+		if isActive {
+			// 🛡️ 核心修复：向上传递重启错误
+			return a.core.EnsureCoreRunning(a.ctx)
+		}
+		return nil
 	})
 }
 
@@ -854,7 +879,7 @@ func (a *App) CheckAndDownloadAppUpdateAsync() {
 			a.newAppVersion = info.Version
 			a.appUpdateReady = true
 			a.mu.Unlock()
-			// 🚀 核心修复：更准确的语义和 Payload
+			// 🚀 核心修复：对齐事件名与 Payload
 			runtime.EventsEmit(a.ctx, "app-update-available", map[string]any{
 				"version":      info.Version,
 				"releaseNotes": info.Body,
@@ -865,7 +890,8 @@ func (a *App) CheckAndDownloadAppUpdateAsync() {
 }
 
 func (a *App) ApplyAppUpdate() error {
-	return nil
+	// 🛡️ 核心修复：明确告知暂未开启自动安装
+	return fmt.Errorf("自动安装功能暂未开启，请手动下载并覆盖安装")
 }
 
 func (a *App) ManualCheckAppUpdate() (string, error) {
