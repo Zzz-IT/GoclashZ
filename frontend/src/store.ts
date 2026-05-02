@@ -46,7 +46,7 @@ export const globalState = reactive({
 });
 
 // 👇 新增清洗规则：打破数据格式强粘合，防止大小写污染
-function updateStateFromBackend(rawData: any) {
+export function updateStateFromBackend(rawData: any) {
   if (!rawData) return;
   
   if (rawData.isRunning !== undefined) globalState.isRunning = rawData.isRunning;

@@ -92,7 +92,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { globalState, showAlert, showConfirm } from '../store'; // 👈 直接引入唯一的真相来源 globalState
+import { globalState, showAlert, showConfirm, updateStateFromBackend } from '../store'; // 👈 直接引入唯一的真相来源 globalState
 import { ICONS } from '../utils/icons';
 
 defineProps<{
@@ -168,11 +168,10 @@ const runSysProxyWorker = async (target: boolean) => {
     globalState.systemProxy = !target;
     console.error("系统代理失败: ", err);
   } finally {
-    // 🚀 核心：强制对齐后端最新状态，防止事件丢失导致的 UI 错位
-    const state: any = await API.GetAppState().catch(() => null);
+    // 🚀 核心：无论成功与否，以实际拉取到的后端最新状态为准！
+    const state = await API.GetAppState().catch(() => null);
     if (state) {
-      globalState.systemProxy = state.systemProxy ?? state.SystemProxy ?? false;
-      globalState.isRunning = state.isRunning ?? state.IsRunning ?? false;
+      updateStateFromBackend(state);
     }
 
     // 4. 关键点：活干完了，看看这段时间里，用户有没有又狂点了按钮？
@@ -211,10 +210,9 @@ const runTunWorker = async (target: boolean) => {
     globalState.tun = !target;
     console.error("虚拟网卡失败: ", err);
   } finally {
-    const state: any = await API.GetAppState().catch(() => null);
+    const state = await API.GetAppState().catch(() => null);
     if (state) {
-      globalState.tun = state.tun ?? state.Tun ?? false;
-      globalState.isRunning = state.isRunning ?? state.IsRunning ?? false;
+      updateStateFromBackend(state);
     }
 
     if (pendingTunTarget !== null && pendingTunTarget !== target) {
@@ -296,9 +294,9 @@ const runModeWorker = async (targetMode: string) => {
     console.error("模式切换失败: ", err);
     await showAlert("模式切换失败: " + err, '错误');
   } finally {
-    const state: any = await API.GetAppState().catch(() => null);
+    const state = await API.GetAppState().catch(() => null);
     if (state) {
-      globalState.mode = state.mode ?? state.Mode ?? 'rule';
+      updateStateFromBackend(state);
     }
 
     if (pendingModeTarget !== null && pendingModeTarget !== targetMode) {

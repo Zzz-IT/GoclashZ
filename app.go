@@ -267,9 +267,11 @@ func (a *App) UpdateSub(name, url string) error {
 	id, err := clash.DownloadSub(a.ctx, name, url, "", ua)
 	if err == nil {
 		state := a.core.GetAppState()
+		// 🛡️ 核心修复：如果更新的是当前活动配置且内核在跑，必须重启以加载新内容
 		if state.ActiveConfig == id && state.IsRunning {
-			return a.core.EnsureCoreRunning(a.ctx)
+			return a.core.RestartCore(a.ctx)
 		}
+		return a.core.EnsureCoreRunning(a.ctx)
 	}
 	return err
 }
@@ -294,8 +296,9 @@ func (a *App) UpdateSingleSub(id string) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.ActiveConfig == id && state.IsRunning {
-			return a.core.EnsureCoreRunning(a.ctx)
+			return a.core.RestartCore(a.ctx)
 		}
+		return a.core.EnsureCoreRunning(a.ctx)
 	}
 	return err
 }
@@ -316,9 +319,9 @@ func (a *App) UpdateAllSubsAsync() {
 
 		state := a.core.GetAppState()
 		if state.ActiveConfig != "" && state.IsRunning {
-			return a.core.EnsureCoreRunning(a.ctx)
+			return a.core.RestartCore(a.ctx)
 		}
-		return nil
+		return a.core.EnsureCoreRunning(a.ctx)
 	})
 }
 
@@ -492,8 +495,18 @@ func (a *App) InstallTunDriverAsync(force bool) {
 		}
 
 		_, err := sys.InstallWintun(ctx, force)
+		if err != nil {
+			// 🛡️ 核心修复：安装失败时尝试恢复，但必须抛出错误
+			if isActive {
+				_ = a.core.EnsureCoreRunning(a.ctx)
+			}
+			return err
+		}
+
 		if isActive {
-			return a.core.EnsureCoreRunning(a.ctx)
+			if rErr := a.core.EnsureCoreRunning(a.ctx); rErr != nil {
+				return rErr
+			}
 		}
 
 		if err == nil {
@@ -736,16 +749,20 @@ func (a *App) TestAllProxies(nodeNames []string) {
 		return
 	}
 
-	a.testMu.Lock()
-	a.activeTests++
-	a.testMu.Unlock()
-
 	if !clash.IsRunning() {
 		a.testMu.Lock()
 		a.isSilentCore = true
 		a.testMu.Unlock()
-		_ = a.core.EnsureCoreRunning(a.ctx)
+		// 🛡️ 核心修复：拦截静默启动错误，及时终止测速
+		if err := a.core.EnsureCoreRunning(a.ctx); err != nil {
+			runtime.EventsEmit(a.ctx, "proxy-test-finished", "测速启动失败："+err.Error())
+			return
+		}
 	}
+
+	a.testMu.Lock()
+	a.activeTests++
+	a.testMu.Unlock()
 
 	go func() {
 		defer func() {

@@ -250,33 +250,19 @@ onMounted(async () => {
   // 监听窗口大小变化，同步最大化状态
   window.addEventListener('resize', handleResize);
 
-  // 🚀 核心：监听软件更新就绪事件 (由后端在下载完成后触发)
-  EventsOn("app-update-ready", (version: string) => {
+  // 🚀 核心：监听软件更新可用事件 (由后端在检测到更新时触发)
+  EventsOn("app-update-available", (info: any) => {
+    const version = info?.version ?? '';
+    const releaseNotes = info?.releaseNotes ?? '';
+
     globalState.modal = {
       show: true,
-      title: "发现新版本就绪",
-      message: `GoclashZ 新版本 ${version} 已在后台静默下载完毕。是否立即关闭当前程序并启动安装？`,
-      type: "confirm",
+      title: "发现新版本",
+      message: `GoclashZ 新版本 ${version} 可用。\n\n${releaseNotes || '请前往发布页手动下载更新。'}`,
+      type: "alert",
       isDanger: false,
-      onConfirm: async () => {
-        try {
-          // 彻底、优雅地自我了断并启动安装包
-          await (API as any).ApplyAppUpdate();
-        } catch (e) {
-          globalState.modal = {
-            show: true,
-            title: "安装启动失败",
-            message: String(e),
-            type: "alert",
-            isDanger: true,
-            onConfirm: null,
-            onCancel: null
-          };
-        }
-      },
-      onCancel: () => {
-        globalState.modal.show = false;
-      }
+      onConfirm: () => { globalState.modal.show = false; },
+      onCancel: null
     };
   });
 
