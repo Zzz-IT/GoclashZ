@@ -283,6 +283,10 @@ onMounted(async () => {
     };
   });
 
+  EventsOn("app-update-downloaded", (payload: any) => {
+    console.log("App update downloaded:", payload);
+  });
+
   EventsOn("app-update-none", (payload: any) => {
     globalState.modal = {
       show: true,
@@ -306,6 +310,7 @@ onUnmounted(() => {
   EventsOff("app-update-start");
   EventsOff("app-update-error");
   EventsOff("app-update-none");
+  EventsOff("app-update-downloaded");
 });
 
 watch(currentTab, (newTab) => {

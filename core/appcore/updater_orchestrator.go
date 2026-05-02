@@ -69,11 +69,11 @@ func (c *Controller) AutoCheckAndDownloadAppUpdateAsync(ctx context.Context, cur
 }
 
 func (c *Controller) checkAndDownloadAppUpdate(ctx context.Context, currentVersion string, notifyLatest bool) {
-	c.Tasks.Run(ctx, "app-update-check", false, func(ctx context.Context) error {
+	c.Tasks.Run(ctx, "app-update", false, func(ctx context.Context) error {
 		info, err := downloader.CheckAppUpdate(ctx, currentVersion)
 		if err != nil {
-			c.events.Emit("app-update-error", err.Error())
-			return err
+			c.events.Emit("app-update-error", "检查更新失败: "+err.Error())
+			return nil // 不再返回 err 避免 Tasks 框架二次抛错
 		}
 
 		if info == nil || !info.HasUpdate {
@@ -85,10 +85,20 @@ func (c *Controller) checkAndDownloadAppUpdate(ctx context.Context, currentVersi
 			return nil
 		}
 
+		// 🚀 核心改进：先确认是否有可下载资产，再决定弹窗内容
+		if info.DownloadURL == "" {
+			c.events.Emit("app-update-error", fmt.Sprintf(
+				"发现新版本 %s，但 Release 中没有匹配的 Windows .exe 资产。\n当前资产列表: %v",
+				info.Version,
+				info.Assets,
+			))
+			return nil
+		}
+
 		// 1. 记录更新状态
 		c.SetUpdateStatus(true, info.Version)
 
-		// 2. 弹出发现新版本卡片 (前端负责显示内容)
+		// 2. 弹出发现新版本卡片，告知后台正在下载
 		c.events.Emit("app-update-available", map[string]any{
 			"version":      info.Version,
 			"releaseNotes": info.Body,
@@ -97,12 +107,6 @@ func (c *Controller) checkAndDownloadAppUpdate(ctx context.Context, currentVersi
 		})
 
 		// 3. 开始后台静默下载
-		if info.DownloadURL == "" {
-			err := fmt.Errorf("发现新版本 %s，但 Release 中没有可用的 Windows 安装包", info.Version)
-			c.events.Emit("app-update-error", err.Error())
-			return err
-		}
-
 		c.events.Emit("app-update-start", map[string]any{
 			"version": info.Version,
 		})
@@ -111,10 +115,10 @@ func (c *Controller) checkAndDownloadAppUpdate(ctx context.Context, currentVersi
 		path, err := downloader.DownloadAppUpdate(ctx, info, destDir)
 		if err != nil {
 			c.events.Emit("app-update-error", "下载更新失败: "+err.Error())
-			return err
+			return nil
 		}
 
-		// 4. 下载成功，更新控制台状态 (前端暂不弹窗，等待用户下次启动或手动安装)
+		// 4. 下载成功，更新本地记录
 		c.SetDownloadedAppUpdate(path, info.Version)
 		
 		c.events.Emit("app-update-downloaded", map[string]any{

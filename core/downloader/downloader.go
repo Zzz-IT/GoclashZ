@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -574,13 +575,16 @@ func VerifySHA256(path string, expected string) error {
 	return nil
 }
 type AppUpdateInfo struct {
-	HasUpdate   bool   `json:"hasUpdate"`
-	Version     string `json:"version"`
-	Body        string `json:"body"`
-	ReleaseURL  string `json:"releaseUrl"`
-	DownloadURL string `json:"downloadUrl"`
-	AssetName   string `json:"assetName"`
+	HasUpdate   bool     `json:"hasUpdate"`
+	Version     string   `json:"version"`
+	Body        string   `json:"body"`
+	ReleaseURL  string   `json:"releaseUrl"`
+	DownloadURL string   `json:"downloadUrl"`
+	AssetName   string   `json:"assetName"`
+	Assets      []string `json:"assets"`
 }
+
+var versionRe = regexp.MustCompile(`\d+(?:\.\d+){0,3}`)
 
 func CheckAppUpdate(ctx context.Context, currentVersion string) (*AppUpdateInfo, error) {
 	// 请求 GitHub API 获取最新 Release
@@ -615,6 +619,11 @@ func CheckAppUpdate(ctx context.Context, currentVersion string) (*AppUpdateInfo,
 	hasUpdate := compareVersion(release.TagName, currentVersion) > 0
 	assetName, downloadURL := selectWindowsAsset(release.Assets)
 
+	assetNames := make([]string, 0, len(release.Assets))
+	for _, asset := range release.Assets {
+		assetNames = append(assetNames, asset.Name)
+	}
+
 	return &AppUpdateInfo{
 		HasUpdate:   hasUpdate,
 		Version:     release.TagName,
@@ -622,6 +631,7 @@ func CheckAppUpdate(ctx context.Context, currentVersion string) (*AppUpdateInfo,
 		ReleaseURL:  release.HTMLURL,
 		DownloadURL: downloadURL,
 		AssetName:   assetName,
+		Assets:      assetNames,
 	}, nil
 }
 
@@ -664,6 +674,10 @@ func compareVersion(a, b string) int {
 	aa := parseVersionParts(a)
 	bb := parseVersionParts(b)
 
+	if len(aa) == 0 || len(bb) == 0 {
+		return 0
+	}
+
 	maxLen := len(aa)
 	if len(bb) > maxLen {
 		maxLen = len(bb)
@@ -690,18 +704,22 @@ func compareVersion(a, b string) int {
 
 func parseVersionParts(v string) []int {
 	v = strings.TrimSpace(strings.ToLower(v))
-	v = strings.TrimPrefix(v, "v")
 
-	// 忽略预发布标签 (如 -alpha, -beta)
-	if idx := strings.IndexAny(v, "-+"); idx >= 0 {
-		v = v[:idx]
+	// 🚀 核心改进：使用正则从 tag 中提取数字版本部分 (如 v1.1.3 -> 1.1.3, GoclashZ v1.2 -> 1.2)
+	match := versionRe.FindString(v)
+	if match == "" {
+		return nil
 	}
 
-	parts := strings.Split(v, ".")
+	parts := strings.Split(match, ".")
 	out := make([]int, 0, len(parts))
 
 	for _, p := range parts {
-		n, _ := strconv.Atoi(p)
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			// 如果由于某种原因 Atoi 失败，返回 nil 以标记版本非法
+			return nil
+		}
 		out = append(out, n)
 	}
 
