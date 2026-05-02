@@ -35,6 +35,7 @@ type Controller struct {
 	autoTestMu   sync.Mutex
 
 	traffic *TrafficStreamManager
+	ctx     context.Context
 }
 
 func NewController(opts Options) *Controller {
@@ -50,6 +51,7 @@ func NewController(opts Options) *Controller {
 }
 
 func (c *Controller) Startup(ctx context.Context) {
+	c.ctx = ctx
 	CleanLegacyFiles(c.version)
 	c.RefreshAutoDelayTest()
 
@@ -142,7 +144,17 @@ func (c *Controller) GetAppState() AppState {
 
 // SyncState 触发状态同步事件
 func (c *Controller) SyncState() {
-	c.events.Emit("app-state-sync", c.GetAppState())
+	state := c.GetAppState()
+	c.events.Emit("app-state-sync", state)
+
+	// 🚀 核心修复：Controller 自助管理流量流
+	if c.ctx != nil {
+		if state.IsRunning {
+			c.traffic.Start(c.ctx, clash.APIURL("/traffic"))
+		} else {
+			c.traffic.Stop()
+		}
+	}
 }
 
 // --- 内部方法 (需要提前持有 coreLifecycleMu) ---

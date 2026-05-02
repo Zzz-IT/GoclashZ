@@ -119,12 +119,10 @@ func (a *App) GetAppState() AppState {
 }
 
 func (a *App) SyncState() {
-	state := a.core.GetAppState()
+	// 内部会发送 app-state-sync 并且自动启停 traffic stream
 	a.core.SyncState()
 
-	// 🚀 核心修复：将流量监控生命周期挂载到全局同步逻辑中
-	a.core.SyncTrafficStream(a.ctx)
-
+	state := a.core.GetAppState()
 	if a.mSysProxy != nil {
 		if state.SystemProxy {
 			a.mSysProxy.Check()
@@ -230,14 +228,10 @@ func (a *App) RestartCore() error {
 }
 
 func (a *App) restartCoreAndSync() error {
-	// 1. 重启前先主动切断旧的流量监控
-	a.core.StopTrafficStream()
-
-	// 2. 执行内核重启
+	// 💡 核心：因为 Controller 的 RestartCore 内部执行 ensureCoreRunning 失败或成功都会调用 c.SyncState()
+	// 而 c.SyncState() 现在会自动根据 state.IsRunning 管理 traffic 的 Stop 和 Start
 	err := a.core.RestartCore(a.ctx)
-
-	// 3. 全局状态与流量流同步
-	a.SyncState()
+	a.SyncState() // 同步前端托盘
 	return err
 }
 
@@ -336,13 +330,6 @@ func (a *App) UpdateAllSubsAsync() {
 
 // --- Traffic & Logs ---
 
-func (a *App) StartTrafficStream() {
-	a.core.SyncTrafficStream(a.ctx)
-}
-
-func (a *App) StopTrafficStream() {
-	a.core.StopTrafficStream()
-}
 
 func (a *App) StartStreamingLogs() {
 	a.mu.Lock()
@@ -485,7 +472,9 @@ func (a *App) InstallTunDriverAsync(force bool) {
 		}
 
 		if isActive {
-			return a.restartCoreAndSync()
+			if rErr := a.restartCoreAndSync(); rErr != nil {
+				return rErr
+			}
 		}
 
 		runtime.EventsEmit(a.ctx, "tun-driver-install-updated", map[string]any{

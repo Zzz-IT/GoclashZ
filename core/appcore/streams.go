@@ -33,7 +33,7 @@ func (m *TrafficStreamManager) Start(parent context.Context, apiURL string) {
 	m.cancel = cancel
 	m.mu.Unlock()
 
-	go func() {
+	go func(currentGen int) {
 		defer func() {
 			m.mu.Lock()
 			if m.gen == currentGen {
@@ -47,12 +47,21 @@ func (m *TrafficStreamManager) Start(parent context.Context, apiURL string) {
 		}()
 
 		traffic.StreamTraffic(ctx, apiURL, func(up, down string) {
+			m.mu.Lock()
+			// 如果 generation 已变，或者取消函数为空，说明当前是个僵尸流
+			alive := m.gen == currentGen && m.cancel != nil
+			m.mu.Unlock()
+
+			if !alive {
+				return // 🚀 核心修复：阻断僵尸数据推送
+			}
+
 			m.emit.Emit("traffic-data", map[string]string{
 				"up":   up + "/s",
 				"down": down + "/s",
 			})
 		})
-	}()
+	}(currentGen)
 }
 
 func (m *TrafficStreamManager) Stop() {
