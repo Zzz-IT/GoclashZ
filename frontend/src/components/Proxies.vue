@@ -22,11 +22,11 @@
     </div>
 
     <div class="scroll-content">
-      <div v-if="activeGroupData" class="group-section">
+      <div v-if="activeGroupData" :key="activeGroupData.name" class="group-section">
         <div class="node-grid">
-          <div v-for="node in activeGroupData.proxies" :key="node.name"
-               :class="['node-item', { active: activeGroupData.now === node.name }]"
-               @click="selectNode(activeGroupData.name, node.name)">
+            <div v-for="node in activeGroupData.proxies" :key="node.name"
+                 :class="['node-item', { active: activeGroupData.now === node.name, readonly: !activeGroupData.selectable }]"
+                 @click="selectNode(activeGroupData.name, node.name)">
 
             <div class="node-main-area">
               <div class="node-info">
@@ -140,7 +140,13 @@ const loadData = async () => {
               testing: false
             };
           });
-          processedGroups.push({ name, type: item.type, now: item.now, proxies });
+          processedGroups.push({ 
+            name, 
+            type: item.type, 
+            now: item.now, 
+            selectable: isManuallySelectableGroup(item.type),
+            proxies 
+          });
         }
       });
 
@@ -156,10 +162,18 @@ const loadData = async () => {
   }
 };
 
+const isManuallySelectableGroup = (type: string) => {
+  return ['Selector', 'Fallback'].includes(type);
+};
+
 // 选中节点
 const selectNode = async (groupName: string, nodeName: string) => {
   const targetGroup = localGroups.value.find(g => g.name === groupName);
-  if (targetGroup && targetGroup.type !== 'Selector') return;
+  
+  if (targetGroup && !isManuallySelectableGroup(targetGroup.type)) {
+    return;
+  }
+
   try {
     await API.SelectProxy(groupName, nodeName);
     if (targetGroup) {
@@ -207,9 +221,10 @@ const testSingleDelay = async (node: any) => {
   node.testing = true;
 
   try {
-    const delay = await API.TestProxy(node.name);
-    const retention = globalState.delayRetention ? globalState.delayRetentionTime : 'long';
-    updateProxyDelay(node.name, delay, retention);
+    await API.TestProxy(node.name);
+    // 🛡️ 核心修复：不再手动调用 updateProxyDelay
+    // 因为后端会通过 proxy-delay-update 事件发送归一化后的 leaf 和 group 派生结果
+    // 这样能确保主页面和组页面数据百分之百同步，且处理了嵌套组的派生逻辑
   } catch (e) {
     const msg = String(e);
     // 🛡️ 核心修复：如果是 busy 状态（说明已在批量测速中），则静默退出，不要覆盖已有结果为 0
@@ -369,6 +384,9 @@ onUnmounted(() => {
   cursor: pointer;
   background: var(--surface);
   transition: all 0.2s ease;
+}
+.node-item.readonly {
+  cursor: default;
 }
 .node-item:hover { background: var(--surface-hover); }
 .node-item.active { 
