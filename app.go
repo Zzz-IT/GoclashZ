@@ -11,6 +11,7 @@ import (
 	"goclashz/core/utils"
 	"os"
 	"os/exec"
+	"strings"
 	"path/filepath"
 	"sync"
 	"time"
@@ -565,6 +566,59 @@ func (a *App) ManualCheckAppUpdate() (string, error) {
 		return info.Version, nil
 	}
 	return "", nil
+}
+
+// --- Backup ---
+
+func (a *App) ExportBackup() (string, error) {
+	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "选择备份保存位置",
+		DefaultFilename: fmt.Sprintf("GoclashZ_Backup_%s.gocz", time.Now().Format("20060102")),
+		Filters: []runtime.FileFilter{
+			{DisplayName: "GoclashZ 备份文件 (*.gocz)", Pattern: "*.gocz"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if savePath == "" {
+		return "CANCELLED", nil
+	}
+
+	// 补全后缀
+	if !strings.HasSuffix(strings.ToLower(savePath), ".gocz") {
+		savePath += ".gocz"
+	}
+
+	err = a.core.ExportBackup(savePath)
+	if err != nil {
+		return "", err
+	}
+	return "SUCCESS", nil
+}
+
+func (a *App) SelectBackupFile() (string, error) {
+	selected, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "选择要还原的备份文件",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "GoclashZ 备份文件 (*.gocz)", Pattern: "*.gocz"},
+			{DisplayName: "Zip 压缩包 (*.zip)", Pattern: "*.zip"},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("选择文件失败: %v", err)
+	}
+	return selected, nil
+}
+
+func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
+	err := a.core.RestoreBackup(a.ctx, selected, mode)
+	if err != nil {
+		return "", err
+	}
+
+	a.SyncState()
+	return "SUCCESS", nil
 }
 
 // --- Helpers ---
