@@ -349,13 +349,18 @@ func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
 		}
 	}
 
-	c.events.Emit("core-restarted", nil)
+	c.events.Emit("core-restarted", map[string]any{"reason": "internal"})
 	c.SyncState()
 	return nil
 }
 
-// RestartCore 重启内核
+// RestartCore 重启内核（默认为内部调用原因）
 func (c *Controller) RestartCore(ctx context.Context) error {
+	return c.RestartCoreWithReason(ctx, "internal")
+}
+
+// RestartCoreWithReason 重启内核并携带显式原因，决定是否触发缓存清理
+func (c *Controller) RestartCoreWithReason(ctx context.Context, reason string) error {
 	c.coreLifecycleMu.Lock()
 	defer c.coreLifecycleMu.Unlock()
 
@@ -366,7 +371,17 @@ func (c *Controller) RestartCore(ctx context.Context) error {
 		return err
 	}
 
-	c.events.Emit("core-restarted", nil)
+	// 发送通用的重启信号
+	c.events.Emit("core-restarted", map[string]any{
+		"reason": reason,
+	})
+
+	// 🛡️ 核心改进：仅在用户明确意图或核心配置变更时，才通知前端清理延迟缓存
+	switch reason {
+	case "manual", "config-switch", "subscription-update", "restore":
+		c.events.Emit("delay-cache-clear", reason)
+	}
+
 	c.SyncState()
 	return nil
 }

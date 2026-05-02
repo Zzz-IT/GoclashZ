@@ -187,13 +187,17 @@ export async function initStore() {
     for (const key in delayTimers) delete delayTimers[key];
   };
 
-  // 👇 监听内核重启/配置切换，强行清空所有延迟历史数据
-  EventsOn("config-changed", clearAllDelays);
-  EventsOn("core-restarted", clearAllDelays);
+  // 🛡️ 核心修复：不再监听通用的 core-restarted（因为开关系统代理也会重启内核）
+  // 而是监听显式的清理指令，由后端决定何时真正需要清除历史缓存
+  EventsOn("delay-cache-clear", clearAllDelays);
 
   // 👇 监听测速结果，全局入库（防止切页丢失数据）
   EventsOn("proxy-delay-update", (data: any) => {
-    if (!data) return;
+    if (!data || !data.name) return;
+
+    // 🚀 核心修复：如果是 busy 状态通知，说明还在批量测速中，不要覆盖已有结果
+    if (data.status === 'busy') return;
+
     updateProxyDelay(data.name, data.delay, globalState.delayRetention ? globalState.delayRetentionTime : 'long');
   });
 }

@@ -213,7 +213,7 @@ const testSingleDelay = async (node: any) => {
   } catch (e) {
     const msg = String(e);
     // 🛡️ 核心修复：如果是 busy 状态（说明已在批量测速中），则静默退出，不要覆盖已有结果为 0
-    if (msg.includes('DELAY_TEST_BUSY') || msg.includes('已有测速任务')) {
+    if (msg.includes('DELAY_TEST_BUSY') || msg.includes('已有测速任务') || msg.includes('busy')) {
       return;
     }
 

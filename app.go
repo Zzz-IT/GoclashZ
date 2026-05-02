@@ -220,15 +220,8 @@ func (a *App) UpdateClashMode(mode string) error {
 }
 
 func (a *App) RestartCore() error {
-	return a.restartCoreAndSync()
-}
-
-func (a *App) restartCoreAndSync() error {
-	// 💡 核心：因为 Controller 的 RestartCore 内部执行 ensureCoreRunning 失败或成功都会调用 c.SyncState()
-	// 而 c.SyncState() 现在会自动根据 state.IsRunning 管理 traffic 的 Stop 和 Start
-	err := a.core.RestartCore(a.ctx)
-	a.SyncState() // 同步前端托盘
-	return err
+	// 🛡️ 核心修复：手动重启显式指定理由，触发延迟缓存清理
+	return a.core.RestartCoreWithReason(a.ctx, "manual")
 }
 
 func (a *App) SelectProxy(groupName, nodeName string) error {
@@ -458,7 +451,8 @@ func (a *App) StartClash(id string) error {
 	if err := a.core.Behavior.SetActiveConfig(id); err != nil {
 		return err
 	}
-	return a.restartCoreAndSync()
+	// 🛡️ 核心修复：使用带理由的重启，触发延迟缓存清理
+	return a.core.RestartCoreWithReason(a.ctx, "config-switch")
 }
 
 // --- Extra Utilities ---

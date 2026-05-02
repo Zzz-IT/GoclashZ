@@ -36,7 +36,6 @@ var localAPIClient = &http.Client{
 
 var speedTestClient = &http.Client{
 	Transport: noProxyTransport,
-	Timeout:   6 * time.Second, // 测速专用超时
 }
 
 var streamClient = &http.Client{
@@ -265,11 +264,14 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 // GetProxyDelay 调用内核 API 测试节点延迟
 func GetProxyDelay(ctx context.Context, proxyName string, testUrl string, timeoutMs int) (int, error) {
 	encodedName := url.PathEscape(proxyName)
+
+	// 🛡️ 选用更全球化的测速地址作为默认值
 	if testUrl == "" {
-		testUrl = "http://www.gstatic.com/generate_204"
+		testUrl = "https://cp.cloudflare.com/generate_204"
 	}
+
 	if timeoutMs <= 0 {
-		timeoutMs = 5000
+		timeoutMs = 7000
 	}
 
 	apiURL := fmt.Sprintf("%s?timeout=%d&url=%s",
@@ -277,12 +279,12 @@ func GetProxyDelay(ctx context.Context, proxyName string, testUrl string, timeou
 		timeoutMs,
 		url.QueryEscape(testUrl))
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return -1, err
 	}
 
-	// 👇 核心修复：使用全局测速客户端，消除批量测速引发的 Goroutine 风暴
+	// 🚀 使用已移除强行 Timeout 的 client，全权交由 reqCtx 控制
 	resp, err := speedTestClient.Do(req)
 	if err != nil {
 		return -1, err
@@ -293,16 +295,19 @@ func GetProxyDelay(ctx context.Context, proxyName string, testUrl string, timeou
 		return -1, fmt.Errorf("http error: %d", resp.StatusCode)
 	}
 
-	var result map[string]interface{}
+	var result struct {
+		Delay int `json:"delay"`
+	}
+
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return -1, err
 	}
 
-	if delay, ok := result["delay"].(float64); ok {
-		return int(delay), nil
+	if result.Delay <= 0 {
+		return -1, fmt.Errorf("invalid delay format")
 	}
 
-	return -1, fmt.Errorf("invalid delay format")
+	return result.Delay, nil
 }
 
 // TestProxy 简易测速工具：单次测速，使用 8秒 超时和默认 URL

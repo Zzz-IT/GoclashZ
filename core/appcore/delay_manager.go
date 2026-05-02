@@ -33,7 +33,7 @@ func NewDelayTestManager(emit EventSink, ctrl *Controller) *DelayTestManager {
 	return &DelayTestManager{
 		emit:       emit,
 		ctrl:       ctrl,
-		sem:        make(chan struct{}, 8), // 🚀 核心改进：并发从 32 降到 8，防止高频触发内核/网络瓶颈
+		sem:        make(chan struct{}, 6), // 🚀 核心改进：并发进一步降到 6，保障弱网环境成功率
 		batchNodes: make(map[string]struct{}),
 		waiters:    make(map[string][]chan DelayResult),
 	}
@@ -81,7 +81,7 @@ func (m *DelayTestManager) notifyNodeResult(res DelayResult) {
 }
 
 // testOne 统一的底层测速执行函数，包含并发控制和超时管理
-func (m *DelayTestManager) testOne(ctx context.Context, name string, testURL string, timeoutMs int) DelayResult {
+func (m *DelayTestManager) testOne(ctx context.Context, name string, testURL string, timeoutMs int, contextExtraMs int) DelayResult {
 	select {
 	case m.sem <- struct{}{}:
 		defer func() { <-m.sem }()
@@ -90,7 +90,7 @@ func (m *DelayTestManager) testOne(ctx context.Context, name string, testURL str
 	}
 
 	// 实际请求的 context 超时应略大于 mihomo timeout 参数
-	reqCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs+1500)*time.Millisecond)
+	reqCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs+contextExtraMs)*time.Millisecond)
 	defer cancel()
 
 	delay, err := clash.GetProxyDelay(reqCtx, name, testURL, timeoutMs)
@@ -99,6 +99,23 @@ func (m *DelayTestManager) testOne(ctx context.Context, name string, testURL str
 	}
 
 	return DelayResult{Name: name, Delay: delay, Status: "success"}
+}
+
+// testOneWithFallback 带备用地址的测速逻辑，极大提升复杂网络环境下的成功率
+func (m *DelayTestManager) testOneWithFallback(ctx context.Context, name string, testURLs []string, timeoutMs int, contextExtraMs int) DelayResult {
+	var last DelayResult
+	for _, testURL := range testURLs {
+		res := m.testOne(ctx, name, testURL, timeoutMs, contextExtraMs)
+		if res.Status == "success" {
+			return res
+		}
+		last = res
+	}
+
+	if last.Name == "" {
+		last = DelayResult{Name: name, Delay: 0, Status: "timeout", Err: fmt.Errorf("all test urls failed")}
+	}
+	return last
 }
 
 func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []string) {
@@ -117,10 +134,6 @@ func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []strin
 		return
 	}
 	m.running = true
-	m.batchNodes = make(map[string]struct{}, len(nodeNames))
-	for _, name := range nodeNames {
-		m.batchNodes[name] = struct{}{}
-	}
 	m.mu.Unlock()
 
 	finishMsg := "测速完成"
@@ -130,6 +143,7 @@ func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []strin
 		m.mu.Lock()
 		m.running = false
 		m.batchNodes = make(map[string]struct{})
+		m.waiters = make(map[string][]chan DelayResult) // 🛡️ 核心修复：清理等待者，防止内存泄漏
 		m.mu.Unlock()
 
 		if silentCore {
@@ -149,26 +163,7 @@ func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []strin
 
 	// 2. 如果未传节点，先从内核获取并补全
 	if len(nodeNames) == 0 {
-		if data, err := clash.GetInitialData(); err == nil {
-			if groups, ok := data["groups"].(map[string]interface{}); ok {
-				for name, raw := range groups {
-					nm, ok := raw.(map[string]interface{})
-					if !ok {
-						continue
-					}
-					typ, _ := nm["type"].(string)
-
-					switch typ {
-					case "Selector", "URLTest", "Fallback", "LoadBalance":
-						continue
-					}
-					if name == "GLOBAL" || name == "DIRECT" || name == "REJECT" {
-						continue
-					}
-					nodeNames = append(nodeNames, name)
-				}
-			}
-		}
+		nodeNames = m.extractDelayTargets()
 	}
 
 	if len(nodeNames) == 0 {
@@ -176,19 +171,71 @@ func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []strin
 		return
 	}
 
-	testUrl := "http://www.gstatic.com/generate_204"
-	if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg.TestURL != "" {
-		testUrl = netCfg.TestURL
+	// 🚀 核心修复：节点提取/补全后，再写入 batchNodes，确保单点测速能正确进入等待逻辑
+	m.mu.Lock()
+	m.batchNodes = make(map[string]struct{}, len(nodeNames))
+	for _, name := range nodeNames {
+		m.batchNodes[name] = struct{}{}
+	}
+	m.mu.Unlock()
+
+	m.runBatch(ctx, nodeNames)
+}
+
+func (m *DelayTestManager) extractDelayTargets() []string {
+	var nodeNames []string
+	data, err := clash.GetInitialData()
+	if err != nil {
+		return nodeNames
 	}
 
-	// 3. 启动 Worker Pool 测速
+	groups, ok := data["groups"].(map[string]interface{})
+	if !ok {
+		return nodeNames
+	}
+
+	for name, raw := range groups {
+		nm, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		typ, _ := nm["type"].(string)
+
+		switch typ {
+		case "Selector", "URLTest", "Fallback", "LoadBalance":
+			continue
+		}
+		if name == "GLOBAL" || name == "DIRECT" || name == "REJECT" {
+			continue
+		}
+		nodeNames = append(nodeNames, name)
+	}
+	return nodeNames
+}
+
+func (m *DelayTestManager) getTestURLs() []string {
+	if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg.TestURL != "" {
+		return []string{netCfg.TestURL}
+	}
+
+	// 🛡️ 增加 Fallback 列表，解决部分测速地址被墙导致的批量超时
+	return []string{
+		"https://cp.cloudflare.com/generate_204",
+		"https://www.gstatic.com/generate_204",
+		"http://www.msftconnecttest.com/connecttest.txt",
+	}
+}
+
+func (m *DelayTestManager) runBatch(ctx context.Context, nodeNames []string) {
+	testURLs := m.getTestURLs()
+
 	jobs := make(chan string, len(nodeNames))
 	for _, name := range nodeNames {
 		jobs <- name
 	}
 	close(jobs)
 
-	workerCount := 8
+	workerCount := 6
 	if len(nodeNames) < workerCount {
 		workerCount = len(nodeNames)
 	}
@@ -201,7 +248,8 @@ func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []strin
 			for name := range jobs {
 				m.emit.Emit("proxy-test-start", name)
 
-				res := m.testOne(ctx, name, testUrl, 6000)
+				// 批量测速：7s 超时，3s Context 宽限
+				res := m.testOneWithFallback(ctx, name, testURLs, 7000, 3000)
 
 				m.emit.Emit("proxy-delay-update", map[string]interface{}{
 					"name":   res.Name,
@@ -238,13 +286,9 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 		return 0, ErrDelayTestBusy
 	}
 
-	testURL := "http://www.gstatic.com/generate_204"
-	if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg.TestURL != "" {
-		testURL = netCfg.TestURL
-	}
-
-	// 单独执行测速，使用稍长的超时
-	res := m.testOne(ctx, name, testURL, 8000)
+	testURLs := m.getTestURLs()
+	// 单点测试：10s 超时，2s Context 宽限，提升单点稳定性
+	res := m.testOneWithFallback(ctx, name, testURLs, 10000, 2000)
 
 	if res.Err != nil || res.Delay <= 0 {
 		return 0, fmt.Errorf("timeout")

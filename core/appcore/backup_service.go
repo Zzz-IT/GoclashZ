@@ -55,7 +55,7 @@ func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode st
 		// 🚀 核心修复：如果内核正在运行，执行完整重启而不是 ReloadConfig
 		// 因为备份可能改了 API 地址、DNS 或 TUN 等核心组件
 		if state.IsRunning {
-			return c.RestartCore(ctx)
+			return c.RestartCoreWithReason(ctx, "restore")
 		}
 
 		// 仅构建运行时配置

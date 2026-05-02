@@ -16,7 +16,7 @@ func (c *Controller) UpdateSub(ctx context.Context, name, url string) error {
 	// 统一重启编排
 	state := c.GetAppState()
 	if state.ActiveConfig == id && state.IsRunning {
-		return c.RestartCore(ctx)
+		return c.RestartCoreWithReason(ctx, "subscription-update")
 	}
 	return nil
 }
@@ -41,7 +41,7 @@ func (c *Controller) UpdateSingleSub(ctx context.Context, id string) error {
 	if err == nil {
 		state := c.GetAppState()
 		if state.ActiveConfig == id && state.IsRunning {
-			return c.RestartCore(ctx)
+			return c.RestartCoreWithReason(ctx, "subscription-update")
 		}
 	}
 	return err
@@ -68,7 +68,7 @@ func (c *Controller) UpdateAllSubsAsync(ctx context.Context) {
 		}
 
 		if needsRestart && state.IsRunning {
-			return c.RestartCore(ctx)
+			return c.RestartCoreWithReason(ctx, "subscription-update")
 		}
 		return nil
 	})
@@ -100,7 +100,7 @@ func (c *Controller) SelectLocalConfig(ctx context.Context, id string) error {
 	}
 
 	if state.IsRunning {
-		return c.RestartCore(ctx)
+		return c.RestartCoreWithReason(ctx, "config-switch")
 	}
 
 	c.SyncState()
