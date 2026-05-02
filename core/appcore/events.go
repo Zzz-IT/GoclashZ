@@ -12,4 +12,5 @@ const (
 	EventCoreRestarted    = "core-restarted"
 	EventStateSync        = "app-state-sync"
 	EventNotifyError      = "notify-error"
+	EventLogMessage       = "log-message"
 )

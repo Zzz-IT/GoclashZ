@@ -303,6 +303,19 @@ func GetProxyDelay(ctx context.Context, proxyName string, testUrl string) (int, 
 	return -1, fmt.Errorf("invalid delay format")
 }
 
+// TestProxy 简易测速工具：单次测速，使用 5秒 超时和默认 URL
+func TestProxy(name string) (int, error) {
+	testUrl := "http://www.gstatic.com/generate_204"
+	if netCfg, err := GetNetworkConfig(); err == nil && netCfg.TestURL != "" {
+		testUrl = netCfg.TestURL
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	return GetProxyDelay(ctx, name, testUrl)
+}
+
 func require2xx(resp *http.Response, endpoint string) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("%s failed: HTTP %d", endpoint, resp.StatusCode)

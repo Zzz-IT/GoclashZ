@@ -7,7 +7,6 @@ import (
 	"goclashz/core/appcore"
 	"goclashz/core/clash"
 	"goclashz/core/downloader"
-	"goclashz/core/logger"
 	"goclashz/core/sys"
 	"goclashz/core/utils"
 	"os"
@@ -31,27 +30,14 @@ type FileInfo struct {
 }
 
 type App struct {
-	ctx           context.Context
-	cancelLogs    context.CancelFunc
-	logGen        int
-	logRunning    bool
-	mu            sync.RWMutex
+	ctx   context.Context
+	mu    sync.RWMutex
 
 	mSysProxy   *systray.MenuItem
 	mTun        *systray.MenuItem
 	mModeRule   *systray.MenuItem
 	mModeGlobal *systray.MenuItem
 	mModeDirect *systray.MenuItem
-
-	testMu        sync.Mutex
-	activeTests   int
-	testSemaphore chan struct{}
-	isSilentCore  bool
-
-	appUpdateReady   bool
-	newAppVersion    string
-	appUpdateTaskMu  sync.Mutex
-	isDownloadingApp bool
 
 	trayMu        sync.Mutex
 	lastTrayClick int64
@@ -61,9 +47,7 @@ type App struct {
 }
 
 func NewApp() *App {
-	a := &App{
-		testSemaphore: make(chan struct{}, 16),
-	}
+	a := &App{}
 
 	sink := &WailsEventSink{}
 	core := appcore.NewController(appcore.Options{
@@ -268,125 +252,38 @@ func (a *App) GetLocalConfigs() []clash.SubIndexItem {
 }
 
 func (a *App) UpdateSub(name, url string) error {
-	ua := a.core.Behavior.Get().SubUA
-	id, err := clash.DownloadSub(a.ctx, name, url, "", ua)
-	if err == nil {
-		state := a.core.GetAppState()
-		// 🛡️ 核心修复：如果更新的是当前活动配置且内核在跑，必须重启以加载新内容
-		if state.ActiveConfig == id && state.IsRunning {
-			return a.restartCoreAndSync()
-		}
-	}
-	return err
+	return a.core.UpdateSub(a.ctx, name, url)
 }
 
 func (a *App) UpdateSingleSub(id string) error {
-	clash.IndexLock.RLock()
-	var url, name string
-	for _, item := range clash.SubIndex {
-		if item.ID == id {
-			url = item.URL
-			name = item.Name
-			break
-		}
-	}
-	clash.IndexLock.RUnlock()
-	if url == "" {
-		return fmt.Errorf("subscription not found")
-	}
-
-	ua := a.core.Behavior.Get().SubUA
-	_, err := clash.DownloadSub(a.ctx, name, url, id, ua)
-	if err == nil {
-		state := a.core.GetAppState()
-		if state.ActiveConfig == id && state.IsRunning {
-			return a.restartCoreAndSync()
-		}
-	}
-	return err
+	return a.core.UpdateSingleSub(a.ctx, id)
 }
 
 func (a *App) UpdateAllSubsAsync() {
-	a.core.Tasks.Run(a.ctx, "subs-update", true, func(ctx context.Context) error {
-		clash.IndexLock.RLock()
-		items := make([]clash.SubIndexItem, len(clash.SubIndex))
-		copy(items, clash.SubIndex)
-		clash.IndexLock.RUnlock()
-
-		ua := a.core.Behavior.Get().SubUA
-		for _, item := range items {
-			if item.URL != "" && item.Type == "remote" {
-				_, _ = clash.DownloadSub(ctx, item.Name, item.URL, item.ID, ua)
-			}
-		}
-
-		state := a.core.GetAppState()
-		if state.ActiveConfig != "" && state.IsRunning {
-			return a.restartCoreAndSync()
-		}
-		return nil
-	})
+	a.core.UpdateAllSubsAsync(a.ctx)
 }
 
 // --- Traffic & Logs ---
 
 
 func (a *App) StartStreamingLogs() {
-	a.mu.Lock()
-	if a.logRunning {
-		a.mu.Unlock()
-		return
-	}
-	a.logRunning = true
-	a.logGen++
-	currentGen := a.logGen
-	logCtx, cancel := context.WithCancel(a.ctx)
-	a.cancelLogs = cancel
-	logLevel := a.core.Behavior.Get().LogLevel
-	a.mu.Unlock()
-
-	go func() {
-		defer func() {
-			a.mu.Lock()
-			if a.logGen == currentGen {
-				a.logRunning = false
-				a.cancelLogs = nil
-			}
-			a.mu.Unlock()
-			cancel()
-		}()
-
-		clash.FetchLogs(logCtx, logLevel, func(data interface{}) {
-			if m, ok := data.(map[string]interface{}); ok {
-				entry := logger.LogEntry{
-					Type:    fmt.Sprintf("%v", m["type"]),
-					Payload: fmt.Sprintf("%v", m["payload"]),
-					Time:    time.Now().Format("15:04:05"),
-				}
-				logger.AppLogs.Add(entry)
-				runtime.EventsEmit(a.ctx, "log-message", entry)
-			}
-		})
-	}()
+	a.core.StartLogStream(a.ctx)
 }
 
 func (a *App) StopStreamingLogs() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.logRunning && a.cancelLogs != nil {
-		a.cancelLogs()
-		a.cancelLogs = nil
-		a.logRunning = false
-		a.logGen++
-	}
+	a.core.StopLogStream()
 }
 
-func (a *App) GetRecentLogs() []logger.LogEntry {
-	return logger.AppLogs.GetAll()
+func (a *App) GetRecentLogs() []appcore.LogEntry {
+	return a.core.GetRecentLogs()
 }
 
-func (a *App) SearchLogs(keyword string) []logger.LogEntry {
-	return logger.AppLogs.Search(keyword)
+func (a *App) SearchLogs(keyword string) []appcore.LogEntry {
+	return a.core.SearchLogs(keyword)
+}
+
+func (a *App) ClearLogs() {
+	a.core.ClearLogs()
 }
 
 // --- Behavior & Theme ---
@@ -402,15 +299,13 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 	err := a.core.Behavior.SetAndSave(config)
 	if err == nil {
 		if oldLogLevel != config.LogLevel {
-			a.mu.Lock()
-			if a.logRunning {
+			if a.core.IsLogStreaming() {
 				go func() {
 					a.StopStreamingLogs()
 					time.Sleep(50 * time.Millisecond)
 					a.StartStreamingLogs()
 				}()
 			}
-			a.mu.Unlock()
 		}
 		a.core.RefreshAutoDelayTest()
 		a.SyncState()
@@ -506,14 +401,7 @@ func (a *App) GetDNSConfig() (*clash.DNSConfig, error) {
 }
 
 func (a *App) SaveDNSConfig(cfg *clash.DNSConfig) error {
-	err := clash.UpdateDNSConfig(cfg)
-	if err == nil {
-		state := a.core.GetAppState()
-		if state.SystemProxy || state.Tun {
-			return a.restartCoreAndSync()
-		}
-	}
-	return err
+	return a.core.SaveDNSConfig(a.ctx, cfg)
 }
 
 func (a *App) GetTunConfig() (*clash.TunConfig, error) {
@@ -521,14 +409,7 @@ func (a *App) GetTunConfig() (*clash.TunConfig, error) {
 }
 
 func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
-	err := clash.UpdateTunConfig(cfg)
-	if err == nil {
-		state := a.core.GetAppState()
-		if state.SystemProxy || state.Tun {
-			return a.restartCoreAndSync()
-		}
-	}
-	return err
+	return a.core.SaveTunConfig(a.ctx, cfg)
 }
 
 func (a *App) GetNetworkConfig() (*clash.NetworkConfig, error) {
@@ -536,14 +417,7 @@ func (a *App) GetNetworkConfig() (*clash.NetworkConfig, error) {
 }
 
 func (a *App) SaveNetworkConfig(cfg *clash.NetworkConfig) error {
-	err := clash.UpdateNetworkConfig(cfg)
-	if err == nil {
-		state := a.core.GetAppState()
-		if state.SystemProxy || state.Tun {
-			return a.restartCoreAndSync()
-		}
-	}
-	return err
+	return a.core.SaveNetworkConfig(a.ctx, cfg)
 }
 
 func (a *App) RenameConfig(id, newName string) error {
@@ -563,14 +437,7 @@ func (a *App) RenameConfig(id, newName string) error {
 }
 
 func (a *App) DeleteConfig(id string) error {
-	state := a.core.GetAppState()
-	if state.ActiveConfig == id {
-		a.core.StopCoreProcess()
-		a.core.Behavior.SetActiveConfig("")
-	}
-	err := clash.DeleteConfig(id)
-	a.SyncState()
-	return err
+	return a.core.DeleteConfig(id)
 }
 
 func (a *App) OpenConfigFile(id string) error {
@@ -591,21 +458,7 @@ func (a *App) OpenConfigFile(id string) error {
 }
 
 func (a *App) SelectLocalConfig(id string) error {
-	state := a.core.GetAppState()
-	if state.ActiveConfig == id {
-		return nil
-	}
-
-	if err := a.core.Behavior.SetActiveConfig(id); err != nil {
-		return err
-	}
-
-	if state.IsRunning {
-		return a.restartCoreAndSync()
-	}
-
-	a.SyncState()
-	return nil
+	return a.core.SelectLocalConfig(a.ctx, id)
 }
 
 func (a *App) SelectLocalFile() (FileInfo, error) {
@@ -670,167 +523,24 @@ func (a *App) FlashWindow() {
 	sys.FocusMainWindowAndFlashTwiceWin32Only()
 }
 
-// --- Speed Test ---
+// --- Delay Test ---
 
 func (a *App) TestAllProxies(nodeNames []string) {
-	// 1. 如果未传节点，先从内核获取并补全
-	if len(nodeNames) == 0 {
-		if data, err := clash.GetInitialData(); err == nil {
-			// 🛡️ 核心修复：获取节点的 key 必须是 "groups" (这是 api_client.go 中的映射)
-			if groups, ok := data["groups"].(map[string]interface{}); ok {
-				for name, raw := range groups {
-					m, ok := raw.(map[string]interface{})
-					if !ok {
-						continue
-					}
-					typ, _ := m["type"].(string)
+	go a.core.Delay.TestAllProxies(a.ctx, nodeNames)
+}
 
-					// 排除策略组和内置节点，只测真实节点
-					switch typ {
-					case "Selector", "URLTest", "Fallback", "LoadBalance":
-						continue
-					}
-					if name == "GLOBAL" || name == "DIRECT" || name == "REJECT" {
-						continue
-					}
-					nodeNames = append(nodeNames, name)
-				}
-			}
-		}
-	}
-
-	// 2. 补全后再次校验，如果没有可测节点直接返回
-	if len(nodeNames) == 0 {
-		runtime.EventsEmit(a.ctx, "proxy-test-finished", "没有可测速节点")
-		return
-	}
-
-	if !clash.IsRunning() {
-		a.testMu.Lock()
-		a.isSilentCore = true
-		a.testMu.Unlock()
-		// 🛡️ 核心修复：拦截静默启动错误，及时终止测速
-		if err := a.core.EnsureCoreRunning(a.ctx); err != nil {
-			runtime.EventsEmit(a.ctx, "proxy-test-finished", "测速启动失败："+err.Error())
-			return
-		}
-	}
-
-	a.testMu.Lock()
-	a.activeTests++
-	a.testMu.Unlock()
-
-	go func() {
-		defer func() {
-			a.testMu.Lock()
-			a.activeTests--
-			remaining := a.activeTests
-			isSilent := a.isSilentCore
-			a.testMu.Unlock()
-
-			if remaining == 0 && isSilent {
-				state := a.core.GetAppState()
-				if !state.SystemProxy && !state.Tun {
-					clash.Stop()
-				}
-				a.testMu.Lock()
-				a.isSilentCore = false
-				a.testMu.Unlock()
-			}
-		}()
-
-		testUrl := "http://www.gstatic.com/generate_204"
-		if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg.TestURL != "" {
-			testUrl = netCfg.TestURL
-		}
-
-		// 🚀 核心修复：此时 len(nodeNames) 绝对大于 0，安全创建 channel
-		jobs := make(chan string, len(nodeNames))
-		var wg sync.WaitGroup
-		workerCount := 16
-		if len(nodeNames) < workerCount {
-			workerCount = len(nodeNames)
-		}
-
-		for i := 0; i < workerCount; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for nName := range jobs {
-					select {
-					case a.testSemaphore <- struct{}{}:
-					case <-a.ctx.Done():
-						return
-					}
-					reqCtx, cancel := context.WithTimeout(a.ctx, 5*time.Second)
-					delay, err := clash.GetProxyDelay(reqCtx, nName, testUrl)
-					cancel()
-					<-a.testSemaphore
-
-					status := "success"
-					if err != nil || delay <= 0 {
-						status = "timeout"
-						delay = 0
-					}
-					runtime.EventsEmit(a.ctx, "proxy-delay-update", map[string]interface{}{
-						"name": nName, "delay": delay, "status": status,
-					})
-				}
-			}()
-		}
-
-		for _, name := range nodeNames {
-			runtime.EventsEmit(a.ctx, "proxy-test-start", name)
-			jobs <- name
-		}
-		close(jobs)
-		wg.Wait()
-		runtime.EventsEmit(a.ctx, "proxy-test-finished", "测速完成")
-	}()
+func (a *App) TestProxy(name string) (int, error) {
+	return a.core.Delay.TestProxy(name)
 }
 
 // --- Updates (Core & App) ---
 
 func (a *App) UpdateCoreComponentAsync() {
-	a.core.Tasks.Run(a.ctx, "core-update", true, func(ctx context.Context) error {
-		state := a.core.GetAppState()
-		isActive := state.SystemProxy || state.Tun
-
-		if isActive {
-			a.core.StopCoreProcess()
-		}
-
-		_, err := clash.UpdateCore(ctx)
-		if err != nil {
-			return err
-		}
-
-		if isActive {
-			return a.restartCoreAndSync()
-		}
-		return nil
-	})
+	a.core.UpdateCoreComponentAsync(a.ctx)
 }
 
 func (a *App) UpdateGeoDatabaseAsync(key string) {
-	a.core.Tasks.Run(a.ctx, "geo-update-"+key, true, func(ctx context.Context) error {
-		behavior := a.core.Behavior.Get()
-		url := ""
-		switch key {
-		case "geoip":
-			url = behavior.GeoIpLink
-		case "geosite":
-			url = behavior.GeoSiteLink
-		case "mmdb":
-			url = behavior.MmdbLink
-		case "asn":
-			url = behavior.AsnLink
-		}
-		if url == "" {
-			return fmt.Errorf("no URL configured for %s", key)
-		}
-		return clash.UpdateGeoDB(ctx, key, url)
-	})
+	a.core.UpdateGeoDatabaseAsync(a.ctx, key)
 }
 
 func (a *App) UpdateAllGeoDatabasesAsync() {
@@ -841,24 +551,7 @@ func (a *App) UpdateAllGeoDatabasesAsync() {
 }
 
 func (a *App) CheckAndDownloadAppUpdateAsync() {
-	a.core.Tasks.Run(a.ctx, "app-update-check", false, func(ctx context.Context) error {
-		info, err := downloader.CheckAppUpdate(ctx, CurrentAppVersion)
-		if err != nil {
-			return err
-		}
-		if info != nil && info.HasUpdate {
-			a.mu.Lock()
-			a.newAppVersion = info.Version
-			a.appUpdateReady = true
-			a.mu.Unlock()
-			// 🚀 核心修复：对齐事件名与 Payload
-			runtime.EventsEmit(a.ctx, "app-update-available", map[string]any{
-				"version":      info.Version,
-				"releaseNotes": info.Body,
-			})
-		}
-		return nil
-	})
+	a.core.CheckAndDownloadAppUpdateAsync(a.ctx, CurrentAppVersion)
 }
 
 func (a *App) ApplyAppUpdate() error {

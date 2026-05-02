@@ -7,9 +7,12 @@ import (
 	"goclashz/core/sys"
 	"goclashz/core/tasks"
 	"goclashz/core/utils"
+	"goclashz/core/logger"
 	"sync"
 	"time"
 )
+
+type LogEntry = logger.LogEntry
 
 type Options struct {
 	Events       EventSink
@@ -35,6 +38,8 @@ type Controller struct {
 	autoTestMu   sync.Mutex
 
 	traffic *TrafficStreamManager
+	logs    *LogStreamManager
+	Delay   *DelayTestManager
 	ctx     context.Context
 }
 
@@ -50,6 +55,8 @@ func NewController(opts Options) *Controller {
 	c.traffic = NewTrafficStreamManager(opts.Events, func() string {
 		return c.Behavior.Get().LogLevel
 	})
+	c.logs = NewLogStreamManager(opts.Events)
+	c.Delay = NewDelayTestManager(opts.Events, c)
 	return c
 }
 
@@ -433,4 +440,34 @@ func (c *Controller) StopTrafficStream() {
 
 func (c *Controller) RestartTrafficStream(ctx context.Context) {
 	c.traffic.Restart(ctx, clash.APIURL("/traffic"))
+}
+
+// --- 日志流调度 ---
+
+func (c *Controller) StartLogStream(ctx context.Context) {
+	logLevel := c.Behavior.Get().LogLevel
+	if logLevel == "" {
+		logLevel = "info"
+	}
+	c.logs.Start(ctx, logLevel)
+}
+
+func (c *Controller) StopLogStream() {
+	c.logs.Stop()
+}
+
+func (c *Controller) GetRecentLogs() []logger.LogEntry {
+	return logger.AppLogs.GetAll()
+}
+
+func (c *Controller) SearchLogs(keyword string) []logger.LogEntry {
+	return logger.AppLogs.Search(keyword)
+}
+
+func (c *Controller) ClearLogs() {
+	logger.AppLogs.Clear()
+}
+
+func (c *Controller) IsLogStreaming() bool {
+	return c.logs.IsRunning()
 }

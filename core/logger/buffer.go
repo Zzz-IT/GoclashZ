@@ -68,3 +68,10 @@ func (r *RingBuffer) Search(keyword string) []LogEntry {
 
 // 全局单例，限制 500 条防止内存溢出
 var AppLogs = NewRingBuffer(500)
+
+// Clear 清空日志
+func (r *RingBuffer) Clear() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.data = make([]LogEntry, 0, r.max)
+}
