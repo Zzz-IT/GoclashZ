@@ -410,7 +410,7 @@ const runModeWorker = async (targetMode: string) => {
 .traffic-box { 
   text-align: right; 
   flex-shrink: 0; 
-  width: 110px; /* 核心：固定宽度防止位移 */
+  width: 130px; /* 🚀 核心：加大宽度以适配 "1200 KB/s" 等四位长字符串 */
 }
 
 .t-header { 
@@ -429,6 +429,7 @@ const runModeWorker = async (targetMode: string) => {
   font-weight: 500; 
   color: var(--text-main); 
   font-variant-numeric: tabular-nums; /* 核心：等宽数字 */
+  white-space: nowrap; /* 🚀 核心：强制不换行 */
 }
 
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

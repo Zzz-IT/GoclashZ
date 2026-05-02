@@ -9,7 +9,6 @@ import (
 	"goclashz/core/downloader"
 	"goclashz/core/logger"
 	"goclashz/core/sys"
-	"goclashz/core/traffic"
 	"goclashz/core/utils"
 	"os"
 	"os/exec"
@@ -33,7 +32,6 @@ type FileInfo struct {
 
 type App struct {
 	ctx           context.Context
-	cancelTraffic context.CancelFunc
 	cancelLogs    context.CancelFunc
 	logGen        int
 	logRunning    bool
@@ -108,7 +106,7 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) shutdown(ctx context.Context) {
 	a.core.StopCoreService()
-	a.StopTrafficStream()
+	a.core.StopTrafficStream()
 	systray.Quit()
 }
 
@@ -125,11 +123,7 @@ func (a *App) SyncState() {
 	a.core.SyncState()
 
 	// 🚀 核心修复：将流量监控生命周期挂载到全局同步逻辑中
-	if state.IsRunning {
-		a.StartTrafficStream()
-	} else {
-		a.StopTrafficStream()
-	}
+	a.core.SyncTrafficStream(a.ctx)
 
 	if a.mSysProxy != nil {
 		if state.SystemProxy {
@@ -237,7 +231,7 @@ func (a *App) RestartCore() error {
 
 func (a *App) restartCoreAndSync() error {
 	// 1. 重启前先主动切断旧的流量监控
-	a.StopTrafficStream()
+	a.core.StopTrafficStream()
 
 	// 2. 执行内核重启
 	err := a.core.RestartCore(a.ctx)
@@ -343,42 +337,11 @@ func (a *App) UpdateAllSubsAsync() {
 // --- Traffic & Logs ---
 
 func (a *App) StartTrafficStream() {
-	a.mu.Lock()
-	if a.cancelTraffic != nil {
-		a.mu.Unlock()
-		return
-	}
-	ctx, cancel := context.WithCancel(a.ctx)
-	a.cancelTraffic = cancel
-	a.mu.Unlock()
-
-	go func() {
-		defer func() {
-			a.mu.Lock()
-			if a.cancelTraffic != nil {
-				a.cancelTraffic = nil
-			}
-			a.mu.Unlock()
-			runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": "0 B/s", "down": "0 B/s"})
-		}()
-
-		traffic.StreamTraffic(ctx, clash.APIURL("/traffic"), func(up, down string) {
-			runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{
-				"up":   up + "/s",
-				"down": down + "/s",
-			})
-		})
-	}()
+	a.core.SyncTrafficStream(a.ctx)
 }
 
 func (a *App) StopTrafficStream() {
-	a.mu.Lock()
-	if a.cancelTraffic != nil {
-		a.cancelTraffic()
-		a.cancelTraffic = nil
-	}
-	a.mu.Unlock()
-	runtime.EventsEmit(a.ctx, "traffic-data", map[string]string{"up": "0 B/s", "down": "0 B/s"})
+	a.core.StopTrafficStream()
 }
 
 func (a *App) StartStreamingLogs() {
@@ -522,9 +485,7 @@ func (a *App) InstallTunDriverAsync(force bool) {
 		}
 
 		if isActive {
-			if rErr := a.core.EnsureCoreRunning(a.ctx); rErr != nil {
-				return rErr
-			}
+			return a.restartCoreAndSync()
 		}
 
 		runtime.EventsEmit(a.ctx, "tun-driver-install-updated", map[string]any{
@@ -606,10 +567,7 @@ func (a *App) RenameConfig(id, newName string) error {
 
 	err := clash.RenameConfig(id, newName)
 	if isActiveConfig && (state.SystemProxy || state.Tun) {
-		if rErr := a.core.EnsureCoreRunning(a.ctx); rErr != nil {
-			a.SyncState()
-			return rErr
-		}
+		return a.restartCoreAndSync()
 	}
 	a.SyncState()
 	return err
@@ -686,13 +644,10 @@ func (a *App) DoLocalImport(srcPath, name string) (string, error) {
 }
 
 func (a *App) StartClash(id string) error {
-	a.core.Behavior.SetActiveConfig(id)
-	if err := a.core.RestartCore(a.ctx); err != nil {
-		a.SyncState()
+	if err := a.core.Behavior.SetActiveConfig(id); err != nil {
 		return err
 	}
-	a.SyncState()
-	return nil
+	return a.restartCoreAndSync()
 }
 
 // --- Extra Utilities ---
@@ -866,8 +821,7 @@ func (a *App) UpdateCoreComponentAsync() {
 		}
 
 		if isActive {
-			// 🛡️ 核心修复：向上传递重启错误
-			return a.core.EnsureCoreRunning(a.ctx)
+			return a.restartCoreAndSync()
 		}
 		return nil
 	})

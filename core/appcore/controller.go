@@ -33,6 +33,8 @@ type Controller struct {
 	// 自动测速任务控制
 	autoTestQuit chan struct{}
 	autoTestMu   sync.Mutex
+
+	traffic *TrafficStreamManager
 }
 
 func NewController(opts Options) *Controller {
@@ -43,6 +45,7 @@ func NewController(opts Options) *Controller {
 		Behavior:     NewBehaviorStore(),
 		Offline:      NewOfflineNodeStore(),
 		Tasks:        tasks.NewManager(opts.Events),
+		traffic:      NewTrafficStreamManager(opts.Events),
 	}
 }
 
@@ -388,4 +391,21 @@ func (c *Controller) RefreshAutoDelayTest() {
 			}
 		}
 	}(c.autoTestQuit, behavior.AutoDelayTestInterval)
+}
+
+func (c *Controller) SyncTrafficStream(ctx context.Context) {
+	state := c.GetAppState()
+	if state.IsRunning {
+		c.traffic.Start(ctx, clash.APIURL("/traffic"))
+	} else {
+		c.traffic.Stop()
+	}
+}
+
+func (c *Controller) StopTrafficStream() {
+	c.traffic.Stop()
+}
+
+func (c *Controller) RestartTrafficStream(ctx context.Context) {
+	c.traffic.Restart(ctx, clash.APIURL("/traffic"))
 }

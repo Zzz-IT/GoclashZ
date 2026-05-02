@@ -1,0 +1,76 @@
+package appcore
+
+import (
+	"context"
+	"goclashz/core/traffic"
+	"sync"
+)
+
+type TrafficStreamManager struct {
+	mu     sync.Mutex
+	cancel context.CancelFunc
+	gen    int
+	emit   EventSink
+}
+
+func NewTrafficStreamManager(emit EventSink) *TrafficStreamManager {
+	return &TrafficStreamManager{
+		emit: emit,
+	}
+}
+
+func (m *TrafficStreamManager) Start(parent context.Context, apiURL string) {
+	m.mu.Lock()
+	if m.cancel != nil {
+		m.mu.Unlock()
+		return
+	}
+
+	m.gen++
+	currentGen := m.gen
+
+	ctx, cancel := context.WithCancel(parent)
+	m.cancel = cancel
+	m.mu.Unlock()
+
+	go func() {
+		defer func() {
+			m.mu.Lock()
+			if m.gen == currentGen {
+				m.cancel = nil
+				m.emit.Emit("traffic-data", map[string]string{
+					"up":   "0 B/s",
+					"down": "0 B/s",
+				})
+			}
+			m.mu.Unlock()
+		}()
+
+		traffic.StreamTraffic(ctx, apiURL, func(up, down string) {
+			m.emit.Emit("traffic-data", map[string]string{
+				"up":   up + "/s",
+				"down": down + "/s",
+			})
+		})
+	}()
+}
+
+func (m *TrafficStreamManager) Stop() {
+	m.mu.Lock()
+	if m.cancel != nil {
+		m.cancel()
+		m.cancel = nil
+		m.gen++
+	}
+	m.mu.Unlock()
+
+	m.emit.Emit("traffic-data", map[string]string{
+		"up":   "0 B/s",
+		"down": "0 B/s",
+	})
+}
+
+func (m *TrafficStreamManager) Restart(parent context.Context, apiURL string) {
+	m.Stop()
+	m.Start(parent, apiURL)
+}
