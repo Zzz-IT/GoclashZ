@@ -492,11 +492,8 @@ func (a *App) TestAllProxies(nodeNames []string) {
 }
 
 func (a *App) TestProxy(name string) (int, error) {
-	// 🛡️ 核心修复：为单节点测速增加超时控制，并走统一的 DelayTestManager 逻辑
-	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
-	defer cancel()
-
-	return a.core.Delay.TestProxy(ctx, name)
+	// 🛡️ 核心修复：移除外层 10s 强行截断，全权交由 DelayTestManager 的 12s (10000+2000) 策略控制
+	return a.core.Delay.TestProxy(a.ctx, name)
 }
 
 // --- Updates (Core & App) ---

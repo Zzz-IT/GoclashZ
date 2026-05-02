@@ -20,14 +20,16 @@ type DelayResult struct {
 
 type DelayTestManager struct {
 	mu      sync.Mutex
-	running bool
-	// 🚀 核心改进：记录当前正在跑批次的节点，用于单点请求时的复用
+	running bool // 批量测速中
+
 	batchNodes map[string]struct{}
 	waiters    map[string][]chan DelayResult
 
-	sem  chan struct{} // 并发控制器
+	singleRunning bool // 🚀 新增：单点测速全局互斥锁
+
+	sem  chan struct{}
 	emit EventSink
-	ctrl *Controller // 引用总控，用于启停内核
+	ctrl *Controller
 }
 
 func NewDelayTestManager(emit EventSink, ctrl *Controller) *DelayTestManager {
@@ -100,6 +102,24 @@ func (m *DelayTestManager) testOne(ctx context.Context, name string, testURL str
 	}
 
 	return DelayResult{Name: name, Delay: delay, Status: "success"}
+}
+
+func (m *DelayTestManager) beginSingle() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.running || m.singleRunning {
+		return false
+	}
+
+	m.singleRunning = true
+	return true
+}
+
+func (m *DelayTestManager) endSingle() {
+	m.mu.Lock()
+	m.singleRunning = false
+	m.mu.Unlock()
 }
 
 
@@ -260,12 +280,18 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 
 	// 🛡️ 如果批量测速正在跑，但这个节点不在批量里，直接返回 busy，不要额外打内核 API
 	m.mu.Lock()
-	running := m.running
+	batchRunning := m.running
 	m.mu.Unlock()
 
-	if running {
+	if batchRunning {
 		return 0, ErrDelayTestBusy
 	}
+
+	// 🛡️ 核心修复：单点测速全局互斥，禁止多个单点抢占 API
+	if !m.beginSingle() {
+		return 0, ErrDelayTestBusy
+	}
+	defer m.endSingle()
 
 	testURL := m.getTestURL()
 	// 单点测试：10s 超时，2s Context 宽限，单地址请求提升稳定性与一致性
