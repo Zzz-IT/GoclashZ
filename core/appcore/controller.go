@@ -40,6 +40,7 @@ type Controller struct {
 	traffic     *TrafficStreamManager
 	logs        *LogStreamManager
 	Delay       *DelayTestManager
+	proxyState  *ProxyStateMonitor
 	connections *ConnectionMonitorManager
 	ctx         context.Context
 
@@ -61,6 +62,7 @@ func NewController(opts Options) *Controller {
 	})
 	c.logs = NewLogStreamManager(opts.Events)
 	c.Delay = NewDelayTestManager(opts.Events, c)
+	c.proxyState = NewProxyStateMonitor(opts.Events)
 	c.connections = NewConnectionMonitorManager(opts.Events)
 	return c
 }
@@ -166,8 +168,10 @@ func (c *Controller) SyncState() {
 	if c.ctx != nil {
 		if state.IsRunning {
 			c.traffic.Start(c.ctx, clash.APIURL("/traffic"))
+			c.proxyState.Start(c.ctx)
 		} else {
 			c.traffic.Stop()
+			c.proxyState.Stop()
 		}
 	}
 }

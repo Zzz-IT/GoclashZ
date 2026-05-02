@@ -224,16 +224,25 @@ func (a *App) RestartCore() error {
 	return a.core.RestartCoreWithReason(a.ctx, "manual")
 }
 
-func (a *App) SelectProxy(groupName, nodeName string) error {
-	a.core.Offline.Mark(groupName, nodeName)
-	if !clash.IsRunning() {
+func (a *App) SelectProxy(groupName, proxyName string) error {
+	// 🛡️ 核心修复：内核确认优先原则
+	if clash.IsRunning() {
+		// 1. 先尝试向内核提交切换请求
+		if err := clash.SelectProxy(groupName, proxyName); err != nil {
+			return err
+		}
+
+		// 2. 内核确认成功后，再更新离线记录以供离线显示
+		a.core.Offline.Mark(groupName, proxyName)
+
+		// 3. 立即触发一次状态同步，确保 UI 拿到最新数据
+		a.SyncState()
 		return nil
 	}
-	err := clash.SelectProxy(groupName, nodeName)
-	if err == nil {
-		a.SyncState()
-	}
-	return err
+
+	// 如果内核未运行，则只记录离线选择
+	a.core.Offline.Mark(groupName, proxyName)
+	return nil
 }
 
 func (a *App) FlushFakeIP() error {

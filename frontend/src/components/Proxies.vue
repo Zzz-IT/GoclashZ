@@ -91,6 +91,7 @@ let unsubStart: () => void;
 let unsubUpdate: () => void;
 let unsubChanged: () => void;
 let unsubFinish: () => void;
+let unsubProxyState: (() => void) | null = null;
 const delayRetentionTime = ref('long');
 
 // 计算当前要显示的组的数据
@@ -176,9 +177,10 @@ const selectNode = async (groupName: string, nodeName: string) => {
 
   try {
     await API.SelectProxy(groupName, nodeName);
-    if (targetGroup) {
-        targetGroup.now = nodeName;
-    }
+    
+    // 🚀 核心修复：以内核返回的真实 now 为准，不再本地乐观修改
+    // 重新拉取一次数据确保同步
+    await loadData();
 
     // 🚀 核心修改：视觉无感穿透同步
     if (globalState.mode === 'global') {
@@ -290,6 +292,24 @@ onMounted(async () => {
     isTesting.value = false;
   });
 
+  // 🚀 新增：轻量化策略组状态同步，处理 Fallback/URLTest 的自动切换
+  unsubProxyState = (EventsOn as any)("proxy-state-sync", (states: any[]) => {
+    if (!Array.isArray(states)) return;
+
+    const nowMap = new Map<string, string>();
+    states.forEach((s: any) => {
+      if (s && s.name) {
+        nowMap.set(s.name, s.now || '');
+      }
+    });
+
+    localGroups.value.forEach(g => {
+      if (nowMap.has(g.name)) {
+        g.now = nowMap.get(g.name);
+      }
+    });
+  });
+
   await loadData();
 });
 
@@ -299,6 +319,7 @@ onUnmounted(() => {
   if (unsubUpdate) unsubUpdate();
   if (unsubChanged) unsubChanged();
   if (unsubFinish) unsubFinish();
+  if (unsubProxyState) unsubProxyState();
 });
 </script>
 
