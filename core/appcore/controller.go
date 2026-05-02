@@ -2,9 +2,11 @@ package appcore
 
 import (
 	"context"
+	"fmt"
 	"goclashz/core/clash"
 	"goclashz/core/sys"
 	"goclashz/core/tasks"
+	"goclashz/core/utils"
 	"sync"
 	"time"
 )
@@ -89,6 +91,7 @@ func (c *Controller) GetAppState() AppState {
 		Mode:               behavior.ActiveMode,
 		SystemProxy:        sysProxy,
 		Tun:                tunActive,
+		Theme:              utils.GetGlobalTheme(),
 		AppVersion:         c.version,
 		ActiveConfig:       activeConfig,
 		DelayRetention:     behavior.DelayRetention,
@@ -117,11 +120,9 @@ func (c *Controller) SyncState() {
 	c.events.Emit(EventStateSync, c.GetAppState())
 }
 
-// EnsureCoreRunning 确保内核已启动并就绪
-func (c *Controller) EnsureCoreRunning(ctx context.Context) error {
-	c.coreLifecycleMu.Lock()
-	defer c.coreLifecycleMu.Unlock()
+// --- 内部方法 (需要提前持有 coreLifecycleMu) ---
 
+func (c *Controller) ensureCoreRunningLocked(ctx context.Context) error {
 	if clash.IsRunning() {
 		return nil
 	}
@@ -129,7 +130,7 @@ func (c *Controller) EnsureCoreRunning(ctx context.Context) error {
 	behavior := c.Behavior.Get()
 	activeConfig := behavior.ActiveConfig
 	if activeConfig == "" {
-		return nil
+		return fmt.Errorf("no active config selected")
 	}
 
 	err := clash.BuildRuntimeConfig(activeConfig, behavior.ActiveMode, behavior.LogLevel)
@@ -151,41 +152,70 @@ func (c *Controller) EnsureCoreRunning(ctx context.Context) error {
 	return nil
 }
 
-// StopCoreService 停止内核并清理状态
+func (c *Controller) stopCoreProcessLocked() error {
+	clash.Stop()
+	return nil
+}
+
+// --- 导出方法 ---
+
+// EnsureCoreRunning 确保内核已启动并就绪 (带锁包装)
+func (c *Controller) EnsureCoreRunning(ctx context.Context) error {
+	c.coreLifecycleMu.Lock()
+	defer c.coreLifecycleMu.Unlock()
+	return c.ensureCoreRunningLocked(ctx)
+}
+
+// StopCoreService 停止内核并清理所有运行时状态（通常用于程序退出）
 func (c *Controller) StopCoreService() {
 	c.coreLifecycleMu.Lock()
 	defer c.coreLifecycleMu.Unlock()
 
-	clash.Stop()
+	c.stopCoreProcessLocked()
+	_ = sys.DisableSystemProxy()
+
 	c.mu.Lock()
 	c.sysProxyActive = false
 	c.tunActive = false
 	c.mu.Unlock()
 }
 
+// StopCoreProcess 仅停止物理进程，保留用户开启意图
+func (c *Controller) StopCoreProcess() {
+	c.coreLifecycleMu.Lock()
+	defer c.coreLifecycleMu.Unlock()
+	c.stopCoreProcessLocked()
+}
+
 // ToggleSystemProxy 开关：系统代理
 func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
-	c.mu.Lock()
-	if c.sysProxyActive == enable {
-		c.mu.Unlock()
-		return nil
-	}
-	c.mu.Unlock()
+	c.coreLifecycleMu.Lock()
+	defer c.coreLifecycleMu.Unlock()
 
 	if enable {
-		if err := c.EnsureCoreRunning(ctx); err != nil {
+		behavior := c.Behavior.Get()
+		if behavior.ActiveConfig == "" {
+			return fmt.Errorf("请先选择一个订阅配置")
+		}
+		if err := c.ensureCoreRunningLocked(ctx); err != nil {
 			return err
 		}
-		
-		netCfg, err := clash.GetNetworkConfig()
-		if err != nil {
-			return err
+		if !clash.IsRunning() {
+			return fmt.Errorf("内核未能成功启动，系统代理开启失败")
 		}
-		port := netCfg.MixedPort
+
+		// 获取实际运行端口并开启系统代理
+		var port int
+		if netCfg, err := clash.GetNetworkConfig(); err == nil {
+			port = netCfg.MixedPort
+			if port == 0 {
+				port = netCfg.Port
+			}
+		}
 		if port == 0 {
-			port = netCfg.Port
+			port = 7890 // 兜底
 		}
-		
+
 		if err := sys.EnableSystemProxy("127.0.0.1", port, "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>"); err != nil {
 			return err
 		}
@@ -195,42 +225,77 @@ func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
 
 	c.mu.Lock()
 	c.sysProxyActive = enable
+	needCore := c.sysProxyActive || c.tunActive
 	c.mu.Unlock()
+
+	if !needCore {
+		c.stopCoreProcessLocked()
+	}
 	c.SyncState()
 	return nil
 }
 
 // ToggleTunMode 开关：TUN 模式
 func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
-	c.mu.Lock()
-	if c.tunActive == enable {
-		c.mu.Unlock()
-		return nil
-	}
-	c.mu.Unlock()
+	c.coreLifecycleMu.Lock()
+	defer c.coreLifecycleMu.Unlock()
 
 	if enable {
-		// TUN 模式需要内核重新以管理员权限启动或配置变更
-		// 简化逻辑：如果是开启，确保内核在跑
-		if err := c.EnsureCoreRunning(ctx); err != nil {
+		if !sys.IsWintunInstalled() {
+			return fmt.Errorf("缺失 Wintun 驱动，请先安装")
+		}
+		if !sys.CheckAdmin() {
+			c.events.Emit(EventNotifyError, "TUN 模式必须以管理员身份运行")
+			return fmt.Errorf("permission denied")
+		}
+
+		// 确保内核配置文件中开启了 TUN
+		tunCfg, _ := clash.GetTunConfig()
+		if tunCfg == nil {
+			tunCfg = &clash.TunConfig{Stack: "gvisor", AutoRoute: true, StrictRoute: true}
+		}
+		if !tunCfg.Enable {
+			tunCfg.Enable = true
+			_ = clash.UpdateTunConfig(tunCfg)
+		}
+
+		if err := c.ensureCoreRunningLocked(ctx); err != nil {
 			return err
 		}
 	} else {
-		// 关闭 TUN 模式通常需要重启内核以卸载 Wintun 网卡
-		// 这里简化处理
+		// 关闭 TUN 时，如果系统代理也没开，就停掉内核
+		// 如果系统代理开着，需要重启内核以应用禁用了 TUN 的配置
+		tunCfg, _ := clash.GetTunConfig()
+		if tunCfg != nil && tunCfg.Enable {
+			tunCfg.Enable = false
+			_ = clash.UpdateTunConfig(tunCfg)
+		}
 	}
 
 	c.mu.Lock()
 	c.tunActive = enable
+	needCore := c.sysProxyActive || c.tunActive
 	c.mu.Unlock()
+
+	// 无论开启还是关闭，只要影响了 TUN 配置，就需要重启内核来应用
+	c.stopCoreProcessLocked()
+	if needCore {
+		if err := c.ensureCoreRunningLocked(ctx); err != nil {
+			return err
+		}
+	}
+
 	c.SyncState()
 	return nil
 }
 
 // RestartCore 重启内核
 func (c *Controller) RestartCore(ctx context.Context) error {
-	c.StopCoreService()
-	return c.EnsureCoreRunning(ctx)
+	c.coreLifecycleMu.Lock()
+	defer c.coreLifecycleMu.Unlock()
+
+	c.stopCoreProcessLocked()
+	return c.ensureCoreRunningLocked(ctx)
 }
 
 // UpdateClashMode 切换 Clash 路由模式
@@ -246,22 +311,13 @@ func (c *Controller) UpdateClashMode(ctx context.Context, mode string) error {
 		c.events.Emit(EventNotifyError, "模式持久化保存失败: "+err.Error())
 	}
 
-	// 2. 即刻同步 UI
-	c.SyncState()
-
-	// 3. 通知内核或预置配置
+	// 2. 如果内核正在运行，尝试通过 API 热切换
 	if clash.IsRunning() {
 		if err := clash.UpdateMode(mode); err != nil {
-			// 如果内核正在运行但更新模式失败，可能是 API 断连
-		}
-	} else {
-		activeCfg := behavior.ActiveConfig
-		if activeCfg != "" {
-			_ = clash.BuildRuntimeConfig(activeCfg, mode, behavior.LogLevel)
+			// 如果 API 切换失败，可能需要重启内核（可选）
 		}
 	}
 
-	// 再次同步以确认
 	c.SyncState()
 	return nil
 }
@@ -271,19 +327,16 @@ func (c *Controller) RefreshAutoDelayTest() {
 	c.autoTestMu.Lock()
 	defer c.autoTestMu.Unlock()
 
-	// 1. 停止旧任务
 	if c.autoTestQuit != nil {
 		close(c.autoTestQuit)
 		c.autoTestQuit = nil
 	}
 
-	// 2. 读取配置
 	behavior := c.Behavior.Get()
 	if !behavior.AutoDelayTest || behavior.AutoDelayTestInterval <= 0 {
 		return
 	}
 
-	// 3. 开启新任务
 	c.autoTestQuit = make(chan struct{})
 	go func(quit chan struct{}, intervalMin int) {
 		ticker := time.NewTicker(time.Duration(intervalMin) * time.Minute)
@@ -296,7 +349,6 @@ func (c *Controller) RefreshAutoDelayTest() {
 			case <-ticker.C:
 				if clash.IsRunning() {
 					// 触发静默测速
-					// 注意：这里需要通过 events 通知前端开始测速
 				}
 			}
 		}

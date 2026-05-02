@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -46,10 +45,6 @@ type App struct {
 	mModeGlobal *systray.MenuItem
 	mModeDirect *systray.MenuItem
 
-	updateMu        sync.Mutex
-	coreLifecycleMu sync.Mutex
-	themeCache      string
-
 	testMu        sync.Mutex
 	activeTests   int
 	testSemaphore chan struct{}
@@ -60,9 +55,6 @@ type App struct {
 	appUpdateTaskMu  sync.Mutex
 	isDownloadingApp bool
 
-	logRestartMu sync.Mutex
-	autoTestMu   sync.Mutex
-
 	trayMu        sync.Mutex
 	lastTrayClick int64
 	trayOnce      sync.Once
@@ -71,7 +63,6 @@ type App struct {
 }
 
 func NewApp() *App {
-	// 初始化事件桥接
 	sink := &WailsEventSink{}
 	core := appcore.NewController(appcore.Options{
 		Events:  sink,
@@ -90,16 +81,7 @@ func (a *App) startup(ctx context.Context) {
 		sink.ctx = ctx
 	}
 	a.core.Startup(ctx)
-
 	clash.LoadIndex()
-
-	// 初始化主题缓存
-	themeFile := filepath.Join(utils.GetDataDir(), "theme_setting.txt")
-	if themeData, err := os.ReadFile(themeFile); err == nil && len(themeData) > 0 {
-		a.themeCache = strings.TrimSpace(string(themeData))
-	} else {
-		a.themeCache = "dark"
-	}
 
 	config := a.core.Behavior.Get()
 	if !config.SilentStart {
@@ -115,7 +97,6 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
-	_ = sys.ClearSystemProxy()
 	a.core.StopCoreService()
 	a.StopTrafficStream()
 	systray.Quit()
@@ -133,7 +114,6 @@ func (a *App) SyncState() {
 	state := a.core.GetAppState()
 	a.core.SyncState()
 
-	// 更新托盘勾选状态
 	if a.mSysProxy != nil {
 		if state.SystemProxy {
 			a.mSysProxy.Check()
@@ -203,7 +183,6 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	data["activeConfigName"] = state.ActiveConfigName
 	data["activeConfigType"] = state.ActiveConfigType
 
-	// 下发排序信息
 	configPath := filepath.Join(utils.GetSubscriptionsDir(), state.ActiveConfig+".yaml")
 	if state.ActiveConfig == "" || state.ActiveConfig == "config.yaml" {
 		configPath = clash.GetConfigPath()
@@ -218,19 +197,27 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 // --- Toggles & Controls ---
 
 func (a *App) ToggleSystemProxy(enable bool) error {
-	return a.core.ToggleSystemProxy(a.ctx, enable)
+	err := a.core.ToggleSystemProxy(a.ctx, enable)
+	a.SyncState()
+	return err
 }
 
 func (a *App) ToggleTunMode(enable bool) error {
-	return a.core.ToggleTunMode(a.ctx, enable)
+	err := a.core.ToggleTunMode(a.ctx, enable)
+	a.SyncState()
+	return err
 }
 
 func (a *App) UpdateClashMode(mode string) error {
-	return a.core.UpdateClashMode(a.ctx, mode)
+	err := a.core.UpdateClashMode(a.ctx, mode)
+	a.SyncState()
+	return err
 }
 
 func (a *App) RestartCore() error {
-	return a.core.RestartCore(a.ctx)
+	err := a.core.RestartCore(a.ctx)
+	a.SyncState()
+	return err
 }
 
 func (a *App) SelectProxy(groupName, nodeName string) error {
@@ -271,8 +258,7 @@ func (a *App) UpdateSub(name, url string) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.ActiveConfig == id && state.IsRunning {
-			clash.BuildRuntimeConfig(id, state.Mode, a.core.Behavior.Get().LogLevel)
-			clash.ReloadConfig()
+			_ = a.core.EnsureCoreRunning(a.ctx)
 		}
 	}
 	return err
@@ -298,8 +284,7 @@ func (a *App) UpdateSingleSub(id string) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.ActiveConfig == id && state.IsRunning {
-			clash.BuildRuntimeConfig(id, state.Mode, a.core.Behavior.Get().LogLevel)
-			clash.ReloadConfig()
+			_ = a.core.EnsureCoreRunning(a.ctx)
 		}
 	}
 	return err
@@ -321,8 +306,7 @@ func (a *App) UpdateAllSubsAsync() {
 
 		state := a.core.GetAppState()
 		if state.ActiveConfig != "" && state.IsRunning {
-			clash.BuildRuntimeConfig(state.ActiveConfig, state.Mode, a.core.Behavior.Get().LogLevel)
-			clash.ReloadConfig()
+			_ = a.core.EnsureCoreRunning(a.ctx)
 		}
 		return nil
 	})
@@ -440,8 +424,6 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 			a.mu.Lock()
 			if a.logRunning {
 				go func() {
-					a.logRestartMu.Lock()
-					defer a.logRestartMu.Unlock()
 					a.StopStreamingLogs()
 					time.Sleep(50 * time.Millisecond)
 					a.StartStreamingLogs()
@@ -456,7 +438,9 @@ func (a *App) SaveAppBehavior(config AppBehavior) error {
 }
 
 func (a *App) ResetComponentSettings(_ string) error {
-	return a.core.Behavior.SetAndSave(a.core.Behavior.Default())
+	err := a.core.Behavior.SetAndSave(a.core.Behavior.Default())
+	a.SyncState()
+	return err
 }
 
 func (a *App) SaveThemePreference(isDark bool) {
@@ -464,16 +448,7 @@ func (a *App) SaveThemePreference(isDark bool) {
 	if isDark {
 		theme = "dark"
 	}
-	a.mu.Lock()
-	if a.themeCache == theme {
-		a.mu.Unlock()
-		return
-	}
-	a.themeCache = theme
-	a.mu.Unlock()
-
-	themeFile := filepath.Join(utils.GetDataDir(), "theme_setting.txt")
-	go os.WriteFile(themeFile, []byte(theme), 0644)
+	_ = utils.SaveGlobalTheme(theme)
 	a.SyncState()
 }
 
@@ -499,23 +474,16 @@ func (a *App) ElevatePrivileges() error {
 
 func (a *App) InstallTunDriverAsync(force bool) {
 	a.core.Tasks.Run(a.ctx, "tun-driver-install", false, func(ctx context.Context) error {
-		a.updateMu.Lock()
-		defer a.updateMu.Unlock()
-
 		state := a.core.GetAppState()
 		isActive := state.SystemProxy || state.Tun
 
 		if isActive {
-			a.coreLifecycleMu.Lock()
-			a.core.StopCoreService()
-			a.coreLifecycleMu.Unlock()
+			a.core.StopCoreProcess()
 		}
 
 		_, err := sys.InstallWintun(ctx, force)
 		if isActive {
-			a.coreLifecycleMu.Lock()
 			_ = a.core.EnsureCoreRunning(a.ctx)
-			a.coreLifecycleMu.Unlock()
 		}
 
 		if err == nil {
@@ -553,10 +521,7 @@ func (a *App) SaveDNSConfig(cfg *clash.DNSConfig) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.SystemProxy || state.Tun {
-			a.coreLifecycleMu.Lock()
-			defer a.coreLifecycleMu.Unlock()
-			a.core.StopCoreService()
-			_ = a.core.EnsureCoreRunning(a.ctx)
+			_ = a.core.RestartCore(a.ctx)
 		}
 	}
 	return err
@@ -571,10 +536,7 @@ func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.SystemProxy || state.Tun {
-			a.coreLifecycleMu.Lock()
-			defer a.coreLifecycleMu.Unlock()
-			a.core.StopCoreService()
-			_ = a.core.EnsureCoreRunning(a.ctx)
+			_ = a.core.RestartCore(a.ctx)
 		}
 	}
 	return err
@@ -589,10 +551,7 @@ func (a *App) SaveNetworkConfig(cfg *clash.NetworkConfig) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.SystemProxy || state.Tun {
-			a.coreLifecycleMu.Lock()
-			defer a.coreLifecycleMu.Unlock()
-			a.core.StopCoreService()
-			_ = a.core.EnsureCoreRunning(a.ctx)
+			_ = a.core.RestartCore(a.ctx)
 		}
 	}
 	return err
@@ -601,32 +560,23 @@ func (a *App) SaveNetworkConfig(cfg *clash.NetworkConfig) error {
 func (a *App) RenameConfig(id, newName string) error {
 	state := a.core.GetAppState()
 	isActiveConfig := (state.ActiveConfig == id)
-	wasActive := state.SystemProxy || state.Tun
 
 	if isActiveConfig {
-		a.coreLifecycleMu.Lock()
-		defer a.coreLifecycleMu.Unlock()
-		if state.IsRunning {
-			a.core.StopCoreService()
-		}
+		a.core.StopCoreProcess()
 	}
 
 	err := clash.RenameConfig(id, newName)
-	if isActiveConfig {
-		if wasActive {
-			_ = a.core.EnsureCoreRunning(a.ctx)
-			a.SyncState()
-		}
+	if isActiveConfig && (state.SystemProxy || state.Tun) {
+		_ = a.core.EnsureCoreRunning(a.ctx)
 	}
+	a.SyncState()
 	return err
 }
 
 func (a *App) DeleteConfig(id string) error {
 	state := a.core.GetAppState()
 	if state.ActiveConfig == id {
-		a.coreLifecycleMu.Lock()
-		defer a.coreLifecycleMu.Unlock()
-		a.core.StopCoreService()
+		a.core.StopCoreProcess()
 		a.core.Behavior.SetActiveConfig("")
 	}
 	err := clash.DeleteConfig(id)
@@ -657,19 +607,14 @@ func (a *App) SelectLocalConfig(id string) error {
 		return nil
 	}
 
-	a.coreLifecycleMu.Lock()
-	defer a.coreLifecycleMu.Unlock()
-
 	wasRunning := state.IsRunning
 	if wasRunning {
-		a.core.StopCoreService()
+		a.core.StopCoreProcess()
 	}
 
 	a.core.Behavior.SetActiveConfig(id)
 	if wasRunning {
-		err := a.core.EnsureCoreRunning(a.ctx)
-		a.SyncState()
-		return err
+		_ = a.core.EnsureCoreRunning(a.ctx)
 	}
 	a.SyncState()
 	return nil
@@ -697,12 +642,9 @@ func (a *App) DoLocalImport(srcPath, name string) (string, error) {
 
 func (a *App) StartClash(id string) error {
 	a.core.Behavior.SetActiveConfig(id)
-	a.coreLifecycleMu.Lock()
-	defer a.coreLifecycleMu.Unlock()
-	a.core.StopCoreService()
-	err := a.core.EnsureCoreRunning(a.ctx)
+	_ = a.core.RestartCore(a.ctx)
 	a.SyncState()
-	return err
+	return nil
 }
 
 // --- Extra Utilities ---
@@ -747,26 +689,12 @@ func (a *App) TestAllProxies(nodeNames []string) {
 	a.activeTests++
 	a.testMu.Unlock()
 
-	a.coreLifecycleMu.Lock()
 	if !clash.IsRunning() {
 		a.testMu.Lock()
 		a.isSilentCore = true
 		a.testMu.Unlock()
-
-		state := a.core.GetAppState()
-		if state.ActiveConfig != "" {
-			_ = clash.BuildRuntimeConfig(state.ActiveConfig, state.Mode, a.core.Behavior.Get().LogLevel)
-		}
-		_ = clash.Start(a.ctx)
-		// Wait for API
-		for i := 0; i < 20; i++ {
-			if _, err := clash.GetInitialData(); err == nil {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
+		_ = a.core.EnsureCoreRunning(a.ctx)
 	}
-	a.coreLifecycleMu.Unlock()
 
 	go func() {
 		defer func() {
@@ -777,7 +705,6 @@ func (a *App) TestAllProxies(nodeNames []string) {
 			a.testMu.Unlock()
 
 			if remaining == 0 && isSilent {
-				a.coreLifecycleMu.Lock()
 				state := a.core.GetAppState()
 				if !state.SystemProxy && !state.Tun {
 					clash.Stop()
@@ -785,7 +712,6 @@ func (a *App) TestAllProxies(nodeNames []string) {
 				a.testMu.Lock()
 				a.isSilentCore = false
 				a.testMu.Unlock()
-				a.coreLifecycleMu.Unlock()
 			}
 		}()
 
@@ -842,21 +768,16 @@ func (a *App) TestAllProxies(nodeNames []string) {
 
 func (a *App) UpdateCoreComponentAsync() {
 	a.core.Tasks.Run(a.ctx, "core-update", true, func(ctx context.Context) error {
-		a.updateMu.Lock()
-		defer a.updateMu.Unlock()
-
 		state := a.core.GetAppState()
-		if state.IsRunning {
-			a.coreLifecycleMu.Lock()
-			a.core.StopCoreService()
-			a.coreLifecycleMu.Unlock()
+		isActive := state.SystemProxy || state.Tun
+
+		if isActive {
+			a.core.StopCoreProcess()
 		}
 
 		_, err := clash.UpdateCore(ctx)
-		if state.SystemProxy || state.Tun {
-			a.coreLifecycleMu.Lock()
+		if isActive {
 			_ = a.core.EnsureCoreRunning(a.ctx)
-			a.coreLifecycleMu.Unlock()
 		}
 		return err
 	})
@@ -908,7 +829,6 @@ func (a *App) CheckAndDownloadAppUpdateAsync() {
 }
 
 func (a *App) ApplyAppUpdate() error {
-	// 实现应用更新逻辑
 	return nil
 }
 
@@ -925,17 +845,8 @@ func (a *App) ManualCheckAppUpdate() (string, error) {
 
 // --- Helpers ---
 
-func getThemeConfigPath() string {
-	return filepath.Join(utils.GetDataDir(), "theme_setting.txt")
-}
-
 func getLocalCoreVersion(_ string) string {
-	// 实现本地版本读取逻辑
 	return ""
-}
-
-func normalizeVersion(v string) string {
-	return strings.TrimSpace(strings.ToLower(v))
 }
 
 func (a *App) SetupSystray() {
@@ -968,30 +879,29 @@ func (a *App) onTrayReady() {
 	mRestart := systray.AddMenuItem("重启内核", "重启 Clash 内核")
 	mQuit := systray.AddMenuItem("退出程序", "彻底退出 GoclashZ")
 
-	// 信号处理
 	mShow.Click(func() {
 		runtime.WindowShow(a.ctx)
 		runtime.WindowUnmaximise(a.ctx)
 	})
 	a.mSysProxy.Click(func() {
 		state := a.core.GetAppState()
-		a.ToggleSystemProxy(!state.SystemProxy)
+		_ = a.ToggleSystemProxy(!state.SystemProxy)
 	})
 	a.mTun.Click(func() {
 		state := a.core.GetAppState()
-		a.ToggleTunMode(!state.Tun)
+		_ = a.ToggleTunMode(!state.Tun)
 	})
 	a.mModeRule.Click(func() {
-		a.UpdateClashMode("rule")
+		_ = a.UpdateClashMode("rule")
 	})
 	a.mModeGlobal.Click(func() {
-		a.UpdateClashMode("global")
+		_ = a.UpdateClashMode("global")
 	})
 	a.mModeDirect.Click(func() {
-		a.UpdateClashMode("direct")
+		_ = a.UpdateClashMode("direct")
 	})
 	mRestart.Click(func() {
-		a.RestartCore()
+		_ = a.RestartCore()
 	})
 	mQuit.Click(func() {
 		runtime.Quit(a.ctx)
@@ -1001,5 +911,4 @@ func (a *App) onTrayReady() {
 }
 
 func (a *App) onTrayExit() {
-	// 托盘退出清理
 }

@@ -305,10 +305,16 @@ func BuildRuntimeConfig(id string, mode string, logLevel string) error {
 	userNet, _ := GetNetworkConfig()
 
 	// 2. 读取选中的订阅文件作为 "Base Config" (只读模板)
-	profilePath := filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
+	var profilePath string
+	if id == "" || id == "config.yaml" {
+		profilePath = GetConfigPath() // 指向 /data/core/config.yaml
+	} else {
+		profilePath = filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
+	}
+
 	baseData, err := os.ReadFile(profilePath)
 	if err != nil {
-		return fmt.Errorf("读取基础配置失败: %v", err)
+		return fmt.Errorf("读取基础配置失败: %v (路径: %s)", err, profilePath)
 	}
 
 	var root map[string]interface{}

@@ -90,14 +90,30 @@ func (s *BehaviorStore) GetActiveMode() string {
 }
 
 func (s *BehaviorStore) Load() error {
+	// 1. 先获取带完整默认值的对象
+	defaults := s.Default()
+
 	data, err := os.ReadFile(s.path)
 	if err != nil {
-		s.cache = s.Default()
+		s.mu.Lock()
+		s.cache = defaults
+		s.mu.Unlock()
 		return nil
 	}
+
+	// 2. 将本地 JSON 覆盖到 defaults 上，缺失的字段会保留 defaults 的值
+	if err := json.Unmarshal(data, &defaults); err != nil {
+		// 如果反序列化失败，仍然回退到默认值
+		s.mu.Lock()
+		s.cache = s.Default()
+		s.mu.Unlock()
+		return err
+	}
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	return json.Unmarshal(data, &s.cache)
+	s.cache = defaults
+	s.mu.Unlock()
+	return nil
 }
 
 func (s *BehaviorStore) Save() error {

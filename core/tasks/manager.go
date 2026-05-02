@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"fmt"
 	"sync"
 )
 
@@ -33,13 +34,14 @@ func (m *Manager) Run(parentCtx context.Context, name string, autoSuccess bool, 
 	m.tasks[name] = cancel
 	m.mu.Unlock()
 
-	go func() {
+	go func(myCancel context.CancelFunc) {
 		m.events.Emit(name + "-start")
 		err := fn(taskCtx)
 
 		m.mu.Lock()
-		if current, ok := m.tasks[name]; ok {
-			current()
+		// 🚀 核心修复：只有当 map 中的 cancel 函数等于当前的 myCancel 时，才进行清理
+		// 这样可以防止：新任务 A 启动后替换了旧任务 B 的 cancel，但旧任务 B 执行完后把新任务 A 的 cancel 给删了
+		if currentCancel, ok := m.tasks[name]; ok && fmt.Sprintf("%p", currentCancel) == fmt.Sprintf("%p", myCancel) {
 			delete(m.tasks, name)
 		}
 		m.mu.Unlock()
@@ -56,7 +58,7 @@ func (m *Manager) Run(parentCtx context.Context, name string, autoSuccess bool, 
 		if autoSuccess {
 			m.events.Emit(name + "-success")
 		}
-	}()
+	}(cancel)
 }
 
 func (m *Manager) Cancel(name string) {

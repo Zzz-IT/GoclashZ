@@ -119,3 +119,18 @@ func SanitizeFilename(name string) (string, error) {
 	}
 	return safe, nil
 }
+
+// GetGlobalTheme 读取全局主题配置
+func GetGlobalTheme() string {
+	themeFile := filepath.Join(GetDataDir(), "theme_setting.txt")
+	if data, err := os.ReadFile(themeFile); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+	return "dark"
+}
+
+// SaveGlobalTheme 保存全局主题配置
+func SaveGlobalTheme(theme string) error {
+	themeFile := filepath.Join(GetDataDir(), "theme_setting.txt")
+	return os.WriteFile(themeFile, []byte(theme), 0644)
+}

@@ -265,13 +265,7 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 	// 热重载内存与系统状态
 	a.core.Behavior.Load()
 
-	// 🚀 核心修复：重新读取并刷新主题内存缓存，避免 UI 状态滞后
-	themeData, err := os.ReadFile(filepath.Join(dataDir, "theme_setting.txt"))
-	if err == nil && len(themeData) > 0 {
-		a.mu.Lock()
-		a.themeCache = strings.TrimSpace(string(themeData))
-		a.mu.Unlock()
-	}
+	// 🚀 核心修复：主题设置已通过 utils 管理，无需手动同步缓存
 
 	state := a.core.GetAppState()
 	if state.ActiveConfig != "" {
