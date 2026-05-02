@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"goclashz/core/clash"
 	"goclashz/core/downloader"
+	"goclashz/core/utils"
+	"path/filepath"
 )
 
 func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
@@ -57,19 +59,69 @@ func (c *Controller) UpdateAllGeoDatabasesAsync(ctx context.Context) {
 }
 
 func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
+	// 手动检查时，如果已经是最新版，也要提示用户
+	c.checkAndDownloadAppUpdate(ctx, currentVersion, true)
+}
+
+func (c *Controller) AutoCheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
+	// 自动检查时，如果已经是最新版，则保持静默
+	c.checkAndDownloadAppUpdate(ctx, currentVersion, false)
+}
+
+func (c *Controller) checkAndDownloadAppUpdate(ctx context.Context, currentVersion string, notifyLatest bool) {
 	c.Tasks.Run(ctx, "app-update-check", false, func(ctx context.Context) error {
 		info, err := downloader.CheckAppUpdate(ctx, currentVersion)
 		if err != nil {
+			c.events.Emit("app-update-error", err.Error())
 			return err
 		}
-		if info != nil && info.HasUpdate {
-			c.SetUpdateStatus(true, info.Version)
-			// 🚀 核心修复：对齐事件名与 Payload
-			c.events.Emit("app-update-available", map[string]any{
-				"version":      info.Version,
-				"releaseNotes": info.Body,
-			})
+
+		if info == nil || !info.HasUpdate {
+			if notifyLatest {
+				c.events.Emit("app-update-none", map[string]any{
+					"message": "当前已经是最新版本",
+				})
+			}
+			return nil
 		}
+
+		// 1. 记录更新状态
+		c.SetUpdateStatus(true, info.Version)
+
+		// 2. 弹出发现新版本卡片 (前端负责显示内容)
+		c.events.Emit("app-update-available", map[string]any{
+			"version":      info.Version,
+			"releaseNotes": info.Body,
+			"releaseUrl":   info.ReleaseURL,
+			"downloadUrl":  info.DownloadURL,
+		})
+
+		// 3. 开始后台静默下载
+		if info.DownloadURL == "" {
+			err := fmt.Errorf("发现新版本 %s，但 Release 中没有可用的 Windows 安装包", info.Version)
+			c.events.Emit("app-update-error", err.Error())
+			return err
+		}
+
+		c.events.Emit("app-update-start", map[string]any{
+			"version": info.Version,
+		})
+
+		destDir := filepath.Join(utils.GetDataDir(), "updates")
+		path, err := downloader.DownloadAppUpdate(ctx, info, destDir)
+		if err != nil {
+			c.events.Emit("app-update-error", "下载更新失败: "+err.Error())
+			return err
+		}
+
+		// 4. 下载成功，更新控制台状态 (前端暂不弹窗，等待用户下次启动或手动安装)
+		c.SetDownloadedAppUpdate(path, info.Version)
+		
+		c.events.Emit("app-update-downloaded", map[string]any{
+			"version": info.Version,
+			"path":    path,
+		})
+
 		return nil
 	})
 }

@@ -46,6 +46,9 @@ type Controller struct {
 
 	updateReady   bool
 	newAppVersion string
+
+	downloadedUpdatePath    string
+	downloadedUpdateVersion string
 }
 
 func NewController(opts Options) *Controller {
@@ -114,6 +117,12 @@ type AppState struct {
 	// 👇 新增：延迟保留相关
 	DelayRetention     bool   `json:"delayRetention"`
 	DelayRetentionTime string `json:"delayRetentionTime"`
+
+	// 👇 新增：应用更新相关
+	UpdateReady      bool   `json:"updateReady"`
+	NewAppVersion    string `json:"newAppVersion"`
+	UpdateDownloaded bool   `json:"updateDownloaded"`
+	DownloadedPath   string `json:"downloadedPath"`
 }
 
 // GetAppState 获取应用运行状态快照
@@ -141,6 +150,10 @@ func (c *Controller) GetAppState() AppState {
 		DelayRetention:     behavior.DelayRetention,
 		DelayRetentionTime: behavior.DelayRetentionTime,
 		HideLogs:           behavior.HideLogs,
+		UpdateReady:        c.updateReady,
+		NewAppVersion:      c.newAppVersion,
+		UpdateDownloaded:   c.downloadedUpdatePath != "",
+		DownloadedPath:     c.downloadedUpdatePath,
 	}
 
 	if activeConfig != "" {
@@ -519,4 +532,18 @@ func (c *Controller) SetUpdateStatus(ready bool, version string) {
 	defer c.mu.Unlock()
 	c.updateReady = ready
 	c.newAppVersion = version
+}
+
+func (c *Controller) SetDownloadedAppUpdate(path, version string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.downloadedUpdatePath = path
+	c.downloadedUpdateVersion = version
+	c.SyncState()
+}
+
+func (c *Controller) GetDownloadedUpdate() (string, string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.downloadedUpdatePath, c.downloadedUpdateVersion
 }

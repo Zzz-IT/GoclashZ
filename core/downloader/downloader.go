@@ -574,10 +574,12 @@ func VerifySHA256(path string, expected string) error {
 	return nil
 }
 type AppUpdateInfo struct {
-	HasUpdate bool   `json:"hasUpdate"`
-	Version   string `json:"version"`
-	Body      string `json:"body"`
-	URL       string `json:"url"`
+	HasUpdate   bool   `json:"hasUpdate"`
+	Version     string `json:"version"`
+	Body        string `json:"body"`
+	ReleaseURL  string `json:"releaseUrl"`
+	DownloadURL string `json:"downloadUrl"`
+	AssetName   string `json:"assetName"`
 }
 
 func CheckAppUpdate(ctx context.Context, currentVersion string) (*AppUpdateInfo, error) {
@@ -599,32 +601,109 @@ func CheckAppUpdate(ctx context.Context, currentVersion string) (*AppUpdateInfo,
 	var release struct {
 		TagName string `json:"tag_name"`
 		Body    string `json:"body"`
+		HTMLURL string `json:"html_url"`
 		Assets  []struct {
-			BrowserDownloadURL string `json:"browser_download_url"`
 			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+			Size               int64  `json:"size"`
 		} `json:"assets"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
 		return nil, err
 	}
 
-	hasUpdate := normalizeVersion(release.TagName) != normalizeVersion(currentVersion)
-	updateURL := ""
-	for _, asset := range release.Assets {
-		if strings.HasSuffix(asset.Name, ".exe") {
-			updateURL = asset.BrowserDownloadURL
-			break
-		}
-	}
+	hasUpdate := compareVersion(release.TagName, currentVersion) > 0
+	assetName, downloadURL := selectWindowsAsset(release.Assets)
 
 	return &AppUpdateInfo{
-		HasUpdate: hasUpdate,
-		Version:   release.TagName,
-		Body:      release.Body,
-		URL:       updateURL,
+		HasUpdate:   hasUpdate,
+		Version:     release.TagName,
+		Body:        release.Body,
+		ReleaseURL:  release.HTMLURL,
+		DownloadURL: downloadURL,
+		AssetName:   assetName,
 	}, nil
 }
 
-func normalizeVersion(v string) string {
-	return strings.TrimSpace(strings.ToLower(strings.TrimPrefix(v, "v")))
+func selectWindowsAsset(assets []struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+	Size               int64  `json:"size"`
+}) (string, string) {
+	var fallbackName, fallbackURL string
+
+	for _, asset := range assets {
+		name := strings.ToLower(asset.Name)
+
+		if !strings.HasSuffix(name, ".exe") {
+			continue
+		}
+
+		// 优先匹配包含 windows/win 且带有 setup 或 amd64/x64 的包
+		if strings.Contains(name, "windows") ||
+			strings.Contains(name, "win") ||
+			strings.Contains(name, "setup") ||
+			strings.Contains(name, "goclashz") {
+			if strings.Contains(name, "amd64") ||
+				strings.Contains(name, "x64") ||
+				strings.Contains(name, "setup") {
+				return asset.Name, asset.BrowserDownloadURL
+			}
+		}
+
+		if fallbackURL == "" {
+			fallbackName = asset.Name
+			fallbackURL = asset.BrowserDownloadURL
+		}
+	}
+
+	return fallbackName, fallbackURL
+}
+
+func compareVersion(a, b string) int {
+	aa := parseVersionParts(a)
+	bb := parseVersionParts(b)
+
+	maxLen := len(aa)
+	if len(bb) > maxLen {
+		maxLen = len(bb)
+	}
+
+	// 补齐长度
+	for len(aa) < maxLen {
+		aa = append(aa, 0)
+	}
+	for len(bb) < maxLen {
+		bb = append(bb, 0)
+	}
+
+	for i := 0; i < maxLen; i++ {
+		if aa[i] > bb[i] {
+			return 1
+		}
+		if aa[i] < bb[i] {
+			return -1
+		}
+	}
+	return 0
+}
+
+func parseVersionParts(v string) []int {
+	v = strings.TrimSpace(strings.ToLower(v))
+	v = strings.TrimPrefix(v, "v")
+
+	// 忽略预发布标签 (如 -alpha, -beta)
+	if idx := strings.IndexAny(v, "-+"); idx >= 0 {
+		v = v[:idx]
+	}
+
+	parts := strings.Split(v, ".")
+	out := make([]int, 0, len(parts))
+
+	for _, p := range parts {
+		n, _ := strconv.Atoi(p)
+		out = append(out, n)
+	}
+
+	return out
 }

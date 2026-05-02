@@ -6,7 +6,9 @@ import {logger} from '../models';
 import {sys} from '../models';
 import {main} from '../models';
 
-export function ApplyAppUpdate():Promise<void>;
+export function ApplyAppUpdate(arg1:string):Promise<void>;
+
+export function AutoCheckAndDownloadAppUpdateAsync():Promise<void>;
 
 export function CheckAndDownloadAppUpdateAsync():Promise<void>;
 

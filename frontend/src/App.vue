@@ -282,6 +282,18 @@ onMounted(async () => {
       onCancel: null
     };
   });
+
+  EventsOn("app-update-none", (payload: any) => {
+    globalState.modal = {
+      show: true,
+      title: "已是最新版本",
+      message: payload?.message || "当前已经是最新版本。",
+      type: "alert",
+      isDanger: false,
+      onConfirm: () => { globalState.modal.show = false; },
+      onCancel: null
+    };
+  });
 });
 
 onUnmounted(() => {
@@ -293,6 +305,7 @@ onUnmounted(() => {
   EventsOff("app-update-available");
   EventsOff("app-update-start");
   EventsOff("app-update-error");
+  EventsOff("app-update-none");
 });
 
 watch(currentTab, (newTab) => {

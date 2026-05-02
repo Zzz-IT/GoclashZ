@@ -64,6 +64,10 @@ export namespace appcore {
 	    activeConfigType: string;
 	    delayRetention: boolean;
 	    delayRetentionTime: string;
+	    updateReady: boolean;
+	    newAppVersion: string;
+	    updateDownloaded: boolean;
+	    downloadedPath: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppState(source);
@@ -84,6 +88,10 @@ export namespace appcore {
 	        this.activeConfigType = source["activeConfigType"];
 	        this.delayRetention = source["delayRetention"];
 	        this.delayRetentionTime = source["delayRetentionTime"];
+	        this.updateReady = source["updateReady"];
+	        this.newAppVersion = source["newAppVersion"];
+	        this.updateDownloaded = source["updateDownloaded"];
+	        this.downloadedPath = source["downloadedPath"];
 	    }
 	}
 	export class ConnectionMetadataDTO {

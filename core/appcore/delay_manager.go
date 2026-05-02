@@ -54,14 +54,22 @@ func isSystemProxyName(name string) bool {
 	}
 }
 
+type DelayRunState string
+
+const (
+	DelayIdle      DelayRunState = "idle"
+	DelayPreparing DelayRunState = "preparing"
+	DelayRunning   DelayRunState = "running"
+)
+
 type DelayTestManager struct {
-	mu      sync.Mutex
-	running bool // 批量测速中
+	mu    sync.Mutex
+	state DelayRunState // 🚀 状态机：idle, preparing, running
 
 	batchNodes map[string]struct{}
 	waiters    map[string][]chan DelayResult
 
-	activeSingles map[string]struct{} // 🚀 新增：跟踪当前正在单点测速的节点，允许不同节点并发
+	activeSingles map[string]struct{} // 🚀 跟踪当前正在单点测速的节点，允许不同节点并发
 
 	sem  chan struct{}
 	emit EventSink
@@ -72,6 +80,7 @@ func NewDelayTestManager(emit EventSink, ctrl *Controller) *DelayTestManager {
 	return &DelayTestManager{
 		emit:          emit,
 		ctrl:          ctrl,
+		state:         DelayIdle,
 		sem:           make(chan struct{}, 6),
 		batchNodes:    make(map[string]struct{}),
 		waiters:       make(map[string][]chan DelayResult),
@@ -82,7 +91,7 @@ func NewDelayTestManager(emit EventSink, ctrl *Controller) *DelayTestManager {
 // waitForBatchNode 如果节点正在批量测速中，则挂起当前请求等待批量结果
 func (m *DelayTestManager) waitForBatchNode(ctx context.Context, name string) (DelayResult, bool) {
 	m.mu.Lock()
-	if !m.running {
+	if m.state != DelayRunning {
 		m.mu.Unlock()
 		return DelayResult{}, false
 	}
@@ -186,7 +195,8 @@ func (m *DelayTestManager) endSingleNode(name string) {
 
 func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []string) {
 	m.mu.Lock()
-	if m.running {
+	// 🛡️ 核心修复：单点测速正在跑时，也禁止批量进入，防止 API 冲突
+	if m.state != DelayIdle || len(m.activeSingles) > 0 {
 		m.mu.Unlock()
 		for _, name := range nodeNames {
 			m.emit.Emit("proxy-delay-update", map[string]interface{}{
@@ -198,13 +208,38 @@ func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []strin
 		m.emit.Emit("proxy-test-finished", "当前已有测速任务正在运行")
 		return
 	}
+	m.state = DelayPreparing
 	m.mu.Unlock()
 
 	finishMsg := "测速完成"
+	silentCore := false
+
+	defer func() {
+		m.mu.Lock()
+		m.state = DelayIdle
+		m.batchNodes = make(map[string]struct{})
+		m.waiters = make(map[string][]chan DelayResult)
+		m.mu.Unlock()
+
+		if silentCore {
+			m.ctrl.StopCoreProcess()
+		}
+
+		m.emit.Emit("proxy-test-finished", finishMsg)
+	}()
+
+	// 1. 🛡️ 核心修复：必须先确保内核运行，再构建拓扑（否则无法读取 API）
+	if !clash.IsRunning() {
+		silentCore = true
+		if err := m.ctrl.EnsureCoreRunning(ctx); err != nil {
+			finishMsg = "测速启动失败：" + err.Error()
+			return
+		}
+	}
+
 	topo, err := buildDelayTopology()
 	if err != nil {
 		finishMsg = "读取代理拓扑失败：" + err.Error()
-		m.emit.Emit("proxy-test-finished", finishMsg)
 		return
 	}
 
@@ -217,34 +252,17 @@ func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []strin
 	}
 
 	if len(targets) == 0 {
-		m.emit.Emit("proxy-test-finished", "没有可测速的有效节点")
+		finishMsg = "没有可测速的有效节点"
 		return
 	}
 
 	m.mu.Lock()
-	m.running = true
+	m.state = DelayRunning
 	m.batchNodes = make(map[string]struct{})
 	for _, n := range targets {
 		m.batchNodes[n] = struct{}{}
 	}
 	m.mu.Unlock()
-
-	defer func() {
-		m.mu.Lock()
-		m.running = false
-		m.batchNodes = make(map[string]struct{})
-		m.waiters = make(map[string][]chan DelayResult)
-		m.mu.Unlock()
-		m.emit.Emit("proxy-test-finished", finishMsg)
-	}()
-
-	// 1. 如果内核未运行，由 m.ctrl.EnsureCoreRunning 静默拉起
-	if !clash.IsRunning() {
-		if err := m.ctrl.EnsureCoreRunning(ctx); err != nil {
-			finishMsg = "测速启动失败：" + err.Error()
-			return
-		}
-	}
 
 	m.runBatch(ctx, topo, targets)
 }
@@ -303,6 +321,9 @@ func (m *DelayTestManager) runBatch(ctx context.Context, topo *DelayTopology, no
 		workerCount = len(nodeNames)
 	}
 
+	var failedMu sync.Mutex
+	var failed []string
+
 	var wg sync.WaitGroup
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
@@ -311,17 +332,36 @@ func (m *DelayTestManager) runBatch(ctx context.Context, topo *DelayTopology, no
 			for name := range jobs {
 				m.emit.Emit("proxy-test-start", name)
 
-				// 批量测速：7s 超时，3s Context 宽限，单地址请求
+				// 第一轮：并发 6
 				res := m.testOne(ctx, name, testURL, 7000, 3000)
 
-				// 🛡️ 核心改进：不仅更新叶子，还要更新关联组
-				m.emitDelayResult(topo, res)
-
-				m.notifyNodeResult(res)
+				if res.Status != "success" {
+					failedMu.Lock()
+					failed = append(failed, name)
+					failedMu.Unlock()
+				} else {
+					m.emitDelayResult(topo, res)
+					m.notifyNodeResult(res)
+				}
 			}
 		}()
 	}
 	wg.Wait()
+
+	// 🛡️ 第二轮：针对第一轮超时的节点进行“低并发补测”，提高长尾成功率
+	if len(failed) > 0 {
+		for _, name := range failed {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				// 第二轮：并发 1 (串行) 补测，给予更宽松的 9s+3s 超时
+				res := m.testOne(ctx, name, testURL, 9000, 3000)
+				m.emitDelayResult(topo, res)
+				m.notifyNodeResult(res)
+			}
+		}
+	}
 }
 
 func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, error) {
@@ -356,10 +396,10 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 
 	// 🛡️ 针对真实叶子进行锁检查
 	m.mu.Lock()
-	batchRunning := m.running
+	isBusy := m.state != DelayIdle
 	m.mu.Unlock()
 
-	if batchRunning {
+	if isBusy {
 		return 0, ErrDelayTestBusy
 	}
 

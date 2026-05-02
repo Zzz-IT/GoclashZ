@@ -288,8 +288,16 @@ onMounted(async () => {
       await loadData();
   });
 
-  unsubFinish = EventsOn("proxy-test-finished", () => {
+  unsubFinish = (EventsOn as any)("proxy-test-finished", () => {
     isTesting.value = false;
+    
+    // 🚀 核心修复：清理所有组内节点的转圈状态，防止长尾节点卡死
+    localGroups.value.forEach(g => {
+      if (!g.proxies) return;
+      g.proxies.forEach((n: any) => {
+        n.testing = false;
+      });
+    });
   });
 
   // 🚀 新增：轻量化策略组状态同步，处理 Fallback/URLTest 的自动切换

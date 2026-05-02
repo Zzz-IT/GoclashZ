@@ -526,9 +526,27 @@ func (a *App) CheckAndDownloadAppUpdateAsync() {
 	a.core.CheckAndDownloadAppUpdateAsync(a.ctx, CurrentAppVersion)
 }
 
-func (a *App) ApplyAppUpdate() error {
-	// 🛡️ 核心修复：明确告知暂未开启自动安装
-	return fmt.Errorf("自动安装功能暂未开启，请手动下载并覆盖安装")
+func (a *App) AutoCheckAndDownloadAppUpdateAsync() {
+	a.core.AutoCheckAndDownloadAppUpdateAsync(a.ctx, CurrentAppVersion)
+}
+
+func (a *App) ApplyAppUpdate(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("更新包路径为空")
+	}
+
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("更新包不存在: %v", err)
+	}
+
+	// 🚀 核心修复：直接运行安装包并退出
+	if err := exec.Command("cmd", "/c", "start", "", path).Start(); err != nil {
+		return fmt.Errorf("无法启动安装程序: %v", err)
+	}
+
+	// 退出当前程序，让安装程序接管（通常安装程序会提示关闭旧进程）
+	runtime.Quit(a.ctx)
+	return nil
 }
 
 func (a *App) ManualCheckAppUpdate() (string, error) {
