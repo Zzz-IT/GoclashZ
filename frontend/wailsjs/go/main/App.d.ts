@@ -40,6 +40,8 @@ export function GetAppState():Promise<appcore.AppState>;
 
 export function GetAppVersion():Promise<string>;
 
+export function GetConnections():Promise<appcore.ConnectionsSnapshot>;
+
 export function GetCoreVersion():Promise<string>;
 
 export function GetCustomRules(arg1:string):Promise<Array<string>>;
@@ -102,7 +104,11 @@ export function SetupSystray():Promise<void>;
 
 export function StartClash(arg1:string):Promise<void>;
 
+export function StartConnectionMonitor():Promise<void>;
+
 export function StartStreamingLogs():Promise<void>;
+
+export function StopConnectionMonitor():Promise<void>;
 
 export function StopStreamingLogs():Promise<void>;
 

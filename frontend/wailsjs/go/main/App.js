@@ -70,6 +70,10 @@ export function GetAppVersion() {
   return window['go']['main']['App']['GetAppVersion']();
 }
 
+export function GetConnections() {
+  return window['go']['main']['App']['GetConnections']();
+}
+
 export function GetCoreVersion() {
   return window['go']['main']['App']['GetCoreVersion']();
 }
@@ -194,8 +198,16 @@ export function StartClash(arg1) {
   return window['go']['main']['App']['StartClash'](arg1);
 }
 
+export function StartConnectionMonitor() {
+  return window['go']['main']['App']['StartConnectionMonitor']();
+}
+
 export function StartStreamingLogs() {
   return window['go']['main']['App']['StartStreamingLogs']();
+}
+
+export function StopConnectionMonitor() {
+  return window['go']['main']['App']['StopConnectionMonitor']();
 }
 
 export function StopStreamingLogs() {

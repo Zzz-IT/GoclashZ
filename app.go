@@ -187,6 +187,18 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 	return data, nil
 }
 
+func (a *App) GetConnections() (appcore.ConnectionsSnapshot, error) {
+	return a.core.GetConnections()
+}
+
+func (a *App) StartConnectionMonitor() {
+	a.core.StartConnectionMonitor(a.ctx)
+}
+
+func (a *App) StopConnectionMonitor() {
+	a.core.StopConnectionMonitor()
+}
+
 // --- Toggles & Controls ---
 
 func (a *App) ToggleSystemProxy(enable bool) error {
@@ -631,18 +643,6 @@ func (a *App) onTrayReady() {
 	})
 
 	a.SyncState()
-}
-
-func (a *App) GetConnections() (appcore.ConnectionsSnapshot, error) {
-	return a.core.GetConnections()
-}
-
-func (a *App) StartConnectionMonitor() {
-	a.core.StartConnectionMonitor(a.ctx)
-}
-
-func (a *App) StopConnectionMonitor() {
-	a.core.StopConnectionMonitor()
 }
 
 func (a *App) onTrayExit() {

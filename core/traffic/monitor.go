@@ -25,32 +25,35 @@ func sleepOrDone(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-// RawConnection 对应 Clash API 返回的原始连接项
-type RawConnection struct {
-	ID       string `json:"id"`
-	Metadata struct {
-		Network         string `json:"network"`
-		Type            string `json:"type"`
-		SourceIP        string `json:"sourceIP"`
-		DestinationIP   string `json:"destinationIP"`
-		SourcePort      string `json:"sourcePort"`
-		DestinationPort string `json:"destinationPort"`
-		Host            string `json:"host"`
-	} `json:"metadata"`
-	Upload      int64     `json:"upload"`
-	Download    int64     `json:"download"`
-	Start       time.Time `json:"start"`
-	Chains      []string  `json:"chains"`
-	Rule        string    `json:"rule"`
-	RulePayload string    `json:"rulePayload"`
+// ConnectionMetadata 对应连接的元数据信息
+type ConnectionMetadata struct {
+	Network         string `json:"network"`
+	Type            string `json:"type"`
+	SourceIP        string `json:"sourceIP"`
+	DestinationIP   string `json:"destinationIP"`
+	SourcePort      string `json:"sourcePort"`
+	DestinationPort string `json:"destinationPort"`
+	Host            string `json:"host"`
 }
 
-// 视图对象：无损继承 RawConnection 的所有内容
+// RawConnection 对应 Clash API 返回的原始连接项
+type RawConnection struct {
+	ID          string             `json:"id"`
+	Metadata    ConnectionMetadata `json:"metadata"`
+	Upload      int64              `json:"upload"`
+	Download    int64              `json:"download"`
+	Start       string             `json:"start"` // 🚀 核心优化：使用 string 代替 time.Time，解决 Wails 生成警告
+	Chains      []string           `json:"chains"`
+	Rule        string             `json:"rule"`
+	RulePayload string             `json:"rulePayload"`
+}
+
+// ConnectionVO 视图对象：无损继承 RawConnection 的所有内容
 type ConnectionVO struct {
-	RawConnection         // 匿名组合，直接继承
-	UploadStr   string `json:"uploadStr"`
-	DownloadStr string `json:"downloadStr"`
-	DurationStr string `json:"durationStr"`
+	RawConnection        // 匿名组合，直接继承
+	UploadStr   string   `json:"uploadStr"`
+	DownloadStr string   `json:"downloadStr"`
+	DurationStr string   `json:"durationStr"`
 }
 
 // 🚀 核心修复：创建独立的全局流量长连接客户端，并增加 TCP 探活
@@ -180,7 +183,11 @@ func formatBytes(b int64) string {
 }
 
 // formatDuration 时间差转换
-func formatDuration(start time.Time) string {
+func formatDuration(startStr string) string {
+	start, err := time.Parse(time.RFC3339, startStr)
+	if err != nil {
+		return "00:00"
+	}
 	d := time.Since(start)
 	m := int(d.Minutes())
 	s := int(d.Seconds()) % 60
