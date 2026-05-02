@@ -39,7 +39,7 @@
 
             <div 
               class="n-latency-box" 
-              :class="{ disabled: isTesting || singleTesting }"
+              :class="{ disabled: isTesting }"
               @click.stop="testSingleDelay(node)"
             >
               <div v-if="node.testing" class="scanner-container">
@@ -79,7 +79,6 @@ import { ICONS } from '../utils/icons';
 const localGroups = ref<any[]>([]);
 const currentGroup = ref<string>('');
 const isTesting = ref(false);
-const singleTesting = ref(false); // 🚀 新增：单点测速全局锁
 
 // 👇 新增：引用用户设置与计时器控制
 const isColorMode = ref(false);
@@ -203,10 +202,9 @@ const testAllDelays = async () => {
 
 // 单点测速
 const testSingleDelay = async (node: any) => {
-  if (node.testing || isTesting.value || singleTesting.value) return;
+  if (node.testing || isTesting.value) return;
   
   node.testing = true;
-  singleTesting.value = true;
 
   try {
     const delay = await API.TestProxy(node.name);
@@ -224,7 +222,6 @@ const testSingleDelay = async (node: any) => {
     updateProxyDelay(node.name, 0, retention);
   } finally {
     node.testing = false;
-    singleTesting.value = false;
   }
 };
 

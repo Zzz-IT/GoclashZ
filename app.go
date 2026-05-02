@@ -492,8 +492,11 @@ func (a *App) TestAllProxies(nodeNames []string) {
 }
 
 func (a *App) TestProxy(name string) (int, error) {
-	// 🛡️ 核心修复：移除外层 10s 强行截断，全权交由 DelayTestManager 的 12s (10000+2000) 策略控制
-	return a.core.Delay.TestProxy(a.ctx, name)
+	// 🛡️ 核心修复：放宽外层超时至 15s，为并发排队留出足够空间
+	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	defer cancel()
+
+	return a.core.Delay.TestProxy(ctx, name)
 }
 
 // --- Updates (Core & App) ---

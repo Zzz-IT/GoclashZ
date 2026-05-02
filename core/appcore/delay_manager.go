@@ -25,7 +25,7 @@ type DelayTestManager struct {
 	batchNodes map[string]struct{}
 	waiters    map[string][]chan DelayResult
 
-	singleRunning bool // 🚀 新增：单点测速全局互斥锁
+	activeSingles map[string]struct{} // 🚀 新增：跟踪当前正在单点测速的节点，允许不同节点并发
 
 	sem  chan struct{}
 	emit EventSink
@@ -34,11 +34,12 @@ type DelayTestManager struct {
 
 func NewDelayTestManager(emit EventSink, ctrl *Controller) *DelayTestManager {
 	return &DelayTestManager{
-		emit:       emit,
-		ctrl:       ctrl,
-		sem:        make(chan struct{}, 6), // 🚀 核心改进：并发进一步降到 6，保障弱网环境成功率
-		batchNodes: make(map[string]struct{}),
-		waiters:    make(map[string][]chan DelayResult),
+		emit:          emit,
+		ctrl:          ctrl,
+		sem:           make(chan struct{}, 6),
+		batchNodes:    make(map[string]struct{}),
+		waiters:       make(map[string][]chan DelayResult),
+		activeSingles: make(map[string]struct{}),
 	}
 }
 
@@ -104,21 +105,21 @@ func (m *DelayTestManager) testOne(ctx context.Context, name string, testURL str
 	return DelayResult{Name: name, Delay: delay, Status: "success"}
 }
 
-func (m *DelayTestManager) beginSingle() bool {
+func (m *DelayTestManager) beginSingleNode(name string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.running || m.singleRunning {
+	if _, ok := m.activeSingles[name]; ok {
 		return false
 	}
 
-	m.singleRunning = true
+	m.activeSingles[name] = struct{}{}
 	return true
 }
 
-func (m *DelayTestManager) endSingle() {
+func (m *DelayTestManager) endSingleNode(name string) {
 	m.mu.Lock()
-	m.singleRunning = false
+	delete(m.activeSingles, name)
 	m.mu.Unlock()
 }
 
@@ -287,14 +288,14 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 		return 0, ErrDelayTestBusy
 	}
 
-	// 🛡️ 核心修复：单点测速全局互斥，禁止多个单点抢占 API
-	if !m.beginSingle() {
+	// 🛡️ 核心修复：只禁止同一个节点重复触发，允许不同节点并发（共享 sem 池）
+	if !m.beginSingleNode(name) {
 		return 0, ErrDelayTestBusy
 	}
-	defer m.endSingle()
+	defer m.endSingleNode(name)
 
 	testURL := m.getTestURL()
-	// 单点测试：10s 超时，2s Context 宽限，单地址请求提升稳定性与一致性
+	// 单点测试：10s 超时，2s Context 宽限
 	res := m.testOne(ctx, name, testURL, 10000, 2000)
 
 	if res.Err != nil || res.Delay <= 0 {
