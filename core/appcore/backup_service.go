@@ -7,6 +7,8 @@ import (
 	"goclashz/core/backup"
 	"goclashz/core/clash"
 	"goclashz/core/utils"
+	"os"
+	"path/filepath"
 )
 
 // ExportBackup 业务级导出：调用底层归档逻辑
@@ -39,22 +41,29 @@ func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode st
 	// 5. 根据恢复后的状态决定是否重启内核
 	state := c.GetAppState()
 	if state.ActiveConfig != "" {
-		// 构建运行时配置并应用
-		err := clash.BuildRuntimeConfig(
+		// 🛡️ 核心修复：检查配置是否存在，防止因配置缺失导致恢复失败
+		configPath := clash.GetConfigPath() // 默认
+		if state.ActiveConfig != "" && state.ActiveConfig != "config.yaml" {
+			configPath = filepath.Join(utils.GetSubscriptionsDir(), state.ActiveConfig+".yaml")
+		}
+
+		if _, err := os.Stat(configPath); os.IsNotExist(err) {
+			c.SyncState()
+			return nil
+		}
+
+		// 🚀 核心修复：如果内核正在运行，执行完整重启而不是 ReloadConfig
+		// 因为备份可能改了 API 地址、DNS 或 TUN 等核心组件
+		if state.IsRunning {
+			return c.RestartCore(ctx)
+		}
+
+		// 仅构建运行时配置
+		return clash.BuildRuntimeConfig(
 			state.ActiveConfig,
 			state.Mode,
 			c.Behavior.Get().LogLevel,
 		)
-		if err != nil {
-			return err
-		}
-
-		if state.IsRunning {
-			// 如果内核正在运行，执行热重载
-			if err := clash.ReloadConfig(); err != nil {
-				return err
-			}
-		}
 	}
 
 	// 6. 全局状态同步

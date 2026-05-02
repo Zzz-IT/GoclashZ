@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"goclashz/core/appcore"
 	"goclashz/core/clash"
-	"goclashz/core/downloader"
 	"goclashz/core/sys"
 	"goclashz/core/utils"
 	"os"
@@ -349,35 +348,8 @@ func (a *App) ElevatePrivileges() error {
 	return sys.RequestAdmin()
 }
 
-func (a *App) InstallTunDriverAsync(force bool) {
-	a.core.Tasks.Run(a.ctx, "tun-driver-install", false, func(ctx context.Context) error {
-		state := a.core.GetAppState()
-		isActive := state.SystemProxy || state.Tun
-
-		if isActive {
-			a.core.StopCoreProcess()
-		}
-
-		_, err := sys.InstallWintun(ctx, force)
-		if err != nil {
-			// 🛡️ 核心修复：安装失败时尝试恢复，但必须抛出错误
-			if isActive {
-				_ = a.core.EnsureCoreRunning(a.ctx)
-			}
-			return err
-		}
-
-		if isActive {
-			if rErr := a.restartCoreAndSync(); rErr != nil {
-				return rErr
-			}
-		}
-
-		runtime.EventsEmit(a.ctx, "tun-driver-install-updated", map[string]any{
-			"message": "Wintun 驱动安装完成",
-		})
-		return err
-	})
+func (a *App) InstallTunDriverAsync(_ bool) {
+	a.core.InstallTunDriverAsync(a.ctx)
 }
 
 func (a *App) GetWintunVersion() string {
@@ -422,19 +394,7 @@ func (a *App) SaveNetworkConfig(cfg *clash.NetworkConfig) error {
 }
 
 func (a *App) RenameConfig(id, newName string) error {
-	state := a.core.GetAppState()
-	isActiveConfig := (state.ActiveConfig == id)
-
-	if isActiveConfig {
-		a.core.StopCoreProcess()
-	}
-
-	err := clash.RenameConfig(id, newName)
-	if isActiveConfig && (state.SystemProxy || state.Tun) {
-		return a.restartCoreAndSync()
-	}
-	a.SyncState()
-	return err
+	return a.core.RenameConfig(id, newName)
 }
 
 func (a *App) DeleteConfig(id string) error {
@@ -479,7 +439,7 @@ func (a *App) SelectLocalFile() (FileInfo, error) {
 }
 
 func (a *App) DoLocalImport(srcPath, name string) (string, error) {
-	return clash.ImportLocalConfig(srcPath, name)
+	return a.core.DoLocalImport(srcPath, name)
 }
 
 func (a *App) StartClash(id string) error {
@@ -492,12 +452,7 @@ func (a *App) StartClash(id string) error {
 // --- Extra Utilities ---
 
 func (a *App) GetCoreVersion() string {
-	binDir := utils.GetCoreBinDir()
-	exePath := filepath.Join(binDir, "clash.exe")
-	if ver := getLocalCoreVersion(exePath); ver != "" {
-		return ver
-	}
-	return clash.GetVersion()
+	return a.core.GetCoreVersion()
 }
 
 func (a *App) GetProxyDelay(proxyName, testUrl string) (int, error) {
@@ -558,14 +513,7 @@ func (a *App) ApplyAppUpdate() error {
 }
 
 func (a *App) ManualCheckAppUpdate() (string, error) {
-	info, err := downloader.CheckAppUpdate(a.ctx, CurrentAppVersion)
-	if err != nil {
-		return "", err
-	}
-	if info != nil && info.HasUpdate {
-		return info.Version, nil
-	}
-	return "", nil
+	return a.core.ManualCheckAppUpdate(a.ctx)
 }
 
 // --- Backup ---
@@ -623,9 +571,6 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 
 // --- Helpers ---
 
-func getLocalCoreVersion(_ string) string {
-	return ""
-}
 
 func (a *App) SetupSystray() {
 	a.trayMu.Lock()

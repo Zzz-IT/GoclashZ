@@ -106,3 +106,15 @@ func (c *Controller) SelectLocalConfig(ctx context.Context, id string) error {
 	c.SyncState()
 	return nil
 }
+
+func (c *Controller) RenameConfig(id, newName string) error {
+	if err := clash.RenameConfig(id, newName); err != nil {
+		return err
+	}
+	c.SyncState()
+	return nil
+}
+
+func (c *Controller) DoLocalImport(srcPath, name string) (string, error) {
+	return clash.ImportLocalConfig(srcPath, name)
+}

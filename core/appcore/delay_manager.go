@@ -8,53 +8,48 @@ import (
 )
 
 type DelayTestManager struct {
-	mu          sync.Mutex
-	activeTests int
-	semaphore   chan struct{}
-	silentCore  bool // 标记是否为了测速而临时静默拉起的内核
-	emit        EventSink
-	ctrl        *Controller // 引用总控，用于启停内核
+	mu      sync.Mutex
+	running bool
+	emit    EventSink
+	ctrl    *Controller // 引用总控，用于启停内核
 }
 
 func NewDelayTestManager(emit EventSink, ctrl *Controller) *DelayTestManager {
 	return &DelayTestManager{
-		semaphore: make(chan struct{}, 64),
-		emit:      emit,
-		ctrl:      ctrl,
+		emit: emit,
+		ctrl: ctrl,
 	}
 }
 
 func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []string) {
 	m.mu.Lock()
-	if m.activeTests > 0 {
+	if m.running {
 		m.mu.Unlock()
 		return
 	}
-	m.activeTests = 1
+	m.running = true
 	m.mu.Unlock()
 
 	finishMsg := "测速完成"
+	silentCore := false
+
 	defer func() {
 		m.mu.Lock()
-		m.activeTests = 0
+		m.running = false
 		m.mu.Unlock()
+		if silentCore {
+			m.ctrl.StopCoreProcess()
+		}
 		m.emit.Emit("proxy-test-finished", finishMsg)
 	}()
 
-	// 1. 如果内核未运行，由 m.ctrl.EnsureCoreRunning 静默拉起并标记 m.silentCore = true
+	// 1. 如果内核未运行，由 m.ctrl.EnsureCoreRunning 静默拉起
 	if !clash.IsRunning() {
-		m.mu.Lock()
-		m.silentCore = true
-		m.mu.Unlock()
-
+		silentCore = true
 		if err := m.ctrl.EnsureCoreRunning(ctx); err != nil {
 			finishMsg = "测速启动失败：" + err.Error()
 			return
 		}
-	} else {
-		m.mu.Lock()
-		m.silentCore = false
-		m.mu.Unlock()
 	}
 
 	// 2. 如果未传节点，先从内核获取并补全
@@ -94,44 +89,45 @@ func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []strin
 		testUrl = netCfg.TestURL
 	}
 
-	// 3. 启动 Worker 并发测速
-	var wg sync.WaitGroup
+	// 3. 启动 Worker Pool 测速
+	jobs := make(chan string, len(nodeNames))
 	for _, name := range nodeNames {
+		jobs <- name
+	}
+	close(jobs)
+
+	workerCount := 32
+	if len(nodeNames) < workerCount {
+		workerCount = len(nodeNames)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
-		go func(n string) {
+		go func() {
 			defer wg.Done()
-			m.semaphore <- struct{}{}
-			defer func() { <-m.semaphore }()
+			for name := range jobs {
+				m.emit.Emit("proxy-test-start", name)
 
-			m.emit.Emit("proxy-test-start", n)
+				reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				delay, err := clash.GetProxyDelay(reqCtx, name, testUrl)
+				cancel()
 
-			reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			delay, err := clash.GetProxyDelay(reqCtx, n, testUrl)
-			cancel()
+				status := "success"
+				if err != nil || delay <= 0 {
+					status = "timeout"
+					delay = 0
+				}
 
-			status := "success"
-			if err != nil || delay <= 0 {
-				status = "timeout"
-				delay = 0
+				m.emit.Emit("proxy-delay-update", map[string]interface{}{
+					"name":   name,
+					"delay":  delay,
+					"status": status,
+				})
 			}
-
-			m.emit.Emit("proxy-delay-update", map[string]interface{}{
-				"name":   n,
-				"delay":  delay,
-				"status": status,
-			})
-		}(name)
+		}()
 	}
 	wg.Wait()
-
-	// 4. 测速完毕后，如果 m.silentCore == true，由 m.ctrl.StopCoreProcess() 关闭
-	m.mu.Lock()
-	isSilent := m.silentCore
-	m.mu.Unlock()
-
-	if isSilent {
-		m.ctrl.StopCoreProcess()
-	}
 }
 
 func (m *DelayTestManager) TestProxy(name string) (int, error) {

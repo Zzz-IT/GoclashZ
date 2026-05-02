@@ -73,3 +73,18 @@ func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, current
 		return nil
 	})
 }
+
+func (c *Controller) ManualCheckAppUpdate(ctx context.Context) (string, error) {
+	info, err := downloader.CheckAppUpdate(ctx, c.version)
+	if err != nil {
+		return "", err
+	}
+	if info != nil && info.HasUpdate {
+		return info.Version, nil
+	}
+	return "", nil
+}
+
+func (c *Controller) GetCoreVersion() string {
+	return clash.GetVersion()
+}
