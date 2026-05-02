@@ -46,6 +46,19 @@ func NewController(opts Options) *Controller {
 func (c *Controller) Startup(ctx context.Context) {
 	CleanLegacyFiles(c.version)
 	c.RefreshAutoDelayTest()
+
+	// 🚀 接入内核退出回调：感知底层进程的非预期崩溃
+	clash.SetOnExitCallback(func(e clash.ExitEvent) {
+		if !e.Intentional {
+			c.mu.Lock()
+			c.sysProxyActive = false
+			c.tunActive = false
+			c.mu.Unlock()
+
+			c.events.Emit("clash-exited", e.Message)
+			c.SyncState()
+		}
+	})
 }
 
 func (c *Controller) GetEvents() EventSink {
@@ -168,6 +181,11 @@ func (c *Controller) EnsureCoreRunning(ctx context.Context) error {
 
 // StopCoreService 停止内核并清理所有运行时状态（通常用于程序退出）
 func (c *Controller) StopCoreService() {
+	c.DisableAll()
+}
+
+// DisableAll 彻底清理并关闭所有功能
+func (c *Controller) DisableAll() {
 	c.coreLifecycleMu.Lock()
 	defer c.coreLifecycleMu.Unlock()
 
@@ -178,6 +196,8 @@ func (c *Controller) StopCoreService() {
 	c.sysProxyActive = false
 	c.tunActive = false
 	c.mu.Unlock()
+
+	c.SyncState()
 }
 
 // StopCoreProcess 仅停止物理进程，保留用户开启意图

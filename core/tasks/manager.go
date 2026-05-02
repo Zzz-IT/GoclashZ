@@ -2,46 +2,51 @@ package tasks
 
 import (
 	"context"
-	"fmt"
 	"sync"
+	"time"
 )
 
-// EventSink abstracts event emission (structurally compatible with appcore.EventSink)
+// EventSink abstracts event emission
 type EventSink interface {
 	Emit(name string, args ...any)
 }
 
+type taskHandle struct {
+	id     int64
+	cancel context.CancelFunc
+}
+
 type Manager struct {
 	mu     sync.Mutex
-	tasks  map[string]context.CancelFunc
+	tasks  map[string]taskHandle
 	events EventSink
 }
 
 func NewManager(events EventSink) *Manager {
 	return &Manager{
-		tasks:  make(map[string]context.CancelFunc),
+		tasks:  make(map[string]taskHandle),
 		events: events,
 	}
 }
 
 func (m *Manager) Run(parentCtx context.Context, name string, autoSuccess bool, fn func(context.Context) error) {
 	m.mu.Lock()
-	if oldCancel, exists := m.tasks[name]; exists {
-		oldCancel()
+	if old, exists := m.tasks[name]; exists {
+		old.cancel()
 	}
 
 	taskCtx, cancel := context.WithCancel(parentCtx)
-	m.tasks[name] = cancel
+	myID := time.Now().UnixNano()
+	m.tasks[name] = taskHandle{id: myID, cancel: cancel}
 	m.mu.Unlock()
 
-	go func(myCancel context.CancelFunc) {
+	go func(currentID int64) {
 		m.events.Emit(name + "-start")
 		err := fn(taskCtx)
 
 		m.mu.Lock()
-		// 🚀 核心修复：只有当 map 中的 cancel 函数等于当前的 myCancel 时，才进行清理
-		// 这样可以防止：新任务 A 启动后替换了旧任务 B 的 cancel，但旧任务 B 执行完后把新任务 A 的 cancel 给删了
-		if currentCancel, ok := m.tasks[name]; ok && fmt.Sprintf("%p", currentCancel) == fmt.Sprintf("%p", myCancel) {
+		// 🚀 核心修复：基于 ID 的精确清理，防止新任务覆盖后旧任务误删
+		if handle, ok := m.tasks[name]; ok && handle.id == currentID {
 			delete(m.tasks, name)
 		}
 		m.mu.Unlock()
@@ -58,14 +63,14 @@ func (m *Manager) Run(parentCtx context.Context, name string, autoSuccess bool, 
 		if autoSuccess {
 			m.events.Emit(name + "-success")
 		}
-	}(cancel)
+	}(myID)
 }
 
 func (m *Manager) Cancel(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if cancel, ok := m.tasks[name]; ok {
-		cancel()
+	if handle, ok := m.tasks[name]; ok {
+		handle.cancel()
 		delete(m.tasks, name)
 	}
 }
@@ -73,8 +78,8 @@ func (m *Manager) Cancel(name string) {
 func (m *Manager) CancelAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for name, cancel := range m.tasks {
-		cancel()
+	for name, handle := range m.tasks {
+		handle.cancel()
 		delete(m.tasks, name)
 	}
 }

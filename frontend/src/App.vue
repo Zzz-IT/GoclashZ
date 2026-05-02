@@ -142,12 +142,14 @@ const toggleTheme = () => {
   API.SaveThemePreference(newTheme === 'dark');
 };
 
+const handleResize = async () => {
+	isMaximized.value = await (window as any).runtime.WindowIsMaximised();
+};
+
 const handleToggleMaximise = async () => {
-  WindowToggleMaximise();
-  // 延迟检查，确保状态已同步
-  setTimeout(async () => {
-    isMaximized.value = await (window as any).runtime.WindowIsMaximised();
-  }, 50);
+	WindowToggleMaximise();
+	// 延迟检查，确保状态已同步
+	setTimeout(handleResize, 50);
 };
 
 const handleClose = async () => {
@@ -246,9 +248,7 @@ onMounted(async () => {
   });
 
   // 监听窗口大小变化，同步最大化状态
-  window.addEventListener('resize', async () => {
-    isMaximized.value = await (window as any).runtime.WindowIsMaximised();
-  });
+  window.addEventListener('resize', handleResize);
 
   // 🚀 核心：监听软件更新就绪事件 (由后端在下载完成后触发)
   EventsOn("app-update-ready", (version: string) => {
@@ -299,6 +299,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener('resize', handleResize);
   (window as any).runtime.EventsOff("config-changed");
   EventsOff("traffic-data");
   EventsOff("log-message");
