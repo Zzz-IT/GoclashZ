@@ -59,6 +59,7 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 
 	// 热重载内存与系统状态
 	a.core.Behavior.Load()
+	a.core.RefreshAutoDelayTest() // 🚀 核心修复：还原后同步自动测速状态
 
 	state := a.core.GetAppState()
 	if state.ActiveConfig != "" {

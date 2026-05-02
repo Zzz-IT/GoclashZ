@@ -25,7 +25,15 @@ func Export(dataDir, destPath string) error {
 	clash.IndexLock.RLock()
 	defer clash.IndexLock.RUnlock()
 
-	targets := []string{"settings", "subscriptions", "profiles", "theme_setting.txt"}
+	// 🚀 核心修复：使用标准目录名并包含 config.yaml
+	targets := []string{
+		"Settings",
+		"Subscriptions",
+		"profiles",
+		"config.yaml",
+		"theme_setting.txt",
+	}
+
 	for _, target := range targets {
 		fullPath := filepath.Join(dataDir, target)
 		info, err := os.Stat(fullPath)
@@ -81,29 +89,44 @@ func Restore(dataDir, archivePath, mode string) error {
 	cleanDataDir := filepath.Clean(dataDir)
 	var backupIndex []clash.SubIndexItem
 
-	clash.IndexLock.Lock()
-	defer clash.IndexLock.Unlock()
+	// Zip Bomb 防护常量
+	const (
+		maxRestoreFiles  = 1000
+		maxRestoreTotal  = 300 * 1024 * 1024
+		maxRestoreSingle = 50 * 1024 * 1024
+	)
+
+	if len(zr.File) > maxRestoreFiles {
+		return fmt.Errorf("备份文件数量过多，拒绝恢复")
+	}
+
+	var totalUncompressed uint64
 
 	for _, f := range zr.File {
 		if f.FileInfo().IsDir() {
 			continue
 		}
-		isSettingFile := strings.HasPrefix(f.Name, "settings/")
-		isSubFile := strings.HasPrefix(f.Name, "subscriptions/")
-		isProfileFile := strings.HasPrefix(f.Name, "profiles/")
-		isThemeFile := f.Name == "theme_setting.txt"
 
-		if mode == "subs" && !isSubFile && !isProfileFile {
-			continue
-		}
-		if mode == "settings" && !isSettingFile && !isThemeFile {
-			continue
-		}
-		if mode == "settings" && isProfileFile {
+		// 1. 路径规范化与大小写/旧版本兼容
+		destRel, kind, ok := normalizeBackupEntry(f.Name)
+		if !ok {
 			continue
 		}
 
-		if f.Name == "profiles/index.json" && (mode == "all" || mode == "subs") {
+		// 2. 根据模式过滤
+		switch mode {
+		case "settings":
+			if kind != "settings" && kind != "theme" {
+				continue
+			}
+		case "subs":
+			if kind != "subs" && kind != "profiles" && kind != "config" {
+				continue
+			}
+		}
+
+		// 3. 特殊处理索引文件
+		if destRel == "profiles/index.json" && (mode == "all" || mode == "subs") {
 			rc, err := f.Open()
 			if err == nil {
 				_ = json.NewDecoder(rc).Decode(&backupIndex)
@@ -112,11 +135,22 @@ func Restore(dataDir, archivePath, mode string) error {
 			continue
 		}
 
-		destPath := filepath.Join(dataDir, filepath.FromSlash(f.Name))
+		// 4. Zip Bomb 防护
+		if f.UncompressedSize64 > maxRestoreSingle {
+			return fmt.Errorf("备份内单文件过大: %s", f.Name)
+		}
+		totalUncompressed += f.UncompressedSize64
+		if totalUncompressed > maxRestoreTotal {
+			return fmt.Errorf("备份总体积过大，拒绝恢复")
+		}
+
+		// 5. 目标路径安全校验
+		destPath := filepath.Join(dataDir, filepath.FromSlash(destRel))
 		if !strings.HasPrefix(filepath.Clean(destPath), cleanDataDir+string(os.PathSeparator)) {
 			continue
 		}
 
+		// 6. 执行解压覆盖
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 			return err
 		}
@@ -140,26 +174,95 @@ func Restore(dataDir, archivePath, mode string) error {
 		}
 	}
 
-	if (mode == "all" || mode == "subs") && len(backupIndex) > 0 {
-		clash.LoadIndex()
-		localIndexMap := make(map[string]int)
-		for i, item := range clash.SubIndex {
-			localIndexMap[item.ID] = i
+	// 7. 合并订阅索引 (单独处理锁，防止死锁)
+	return mergeBackupIndex(backupIndex)
+}
+
+// normalizeBackupEntry 处理备份路径的规范化、大小写兼容以及旧版本映射
+func normalizeBackupEntry(name string) (destRel string, kind string, ok bool) {
+	n := filepath.ToSlash(filepath.Clean(name))
+	lower := strings.ToLower(n)
+
+	switch {
+	case lower == "theme_setting.txt":
+		return "theme_setting.txt", "theme", true
+
+	case lower == "config.yaml":
+		return "config.yaml", "config", true
+
+	// 旧版本根目录 behavior/dns/network/tun 映射
+	case lower == "behavior.json":
+		return filepath.ToSlash(filepath.Join("Settings", "user_behavior.json")), "settings", true
+	case lower == "dns.json":
+		return filepath.ToSlash(filepath.Join("Settings", "user_dns.json")), "settings", true
+	case lower == "network.json":
+		return filepath.ToSlash(filepath.Join("Settings", "user_network.json")), "settings", true
+	case lower == "tun.json":
+		return filepath.ToSlash(filepath.Join("Settings", "user_tun.json")), "settings", true
+
+	// 文件夹前缀匹配 (处理大小写不一致问题)
+	case strings.HasPrefix(lower, "settings/"):
+		parts := strings.Split(n, "/")
+		rest := strings.Join(parts[1:], "/")
+		// 映射旧文件名到新文件名 (如果需要)
+		switch strings.ToLower(rest) {
+		case "behavior.json":
+			rest = "user_behavior.json"
+		case "dns.json":
+			rest = "user_dns.json"
+		case "network.json":
+			rest = "user_network.json"
+		case "tun.json":
+			rest = "user_tun.json"
 		}
-		changed := false
-		for _, bItem := range backupIndex {
-			if idx, exists := localIndexMap[bItem.ID]; exists {
-				clash.SubIndex[idx] = bItem
-				changed = true
-			} else {
-				clash.SubIndex = append(clash.SubIndex, bItem)
-				changed = true
-			}
-		}
-		if changed {
-			clash.SaveIndex()
-		}
+		return filepath.ToSlash(filepath.Join("Settings", rest)), "settings", true
+
+	case strings.HasPrefix(lower, "subscriptions/"):
+		parts := strings.Split(n, "/")
+		rest := strings.Join(parts[1:], "/")
+		return filepath.ToSlash(filepath.Join("Subscriptions", rest)), "subs", true
+
+	case strings.HasPrefix(lower, "profiles/"):
+		parts := strings.Split(n, "/")
+		rest := strings.Join(parts[1:], "/")
+		return filepath.ToSlash(filepath.Join("profiles", rest)), "profiles", true
 	}
 
+	return "", "", false
+}
+
+// mergeBackupIndex 合并订阅索引，采用细粒度锁防止死锁
+func mergeBackupIndex(backupIndex []clash.SubIndexItem) error {
+	if len(backupIndex) == 0 {
+		return nil
+	}
+
+	// 1. 先加载当前磁盘索引
+	if err := clash.LoadIndex(); err != nil {
+		return err
+	}
+
+	// 2. 短时间持有锁进行内存合并
+	clash.IndexLock.Lock()
+	localIndexMap := make(map[string]int)
+	for i, item := range clash.SubIndex {
+		localIndexMap[item.ID] = i
+	}
+
+	changed := false
+	for _, bItem := range backupIndex {
+		if idx, exists := localIndexMap[bItem.ID]; exists {
+			clash.SubIndex[idx] = bItem
+		} else {
+			clash.SubIndex = append(clash.SubIndex, bItem)
+		}
+		changed = true
+	}
+	clash.IndexLock.Unlock()
+
+	// 3. 释放锁后再执行持久化
+	if changed {
+		return clash.SaveIndex()
+	}
 	return nil
 }
