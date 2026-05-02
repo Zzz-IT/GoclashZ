@@ -86,8 +86,83 @@ export namespace appcore {
 	        this.delayRetentionTime = source["delayRetentionTime"];
 	    }
 	}
+	export class ConnectionMetadataDTO {
+	    network: string;
+	    type: string;
+	    sourceIP: string;
+	    destinationIP: string;
+	    sourcePort: string;
+	    destinationPort: string;
+	    host: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConnectionMetadataDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.network = source["network"];
+	        this.type = source["type"];
+	        this.sourceIP = source["sourceIP"];
+	        this.destinationIP = source["destinationIP"];
+	        this.sourcePort = source["sourcePort"];
+	        this.destinationPort = source["destinationPort"];
+	        this.host = source["host"];
+	    }
+	}
+	export class ConnectionDTO {
+	    id: string;
+	    metadata: ConnectionMetadataDTO;
+	    upload: number;
+	    download: number;
+	    start: string;
+	    chains: string[];
+	    rule: string;
+	    rulePayload: string;
+	    uploadStr: string;
+	    downloadStr: string;
+	    durationStr: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConnectionDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.metadata = this.convertValues(source["metadata"], ConnectionMetadataDTO);
+	        this.upload = source["upload"];
+	        this.download = source["download"];
+	        this.start = source["start"];
+	        this.chains = source["chains"];
+	        this.rule = source["rule"];
+	        this.rulePayload = source["rulePayload"];
+	        this.uploadStr = source["uploadStr"];
+	        this.downloadStr = source["downloadStr"];
+	        this.durationStr = source["durationStr"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class ConnectionsSnapshot {
-	    connections: traffic.ConnectionVO[];
+	    connections: ConnectionDTO[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionsSnapshot(source);
@@ -95,7 +170,7 @@ export namespace appcore {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.connections = this.convertValues(source["connections"], traffic.ConnectionVO);
+	        this.connections = this.convertValues(source["connections"], ConnectionDTO);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -350,86 +425,6 @@ export namespace sys {
 	        this.sid = source["sid"];
 	        this.isEnabled = source["isEnabled"];
 	    }
-	}
-
-}
-
-export namespace traffic {
-	
-	export class ConnectionMetadata {
-	    network: string;
-	    type: string;
-	    sourceIP: string;
-	    destinationIP: string;
-	    sourcePort: string;
-	    destinationPort: string;
-	    host: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ConnectionMetadata(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.network = source["network"];
-	        this.type = source["type"];
-	        this.sourceIP = source["sourceIP"];
-	        this.destinationIP = source["destinationIP"];
-	        this.sourcePort = source["sourcePort"];
-	        this.destinationPort = source["destinationPort"];
-	        this.host = source["host"];
-	    }
-	}
-	export class ConnectionVO {
-	    id: string;
-	    // Go type: ConnectionMetadata
-	    metadata: any;
-	    upload: number;
-	    download: number;
-	    start: string;
-	    chains: string[];
-	    rule: string;
-	    rulePayload: string;
-	    uploadStr: string;
-	    downloadStr: string;
-	    durationStr: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ConnectionVO(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.metadata = this.convertValues(source["metadata"], null);
-	        this.upload = source["upload"];
-	        this.download = source["download"];
-	        this.start = source["start"];
-	        this.chains = source["chains"];
-	        this.rule = source["rule"];
-	        this.rulePayload = source["rulePayload"];
-	        this.uploadStr = source["uploadStr"];
-	        this.downloadStr = source["downloadStr"];
-	        this.durationStr = source["durationStr"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 
 }

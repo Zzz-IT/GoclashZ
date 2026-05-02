@@ -102,13 +102,15 @@ export function updateStateFromBackend(rawData: any) {
   else if (rawData.DelayRetentionTime !== undefined) globalState.delayRetentionTime = rawData.DelayRetentionTime;
 }
 
+type DelayRetentionTime = 'long' | '30' | '60' | '300' | string;
+
 /**
  * 更新延迟并处理保留逻辑
  * @param name 节点名称
  * @param delay 延迟数值
  * @param retentionTime 保留时间 (s) 或 'long'
  */
-export function updateProxyDelay(name: string, delay: number | null, retentionTime: string = 'long') {
+export function updateProxyDelay(name: string, delay: number | null, retentionTime: DelayRetentionTime = 'long') {
   // 1. 更新数值
   globalState.proxyDelays[name] = { delay };
 
@@ -120,13 +122,16 @@ export function updateProxyDelay(name: string, delay: number | null, retentionTi
 
   // 3. 如果不是长时间保留且有值，开启全局定时清理
   if (delay !== null && retentionTime !== 'long') {
-    const ms = parseInt(retentionTime) * 1000;
+    const seconds = parseInt(retentionTime);
+    // 🚀 核心修复：防止传入非数字字符串（如 'success'）导致 setTimeout(NaN) 立即触发清理
+    if (isNaN(seconds) || seconds <= 0) return;
+
     delayTimers[name] = window.setTimeout(() => {
       if (globalState.proxyDelays[name]) {
         globalState.proxyDelays[name].delay = null;
       }
       delete delayTimers[name];
-    }, ms);
+    }, seconds * 1000);
   }
 }
 

@@ -199,11 +199,12 @@ const testSingleDelay = async (node: any) => {
 
   try {
     const delay = await API.TestProxy(node.name);
-    // 延迟同步到全局 store，UI 渲染会自动跟随 globalState
-    updateProxyDelay(node.name, delay, delay > 0 ? 'success' : 'timeout');
+    const retention = globalState.delayRetention ? globalState.delayRetentionTime : 'long';
+    updateProxyDelay(node.name, delay, retention);
   } catch (e) {
     console.error("单点测速失败:", e);
-    updateProxyDelay(node.name, 0, 'timeout');
+    const retention = globalState.delayRetention ? globalState.delayRetentionTime : 'long';
+    updateProxyDelay(node.name, 0, retention);
   } finally {
     node.testing = false;
   }
