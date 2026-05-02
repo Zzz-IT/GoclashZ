@@ -41,6 +41,9 @@ type Controller struct {
 	logs    *LogStreamManager
 	Delay   *DelayTestManager
 	ctx     context.Context
+
+	updateReady   bool
+	newAppVersion string
 }
 
 func NewController(opts Options) *Controller {
@@ -470,4 +473,17 @@ func (c *Controller) ClearLogs() {
 
 func (c *Controller) IsLogStreaming() bool {
 	return c.logs.IsRunning()
+}
+
+func (c *Controller) AppUpdateStatus() (bool, string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.updateReady, c.newAppVersion
+}
+
+func (c *Controller) SetUpdateStatus(ready bool, version string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.updateReady = ready
+	c.newAppVersion = version
 }

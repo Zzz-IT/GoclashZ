@@ -15,10 +15,7 @@ func showMainWindowFromTrayAndFlash(a *App) {
 	runtime.WindowUnminimise(a.ctx)
 
 	// 🚀 保持与原有逻辑一致：如果有关联更新，则触发前端通知
-	a.mu.RLock()
-	ready := a.appUpdateReady
-	ver := a.newAppVersion
-	a.mu.RUnlock()
+	ready, ver := a.core.AppUpdateStatus()
 	if ready {
 		runtime.EventsEmit(a.ctx, "app-update-ready", ver)
 	}

@@ -56,6 +56,7 @@ func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, current
 			return err
 		}
 		if info != nil && info.HasUpdate {
+			c.SetUpdateStatus(true, info.Version)
 			// 🚀 核心修复：对齐事件名与 Payload
 			c.events.Emit("app-update-available", map[string]any{
 				"version":      info.Version,
