@@ -167,20 +167,23 @@ const runSysProxyWorker = async (target: boolean) => {
     // 💥 灾难回滚：只有在底层真报错时，才把 UI 掰回来
     globalState.systemProxy = !target;
     console.error("系统代理失败: ", err);
-  }
+  } finally {
+    // 🚀 核心：强制对齐后端最新状态，防止事件丢失导致的 UI 错位
+    const state: any = await API.GetAppState().catch(() => null);
+    if (state) {
+      globalState.systemProxy = state.systemProxy ?? state.SystemProxy ?? false;
+      globalState.isRunning = state.isRunning ?? state.IsRunning ?? false;
+    }
 
-  // 4. 关键点：活干完了，看看这段时间里，用户有没有又狂点了按钮？
-  if (pendingSysProxyTarget !== null && pendingSysProxyTarget !== target) {
-    // 取出最新的目标，清空暂存
-    const nextTarget = pendingSysProxyTarget;
-    pendingSysProxyTarget = null;
-    
-    // 直接拿着最新目标再跑一次，完美跳过了中间所有的无效点击！
-    await runSysProxyWorker(nextTarget);
-  } else {
-    // 没有新目标，彻底休息
-    pendingSysProxyTarget = null;
-    sysProxyWorkerActive = false;
+    // 4. 关键点：活干完了，看看这段时间里，用户有没有又狂点了按钮？
+    if (pendingSysProxyTarget !== null && pendingSysProxyTarget !== target) {
+      const nextTarget = pendingSysProxyTarget;
+      pendingSysProxyTarget = null;
+      await runSysProxyWorker(nextTarget);
+    } else {
+      pendingSysProxyTarget = null;
+      sysProxyWorkerActive = false;
+    }
   }
 };
 
@@ -207,15 +210,21 @@ const runTunWorker = async (target: boolean) => {
   } catch (err) {
     globalState.tun = !target;
     console.error("虚拟网卡失败: ", err);
-  }
+  } finally {
+    const state: any = await API.GetAppState().catch(() => null);
+    if (state) {
+      globalState.tun = state.tun ?? state.Tun ?? false;
+      globalState.isRunning = state.isRunning ?? state.IsRunning ?? false;
+    }
 
-  if (pendingTunTarget !== null && pendingTunTarget !== target) {
-    const nextTarget = pendingTunTarget;
-    pendingTunTarget = null;
-    await runTunWorker(nextTarget);
-  } else {
-    pendingTunTarget = null;
-    tunWorkerActive = false;
+    if (pendingTunTarget !== null && pendingTunTarget !== target) {
+      const nextTarget = pendingTunTarget;
+      pendingTunTarget = null;
+      await runTunWorker(nextTarget);
+    } else {
+      pendingTunTarget = null;
+      tunWorkerActive = false;
+    }
   }
 };
 
@@ -286,16 +295,20 @@ const runModeWorker = async (targetMode: string) => {
     globalState.mode = previousMode;
     console.error("模式切换失败: ", err);
     await showAlert("模式切换失败: " + err, '错误');
-  }
+  } finally {
+    const state: any = await API.GetAppState().catch(() => null);
+    if (state) {
+      globalState.mode = state.mode ?? state.Mode ?? 'rule';
+    }
 
-  // 4. 活干完了，看看这期间有没有新目标
-  if (pendingModeTarget !== null && pendingModeTarget !== targetMode) {
-    const nextMode = pendingModeTarget;
-    pendingModeTarget = null;
-    await runModeWorker(nextMode); // 递归去执行最新指令
-  } else {
-    pendingModeTarget = null;
-    modeWorkerActive = false; // 彻底下班
+    if (pendingModeTarget !== null && pendingModeTarget !== targetMode) {
+      const nextMode = pendingModeTarget;
+      pendingModeTarget = null;
+      await runModeWorker(nextMode);
+    } else {
+      pendingModeTarget = null;
+      modeWorkerActive = false;
+    }
   }
 };
 

@@ -12,16 +12,18 @@ import (
 )
 
 type Options struct {
-	Events  EventSink
-	Version string
+	Events       EventSink
+	Version      string
+	RunDelayTest func() // 🚀 新增：自动测速回调
 }
 
 type Controller struct {
-	events   EventSink
-	Behavior *BehaviorStore
-	Offline  *OfflineNodeStore
-	Tasks    *tasks.Manager
-	version  string
+	events       EventSink
+	Behavior     *BehaviorStore
+	Offline      *OfflineNodeStore
+	Tasks        *tasks.Manager
+	version      string
+	runDelayTest func()
 
 	mu              sync.RWMutex
 	coreLifecycleMu sync.Mutex
@@ -35,11 +37,12 @@ type Controller struct {
 
 func NewController(opts Options) *Controller {
 	return &Controller{
-		events:   opts.Events,
-		version:  opts.Version,
-		Behavior: NewBehaviorStore(),
-		Offline:  NewOfflineNodeStore(),
-		Tasks:    tasks.NewManager(opts.Events),
+		events:       opts.Events,
+		version:      opts.Version,
+		runDelayTest: opts.RunDelayTest,
+		Behavior:     NewBehaviorStore(),
+		Offline:      NewOfflineNodeStore(),
+		Tasks:        tasks.NewManager(opts.Events),
 	}
 }
 
@@ -51,9 +54,15 @@ func (c *Controller) Startup(ctx context.Context) {
 	clash.SetOnExitCallback(func(e clash.ExitEvent) {
 		if !e.Intentional {
 			c.mu.Lock()
+			wasSysProxy := c.sysProxyActive
 			c.sysProxyActive = false
 			c.tunActive = false
 			c.mu.Unlock()
+
+			// 🛡️ 核心修复：如果崩溃前开启了系统代理，必须强制关闭以防断网
+			if wasSysProxy {
+				_ = sys.DisableSystemProxy()
+			}
 
 			c.events.Emit("clash-exited", e.Message)
 			c.SyncState()
@@ -130,7 +139,7 @@ func (c *Controller) GetAppState() AppState {
 
 // SyncState 触发状态同步事件
 func (c *Controller) SyncState() {
-	c.events.Emit(EventStateSync, c.GetAppState())
+	c.events.Emit("app-state-sync", c.GetAppState())
 }
 
 // --- 内部方法 (需要提前持有 coreLifecycleMu) ---
@@ -155,12 +164,19 @@ func (c *Controller) ensureCoreRunningLocked(ctx context.Context) error {
 		return err
 	}
 
-	// 探针等待 API 就绪
+	// 🛡️ 核心修复：API 探针带超时判定，失败必须报错并清理僵尸进程
+	apiReady := false
 	for i := 0; i < 20; i++ {
 		if _, err := clash.GetInitialData(); err == nil {
+			apiReady = true
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+
+	if !apiReady {
+		clash.Stop() // 探针失败，及时清理掉内核进程
+		return fmt.Errorf("内核进程已启动，但 API 未能在预期时间内就绪")
 	}
 	return nil
 }
@@ -265,31 +281,19 @@ func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
 			return fmt.Errorf("缺失 Wintun 驱动，请先安装")
 		}
 		if !sys.CheckAdmin() {
-			c.events.Emit(EventNotifyError, "TUN 模式必须以管理员身份运行")
+			c.events.Emit("notify-error", "TUN 模式必须以管理员身份运行")
 			return fmt.Errorf("permission denied")
 		}
+	}
 
-		// 确保内核配置文件中开启了 TUN
-		tunCfg, _ := clash.GetTunConfig()
-		if tunCfg == nil {
-			tunCfg = &clash.TunConfig{Stack: "gvisor", AutoRoute: true, StrictRoute: true}
-		}
-		if !tunCfg.Enable {
-			tunCfg.Enable = true
-			_ = clash.UpdateTunConfig(tunCfg)
-		}
-
-		if err := c.ensureCoreRunningLocked(ctx); err != nil {
-			return err
-		}
-	} else {
-		// 关闭 TUN 时，如果系统代理也没开，就停掉内核
-		// 如果系统代理开着，需要重启内核以应用禁用了 TUN 的配置
-		tunCfg, _ := clash.GetTunConfig()
-		if tunCfg != nil && tunCfg.Enable {
-			tunCfg.Enable = false
-			_ = clash.UpdateTunConfig(tunCfg)
-		}
+	// 🛡️ 核心修复：遵循“先写配置、改状态，最后统一重启一次”的原子化路径，杜绝启动抖动
+	tunCfg, _ := clash.GetTunConfig()
+	if tunCfg == nil {
+		tunCfg = &clash.TunConfig{Stack: "gvisor", AutoRoute: true, StrictRoute: true}
+	}
+	tunCfg.Enable = enable
+	if err := clash.UpdateTunConfig(tunCfg); err != nil {
+		return err
 	}
 
 	c.mu.Lock()
@@ -305,6 +309,7 @@ func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
 		}
 	}
 
+	c.events.Emit("core-restarted", nil)
 	c.SyncState()
 	return nil
 }
@@ -328,7 +333,7 @@ func (c *Controller) UpdateClashMode(ctx context.Context, mode string) error {
 	// 1. 更新配置并写盘
 	behavior.ActiveMode = mode
 	if err := c.Behavior.SetAndSave(behavior); err != nil {
-		c.events.Emit(EventNotifyError, "模式持久化保存失败: "+err.Error())
+		c.events.Emit("notify-error", "模式持久化保存失败: "+err.Error())
 	}
 
 	// 2. 如果内核正在运行，尝试通过 API 热切换
@@ -367,8 +372,9 @@ func (c *Controller) RefreshAutoDelayTest() {
 			case <-quit:
 				return
 			case <-ticker.C:
-				if clash.IsRunning() {
-					// 触发静默测速
+				if clash.IsRunning() && c.runDelayTest != nil {
+					// 🚀 核心修复：连通自动测速回调
+					c.runDelayTest()
 				}
 			}
 		}

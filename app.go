@@ -63,16 +63,27 @@ type App struct {
 }
 
 func NewApp() *App {
+	a := &App{
+		testSemaphore: make(chan struct{}, 16),
+	}
+
 	sink := &WailsEventSink{}
 	core := appcore.NewController(appcore.Options{
 		Events:  sink,
 		Version: CurrentAppVersion,
+		RunDelayTest: func() {
+			// 🚀 核心修复：连接自动测速钩子
+			state := a.core.GetAppState()
+			if state.IsRunning {
+				// 获取所有非系统节点的名称（简化处理，触发全量测速）
+				// 注意：这里暂时直接调用 TestAllProxies([]) 触发逻辑，实际可能需要更细致的节点提取
+				go a.TestAllProxies(nil)
+			}
+		},
 	})
+	a.core = core
 
-	return &App{
-		core:          core,
-		testSemaphore: make(chan struct{}, 16),
-	}
+	return a
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -258,7 +269,8 @@ func (a *App) UpdateSub(name, url string) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.ActiveConfig == id && state.IsRunning {
-			_ = a.core.EnsureCoreRunning(a.ctx)
+			// 🛡️ 核心修复：不吞错误
+			err = a.core.EnsureCoreRunning(a.ctx)
 		}
 	}
 	return err
@@ -284,7 +296,7 @@ func (a *App) UpdateSingleSub(id string) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.ActiveConfig == id && state.IsRunning {
-			_ = a.core.EnsureCoreRunning(a.ctx)
+			err = a.core.EnsureCoreRunning(a.ctx)
 		}
 	}
 	return err
@@ -306,7 +318,7 @@ func (a *App) UpdateAllSubsAsync() {
 
 		state := a.core.GetAppState()
 		if state.ActiveConfig != "" && state.IsRunning {
-			_ = a.core.EnsureCoreRunning(a.ctx)
+			return a.core.EnsureCoreRunning(a.ctx)
 		}
 		return nil
 	})
@@ -521,7 +533,7 @@ func (a *App) SaveDNSConfig(cfg *clash.DNSConfig) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.SystemProxy || state.Tun {
-			_ = a.core.RestartCore(a.ctx)
+			return a.core.RestartCore(a.ctx)
 		}
 	}
 	return err
@@ -536,7 +548,7 @@ func (a *App) SaveTunConfig(cfg *clash.TunConfig) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.SystemProxy || state.Tun {
-			_ = a.core.RestartCore(a.ctx)
+			return a.core.RestartCore(a.ctx)
 		}
 	}
 	return err
@@ -551,7 +563,7 @@ func (a *App) SaveNetworkConfig(cfg *clash.NetworkConfig) error {
 	if err == nil {
 		state := a.core.GetAppState()
 		if state.SystemProxy || state.Tun {
-			_ = a.core.RestartCore(a.ctx)
+			return a.core.RestartCore(a.ctx)
 		}
 	}
 	return err
@@ -567,7 +579,10 @@ func (a *App) RenameConfig(id, newName string) error {
 
 	err := clash.RenameConfig(id, newName)
 	if isActiveConfig && (state.SystemProxy || state.Tun) {
-		_ = a.core.EnsureCoreRunning(a.ctx)
+		if rErr := a.core.EnsureCoreRunning(a.ctx); rErr != nil {
+			a.SyncState()
+			return rErr
+		}
 	}
 	a.SyncState()
 	return err
@@ -614,7 +629,10 @@ func (a *App) SelectLocalConfig(id string) error {
 
 	a.core.Behavior.SetActiveConfig(id)
 	if wasRunning {
-		_ = a.core.EnsureCoreRunning(a.ctx)
+		if err := a.core.EnsureCoreRunning(a.ctx); err != nil {
+			a.SyncState()
+			return err
+		}
 	}
 	a.SyncState()
 	return nil
@@ -642,7 +660,10 @@ func (a *App) DoLocalImport(srcPath, name string) (string, error) {
 
 func (a *App) StartClash(id string) error {
 	a.core.Behavior.SetActiveConfig(id)
-	_ = a.core.RestartCore(a.ctx)
+	if err := a.core.RestartCore(a.ctx); err != nil {
+		a.SyncState()
+		return err
+	}
 	a.SyncState()
 	return nil
 }
@@ -754,6 +775,17 @@ func (a *App) TestAllProxies(nodeNames []string) {
 			}()
 		}
 
+		if len(nodeNames) == 0 {
+			// 如果没传节点，尝试从内核拉取（自动测速场景）
+			if data, err := clash.GetInitialData(); err == nil {
+				if proxies, ok := data["proxies"].(map[string]interface{}); ok {
+					for name := range proxies {
+						nodeNames = append(nodeNames, name)
+					}
+				}
+			}
+		}
+
 		for _, name := range nodeNames {
 			runtime.EventsEmit(a.ctx, "proxy-test-start", name)
 			jobs <- name
@@ -822,7 +854,11 @@ func (a *App) CheckAndDownloadAppUpdateAsync() {
 			a.newAppVersion = info.Version
 			a.appUpdateReady = true
 			a.mu.Unlock()
-			runtime.EventsEmit(a.ctx, "app-update-ready", info)
+			// 🚀 核心修复：更准确的语义和 Payload
+			runtime.EventsEmit(a.ctx, "app-update-available", map[string]any{
+				"version":      info.Version,
+				"releaseNotes": info.Body,
+			})
 		}
 		return nil
 	})
