@@ -15,6 +15,9 @@ import (
 	"time"
 )
 
+// DefaultDelayTestURL 默认的全球联通性测速地址，与 NetworkConfig 默认值保持一致
+const DefaultDelayTestURL = "http://www.g.cn/generate_204"
+
 // 🚀 1. 定义全局共享的无代理 Transport，加入 TCP 探活机制
 var noProxyTransport = &http.Transport{
 	Proxy: nil,
@@ -265,9 +268,9 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 func GetProxyDelay(ctx context.Context, proxyName string, testUrl string, timeoutMs int) (int, error) {
 	encodedName := url.PathEscape(proxyName)
 
-	// 🛡️ 选用更全球化的测速地址作为默认值
+	// 🛡️ 核心优化：使用全局统一的默认测速地址
 	if testUrl == "" {
-		testUrl = "https://cp.cloudflare.com/generate_204"
+		testUrl = DefaultDelayTestURL
 	}
 
 	if timeoutMs <= 0 {
@@ -312,9 +315,11 @@ func GetProxyDelay(ctx context.Context, proxyName string, testUrl string, timeou
 
 // TestProxy 简易测速工具：单次测速，使用 8秒 超时和默认 URL
 func TestProxy(name string) (int, error) {
-	testUrl := "http://www.gstatic.com/generate_204"
-	if netCfg, err := GetNetworkConfig(); err == nil && netCfg.TestURL != "" {
-		testUrl = netCfg.TestURL
+	testUrl := DefaultDelayTestURL
+	if netCfg, err := GetNetworkConfig(); err == nil && netCfg != nil {
+		if u := strings.TrimSpace(netCfg.TestURL); u != "" {
+			testUrl = u
+		}
 	}
 
 	timeoutMs := 8000

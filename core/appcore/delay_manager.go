@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"goclashz/core/clash"
+	"strings"
 	"sync"
 	"time"
 )
@@ -101,22 +102,6 @@ func (m *DelayTestManager) testOne(ctx context.Context, name string, testURL str
 	return DelayResult{Name: name, Delay: delay, Status: "success"}
 }
 
-// testOneWithFallback 带备用地址的测速逻辑，极大提升复杂网络环境下的成功率
-func (m *DelayTestManager) testOneWithFallback(ctx context.Context, name string, testURLs []string, timeoutMs int, contextExtraMs int) DelayResult {
-	var last DelayResult
-	for _, testURL := range testURLs {
-		res := m.testOne(ctx, name, testURL, timeoutMs, contextExtraMs)
-		if res.Status == "success" {
-			return res
-		}
-		last = res
-	}
-
-	if last.Name == "" {
-		last = DelayResult{Name: name, Delay: 0, Status: "timeout", Err: fmt.Errorf("all test urls failed")}
-	}
-	return last
-}
 
 func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []string) {
 	m.mu.Lock()
@@ -213,21 +198,17 @@ func (m *DelayTestManager) extractDelayTargets() []string {
 	return nodeNames
 }
 
-func (m *DelayTestManager) getTestURLs() []string {
-	if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg.TestURL != "" {
-		return []string{netCfg.TestURL}
+func (m *DelayTestManager) getTestURL() string {
+	if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil {
+		if u := strings.TrimSpace(netCfg.TestURL); u != "" {
+			return u
+		}
 	}
-
-	// 🛡️ 增加 Fallback 列表，解决部分测速地址被墙导致的批量超时
-	return []string{
-		"https://cp.cloudflare.com/generate_204",
-		"https://www.gstatic.com/generate_204",
-		"http://www.msftconnecttest.com/connecttest.txt",
-	}
+	return clash.DefaultDelayTestURL
 }
 
 func (m *DelayTestManager) runBatch(ctx context.Context, nodeNames []string) {
-	testURLs := m.getTestURLs()
+	testURL := m.getTestURL()
 
 	jobs := make(chan string, len(nodeNames))
 	for _, name := range nodeNames {
@@ -248,8 +229,8 @@ func (m *DelayTestManager) runBatch(ctx context.Context, nodeNames []string) {
 			for name := range jobs {
 				m.emit.Emit("proxy-test-start", name)
 
-				// 批量测速：7s 超时，3s Context 宽限
-				res := m.testOneWithFallback(ctx, name, testURLs, 7000, 3000)
+				// 批量测速：7s 超时，3s Context 宽限，单地址请求
+				res := m.testOne(ctx, name, testURL, 7000, 3000)
 
 				m.emit.Emit("proxy-delay-update", map[string]interface{}{
 					"name":   res.Name,
@@ -286,9 +267,9 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 		return 0, ErrDelayTestBusy
 	}
 
-	testURLs := m.getTestURLs()
-	// 单点测试：10s 超时，2s Context 宽限，提升单点稳定性
-	res := m.testOneWithFallback(ctx, name, testURLs, 10000, 2000)
+	testURL := m.getTestURL()
+	// 单点测试：10s 超时，2s Context 宽限，单地址请求提升稳定性与一致性
+	res := m.testOne(ctx, name, testURL, 10000, 2000)
 
 	if res.Err != nil || res.Delay <= 0 {
 		return 0, fmt.Errorf("timeout")
