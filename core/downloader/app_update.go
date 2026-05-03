@@ -4,12 +4,103 @@ package downloader
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
+
+type AppUpdateInfo struct {
+	HasUpdate   bool     `json:"hasUpdate"`
+	Version     string   `json:"version"`
+	Body        string   `json:"body"`
+	ReleaseURL  string   `json:"releaseUrl"`
+	DownloadURL string   `json:"downloadUrl"`
+	AssetName   string   `json:"assetName"`
+}
+
+var strictVersionRe = regexp.MustCompile(`(?i)(?:^|[^0-9])v?(\d+\.\d+(?:\.\d+)?(?:\.\d+)?)`)
+
+func CheckAppUpdate(ctx context.Context, currentVersion string) (*AppUpdateInfo, error) {
+	apiURL := "https://api.github.com/repos/Zzz-IT/GoclashZ/releases/latest"
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	req.Header.Set("User-Agent", "GoclashZ-Updater")
+
+	resp, err := defaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var release struct {
+		TagName string `json:"tag_name"`
+		Body    string `json:"body"`
+		HTMLURL string `json:"html_url"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&release)
+
+	cmp, _ := CompareAppVersion(release.TagName, currentVersion)
+	assetName, downloadURL := selectWindowsAsset(release.Assets)
+	
+	return &AppUpdateInfo{
+		HasUpdate:   cmp > 0,
+		Version:     release.TagName,
+		Body:        release.Body,
+		ReleaseURL:  release.HTMLURL,
+		DownloadURL: downloadURL,
+		AssetName:   assetName,
+	}, nil
+}
+
+func selectWindowsAsset(assets []struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}) (string, string) {
+	for _, asset := range assets {
+		lower := strings.ToLower(asset.Name)
+		if strings.HasSuffix(lower, ".exe") && strings.Contains(lower, "goclashz") {
+			if strings.Contains(lower, "setup") || strings.Contains(lower, "installer") {
+				return asset.Name, asset.BrowserDownloadURL
+			}
+		}
+	}
+	return "", ""
+}
+
+func CompareAppVersion(remote, current string) (int, error) {
+	aa := parseVersionParts(remote)
+	bb := parseVersionParts(current)
+	if len(aa) == 0 || len(bb) == 0 { return 0, nil }
+	for i := 0; i < 3; i++ {
+		var a, b int
+		if i < len(aa) { a = aa[i] }
+		if i < len(bb) { b = bb[i] }
+		if a > b { return 1, nil }
+		if a < b { return -1, nil }
+	}
+	return 0, nil
+}
+
+func parseVersionParts(v string) []int {
+	m := strictVersionRe.FindStringSubmatch(v)
+	if len(m) < 2 { return nil }
+	parts := strings.Split(m[1], ".")
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		n, _ := strconv.Atoi(p)
+		out = append(out, n)
+	}
+	return out
+}
 
 // DownloadAppUpdate 使用通用下载机下载应用更新包
 func DownloadAppUpdate(ctx context.Context, info *AppUpdateInfo, destDir string) (string, error) {

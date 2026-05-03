@@ -1157,6 +1157,19 @@ const formatRelativeTime = (timestamp: number) => {
   return new Date(timestamp * 1000).toLocaleDateString();
 };
 
+const formatUpdateError = (err: any) => {
+  let msg = String(err || '');
+  // 清洗超长 GitHub signed URL
+  msg = msg.replace(/https:\/\/release-assets\.githubusercontent\.com\/\S+/g, 'GitHub Release 资产下载地址');
+  // 移除常见的超长签名参数
+  msg = msg.replace(/([?&](sp|sv|se|sr|sig|skoid|sktid|skt|ske|sks|skv)=[^\\s]+)/g, '');
+
+  if (msg.length > 360) {
+    msg = msg.slice(0, 360) + '...';
+  }
+  return msg;
+};
+
 const handleCheckUpdate = async () => {
   checkingAppUpdate.value = true;
   try {
@@ -1387,7 +1400,12 @@ onMounted(() => {
     EventsOn(`geo-update-${key}-error`, async (err: string) => {
       updatingDbs.value[key] = false;
       await refreshComponentInfo();
-      await showAlert(`${key} 更新失败: ${err}`, "错误", true);
+      // 更新全部期间，单项错误只记录日志，不弹窗，最后由 all-error 汇总弹窗
+      if (!updatingAllDbs.value) {
+        await showAlert(`${key} 更新失败: ${formatUpdateError(err)}`, "错误", true);
+      } else {
+        console.warn(`[GeoUpdate] ${key} failed during bulk update:`, err);
+      }
     });
 
     EventsOn(`geo-update-${key}-cancelled`, () => {
@@ -1414,7 +1432,7 @@ onMounted(() => {
   EventsOn("geo-update-all-error", async (err: string) => {
     updatingAllDbs.value = false;
     await refreshComponentInfo();
-    await showAlert("部分数据库更新失败: " + err, "错误", true);
+    await showAlert("部分数据库更新失败，已保留原有文件: " + formatUpdateError(err), "错误", true);
   });
 
   EventsOn("geo-update-all-cancelled", () => {

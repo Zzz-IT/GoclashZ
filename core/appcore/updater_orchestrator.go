@@ -33,7 +33,7 @@ func (c *Controller) updateGeoDatabase(ctx context.Context, key string) error {
 		return fmt.Errorf("下载链接未配置")
 	}
 
-	return clash.UpdateGeoDB(ctx, key, url)
+	return clash.UpdateGeoDB(ctx, key, url, resolveLocalProxyURL())
 }
 
 func (c *Controller) UpdateGeoDatabaseAsync(ctx context.Context, key string) {

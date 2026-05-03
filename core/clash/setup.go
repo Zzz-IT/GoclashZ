@@ -247,7 +247,7 @@ func GeoDBPath(key string) (string, error) {
 	return filepath.Join(utils.GetCoreBinDir(), name), nil
 }
 
-func UpdateGeoDB(ctx context.Context, key string, url string) error {
+func UpdateGeoDB(ctx context.Context, key string, url string, proxyURL string) error {
 	destPath, err := GeoDBPath(key)
 	if err != nil {
 		return err
@@ -257,10 +257,17 @@ func UpdateGeoDB(ctx context.Context, key string, url string) error {
 		URLs:     []string{url},
 		DestPath: destPath,
 		Resume:   true,
+		ProxyURL: proxyURL,
+		MaxBytes: geoDBMaxBytes(key),
 		Validator: func(tmpPath string) error {
 			return ValidateGeoDBFile(key, tmpPath, destPath)
 		},
 	})
+}
+
+func geoDBMaxBytes(_ string) int64 {
+	// 默认限制 200MB，防止异常重定向下载了巨大的错误页或二进制
+	return 200 << 20
 }
 
 func ValidateGeoDBFile(key, tmpPath, destPath string) error {
