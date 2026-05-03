@@ -36,6 +36,8 @@ export function FlashWindow():Promise<void>;
 
 export function FlushFakeIP():Promise<void>;
 
+export function GetActiveGeoUpdates():Promise<Array<string>>;
+
 export function GetAppBehavior():Promise<appcore.AppBehavior>;
 
 export function GetAppState():Promise<appcore.AppState>;

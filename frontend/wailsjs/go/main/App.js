@@ -62,6 +62,10 @@ export function FlushFakeIP() {
   return window['go']['main']['App']['FlushFakeIP']();
 }
 
+export function GetActiveGeoUpdates() {
+  return window['go']['main']['App']['GetActiveGeoUpdates']();
+}
+
 export function GetAppBehavior() {
   return window['go']['main']['App']['GetAppBehavior']();
 }

@@ -94,6 +94,16 @@ func (m *GeoUpdateManager) emitActiveSnapshot() {
 	m.emit.Emit("geo-update-active-sync", active)
 }
 
+func (m *GeoUpdateManager) ActiveKeys() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	active := make([]string, 0, len(m.active))
+	for key := range m.active {
+		active = append(active, key)
+	}
+	return active
+}
+
 func (m *GeoUpdateManager) runKey(ctx context.Context, key string) GeoResult {
 	m.emit.Emit("geo-update-" + key + "-start")
 
@@ -154,6 +164,7 @@ func (m *GeoUpdateManager) UpdateAllAsync(ctx context.Context) {
 		keys := []string{"geoip", "geosite", "mmdb", "asn"}
 
 		m.emit.Emit("geo-update-all-start")
+		m.emitActiveSnapshot()
 
 		var wg sync.WaitGroup
 		var mu sync.Mutex
@@ -203,6 +214,8 @@ func (m *GeoUpdateManager) UpdateAllAsync(ctx context.Context) {
 		}
 
 		wg.Wait()
+
+		m.emitActiveSnapshot()
 
 		if len(failed) > 0 {
 			m.emit.Emit("geo-update-all-error", strings.Join(failed, "; "))

@@ -536,6 +536,10 @@ func (a *App) UpdateAllGeoDatabasesAsync() {
 	a.core.UpdateAllGeoDatabasesAsync(a.ctx)
 }
 
+func (a *App) GetActiveGeoUpdates() []string {
+	return a.core.GetActiveGeoUpdates()
+}
+
 func (a *App) CheckAndDownloadAppUpdateAsync() {
 	a.core.CheckAndDownloadAppUpdateAsync(a.ctx, version.AppVersion)
 }

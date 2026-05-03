@@ -44,6 +44,13 @@ func (c *Controller) UpdateAllGeoDatabasesAsync(ctx context.Context) {
 	c.GeoUpdates.UpdateAllAsync(ctx)
 }
 
+func (c *Controller) GetActiveGeoUpdates() []string {
+	if c.GeoUpdates == nil {
+		return nil
+	}
+	return c.GeoUpdates.ActiveKeys()
+}
+
 func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 	c.Tasks.Run(ctx, "core-update", true, func(ctx context.Context) error {
 		c.events.Emit("core-update-start")

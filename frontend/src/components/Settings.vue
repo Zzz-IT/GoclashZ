@@ -1279,6 +1279,25 @@ const refreshComponentInfoSafely = async () => {
   }
 };
 
+const syncGeoActiveState = (active: string[] = []) => {
+  const activeSet = new Set(active || []);
+  geoKeys.forEach((key) => {
+    updatingDbs.value[key] = activeSet.has(key);
+  });
+  if (activeSet.size === 0) {
+    updatingAllDbs.value = false;
+  }
+};
+
+const refreshGeoActiveState = async () => {
+  try {
+    const active = await (API as any).GetActiveGeoUpdates();
+    syncGeoActiveState(active || []);
+  } catch {
+    syncGeoActiveState([]);
+  }
+};
+
 const handleCheckUpdate = async () => {
   checkingAppUpdate.value = true;
   try {
@@ -1654,6 +1673,13 @@ const installDriver = async (force: boolean = true) => {
   if (isInstalling.value) return;
   (API as any).InstallTunDriverAsync(force);
 };
+watch(view, async (v) => {
+  if (v === 'update') {
+    await refreshComponentInfoSafely();
+    await refreshGeoActiveState();
+  }
+});
+
 // 🚀 核心：监听更新间隔时间，防止用户输入 0 或负数
 watch(() => behavior.value.updateInterval, async (newVal) => {
   if (newVal !== undefined && newVal <= 0) {
