@@ -8,7 +8,6 @@ import (
 	"goclashz/core/clash"
 	"goclashz/core/downloader"
 	"goclashz/core/utils"
-	"os"
 	"path/filepath"
 )
 
@@ -52,52 +51,58 @@ func (c *Controller) GetActiveGeoUpdates() []string {
 }
 
 func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
-	c.Tasks.Run(ctx, "core-update", true, func(ctx context.Context) error {
-		c.events.Emit("core-update-start")
+	c.runComponentUpdateTransaction(ctx, "core-update", ComponentUpdateOptions{
+		Name:        "Mihomo 内核更新",
+		StopCore:    true,
+		RestartCore: true,
+		Update: func(ctx context.Context) (map[string]string, error) {
+			version, err := clash.UpdateCore(ctx)
+			if err != nil {
+				return nil, err
+			}
 
-		newVer, err := clash.UpdateCore(ctx)
-		if err != nil {
-			c.events.Emit("core-update-error", err.Error())
-			return err
-		}
+			return map[string]string{
+				"version": version,
+			}, nil
+		},
+		AfterSuccess: func(result map[string]string) {
+			if version := result["version"]; version != "" {
+				c.events.Emit("core-version-updated", map[string]string{
+					"version": version,
+				})
+			}
 
-		c.events.Emit("core-version-updated", map[string]string{"version": newVer})
-		c.events.Emit("core-update-success")
-		return nil
+			// 内核二进制更新后，连接和延迟状态不应沿用旧进程
+			c.events.Emit("delay-cache-clear", "core-update")
+		},
 	})
 }
 
 func (c *Controller) InstallTunDriverAsync(ctx context.Context) {
-	c.Tasks.Run(ctx, "driver-install", true, func(ctx context.Context) error {
-		c.events.Emit("driver-install-start")
+	c.runComponentUpdateTransaction(ctx, "driver-install", ComponentUpdateOptions{
+		Name:        "Wintun 重装",
+		StopCore:    true,
+		RestartCore: true,
+		Update: func(ctx context.Context) (map[string]string, error) {
+			version, err := clash.InstallWintunRuntime(ctx, resolveLocalProxyURL())
+			if err != nil {
+				return nil, err
+			}
 
-		// 🎯 核心逻辑：下载并替换 wintun.dll
-		url := "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/wintun-amd64.zip"
-		destPath := filepath.Join(utils.GetCoreBinDir(), "wintun.dll")
-
-		// 下载 Zip 并提取
-		zipPath := destPath + ".zip"
-		defer os.Remove(zipPath)
-
-		err := downloader.DownloadAtomic(ctx, downloader.Options{
-			URLs:     []string{url},
-			DestPath: zipPath,
-		})
-		if err != nil {
-			c.events.Emit("driver-install-error", err.Error())
-			return err
-		}
-
-		// 提取 (简化处理，假设 zip 里就是 dll)
-		if err := downloader.ExtractFileFromZip(zipPath, "wintun.dll", destPath); err != nil {
-			c.events.Emit("driver-install-error", err.Error())
-			return err
-		}
-
-		c.events.Emit("driver-install-success")
-		return nil
+			return map[string]string{
+				"version": version,
+			}, nil
+		},
+		AfterSuccess: func(result map[string]string) {
+			if version := result["version"]; version != "" {
+				c.events.Emit("wintun-version-updated", map[string]string{
+					"version": version,
+				})
+			}
+		},
 	})
 }
+
 
 func (c *Controller) GetCoreVersion(ctx context.Context) string {
 	return clash.GetLocalCoreVersion(ctx)

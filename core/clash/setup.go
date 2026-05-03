@@ -81,8 +81,17 @@ var localCoreVersionCache struct {
 
 var coreVersionRe = regexp.MustCompile(`v?\d+\.\d+\.\d+(?:[-+][^\s]+)?`)
 
-// GetLocalCoreVersion 获取本地内核版本号
-func GetLocalCoreVersion(ctx context.Context) string {
+func ClearLocalCoreVersionCache() {
+	localCoreVersionCache.mu.Lock()
+	defer localCoreVersionCache.mu.Unlock()
+
+	localCoreVersionCache.path = ""
+	localCoreVersionCache.size = 0
+	localCoreVersionCache.modTime = 0
+	localCoreVersionCache.version = ""
+}
+
+func getLocalCoreVersionLocked(ctx context.Context) string {
 	path := filepath.Join(utils.GetCoreBinDir(), "clash.exe")
 
 	stat, err := os.Stat(path)
@@ -111,6 +120,14 @@ func GetLocalCoreVersion(ctx context.Context) string {
 	localCoreVersionCache.mu.Unlock()
 
 	return version
+}
+
+// GetLocalCoreVersion 获取本地内核版本号
+func GetLocalCoreVersion(ctx context.Context) string {
+	coreBinaryMu.Lock()
+	defer coreBinaryMu.Unlock()
+
+	return getLocalCoreVersionLocked(ctx)
 }
 
 func readLocalCoreVersionByCommand(ctx context.Context, path string) string {
@@ -200,8 +217,8 @@ func extractKernel(zipPath, exePath string) error {
 	defer rc.Close()
 
 	// 写入到临时文件再重命名，确保原子性
-	tmpExe := exePath + ".tmp"
-	f, err := os.OpenFile(tmpExe, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+	newExe := exePath + ".tmp"
+	f, err := os.OpenFile(newExe, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
 	if err != nil {
 		return err
 	}
@@ -210,17 +227,38 @@ func extractKernel(zipPath, exePath string) error {
 		f.Close()
 		return err
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(newExe)
+		return err
+	}
 
-	return os.Rename(tmpExe, exePath)
+	// 校验新文件
+	if err := ValidateWindowsPE(newExe, 5*1024*1024); err != nil {
+		_ = os.Remove(newExe)
+		return err
+	}
+
+	return ReplaceFileWithBackup(newExe, exePath)
 }
 
+var coreBinaryMu sync.Mutex
+
 func UpdateCore(ctx context.Context) (string, error) {
+	coreBinaryMu.Lock()
+	defer coreBinaryMu.Unlock()
+
 	binDir := utils.GetCoreBinDir()
 	exePath := filepath.Join(binDir, "clash.exe")
+
+	if err := WaitFileReleased(exePath, 5*time.Second); err != nil {
+		return "", err
+	}
+
 	if err := downloadAndExtractKernel(ctx, binDir, exePath); err != nil {
 		return "", err
 	}
+
+	ClearLocalCoreVersionCache()
 	return GetLocalCoreVersion(ctx), nil
 }
 

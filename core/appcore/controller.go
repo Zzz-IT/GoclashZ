@@ -31,9 +31,10 @@ type Controller struct {
 	runDelayTest func()
 
 	mu              sync.RWMutex
-	coreLifecycleMu sync.Mutex
-	sysProxyActive  bool
-	tunActive       bool
+	coreLifecycleMu   sync.Mutex
+	componentUpdateMu sync.Mutex
+	sysProxyActive    bool
+	tunActive         bool
 
 	// 自动测速任务控制
 	autoTestQuit chan struct{}

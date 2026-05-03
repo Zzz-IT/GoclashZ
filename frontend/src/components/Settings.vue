@@ -1588,15 +1588,15 @@ onMounted(() => {
   EventsOn("core-version-updated", (payload: any) => {
     coreVersion.value = payload?.version || coreVersion.value;
   });
-  EventsOn("core-update-success", async () => {
+  EventsOn("core-update-success", () => {
     updatingCore.value = false;
-    await refreshComponentInfo();
-    await showAlert("Mihomo 内核更新完成。", "通知");
+    queueComponentInfoRefresh();
+    void enqueueModal({ title: '通知', message: 'Mihomo 内核更新完成。', danger: false });
   });
-  EventsOn("core-update-error", async (err: string) => {
+  EventsOn("core-update-error", (err: string) => {
     updatingCore.value = false;
-    await refreshComponentInfo();
-    await showAlert("Mihomo 内核更新失败: " + err, "错误", true);
+    queueComponentInfoRefresh();
+    void enqueueModal({ title: '错误', message: 'Mihomo 内核更新失败: ' + formatUpdateError(err), danger: true });
   });
   EventsOn("core-update-cancelled", () => {
     updatingCore.value = false;
@@ -1606,17 +1606,20 @@ onMounted(() => {
   EventsOn("driver-install-start", () => { 
     isInstalling.value = true;
   });
+  EventsOn("wintun-version-updated", (payload: any) => {
+    wintunVersion.value = payload?.version || wintunVersion.value;
+  });
   EventsOn("driver-install-success", async () => {
     isInstalling.value = false;
     const status = await API.CheckTunEnv();
     tunStatus.value = status as any;
-    await refreshComponentInfo();
-    await showAlert("Wintun 驱动安装完成。", "通知");
+    queueComponentInfoRefresh();
+    void enqueueModal({ title: '通知', message: 'Wintun 驱动安装完成。', danger: false });
   });
-  EventsOn("driver-install-error", async (err: string) => {
+  EventsOn("driver-install-error", (err: string) => {
     isInstalling.value = false;
-    await refreshComponentInfo();
-    await showAlert("Wintun 驱动安装失败: " + err, "错误", true);
+    queueComponentInfoRefresh();
+    void enqueueModal({ title: '错误', message: 'Wintun 驱动安装失败: ' + formatUpdateError(err), danger: true });
   });
   EventsOn("driver-install-cancelled", () => {
     isInstalling.value = false;
@@ -1644,6 +1647,7 @@ onUnmounted(() => {
   EventsOff("core-update-cancelled");
 
   EventsOff("driver-install-start");
+  EventsOff("wintun-version-updated");
   EventsOff("driver-install-success");
   EventsOff("driver-install-error");
   EventsOff("driver-install-cancelled");
