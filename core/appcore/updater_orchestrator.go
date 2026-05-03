@@ -7,6 +7,7 @@ import (
 	"goclashz/core/downloader"
 	"goclashz/core/utils"
 	"path/filepath"
+	"strings"
 )
 
 func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
@@ -70,10 +71,18 @@ func (c *Controller) AutoCheckAndDownloadAppUpdateAsync(ctx context.Context, cur
 
 func (c *Controller) checkAndDownloadAppUpdate(ctx context.Context, currentVersion string, notifyLatest bool) {
 	c.Tasks.Run(ctx, "app-update", false, func(ctx context.Context) error {
+		// 🛡️ 开发版本跳过正式更新检查
+		if strings.TrimSpace(currentVersion) == "" || currentVersion == "dev" {
+			if notifyLatest {
+				c.events.Emit("app-update-error", "当前为开发版本，无法执行正式更新检查")
+			}
+			return nil
+		}
+
 		info, err := downloader.CheckAppUpdate(ctx, currentVersion)
 		if err != nil {
 			c.events.Emit("app-update-error", "检查更新失败: "+err.Error())
-			return nil // 不再返回 err 避免 Tasks 框架二次抛错
+			return nil
 		}
 
 		if info == nil || !info.HasUpdate {
@@ -85,10 +94,26 @@ func (c *Controller) checkAndDownloadAppUpdate(ctx context.Context, currentVersi
 			return nil
 		}
 
+		// 🛡️ 二次确认：基于严格解析后的版本比对
+		cmp, err := downloader.CompareAppVersion(info.Version, currentVersion)
+		if err != nil {
+			c.events.Emit("app-update-error", "版本比对失败: "+err.Error())
+			return nil
+		}
+
+		if cmp <= 0 {
+			if notifyLatest {
+				c.events.Emit("app-update-none", map[string]any{
+					"message": "当前已经是最新版本",
+				})
+			}
+			return nil
+		}
+
 		// 🚀 核心改进：先确认是否有可下载资产，再决定弹窗内容
 		if info.DownloadURL == "" {
 			c.events.Emit("app-update-error", fmt.Sprintf(
-				"发现新版本 %s，但 Release 中没有匹配的 Windows .exe 资产。\n当前资产列表: %v",
+				"发现新版本 %s，但 Release 中没有匹配的 GoclashZ Windows 安装包。\n当前资产列表: %v",
 				info.Version,
 				info.Assets,
 			))

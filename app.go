@@ -17,12 +17,12 @@ import (
 
 	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"goclashz/core/version"
 )
 
 //go:embed build/windows/icon.ico
 var iconData []byte
 
-const CurrentAppVersion = "v1.1.3"
 
 type FileInfo struct {
 	Path string `json:"path"`
@@ -52,7 +52,7 @@ func NewApp() *App {
 	sink := &WailsEventSink{}
 	core := appcore.NewController(appcore.Options{
 		Events:  sink,
-		Version: CurrentAppVersion,
+		Version: version.AppVersion,
 		RunDelayTest: func() {
 			// 🚀 核心修复：连接自动测速钩子
 			state := a.core.GetAppState()
@@ -487,7 +487,7 @@ func (a *App) SyncRules(id string) error {
 }
 
 func (a *App) GetAppVersion() string {
-	return CurrentAppVersion
+	return version.AppVersion
 }
 
 func (a *App) FlashWindow() {
@@ -523,11 +523,11 @@ func (a *App) UpdateAllGeoDatabasesAsync() {
 }
 
 func (a *App) CheckAndDownloadAppUpdateAsync() {
-	a.core.CheckAndDownloadAppUpdateAsync(a.ctx, CurrentAppVersion)
+	a.core.CheckAndDownloadAppUpdateAsync(a.ctx, version.AppVersion)
 }
 
 func (a *App) AutoCheckAndDownloadAppUpdateAsync() {
-	a.core.AutoCheckAndDownloadAppUpdateAsync(a.ctx, CurrentAppVersion)
+	a.core.AutoCheckAndDownloadAppUpdateAsync(a.ctx, version.AppVersion)
 }
 
 func (a *App) ApplyAppUpdate(path string) error {

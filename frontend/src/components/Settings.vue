@@ -1132,14 +1132,10 @@ const formatRelativeTime = (timestamp: number) => {
 };
 
 const handleCheckUpdate = async () => {
-  checkingAppUpdate.value = true; // 👈 切换变量
+  checkingAppUpdate.value = true;
   try {
-    const res = await (API as any).ManualCheckAppUpdate();
-    if (res === "ALREADY_LATEST") {
-      await showAlert(`当前版本 (${globalState.appVersion}) 已是最新，无需更新。`, "通知");
-    } else {
-      await showAlert(`发现新版本 ${res}，正在后台为您静默下载中...`, "通知");
-    }
+    // 🚀 核心改进：调用异步静默下载流，将通知权交给全局监听器 (App.vue)
+    await (API as any).CheckAndDownloadAppUpdateAsync();
   } catch (e) {
     await showAlert("检查更新失败: " + e, "错误", true);
   } finally {

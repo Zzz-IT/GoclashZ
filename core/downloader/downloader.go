@@ -586,6 +586,8 @@ type AppUpdateInfo struct {
 
 var versionRe = regexp.MustCompile(`\d+(?:\.\d+){0,3}`)
 
+var strictVersionRe = regexp.MustCompile(`(?i)(?:^|[^0-9])v?(\d+\.\d+(?:\.\d+)?(?:\.\d+)?)`)
+
 func CheckAppUpdate(ctx context.Context, currentVersion string) (*AppUpdateInfo, error) {
 	// 请求 GitHub API 获取最新 Release
 	apiURL := "https://api.github.com/repos/Zzz-IT/GoclashZ/releases/latest"
@@ -616,7 +618,13 @@ func CheckAppUpdate(ctx context.Context, currentVersion string) (*AppUpdateInfo,
 		return nil, err
 	}
 
-	hasUpdate := compareVersion(release.TagName, currentVersion) > 0
+	// 🚀 使用增强的比对逻辑
+	cmp, err := CompareAppVersion(release.TagName, currentVersion)
+	if err != nil {
+		return nil, err
+	}
+	hasUpdate := cmp > 0
+
 	assetName, downloadURL := selectWindowsAsset(release.Assets)
 
 	assetNames := make([]string, 0, len(release.Assets))
@@ -643,39 +651,53 @@ func selectWindowsAsset(assets []struct {
 	var fallbackName, fallbackURL string
 
 	for _, asset := range assets {
-		name := strings.ToLower(asset.Name)
+		lower := strings.ToLower(asset.Name)
 
-		if !strings.HasSuffix(name, ".exe") {
+		if !strings.HasSuffix(lower, ".exe") {
 			continue
 		}
 
-		// 优先匹配包含 windows/win 且带有 setup 或 amd64/x64 的包
-		if strings.Contains(name, "windows") ||
-			strings.Contains(name, "win") ||
-			strings.Contains(name, "setup") ||
-			strings.Contains(name, "goclashz") {
-			if strings.Contains(name, "amd64") ||
-				strings.Contains(name, "x64") ||
-				strings.Contains(name, "setup") {
-				return asset.Name, asset.BrowserDownloadURL
-			}
+		// 🛡️ 黑名单：这些不是软件本体，哪怕它们也是 .exe
+		if strings.Contains(lower, "mihomo") ||
+			strings.Contains(lower, "clash") ||
+			strings.Contains(lower, "wintun") ||
+			strings.Contains(lower, "geoip") ||
+			strings.Contains(lower, "geosite") ||
+			strings.Contains(lower, "mmdb") ||
+			strings.Contains(lower, "asn") {
+			continue
 		}
 
-		if fallbackURL == "" {
-			fallbackName = asset.Name
-			fallbackURL = asset.BrowserDownloadURL
+		// 🛡️ 白名单：必须包含 goclashz，且倾向于包含 setup/installer/windows 等关键字
+		if strings.Contains(lower, "goclashz") {
+			if strings.Contains(lower, "setup") ||
+				strings.Contains(lower, "installer") ||
+				strings.Contains(lower, "windows") ||
+				strings.Contains(lower, "win") ||
+				strings.Contains(lower, "x64") ||
+				strings.Contains(lower, "amd64") {
+				return asset.Name, asset.BrowserDownloadURL
+			}
+
+			if fallbackURL == "" {
+				fallbackName = asset.Name
+				fallbackURL = asset.BrowserDownloadURL
+			}
 		}
 	}
 
 	return fallbackName, fallbackURL
 }
 
-func compareVersion(a, b string) int {
-	aa := parseVersionParts(a)
-	bb := parseVersionParts(b)
+func CompareAppVersion(remote, current string) (int, error) {
+	aa := parseVersionParts(remote)
+	bb := parseVersionParts(current)
 
-	if len(aa) == 0 || len(bb) == 0 {
-		return 0
+	if len(aa) == 0 {
+		return 0, fmt.Errorf("无法解析远端版本: %s", remote)
+	}
+	if len(bb) == 0 {
+		return 0, fmt.Errorf("无法解析当前版本: %s", current)
 	}
 
 	maxLen := len(aa)
@@ -693,31 +715,30 @@ func compareVersion(a, b string) int {
 
 	for i := 0; i < maxLen; i++ {
 		if aa[i] > bb[i] {
-			return 1
+			return 1, nil
 		}
 		if aa[i] < bb[i] {
-			return -1
+			return -1, nil
 		}
 	}
-	return 0
+	return 0, nil
 }
 
 func parseVersionParts(v string) []int {
-	v = strings.TrimSpace(strings.ToLower(v))
+	v = strings.TrimSpace(v)
 
-	// 🚀 核心改进：使用正则从 tag 中提取数字版本部分 (如 v1.1.3 -> 1.1.3, GoclashZ v1.2 -> 1.2)
-	match := versionRe.FindString(v)
-	if match == "" {
+	// 🚀 核心改进：使用更严格的正则提取版本部分，要求至少 x.y
+	m := strictVersionRe.FindStringSubmatch(v)
+	if len(m) < 2 {
 		return nil
 	}
 
-	parts := strings.Split(match, ".")
+	parts := strings.Split(m[1], ".")
 	out := make([]int, 0, len(parts))
 
 	for _, p := range parts {
 		n, err := strconv.Atoi(p)
 		if err != nil {
-			// 如果由于某种原因 Atoi 失败，返回 nil 以标记版本非法
 			return nil
 		}
 		out = append(out, n)
