@@ -160,6 +160,11 @@ func RestoreTransactional(ctx context.Context, dataDir, archivePath, mode string
 	// 5. 构建恢复计划
 	plan := buildRestorePlan(mode)
 
+	// 🛡️ 核心修复：校验备份包是否包含模式所需的目标，防止静默成功
+	if err := validateRestorePlanInputs(stagingDir, plan, mode); err != nil {
+		return err
+	}
+
 	// 6. 备份当前受影响的目标到 rollback 目录，用于失败回滚
 	if err := backupCurrentTargets(dataDir, plan, rollbackDir); err != nil {
 		return fmt.Errorf("备份当前数据失败，取消恢复: %v", err)
@@ -197,6 +202,28 @@ func buildRestorePlan(mode string) *RestorePlan {
 		plan.MergeDirs = []string{"Subscriptions"}
 	}
 	return plan
+}
+
+func validateRestorePlanInputs(stagingDir string, plan *RestorePlan, mode string) error {
+	required := append([]string{}, plan.ReplaceDirs...)
+	required = append(required, plan.ReplaceFiles...)
+
+	// 可选项可以排除 theme_setting.txt，兼容旧备份
+	optional := map[string]bool{
+		"theme_setting.txt": true,
+	}
+
+	for _, target := range required {
+		if optional[target] {
+			continue
+		}
+
+		if _, err := os.Stat(filepath.Join(stagingDir, target)); err != nil {
+			return fmt.Errorf("备份包缺少恢复模式 %s 所需目标: %s", mode, target)
+		}
+	}
+
+	return nil
 }
 
 func applyRestorePlan(dataDir, stagingDir string, plan *RestorePlan, mode string, backupIndex []clash.SubIndexItem) error {
@@ -321,8 +348,12 @@ func validateManifest(stagingDir string) error {
 		return fmt.Errorf("备份 manifest 格式损坏: %w", err)
 	}
 
-	if manifest.App != "" && manifest.App != "GoclashZ" {
+	if strings.TrimSpace(manifest.App) != "GoclashZ" {
 		return fmt.Errorf("备份文件校验失败: 归属应用不匹配 (%s)", manifest.App)
+	}
+
+	if manifest.BackupVersion <= 0 {
+		return fmt.Errorf("备份 manifest 缺少有效 backupVersion")
 	}
 
 	if manifest.BackupVersion > CurrentBackupVersion {
