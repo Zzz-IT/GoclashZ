@@ -510,9 +510,9 @@ func (c *Controller) RefreshAutoDelayTest(opts AutoDelayRefreshOptions) {
 func autoDelayInitialDelay(reason string) time.Duration {
 	switch reason {
 	case "startup":
-		return 10 * time.Second // 软件启动：10 秒
+		return 20 * time.Second // 冷启动给予 20s 宽限，避开系统启动高峰
 	case "restore":
-		return 10 * time.Second // 恢复备份：10 秒
+		return 30 * time.Second // 恢复备份后给予 30s 宽限
 	case "enabled":
 		return 3 * time.Second  // 手动开启功能：3 秒
 	default:

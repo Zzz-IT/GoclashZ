@@ -690,8 +690,8 @@
 
             <div class="setting-item">
               <div class="info">
-                <h4>隐藏日志显示</h4>
-                <p>开启后，左侧导航栏的“实时日志”入口将被隐藏。</p>
+                <h4>隐藏日志入口</h4>
+                <p>隐藏侧边栏中的日志页面入口，但后台仍会保留最近日志用于故障诊断。</p>
               </div>
               <label class="modern-switch">
                 <input type="checkbox" v-model="behavior.hideLogs" @change="saveBehavior">

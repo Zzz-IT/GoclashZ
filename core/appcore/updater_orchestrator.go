@@ -103,22 +103,24 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 
 func (c *Controller) CheckCoreUpdateAsync(ctx context.Context) {
 	c.Tasks.Run(ctx, "core-update-check", true, func(ctx context.Context) error {
-		c.events.Emit("core-update-check-start")
 		local := clash.GetLocalCoreVersion(ctx)
 
 		remote, assetURL, releaseURL, err := clash.CheckLatestCore(ctx, resolveLocalProxyURL())
 		if err != nil {
-			c.events.Emit("core-update-check-error", err.Error())
 			return err
 		}
 
-		c.mu.Lock()
-		c.pendingCoreUpdateAssetURL = assetURL
-		c.pendingCoreUpdateVersion = remote
-		c.mu.Unlock()
+		cmp, err := clash.CompareCoreVersion(remote, local)
+		if err != nil {
+			return err
+		}
 
-		cmp, _ := clash.CompareCoreVersion(remote, local)
 		if cmp <= 0 {
+			c.mu.Lock()
+			c.pendingCoreUpdateAssetURL = ""
+			c.pendingCoreUpdateVersion = ""
+			c.mu.Unlock()
+
 			c.events.Emit("core-update-none", map[string]string{
 				"local":  local,
 				"remote": remote,
@@ -126,11 +128,18 @@ func (c *Controller) CheckCoreUpdateAsync(ctx context.Context) {
 			return nil
 		}
 
+		c.mu.Lock()
+		c.pendingCoreUpdateAssetURL = assetURL
+		c.pendingCoreUpdateVersion = remote
+		c.mu.Unlock()
+
 		c.events.Emit("core-update-available", map[string]string{
 			"local":      local,
 			"remote":     remote,
+			"assetUrl":   assetURL,
 			"releaseUrl": releaseURL,
 		})
+
 		return nil
 	})
 }
@@ -162,7 +171,6 @@ func (c *Controller) InstallTunDriverAsync(ctx context.Context) {
 	})
 }
 
-
 func (c *Controller) GetCoreVersion(ctx context.Context) string {
 	return clash.GetLocalCoreVersion(ctx)
 }
@@ -189,50 +197,7 @@ func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, current
 			return nil
 		}
 
-		if !info.HasUpdate {
-			c.events.Emit("app-update-none", map[string]string{
-				"message": "当前已经是最新版本。",
-			})
-			return nil
-		}
-
-		if info.DownloadURL == "" {
-			c.events.Emit("app-update-error", fmt.Sprintf(
-				"发现新版本 %s，但 Release 中没有匹配的软件本体安装包。",
-				info.Version,
-			))
-			return nil
-		}
-
-		c.SetUpdateStatus(true, info.Version)
-
-		// 发现新版本：前端弹提示卡片
-		c.events.Emit("app-update-available", map[string]any{
-			"version":      info.Version,
-			"releaseNotes": info.Body,
-			"releaseUrl":   info.ReleaseURL,
-			"downloadUrl":  info.DownloadURL,
-		})
-
-		// 后台静默下载开始
-		c.events.Emit("app-update-start", map[string]string{
-			"version": info.Version,
-		})
-
-		destDir := filepath.Join(utils.GetDataDir(), "updates")
-		path, err := downloader.DownloadAppUpdate(ctx, info, destDir)
-		if err != nil {
-			c.events.Emit("app-update-error", "下载软件更新失败: "+err.Error())
-			return nil
-		}
-
-		c.SetDownloadedAppUpdate(path, info.Version)
-
-		c.events.Emit("app-update-downloaded", map[string]string{
-			"version": info.Version,
-			"path":    path,
-		})
-
+		_ = c.checkAndDownloadAppUpdateWithInfo(ctx, info, true)
 		return nil
 	})
 }
@@ -240,10 +205,66 @@ func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, current
 func (c *Controller) AutoCheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
 	go func() {
 		info, err := downloader.CheckAppUpdate(ctx, currentVersion)
-		if err != nil || !info.HasUpdate {
+		if err != nil || info == nil || !info.HasUpdate {
 			return
 		}
-		// 复用完整流程
-		c.CheckAndDownloadAppUpdateAsync(ctx, currentVersion)
+
+		_ = c.checkAndDownloadAppUpdateWithInfo(ctx, info, false)
 	}()
+}
+
+func (c *Controller) checkAndDownloadAppUpdateWithInfo(
+	ctx context.Context,
+	info *downloader.AppUpdateInfo,
+	manual bool,
+) error {
+	if info == nil || !info.HasUpdate {
+		if manual {
+			c.events.Emit("app-update-none", map[string]string{
+				"message": "当前已经是最新版本。",
+			})
+		}
+		return nil
+	}
+
+	if info.DownloadURL == "" {
+		err := fmt.Errorf("发现新版本 %s，但 Release 中没有匹配的软件本体安装包", info.Version)
+		if manual {
+			c.events.Emit("app-update-error", err.Error())
+		}
+		return err
+	}
+
+	c.SetUpdateStatus(true, info.Version)
+
+	if manual {
+		c.events.Emit("app-update-available", map[string]any{
+			"version":      info.Version,
+			"releaseNotes": info.Body,
+			"releaseUrl":   info.ReleaseURL,
+			"downloadUrl":  info.DownloadURL,
+		})
+	}
+
+	c.events.Emit("app-update-start", map[string]string{
+		"version": info.Version,
+	})
+
+	destDir := filepath.Join(utils.GetDataDir(), "updates")
+	path, err := downloader.DownloadAppUpdate(ctx, info, destDir)
+	if err != nil {
+		if manual {
+			c.events.Emit("app-update-error", "下载软件更新失败: "+err.Error())
+		}
+		return err
+	}
+
+	c.SetDownloadedAppUpdate(path, info.Version)
+
+	c.events.Emit("app-update-downloaded", map[string]string{
+		"version": info.Version,
+		"path":    path,
+	})
+
+	return nil
 }

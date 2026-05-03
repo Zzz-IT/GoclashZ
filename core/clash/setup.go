@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"regexp"
@@ -361,16 +362,53 @@ func selectMihomoWindowsAmd64Asset(assets []struct {
 }
 
 func CompareCoreVersion(remote, local string) (int, error) {
-	remote = strings.TrimPrefix(remote, "v")
-	local = strings.TrimPrefix(local, "v")
-	if remote == local {
-		return 0, nil
+	r, err := parseVersionParts(remote)
+	if err != nil {
+		return 0, err
 	}
-	// 简单的按字符串比较。在真实的 semver 场景下，这里应改用 semver 库
-	if remote > local {
+
+	l, err := parseVersionParts(local)
+	if err != nil {
+		// 本地版本未知、未安装或无法解析时，允许更新。
 		return 1, nil
 	}
-	return -1, nil
+
+	for i := 0; i < 3; i++ {
+		if r[i] > l[i] {
+			return 1, nil
+		}
+		if r[i] < l[i] {
+			return -1, nil
+		}
+	}
+
+	return 0, nil
+}
+
+func parseVersionParts(v string) ([3]int, error) {
+	var out [3]int
+
+	v = strings.TrimSpace(v)
+	v = strings.TrimPrefix(v, "v")
+	v = strings.TrimPrefix(v, "V")
+
+	// 去掉 prerelease/build metadata。
+	if idx := strings.IndexAny(v, "-+"); idx >= 0 {
+		v = v[:idx]
+	}
+
+	parts := strings.Split(v, ".")
+	// 如果部分缺失，则补 0
+	for i := 0; i < 3; i++ {
+		if i < len(parts) {
+			n, _ := strconv.Atoi(parts[i])
+			out[i] = n
+		} else {
+			out[i] = 0
+		}
+	}
+
+	return out, nil
 }
 
 func GeoDBFileName(key string) (string, error) {

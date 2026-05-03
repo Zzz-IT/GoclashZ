@@ -11,7 +11,7 @@ func (c *Controller) SaveTunConfig(ctx context.Context, cfg *clash.TunConfig) er
 	if err := clash.UpdateTunConfig(cfg); err != nil {
 		return err
 	}
-	if c.GetAppState().IsRunning {
+	if clash.IsRunning() {
 		return c.RestartCore(ctx)
 	}
 	return nil
@@ -21,7 +21,7 @@ func (c *Controller) SaveDNSConfig(ctx context.Context, cfg *clash.DNSConfig) er
 	if err := clash.UpdateDNSConfig(cfg); err != nil {
 		return err
 	}
-	if c.GetAppState().IsRunning {
+	if clash.IsRunning() {
 		return c.RestartCore(ctx)
 	}
 	return nil
@@ -31,7 +31,7 @@ func (c *Controller) SaveNetworkConfig(ctx context.Context, cfg *clash.NetworkCo
 	if err := clash.UpdateNetworkConfig(cfg); err != nil {
 		return err
 	}
-	if c.GetAppState().IsRunning {
+	if clash.IsRunning() {
 		return c.RestartCore(ctx)
 	}
 	return nil
