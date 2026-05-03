@@ -3,8 +3,10 @@
 package logger
 
 import (
+	"fmt"
 	"strings"
 	"sync"
+	"time"
 )
 
 type LogEntry struct {
@@ -76,4 +78,28 @@ func (r *RingBuffer) Clear() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.data = make([]LogEntry, 0, r.max)
+}
+
+func Infof(format string, args ...any) {
+	AppLogs.Add(LogEntry{
+		Type:    "info",
+		Payload: fmt.Sprintf(format, args...),
+		Time:    time.Now().Format("15:04:05"),
+	})
+}
+
+func Warnf(format string, args ...any) {
+	AppLogs.Add(LogEntry{
+		Type:    "warning",
+		Payload: fmt.Sprintf(format, args...),
+		Time:    time.Now().Format("15:04:05"),
+	})
+}
+
+func Errorf(format string, args ...any) {
+	AppLogs.Add(LogEntry{
+		Type:    "error",
+		Payload: fmt.Sprintf(format, args...),
+		Time:    time.Now().Format("15:04:05"),
+	})
 }

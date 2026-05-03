@@ -111,8 +111,10 @@ func (a *App) startup(ctx context.Context) {
 	if sink, ok := a.core.GetEvents().(*WailsEventSink); ok {
 		sink.ctx = ctx
 	}
-	a.core.Startup(ctx)
+	// 必须先加载订阅索引，再启动 appcore 的自动任务。
+	// 自动测速可能会读取活动配置、构建 runtime config、读取代理拓扑。
 	clash.LoadIndex()
+	a.core.Startup(ctx)
 
 	config := a.core.Behavior.Get()
 	if !config.SilentStart {

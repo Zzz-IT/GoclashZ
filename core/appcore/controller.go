@@ -16,6 +16,11 @@ import (
 
 type LogEntry = logger.LogEntry
 
+type AutoDelayRefreshOptions struct {
+	Immediate bool
+	Reason    string
+}
+
 type Options struct {
 	Events       EventSink
 	Version      string
@@ -81,7 +86,10 @@ func NewController(opts Options) *Controller {
 func (c *Controller) Startup(ctx context.Context) {
 	c.ctx = ctx
 	CleanLegacyFiles(c.version)
-	c.RefreshAutoDelayTest()
+	c.RefreshAutoDelayTest(AutoDelayRefreshOptions{
+		Immediate: true,
+		Reason:    "startup",
+	})
 	c.RefreshAppAutoUpdate()
 
 	// 🚀 接入内核退出回调：感知底层进程的非预期崩溃
@@ -438,9 +446,8 @@ func (c *Controller) UpdateClashMode(ctx context.Context, mode string) error {
 }
 
 // RefreshAutoDelayTest 刷新定时测速任务
-func (c *Controller) RefreshAutoDelayTest() {
+func (c *Controller) RefreshAutoDelayTest(opts AutoDelayRefreshOptions) {
 	c.autoTestMu.Lock()
-	defer c.autoTestMu.Unlock()
 
 	if c.autoTestQuit != nil {
 		close(c.autoTestQuit)
@@ -449,6 +456,7 @@ func (c *Controller) RefreshAutoDelayTest() {
 
 	behavior := c.Behavior.Get()
 	if !behavior.AutoDelayTest {
+		c.autoTestMu.Unlock()
 		return
 	}
 
@@ -457,9 +465,15 @@ func (c *Controller) RefreshAutoDelayTest() {
 		intervalMin = 60
 	}
 
-	c.autoTestQuit = make(chan struct{})
+	quit := make(chan struct{})
+	c.autoTestQuit = quit
+	c.autoTestMu.Unlock()
 
-	go func(quit chan struct{}, intervalMin int) {
+	if opts.Immediate {
+		go c.runAutoDelayTestOnceDelayed(quit, opts.Reason, 2*time.Second)
+	}
+
+	go func(quit <-chan struct{}, intervalMin int) {
 		ticker := time.NewTicker(time.Duration(intervalMin) * time.Minute)
 		defer ticker.Stop()
 
@@ -469,16 +483,41 @@ func (c *Controller) RefreshAutoDelayTest() {
 				return
 
 			case <-ticker.C:
-				if c.ctx == nil {
-					continue
-				}
-
-				// 不再判断 GetAppState().IsRunning。
-				// TestAllProxies 自己会在需要时确保内核运行。
-				go c.Delay.TestAllProxies(c.ctx, nil)
+				c.runAutoDelayTestOnce("scheduled")
 			}
 		}
-	}(c.autoTestQuit, intervalMin)
+	}(quit, intervalMin)
+}
+
+func (c *Controller) runAutoDelayTestOnceDelayed(
+	quit <-chan struct{},
+	reason string,
+	delay time.Duration,
+) {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-quit:
+		return
+
+	case <-timer.C:
+		c.runAutoDelayTestOnce(reason)
+	}
+}
+
+func (c *Controller) runAutoDelayTestOnce(reason string) {
+	if c.ctx == nil {
+		return
+	}
+
+	behavior := c.Behavior.Get()
+	if !behavior.AutoDelayTest {
+		return
+	}
+
+	logger.Infof("Triggering auto delay test, reason: %s", reason)
+	go c.Delay.TestAllProxies(c.ctx, nil)
 }
 
 func (c *Controller) RefreshAppAutoUpdate() {
@@ -536,7 +575,10 @@ func (c *Controller) SaveAppBehavior(b AppBehavior) error {
 	// 副作用调度
 	if old.AutoDelayTest != next.AutoDelayTest ||
 		old.AutoDelayTestInterval != next.AutoDelayTestInterval {
-		c.RefreshAutoDelayTest()
+		c.RefreshAutoDelayTest(AutoDelayRefreshOptions{
+			Immediate: !old.AutoDelayTest && next.AutoDelayTest,
+			Reason:    "enabled",
+		})
 	}
 
 	if old.AutoUpdate != next.AutoUpdate ||

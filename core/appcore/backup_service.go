@@ -38,7 +38,10 @@ func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode st
 	}
 
 	// 4. 同步自动测速任务状态
-	c.RefreshAutoDelayTest()
+	c.RefreshAutoDelayTest(AutoDelayRefreshOptions{
+		Immediate: true,
+		Reason:    "restore",
+	})
 
 	// 5. 根据恢复后的状态决定是否重启内核
 	state := c.GetAppState()
