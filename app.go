@@ -467,7 +467,7 @@ func (a *App) StartClash(id string) error {
 // --- Extra Utilities ---
 
 func (a *App) GetCoreVersion() string {
-	return a.core.GetCoreVersion()
+	return a.core.GetCoreVersion(a.ctx)
 }
 
 func (a *App) GetProxyDelay(proxyName, testUrl string) (int, error) {

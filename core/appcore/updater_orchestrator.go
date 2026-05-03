@@ -8,6 +8,7 @@ import (
 	"goclashz/core/utils"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
@@ -17,16 +18,26 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 
 		if isActive {
 			c.StopCoreProcess()
+			c.SyncState()
 		}
 
-		_, err := clash.UpdateCore(ctx)
+		version, err := clash.UpdateCore(ctx)
 		if err != nil {
 			return err
 		}
 
+		c.events.Emit("core-version-updated", map[string]any{
+			"version": version,
+		})
+
+		c.events.Emit("delay-cache-clear", "core-update")
+
 		if isActive {
-			return c.RestartCore(ctx)
+			if err := c.RestartCoreWithReason(ctx, "core-update"); err != nil {
+				return err
+			}
 		}
+
 		return nil
 	})
 }
@@ -62,29 +73,50 @@ func (c *Controller) UpdateGeoDatabaseAsync(ctx context.Context, key string) {
 func (c *Controller) UpdateAllGeoDatabasesAsync(ctx context.Context) {
 	c.Tasks.Run(ctx, "geo-update-all", false, func(ctx context.Context) error {
 		keys := []string{"geoip", "geosite", "mmdb", "asn"}
-		var failed []string
+
+		sem := make(chan struct{}, 2) // 建议 2 并发，不要 4 个大文件一起打满
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		failed := make([]string, 0)
 
 		for _, key := range keys {
-			c.events.Emit("geo-update-"+key+"-start")
+			key := key
+			wg.Add(1)
 
-			if err := c.updateGeoDatabase(ctx, key); err != nil {
-				failed = append(failed, fmt.Sprintf("%s: %v", key, err))
-				c.events.Emit("geo-update-"+key+"-error", err.Error())
-				continue
-			}
+			go func() {
+				defer wg.Done()
 
-			c.events.Emit("geo-update-"+key+"-success")
+				select {
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
+				case <-ctx.Done():
+					mu.Lock()
+					failed = append(failed, key+": "+ctx.Err().Error())
+					mu.Unlock()
+					return
+				}
+
+				c.events.Emit("geo-update-"+key+"-start")
+
+				if err := c.updateGeoDatabase(ctx, key); err != nil {
+					c.events.Emit("geo-update-"+key+"-error", err.Error())
+
+					mu.Lock()
+					failed = append(failed, fmt.Sprintf("%s: %v", key, err))
+					mu.Unlock()
+					return
+				}
+
+				c.events.Emit("geo-update-"+key+"-success")
+			}()
 		}
+
+		wg.Wait()
 
 		if len(failed) > 0 {
-			err := fmt.Errorf(strings.Join(failed, "; "))
-			c.events.Emit("geo-update-all-error", err.Error())
-			// 返回 nil 是因为我们已经手动发了 error 事件并处理了部分成功的情况
-			// 如果返回 err，Tasks.Run 会额外发一个 geo-update-all-error
-			return nil
+			return fmt.Errorf("%s", strings.Join(failed, "; "))
 		}
 
-		c.events.Emit("geo-update-all-success")
 		return nil
 	})
 }
@@ -196,6 +228,6 @@ func (c *Controller) ManualCheckAppUpdate(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-func (c *Controller) GetCoreVersion() string {
-	return clash.GetVersion()
+func (c *Controller) GetCoreVersion(ctx context.Context) string {
+	return clash.GetLocalCoreVersion(ctx)
 }

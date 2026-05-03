@@ -115,7 +115,7 @@
                 <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">路由规则数据库</h3>
               </div>
               <button class="action-btn primary-btn accent-btn" @click="handleUpdateAllDbs" :disabled="isUpdatingAnyDb">
-                {{ updatingAllDbs ? '并发处理中...' : '更新全部' }}
+                {{ updatingAllDbs ? '处理中...' : '更新全部' }}
               </button>
             </div>
             <div class="divider" style="margin-top: 14px;"></div>
@@ -1385,6 +1385,9 @@ onMounted(() => {
 
   // 监听 Core 更新事件 (对应 backend: "core-update")
   EventsOn("core-update-start", () => { updatingCore.value = true; });
+  EventsOn("core-version-updated", (payload: any) => {
+    coreVersion.value = payload?.version || coreVersion.value;
+  });
   EventsOn("core-update-success", async () => {
     updatingCore.value = false;
     coreVersion.value = await (API as any).GetCoreVersion();
@@ -1433,6 +1436,7 @@ onUnmounted(() => {
   EventsOff("geo-update-all-cancelled");
 
   EventsOff("core-update-start");
+  EventsOff("core-version-updated");
   EventsOff("core-update-success");
   EventsOff("core-update-error");
   EventsOff("core-update-cancelled");

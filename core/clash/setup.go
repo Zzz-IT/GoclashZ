@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
 	"goclashz/core/downloader"
 	"goclashz/core/sys"
@@ -32,6 +35,94 @@ func looksLikePE(data []byte) bool {
 	return len(data) >= 2 && data[0] == 'M' && data[1] == 'Z'
 }
 
+func GetLocalCoreVersion(ctx context.Context) string {
+	binDir := utils.GetCoreBinDir()
+	exePath := filepath.Join(binDir, "clash.exe")
+
+	if !isUsableFile(exePath, minKernelSize) {
+		return "未安装"
+	}
+
+	candidates := [][]string{
+		{exePath, "-v"},
+		{exePath, "-version"},
+		{exePath, "--version"},
+	}
+
+	for _, args := range candidates {
+		cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		out, err := exec.CommandContext(cmdCtx, args[0], args[1:]...).CombinedOutput()
+		cancel()
+
+		if err != nil && len(out) == 0 {
+			continue
+		}
+
+		version := parseMihomoVersionOutput(string(out))
+		if version != "" {
+			return version
+		}
+	}
+
+	return "已安装，版本未知"
+}
+
+func parseMihomoVersionOutput(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+
+	re := regexp.MustCompile(`v?\d+\.\d+\.\d+`)
+	if m := re.FindString(s); m != "" {
+		if strings.HasPrefix(m, "v") {
+			return m
+		}
+		return "v" + m
+	}
+
+	return ""
+}
+
+func validateKernelZip(zipPath string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("内核压缩包无法打开: %w", err)
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		if !strings.HasSuffix(strings.ToLower(f.Name), ".exe") {
+			continue
+		}
+
+		if f.UncompressedSize64 < minKernelSize {
+			return fmt.Errorf("内核 exe 体积异常")
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+
+		header := make([]byte, 2)
+		_, readErr := io.ReadFull(rc, header)
+		rc.Close()
+
+		if readErr != nil {
+			return readErr
+		}
+
+		if !looksLikePE(header) {
+			return fmt.Errorf("内核 exe 不是有效 PE 文件")
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("内核压缩包中未找到 exe")
+}
+
 const (
 	kernelURL = "https://ghproxy.net/https://github.com/MetaCubeX/mihomo/releases/download/v1.18.3/mihomo-windows-amd64-v1.18.3.zip"
 )
@@ -41,14 +132,18 @@ func downloadAndExtractKernel(ctx context.Context, destDir, finalExePath string)
 
 	// 1. 下载 ZIP (使用统一原子下载器 + GitHub 自动校验)
 	err := downloader.DownloadAtomic(ctx, downloader.Options{
-		URLs:            []string{kernelURL},
-		DestPath:        zipPath,
-		MaxBytes:        200 * 1024 * 1024,
-		Resume:          true,
-		VerifyGitHubSHA: true, // 强制内核校验
+		URLs:             []string{kernelURL},
+		DestPath:         zipPath,
+		MaxBytes:         200 * 1024 * 1024,
+		Resume:           true,
+		VerifyGitHubSHA:  true,
+		RequireGitHubSHA: false, // digest 缺失时不直接失败，依赖下方的 Validator
+		Validator: func(tmpPath string) error {
+			return validateKernelZip(tmpPath)
+		},
 	})
 	if err != nil {
-		return fmt.Errorf("内核下载或 GitHub 校验失败: %v", err)
+		return fmt.Errorf("内核下载或安全校验失败: %v", err)
 	}
 
 	// 2. 解压并提取 (修复解除文件锁定逻辑)
@@ -221,7 +316,7 @@ func UpdateCore(ctx context.Context) (string, error) {
 	if err := downloadAndExtractKernel(ctx, binDir, exePath); err != nil {
 		return "", err
 	}
-	return GetVersion(), nil
+	return GetLocalCoreVersion(ctx), nil
 }
 
 // UpdateGeoDB 更新指定的 Geo 数据库

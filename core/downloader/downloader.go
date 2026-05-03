@@ -11,9 +11,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,6 +27,7 @@ type Options struct {
 	Client          *http.Client
 	Resume          bool
 	VerifyGitHubSHA bool
+	RequireGitHubSHA bool                       // 🚀 新增：SHA 为可选，Validator 为必须 (支持 digest 缺失场景)
 
 	ProxyURL           string                     // 🚀 2. 自代理加速：指定本地 Clash 代理地址
 	InsecureSkipVerify bool                       // 🚀 3. SSL宽容：无视野鸡机场的过期证书
@@ -112,6 +115,23 @@ func writeResumeMeta(path string, meta resumeMeta) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0644)
+}
+
+var destLocks sync.Map // map[string]*sync.Mutex
+
+func lockDest(path string) func() {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+
+	v, _ := destLocks.LoadOrStore(abs, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+
+	return func() {
+		mu.Unlock()
+	}
 }
 
 func probeSingleRemote(ctx context.Context, client *http.Client, testURL string, opt Options) (resumeMeta, bool, error) {
@@ -225,6 +245,13 @@ func parseContentRangeTotal(v string) (int64, bool) {
 // FetchSmallFileAtomic 🚀 高级并发下载：针对小文件（如订阅、配置）执行“全速体感竞速”
 // 它不仅并发测试连接，还直接并发下载内容。第一个通过 Validator 校验的连接将赢得比赛。
 func FetchSmallFileAtomic(ctx context.Context, opt Options) error {
+	if strings.TrimSpace(opt.DestPath) == "" {
+		return fmt.Errorf("DestPath 为空")
+	}
+
+	unlock := lockDest(opt.DestPath)
+	defer unlock()
+
 	clients := createClients(opt)
 	urls := opt.URLs
 	totalRaces := len(clients) * len(urls)
@@ -329,6 +356,13 @@ func FetchSmallFileAtomic(ctx context.Context, opt Options) error {
 }
 
 func DownloadAtomic(ctx context.Context, opt Options) error {
+	if strings.TrimSpace(opt.DestPath) == "" {
+		return fmt.Errorf("DestPath 为空")
+	}
+
+	unlock := lockDest(opt.DestPath)
+	defer unlock()
+
 	// 1. 生成竞速矩阵 (直连 & 代理)
 	clients := createClients(opt)
 
@@ -501,16 +535,21 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 	// 校验逻辑
 	if opt.VerifyGitHubSHA {
 		// 校验也需要使用获胜的 client，确保网络通畅
-		// 注意：ResolveGitHubAssetSHA256 内部会处理镜像 URL 的归一化
 		expectedSHA, err := ResolveGitHubAssetSHA256(ctx, winningClient, remoteMeta.URL, ua)
 		if err != nil {
-			_ = os.Remove(tmpPath)
-			return fmt.Errorf("获取 GitHub 文件哈希失败: %v", err)
+			if opt.RequireGitHubSHA {
+				_ = os.Remove(tmpPath)
+				return fmt.Errorf("获取 GitHub 文件哈希失败: %v", err)
+			}
+			// digest 缺失时允许继续，但后续必须依赖 Validator 做格式校验
+			expectedSHA = ""
 		}
 
-		if err := VerifySHA256(tmpPath, expectedSHA); err != nil {
-			_ = os.Remove(tmpPath)
-			return fmt.Errorf("文件 SHA256 校验失败: %v", err)
+		if expectedSHA != "" {
+			if err := VerifySHA256(tmpPath, expectedSHA); err != nil {
+				_ = os.Remove(tmpPath)
+				return fmt.Errorf("文件 SHA256 校验失败: %v", err)
+			}
 		}
 	}
 
