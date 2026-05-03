@@ -203,14 +203,15 @@ func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, current
 }
 
 func (c *Controller) AutoCheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
-	go func() {
+	c.Tasks.Run(ctx, "app-update-flow", false, func(ctx context.Context) error {
 		info, err := downloader.CheckAppUpdate(ctx, currentVersion)
 		if err != nil || info == nil || !info.HasUpdate {
-			return
+			return nil
 		}
 
 		_ = c.checkAndDownloadAppUpdateWithInfo(ctx, info, false)
-	}()
+		return nil
+	})
 }
 
 func (c *Controller) checkAndDownloadAppUpdateWithInfo(

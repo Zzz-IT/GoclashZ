@@ -110,6 +110,13 @@ func Export(dataDir, destPath string, appVersion string) error {
 	})
 }
 
+// BackupStagingResult 解压到 staging 后的结果
+type BackupStagingResult struct {
+	Index    []clash.SubIndexItem
+	HasIndex bool
+	IndexErr error
+}
+
 // RestoreTransactional 事务化恢复流程
 func RestoreTransactional(ctx context.Context, dataDir, archivePath, mode string) error {
 	// 1. 模式校验
@@ -130,9 +137,19 @@ func RestoreTransactional(ctx context.Context, dataDir, archivePath, mode string
 	os.MkdirAll(rollbackDir, 0755)
 
 	// 3. 解压并归一化到 staging (Zip Bomb 防护在内部执行)
-	backupIndex, err := extractAndNormalizeToStaging(archivePath, stagingDir)
+	stagingResult, err := extractAndNormalizeToStaging(archivePath, stagingDir)
 	if err != nil {
 		return err
+	}
+
+	// 🛡️ 核心修复：针对替换式恢复，必须确保备份包内包含有效的索引文件
+	if mode == "all" || mode == "subs" {
+		if !stagingResult.HasIndex {
+			return fmt.Errorf("备份包缺少 profiles/index.json，无法执行替换式订阅恢复")
+		}
+		if stagingResult.IndexErr != nil {
+			return fmt.Errorf("备份订阅索引解析失败: %v", stagingResult.IndexErr)
+		}
 	}
 
 	// 4. 校验 manifest (针对非 GoclashZ 备份进行拦截)
@@ -149,7 +166,7 @@ func RestoreTransactional(ctx context.Context, dataDir, archivePath, mode string
 	}
 
 	// 7. 执行原子替换逻辑
-	if err := applyRestorePlan(dataDir, stagingDir, plan, mode, backupIndex); err != nil {
+	if err := applyRestorePlan(dataDir, stagingDir, plan, mode, stagingResult.Index); err != nil {
 		// 8. 执行失败，尝试从 rollback 目录恢复
 		_ = rollbackRestorePlan(dataDir, rollbackDir, plan)
 		return fmt.Errorf("恢复执行失败，已尝试自动回滚: %v", err)
@@ -261,8 +278,11 @@ func rollbackRestorePlan(dataDir, rollbackDir string, plan *RestorePlan) error {
 	for _, target := range allTargets {
 		src := filepath.Join(rollbackDir, target)
 		dst := filepath.Join(dataDir, target)
+
+		// 🛡️ 核心修复：无论旧目标是否存在，都先删除恢复过程中产生的新目标（防止残留数据污染）
+		_ = os.RemoveAll(dst)
+
 		if _, err := os.Stat(src); err == nil {
-			_ = os.RemoveAll(dst)
 			info, _ := os.Stat(src)
 			if info.IsDir() {
 				_ = copyDir(src, dst)
@@ -302,14 +322,14 @@ func validateManifest(stagingDir string) error {
 	return nil
 }
 
-func extractAndNormalizeToStaging(archivePath, stagingDir string) ([]clash.SubIndexItem, error) {
+func extractAndNormalizeToStaging(archivePath, stagingDir string) (*BackupStagingResult, error) {
 	zr, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return nil, err
 	}
 	defer zr.Close()
 
-	var backupIndex []clash.SubIndexItem
+	result := &BackupStagingResult{}
 
 	const (
 		maxRestoreFiles  = 1000
@@ -343,10 +363,13 @@ func extractAndNormalizeToStaging(archivePath, stagingDir string) ([]clash.SubIn
 
 		// 提前解析索引文件
 		if destRel == "profiles/index.json" {
+			result.HasIndex = true
 			rc, err := f.Open()
 			if err == nil {
-				_ = json.NewDecoder(rc).Decode(&backupIndex)
+				result.IndexErr = json.NewDecoder(rc).Decode(&result.Index)
 				rc.Close()
+			} else {
+				result.IndexErr = err
 			}
 		}
 
@@ -369,7 +392,7 @@ func extractAndNormalizeToStaging(archivePath, stagingDir string) ([]clash.SubIn
 			return nil, err
 		}
 	}
-	return backupIndex, nil
+	return result, nil
 }
 
 // --- Utils ---

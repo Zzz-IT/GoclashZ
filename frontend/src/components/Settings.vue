@@ -89,8 +89,16 @@
                 <h4>Mihomo 内核 <span style="color: var(--accent); margin-left: 8px; font-style: italic; font-size: 0.8rem; font-weight: normal;">(更新会短暂断开代理)</span></h4>
                 <p>当前版本: {{ coreVersion }}</p>
               </div>
-              <button class="action-btn" @click="handleUpdateCore" :disabled="checkingCoreUpdate || updatingCore">
-                {{ checkingCoreUpdate ? '正在检查...' : (updatingCore ? '正在处理...' : '检查更新') }}
+              <button 
+                class="action-btn" 
+                :class="{ 'accent-btn': pendingCoreUpdate }"
+                @click="pendingCoreUpdate ? executeCoreUpdate() : handleUpdateCore()" 
+                :disabled="checkingCoreUpdate || updatingCore"
+              >
+                <template v-if="checkingCoreUpdate">正在检查...</template>
+                <template v-else-if="updatingCore">正在处理...</template>
+                <template v-else-if="pendingCoreUpdate">更新到 {{ coreUpdateInfo.remote }}</template>
+                <template v-else>检查更新</template>
               </button>
             </div>
 
@@ -1015,6 +1023,7 @@ const resetModuleName = ref('');
 const hostsError = ref('');
 
 const checkingCoreUpdate = ref(false);
+const pendingCoreUpdate = ref(false);
 const showCoreUpdateConfirm = ref(false);
 const coreUpdateInfo = ref({ local: '', remote: '', releaseUrl: '' });
 
@@ -1654,11 +1663,13 @@ onMounted(() => {
   });
   EventsOn("core-update-available", (data: any) => {
     checkingCoreUpdate.value = false;
+    pendingCoreUpdate.value = true;
     coreUpdateInfo.value = {
       local: data.local || '',
       remote: data.remote || '',
       releaseUrl: data.releaseUrl || ''
     };
+    // 依然保留模态框作为强提醒，也可以选择只改按钮文字
     showCoreUpdateConfirm.value = true;
   });
 
@@ -1669,6 +1680,7 @@ onMounted(() => {
   });
   EventsOn("core-update-success", () => {
     updatingCore.value = false;
+    pendingCoreUpdate.value = false;
     queueComponentInfoRefresh();
     void enqueueModal({ title: '通知', message: 'Mihomo 内核更新完成。', danger: false });
   });

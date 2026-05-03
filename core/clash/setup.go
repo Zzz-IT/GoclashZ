@@ -388,6 +388,7 @@ func CompareCoreVersion(remote, local string) (int, error) {
 func parseVersionParts(v string) ([3]int, error) {
 	var out [3]int
 
+	original := v
 	v = strings.TrimSpace(v)
 	v = strings.TrimPrefix(v, "v")
 	v = strings.TrimPrefix(v, "V")
@@ -397,11 +398,25 @@ func parseVersionParts(v string) ([3]int, error) {
 		v = v[:idx]
 	}
 
+	if v == "" {
+		return out, fmt.Errorf("invalid version: %s", original)
+	}
+
 	parts := strings.Split(v, ".")
+	if len(parts) == 0 || parts[0] == "" {
+		return out, fmt.Errorf("invalid version: %s", original)
+	}
+
 	// 如果部分缺失，则补 0
 	for i := 0; i < 3; i++ {
 		if i < len(parts) {
-			n, _ := strconv.Atoi(parts[i])
+			if parts[i] == "" {
+				return out, fmt.Errorf("invalid version: %s", original)
+			}
+			n, err := strconv.Atoi(parts[i])
+			if err != nil {
+				return out, fmt.Errorf("invalid version: %s", original)
+			}
 			out[i] = n
 		} else {
 			out[i] = 0
