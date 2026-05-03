@@ -55,12 +55,14 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 		Name:        "Mihomo 内核更新",
 		StopCore:    true,
 		RestartCore: true,
-		Update: func(ctx context.Context) (map[string]string, error) {
-			version, err := clash.UpdateCore(ctx)
+		Prepare: func(ctx context.Context) (map[string]string, error) {
+			return clash.PrepareCoreUpdate(ctx, resolveLocalProxyURL())
+		},
+		Commit: func(ctx context.Context, prepared map[string]string) (map[string]string, error) {
+			version, err := clash.CommitCoreUpdate(ctx, prepared)
 			if err != nil {
 				return nil, err
 			}
-
 			return map[string]string{
 				"version": version,
 			}, nil
@@ -78,17 +80,45 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 	})
 }
 
+func (c *Controller) CheckCoreUpdateAsync(ctx context.Context) {
+	c.Tasks.Run(ctx, "core-update-check", true, func(ctx context.Context) error {
+		local := clash.GetLocalCoreVersion(ctx)
+
+		remote, releaseURL, err := clash.CheckLatestCoreVersion(ctx, resolveLocalProxyURL())
+		if err != nil {
+			return err
+		}
+
+		if clash.CompareCoreVersion(remote, local) <= 0 {
+			c.events.Emit("core-update-none", map[string]string{
+				"local":  local,
+				"remote": remote,
+			})
+			return nil
+		}
+
+		c.events.Emit("core-update-available", map[string]string{
+			"local":      local,
+			"remote":     remote,
+			"releaseUrl": releaseURL,
+		})
+		return nil
+	})
+}
+
 func (c *Controller) InstallTunDriverAsync(ctx context.Context) {
 	c.runComponentUpdateTransaction(ctx, "driver-install", ComponentUpdateOptions{
 		Name:        "Wintun 重装",
 		StopCore:    true,
 		RestartCore: true,
-		Update: func(ctx context.Context) (map[string]string, error) {
-			version, err := clash.InstallWintunRuntime(ctx, resolveLocalProxyURL())
+		Prepare: func(ctx context.Context) (map[string]string, error) {
+			return clash.PrepareWintunRuntime(ctx, resolveLocalProxyURL())
+		},
+		Commit: func(ctx context.Context, prepared map[string]string) (map[string]string, error) {
+			version, err := clash.CommitWintunRuntime(ctx, prepared)
 			if err != nil {
 				return nil, err
 			}
-
 			return map[string]string{
 				"version": version,
 			}, nil

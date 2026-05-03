@@ -20,21 +20,17 @@ const wintunURL = "https://www.wintun.net/builds/wintun-0.14.1.zip"
 
 var wintunBinaryMu sync.Mutex
 
-func InstallWintunRuntime(ctx context.Context, proxyURL string) (string, error) {
+func PrepareWintunRuntime(ctx context.Context, proxyURL string) (map[string]string, error) {
 	wintunBinaryMu.Lock()
 	defer wintunBinaryMu.Unlock()
 
 	destPath := filepath.Join(utils.GetCoreBinDir(), "wintun.dll")
-
-	// 1. 等待占用释放
-	if err := WaitFileReleased(destPath, 5*time.Second); err != nil {
-		return "", err
-	}
-
 	zipPath := destPath + ".zip"
-	defer os.Remove(zipPath)
+	stagedDLL := destPath + ".new"
 
-	// 2. 下载
+	_ = os.Remove(zipPath)
+	_ = os.Remove(stagedDLL)
+
 	if err := downloader.DownloadLargeAssetAtomic(ctx, downloader.Options{
 		URLs:                []string{wintunURL},
 		DestPath:            zipPath,
@@ -47,31 +43,44 @@ func InstallWintunRuntime(ctx context.Context, proxyURL string) (string, error) 
 			return validateWintunZip(tmpPath)
 		},
 	}); err != nil {
+		return nil, err
+	}
+
+	if err := extractWintunDLL(zipPath, stagedDLL); err != nil {
+		_ = os.Remove(stagedDLL)
+		return nil, err
+	}
+
+	if err := ValidateWindowsPE(stagedDLL, 32*1024); err != nil {
+		_ = os.Remove(stagedDLL)
+		return nil, err
+	}
+
+	return map[string]string{
+		"stagedDLL": stagedDLL,
+		"destPath":  destPath,
+	}, nil
+}
+
+func CommitWintunRuntime(ctx context.Context, prepared map[string]string) (string, error) {
+	wintunBinaryMu.Lock()
+	defer wintunBinaryMu.Unlock()
+
+	stagedDLL := prepared["stagedDLL"]
+	destPath := prepared["destPath"]
+
+	if stagedDLL == "" || destPath == "" {
+		return "", fmt.Errorf("Wintun staging 信息缺失")
+	}
+
+	if err := WaitFileReleased(destPath, 5*time.Second); err != nil {
 		return "", err
 	}
 
-	newDLL := destPath + ".new"
-	_ = os.Remove(newDLL)
-
-	// 3. 提取到 .new
-	if err := extractWintunDLL(zipPath, newDLL); err != nil {
-		_ = os.Remove(newDLL)
+	if err := ReplaceFileWithBackup(stagedDLL, destPath); err != nil {
 		return "", err
 	}
 
-	// 4. 校验 .new
-	if err := ValidateWindowsPE(newDLL, 32*1024); err != nil {
-		_ = os.Remove(newDLL)
-		return "", err
-	}
-
-	// 5. 替换
-	if err := ReplaceFileWithBackup(newDLL, destPath); err != nil {
-		_ = os.Remove(newDLL)
-		return "", err
-	}
-
-	// 6. 重新读取版本
 	version, err := sys.GetFileVersion(destPath)
 	if err != nil || strings.TrimSpace(version) == "" {
 		return "已安装，版本未知", nil

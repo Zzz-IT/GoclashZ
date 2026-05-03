@@ -89,8 +89,8 @@
                 <h4>Mihomo 内核 <span style="color: var(--accent); margin-left: 8px; font-style: italic; font-size: 0.8rem; font-weight: normal;">(更新会短暂断开代理)</span></h4>
                 <p>当前版本: {{ coreVersion }}</p>
               </div>
-              <button class="action-btn" @click="handleUpdateCore" :disabled="updatingCore">
-                {{ updatingCore ? '正在处理...' : '检查更新' }}
+              <button class="action-btn" @click="handleUpdateCore" :disabled="checkingCoreUpdate || updatingCore">
+                {{ checkingCoreUpdate ? '正在检查...' : (updatingCore ? '正在处理...' : '检查更新') }}
               </button>
             </div>
 
@@ -914,6 +914,26 @@
         </div>
       </div>
     </Transition>
+    
+    <Transition name="pop">
+      <div v-if="showCoreUpdateConfirm" class="modal-overlay" @click="showCoreUpdateConfirm = false">
+        <div class="custom-modal-card" @click.stop>
+          <div class="modal-header">
+            <h3>发现新版本</h3>
+          </div>
+          <div class="modal-body">
+            <p class="global-modal-msg">
+              检测到 Mihomo 内核新版本 <strong>{{ coreUpdateInfo.remote }}</strong>，当前版本为 <strong>{{ coreUpdateInfo.local }}</strong>。<br/><br/>
+              更新内核将会短暂断开代理连接。是否立即更新？
+            </p>
+            <div class="modal-footer">
+              <button class="action-btn flex-1" @click="showCoreUpdateConfirm = false">取消</button>
+              <button class="primary-btn accent-btn flex-1" @click="executeCoreUpdate">立即更新</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
 
     <!-- 还原备份弹窗 (复用订阅管理的卡片样式) -->
     <Transition name="pop">
@@ -978,6 +998,10 @@ const showResetConfirm = ref(false);
 const resetModule = ref('');
 const resetModuleName = ref('');
 const hostsError = ref('');
+
+const checkingCoreUpdate = ref(false);
+const showCoreUpdateConfirm = ref(false);
+const coreUpdateInfo = ref({ local: '', remote: '', releaseUrl: '' });
 
 // 👇 新增：校验 Hosts 是否符合 YAML 字典基础格式
 const validateHosts = (val: string) => {
@@ -1355,9 +1379,16 @@ const confirmRestore = async () => {
 };
 
 const handleUpdateCore = async () => {
+  if (checkingCoreUpdate.value || updatingCore.value) return;
+  (API as any).CheckCoreUpdateAsync();
+};
+
+const executeCoreUpdate = () => {
+  showCoreUpdateConfirm.value = false;
   if (updatingCore.value) return;
   (API as any).UpdateCoreComponentAsync();
 };
+
 const tunStatus = ref<Record<string, boolean>>({ hasWintun: false, isAdmin: false });
 
 const tunConfig = ref({
@@ -1583,6 +1614,22 @@ onMounted(() => {
     }
   });
 
+  // 监听 Core 检查更新事件
+  EventsOn("core-update-check-start", () => { checkingCoreUpdate.value = true; });
+  EventsOn("core-update-none", (data: any) => {
+    checkingCoreUpdate.value = false;
+    void enqueueModal({ title: '检查更新', message: `内核已是最新版本 (${data.local})。`, danger: false });
+  });
+  EventsOn("core-update-available", (data: any) => {
+    checkingCoreUpdate.value = false;
+    coreUpdateInfo.value = {
+      local: data.local || '',
+      remote: data.remote || '',
+      releaseUrl: data.releaseUrl || ''
+    };
+    showCoreUpdateConfirm.value = true;
+  });
+
   // 监听 Core 更新事件 (对应 backend: "core-update")
   EventsOn("core-update-start", () => { updatingCore.value = true; });
   EventsOn("core-version-updated", (payload: any) => {
@@ -1640,6 +1687,9 @@ onUnmounted(() => {
   EventsOff("geo-update-all-cancelled");
   EventsOff("geo-update-active-sync");
 
+  EventsOff("core-update-check-start");
+  EventsOff("core-update-none");
+  EventsOff("core-update-available");
   EventsOff("core-update-start");
   EventsOff("core-version-updated");
   EventsOff("core-update-success");

@@ -12,7 +12,8 @@ type ComponentUpdateOptions struct {
 	Name         string
 	StopCore     bool
 	RestartCore  bool
-	Update       func(ctx context.Context) (map[string]string, error)
+	Prepare      func(ctx context.Context) (map[string]string, error)
+	Commit       func(ctx context.Context, prepared map[string]string) (map[string]string, error)
 	AfterSuccess func(map[string]string)
 }
 
@@ -27,7 +28,14 @@ func (c *Controller) runComponentUpdateTransaction(
 		c.componentUpdateMu.Lock()
 		defer c.componentUpdateMu.Unlock()
 
-		// 2. 获取内核生命周期锁，准备变更状态
+		// 2. Prepare 阶段：内核仍然运行，允许使用本地代理下载大文件
+		prepared, err := opt.Prepare(ctx)
+		if err != nil {
+			c.SyncState()
+			return fmt.Errorf("%s准备失败: %w", opt.Name, err)
+		}
+
+		// 3. 获取内核生命周期锁，准备短暂停机替换文件
 		c.coreLifecycleMu.Lock()
 
 		wasRunning := clash.IsRunning()
@@ -43,12 +51,16 @@ func (c *Controller) runComponentUpdateTransaction(
 
 		if opt.StopCore && wasRunning {
 			_ = c.stopCoreProcessLocked()
+			c.coreLifecycleMu.Unlock()
+
+			// 停止后立刻同步状态，停掉 traffic/proxy monitor
+			c.SyncState()
+		} else {
+			c.coreLifecycleMu.Unlock()
 		}
 
-		c.coreLifecycleMu.Unlock()
-
-		// 3. 执行核心更新逻辑（下载、校验、替换）
-		result, err := opt.Update(ctx)
+		// 4. Commit 阶段：仅执行极快的文件替换（此时内核已停）
+		result, err := opt.Commit(ctx, prepared)
 		if err != nil {
 			// 更新失败，尝试恢复原有的运行状态
 			if shouldRestart {

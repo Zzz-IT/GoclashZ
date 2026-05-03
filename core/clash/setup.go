@@ -5,8 +5,11 @@ package clash
 import (
 	"archive/zip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,7 +29,10 @@ func PrepareEnv(ctx context.Context) error {
 	
 	if _, err := os.Stat(filepath.Join(binDir, "clash.exe")); os.IsNotExist(err) {
 		// 优先触发一次下载（或者由前端引导）
-		if _, err := UpdateCore(ctx); err != nil {
+		prepared, err := PrepareCoreUpdate(ctx, "")
+		if err == nil {
+			_, _ = CommitCoreUpdate(ctx, prepared)
+		} else {
 			return fmt.Errorf("内核文件缺失且自动下载失败: %v", err)
 		}
 	}
@@ -158,28 +164,6 @@ func readLocalCoreVersionByCommand(ctx context.Context, path string) string {
 	return s
 }
 
-func downloadAndExtractKernel(ctx context.Context, binDir, exePath string) error {
-	// 下载内核 Zip
-	zipPath := filepath.Join(binDir, "clash.zip")
-	defer os.Remove(zipPath)
-
-	url := "https://github.com/MetaCubeX/mihomo/releases/download/v1.18.1/mihomo-windows-amd64-v1.18.1.zip"
-	
-	err := downloader.DownloadAtomic(ctx, downloader.Options{
-		URLs:           []string{url},
-		DestPath:       zipPath,
-		RequireGitHubSHA: false, // 降低对 SHA 校验的强制依赖，走文件头校验
-		Validator: func(tmpPath string) error {
-			return validateKernelZip(tmpPath)
-		},
-	})
-	if err != nil {
-		return err
-	}
-
-	// 解压
-	return extractKernel(zipPath, exePath)
-}
 
 func validateKernelZip(path string) error {
 	r, err := zip.OpenReader(path)
@@ -190,14 +174,13 @@ func validateKernelZip(path string) error {
 	return nil
 }
 
-func extractKernel(zipPath, exePath string) error {
+func extractKernelToFile(zipPath, targetExe string) error {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return err
 	}
 	defer r.Close()
 
-	// 查找第一个 .exe 文件
 	var targetFile *zip.File
 	for _, f := range r.File {
 		if strings.HasSuffix(strings.ToLower(f.Name), ".exe") {
@@ -216,50 +199,148 @@ func extractKernel(zipPath, exePath string) error {
 	}
 	defer rc.Close()
 
-	// 写入到临时文件再重命名，确保原子性
-	newExe := exePath + ".tmp"
-	f, err := os.OpenFile(newExe, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+	_ = os.Remove(targetExe)
+	f, err := os.OpenFile(targetExe, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
 	if err != nil {
 		return err
 	}
-	
+
 	if _, err := io.Copy(f, rc); err != nil {
 		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(newExe)
+		_ = os.Remove(targetExe)
 		return err
 	}
 
-	// 校验新文件
-	if err := ValidateWindowsPE(newExe, 5*1024*1024); err != nil {
-		_ = os.Remove(newExe)
-		return err
-	}
-
-	return ReplaceFileWithBackup(newExe, exePath)
+	return f.Close()
 }
 
 var coreBinaryMu sync.Mutex
 
-func UpdateCore(ctx context.Context) (string, error) {
+func PrepareCoreUpdate(ctx context.Context, proxyURL string) (map[string]string, error) {
 	coreBinaryMu.Lock()
 	defer coreBinaryMu.Unlock()
 
 	binDir := utils.GetCoreBinDir()
 	exePath := filepath.Join(binDir, "clash.exe")
+	zipPath := filepath.Join(binDir, "clash.update.zip")
+	stagedExe := exePath + ".new"
+
+	_ = os.Remove(zipPath)
+	_ = os.Remove(stagedExe)
+
+	url := "https://github.com/MetaCubeX/mihomo/releases/download/v1.18.1/mihomo-windows-amd64-v1.18.1.zip"
+
+	if err := downloader.DownloadLargeAssetAtomic(ctx, downloader.Options{
+		URLs:                []string{url},
+		DestPath:            zipPath,
+		ProxyURL:            proxyURL,
+		PreferProxy:         proxyURL != "",
+		MaxBytes:            200 << 20,
+		UserAgent:           "GoclashZ-CoreUpdater",
+		AttemptsPerEndpoint: 3,
+		Validator: func(tmpPath string) error {
+			return validateKernelZip(tmpPath)
+		},
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := extractKernelToFile(zipPath, stagedExe); err != nil {
+		return nil, err
+	}
+
+	if err := ValidateWindowsPE(stagedExe, 5*1024*1024); err != nil {
+		_ = os.Remove(stagedExe)
+		return nil, err
+	}
+
+	return map[string]string{
+		"stagedExe": stagedExe,
+		"exePath":   exePath,
+	}, nil
+}
+
+func CommitCoreUpdate(ctx context.Context, prepared map[string]string) (string, error) {
+	coreBinaryMu.Lock()
+	defer coreBinaryMu.Unlock()
+
+	stagedExe := prepared["stagedExe"]
+	exePath := prepared["exePath"]
+
+	if stagedExe == "" || exePath == "" {
+		return "", fmt.Errorf("内核更新 staging 信息缺失")
+	}
 
 	if err := WaitFileReleased(exePath, 5*time.Second); err != nil {
 		return "", err
 	}
 
-	if err := downloadAndExtractKernel(ctx, binDir, exePath); err != nil {
+	if err := ReplaceFileWithBackup(stagedExe, exePath); err != nil {
 		return "", err
 	}
 
 	ClearLocalCoreVersionCache()
-	return GetLocalCoreVersion(ctx), nil
+	return getLocalCoreVersionLocked(ctx), nil
+}
+
+func CheckLatestCoreVersion(ctx context.Context, proxyURL string) (string, string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest", nil)
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("User-Agent", "GoclashZ-UpdateChecker")
+
+	var client *http.Client
+	if proxyURL != "" {
+		if pu, err := url.Parse(proxyURL); err == nil {
+			client = &http.Client{
+				Transport: &http.Transport{
+					Proxy: http.ProxyURL(pu),
+				},
+				Timeout: 10 * time.Second,
+			}
+		}
+	}
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
+	}
+
+	var data struct {
+		TagName string `json:"tag_name"`
+		HTMLURL string `json:"html_url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return "", "", err
+	}
+
+	if data.TagName == "" {
+		return "", "", fmt.Errorf("未找到 tag_name")
+	}
+
+	return data.TagName, data.HTMLURL, nil
+}
+
+func CompareCoreVersion(remote, local string) int {
+	remote = strings.TrimPrefix(remote, "v")
+	local = strings.TrimPrefix(local, "v")
+	if remote == local {
+		return 0
+	}
+	// 简单的按字符串比较。在真实的 semver 场景下，这里应改用 semver 库
+	if remote > local {
+		return 1
+	}
+	return -1
 }
 
 func GeoDBFileName(key string) (string, error) {
