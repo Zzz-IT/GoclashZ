@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 	"unsafe"
 
@@ -144,10 +143,7 @@ func Start(ctx context.Context) error {
 	// -f 设定内核强制读取的 yaml 配置，指向我们的 DataDir
 	cmd := exec.Command(exePath, "-d", binDir, "-f", runtimeConfig)
 	cmd.Dir = binDir
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow:    true,
-		CreationFlags: windows.CREATE_BREAKAWAY_FROM_JOB,
-	}
+	utils.HideCommandWindow(cmd, windows.CREATE_BREAKAWAY_FROM_JOB)
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("无法启动内核: %v", err)

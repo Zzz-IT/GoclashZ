@@ -11,7 +11,6 @@ import (
 	"goclashz/core/sys"
 	"goclashz/core/utils"
 	"os"
-	"os/exec"
 	"strings"
 	"path/filepath"
 	"sync"
@@ -444,7 +443,7 @@ func (a *App) OpenConfigFile(id string) error {
 		return fmt.Errorf("file not found: %s", path)
 	}
 
-	return exec.Command("cmd", "/c", "start", "", path).Start()
+	return sys.ShellOpen(path)
 }
 
 func (a *App) SelectLocalConfig(id string) error {
@@ -554,8 +553,8 @@ func (a *App) ApplyAppUpdate(path string) error {
 		return fmt.Errorf("更新包不存在: %v", err)
 	}
 
-	// 🚀 核心修复：直接运行安装包并退出
-	if err := exec.Command("cmd", "/c", "start", "", path).Start(); err != nil {
+	// 🚀 核心修复：使用 ShellOpen 直接运行安装包，不再闪烁黑框
+	if err := sys.ShellOpen(path); err != nil {
 		return fmt.Errorf("无法启动安装程序: %v", err)
 	}
 

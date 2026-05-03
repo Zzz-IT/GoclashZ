@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"regexp"
+	"sync"
 
 	"goclashz/core/downloader"
 	"goclashz/core/utils"
@@ -69,32 +71,74 @@ func MigrateCoreAssetsToBin() {
 	}
 }
 
+var localCoreVersionCache struct {
+	mu      sync.Mutex
+	path    string
+	size    int64
+	modTime int64
+	version string
+}
+
+var coreVersionRe = regexp.MustCompile(`v?\d+\.\d+\.\d+(?:[-+][^\s]+)?`)
+
 // GetLocalCoreVersion 获取本地内核版本号
 func GetLocalCoreVersion(ctx context.Context) string {
 	path := filepath.Join(utils.GetCoreBinDir(), "clash.exe")
-	if _, err := os.Stat(path); err != nil {
+
+	stat, err := os.Stat(path)
+	if err != nil || stat.IsDir() {
 		return "未安装"
 	}
 
-	// 🛡️ 核心修复：直接通过命令行读取，不依赖运行中的内核 API
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	localCoreVersionCache.mu.Lock()
+	if localCoreVersionCache.path == path &&
+		localCoreVersionCache.size == stat.Size() &&
+		localCoreVersionCache.modTime == stat.ModTime().UnixMilli() &&
+		localCoreVersionCache.version != "" {
+		version := localCoreVersionCache.version
+		localCoreVersionCache.mu.Unlock()
+		return version
+	}
+	localCoreVersionCache.mu.Unlock()
+
+	version := readLocalCoreVersionByCommand(ctx, path)
+
+	localCoreVersionCache.mu.Lock()
+	localCoreVersionCache.path = path
+	localCoreVersionCache.size = stat.Size()
+	localCoreVersionCache.modTime = stat.ModTime().UnixMilli()
+	localCoreVersionCache.version = version
+	localCoreVersionCache.mu.Unlock()
+
+	return version
+}
+
+func readLocalCoreVersionByCommand(ctx context.Context, path string) string {
+	cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, path, "-v")
-	out, err := cmd.Output()
-	if err != nil {
-		return "已安装 (无法获取版本)"
+	cmd := exec.CommandContext(cmdCtx, path, "-v")
+	cmd.Dir = utils.GetCoreBinDir()
+	utils.HideCommandWindow(cmd, 0)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil && len(out) == 0 {
+		return "已安装，版本未知"
 	}
 
-	// 解析输出: "Mihomo Meta v1.18.1 windows amd64 ..."
-	s := string(out)
-	parts := strings.Fields(s)
-	for i, p := range parts {
-		if strings.HasPrefix(p, "v") && i > 0 {
-			return p
-		}
+	s := strings.TrimSpace(string(out))
+	if s == "" {
+		return "已安装，版本未知"
 	}
-	return strings.TrimSpace(s)
+
+	if m := coreVersionRe.FindString(s); m != "" {
+		if strings.HasPrefix(m, "v") {
+			return m
+		}
+		return "v" + m
+	}
+
+	return s
 }
 
 func downloadAndExtractKernel(ctx context.Context, binDir, exePath string) error {

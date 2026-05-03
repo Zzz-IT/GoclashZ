@@ -10,8 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"syscall"
-
+	"goclashz/core/utils"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -83,7 +82,7 @@ var uwpSidRegex = regexp.MustCompile(`S-1-15-[-0-9]+`)
 func getExemptedSids() (map[string]bool, error) {
 	exemptMap := make(map[string]bool)
 	cmd := exec.Command("CheckNetIsolation.exe", "LoopbackExempt", "-s")
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	utils.HideCommandWindow(cmd, 0)
 	
 	output, err := cmd.Output()
 	if err != nil {
@@ -127,7 +126,7 @@ func SaveUwpExemptions(targetSids []string) error {
 		defer func() { <-sem }() // 释放令牌
 
 		cmd := exec.Command(sys32, args...)
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		utils.HideCommandWindow(cmd, 0)
 		_ = cmd.Run()
 	}
 
