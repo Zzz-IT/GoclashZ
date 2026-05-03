@@ -253,12 +253,14 @@ func UpdateGeoDB(ctx context.Context, key string, url string, proxyURL string) e
 		return err
 	}
 
-	return downloader.DownloadAtomic(ctx, downloader.Options{
-		URLs:     []string{url},
-		DestPath: destPath,
-		Resume:   true,
-		ProxyURL: proxyURL,
-		MaxBytes: geoDBMaxBytes(key),
+	return downloader.DownloadLargeAssetAtomic(ctx, downloader.Options{
+		URLs:                []string{url},
+		DestPath:            destPath,
+		ProxyURL:            proxyURL,
+		PreferProxy:         proxyURL != "",
+		MaxBytes:            geoDBMaxBytes(key),
+		UserAgent:           "GoclashZ-GeoUpdater",
+		AttemptsPerEndpoint: 3,
 		Validator: func(tmpPath string) error {
 			return ValidateGeoDBFile(key, tmpPath, destPath)
 		},

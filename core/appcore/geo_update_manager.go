@@ -5,6 +5,7 @@ package appcore
 import (
 	"context"
 	"fmt"
+	"goclashz/core/downloader"
 	"strings"
 	"sync"
 )
@@ -92,6 +93,9 @@ func (m *GeoUpdateManager) runKey(ctx context.Context, key string) GeoResult {
 	}
 
 	err := m.updateOne(ctx, key)
+	if err != nil {
+		err = downloader.SanitizeDownloadError(err)
+	}
 	result := GeoResult{Key: key, Err: err}
 
 	if err != nil {

@@ -1159,9 +1159,21 @@ const formatRelativeTime = (timestamp: number) => {
 
 const formatUpdateError = (err: any) => {
   let msg = String(err || '');
-  // 清洗超长 GitHub signed URL
+  // 清洗超长 GitHub Release 资产 Signed URL
   msg = msg.replace(/https:\/\/release-assets\.githubusercontent\.com\/\S+/g, 'GitHub Release 资产下载地址');
-  // 移除常见的超长签名参数
+  
+  // 清洗普通 GitHub Release 下载地址，移除 query
+  msg = msg.replace(/https:\/\/github\.com\/\S+\/releases\/download\/\S+/g, (match) => {
+    try {
+      const url = new URL(match);
+      url.search = '';
+      return url.toString();
+    } catch (e) {
+      return 'GitHub Release 下载地址';
+    }
+  });
+
+  // 移除常见的签名敏感参数
   msg = msg.replace(/([?&](sp|sv|se|sr|sig|skoid|sktid|skt|ske|sks|skv)=[^\\s]+)/g, '');
 
   if (msg.length > 360) {
@@ -1432,7 +1444,7 @@ onMounted(() => {
   EventsOn("geo-update-all-error", async (err: string) => {
     updatingAllDbs.value = false;
     await refreshComponentInfo();
-    await showAlert("部分数据库更新失败，已保留原有文件: " + formatUpdateError(err), "错误", true);
+    await showAlert("部分数据库更新失败，已保留原有文件：" + formatUpdateError(err), "错误", true);
   });
 
   EventsOn("geo-update-all-cancelled", () => {
