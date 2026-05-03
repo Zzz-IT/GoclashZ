@@ -31,32 +31,62 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 	})
 }
 
+func (c *Controller) updateGeoDatabase(ctx context.Context, key string) error {
+	behavior := c.Behavior.Get()
+	url := ""
+	switch key {
+	case "geoip":
+		url = behavior.GeoIpLink
+	case "geosite":
+		url = behavior.GeoSiteLink
+	case "mmdb":
+		url = behavior.MmdbLink
+	case "asn":
+		url = behavior.AsnLink
+	default:
+		return fmt.Errorf("unknown geo database key: %s", key)
+	}
+
+	if url == "" {
+		return fmt.Errorf("no URL configured for %s", key)
+	}
+	return clash.UpdateGeoDB(ctx, key, url)
+}
+
 func (c *Controller) UpdateGeoDatabaseAsync(ctx context.Context, key string) {
 	c.Tasks.Run(ctx, "geo-update-"+key, true, func(ctx context.Context) error {
-		behavior := c.Behavior.Get()
-		url := ""
-		switch key {
-		case "geoip":
-			url = behavior.GeoIpLink
-		case "geosite":
-			url = behavior.GeoSiteLink
-		case "mmdb":
-			url = behavior.MmdbLink
-		case "asn":
-			url = behavior.AsnLink
-		}
-		if url == "" {
-			return fmt.Errorf("no URL configured for %s", key)
-		}
-		return clash.UpdateGeoDB(ctx, key, url)
+		return c.updateGeoDatabase(ctx, key)
 	})
 }
 
 func (c *Controller) UpdateAllGeoDatabasesAsync(ctx context.Context) {
-	c.UpdateGeoDatabaseAsync(ctx, "geoip")
-	c.UpdateGeoDatabaseAsync(ctx, "geosite")
-	c.UpdateGeoDatabaseAsync(ctx, "mmdb")
-	c.UpdateGeoDatabaseAsync(ctx, "asn")
+	c.Tasks.Run(ctx, "geo-update-all", false, func(ctx context.Context) error {
+		keys := []string{"geoip", "geosite", "mmdb", "asn"}
+		var failed []string
+
+		for _, key := range keys {
+			c.events.Emit("geo-update-"+key+"-start")
+
+			if err := c.updateGeoDatabase(ctx, key); err != nil {
+				failed = append(failed, fmt.Sprintf("%s: %v", key, err))
+				c.events.Emit("geo-update-"+key+"-error", err.Error())
+				continue
+			}
+
+			c.events.Emit("geo-update-"+key+"-success")
+		}
+
+		if len(failed) > 0 {
+			err := fmt.Errorf(strings.Join(failed, "; "))
+			c.events.Emit("geo-update-all-error", err.Error())
+			// 返回 nil 是因为我们已经手动发了 error 事件并处理了部分成功的情况
+			// 如果返回 err，Tasks.Run 会额外发一个 geo-update-all-error
+			return nil
+		}
+
+		c.events.Emit("geo-update-all-success")
+		return nil
+	})
 }
 
 func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {

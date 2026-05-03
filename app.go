@@ -549,6 +549,8 @@ func (a *App) ApplyAppUpdate(path string) error {
 	return nil
 }
 
+// ManualCheckAppUpdate checks for app updates manually.
+// Deprecated: Use CheckAndDownloadAppUpdateAsync instead.
 func (a *App) ManualCheckAppUpdate() (string, error) {
 	return a.core.ManualCheckAppUpdate(a.ctx)
 }

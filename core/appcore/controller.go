@@ -536,10 +536,14 @@ func (c *Controller) SetUpdateStatus(ready bool, version string) {
 
 func (c *Controller) SetDownloadedAppUpdate(path, version string) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	changed := c.downloadedUpdatePath != path || c.downloadedUpdateVersion != version
 	c.downloadedUpdatePath = path
 	c.downloadedUpdateVersion = version
-	c.SyncState()
+	c.mu.Unlock()
+
+	if changed {
+		c.SyncState()
+	}
 }
 
 func (c *Controller) GetDownloadedUpdate() (string, string) {

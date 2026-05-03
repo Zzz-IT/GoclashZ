@@ -103,7 +103,7 @@
               </div>
               <div class="btn-group">
                 <button class="action-btn" @click="installDriver(true)" :disabled="isInstalling">
-                  {{ isReinstallingDriver ? '处理中...' : '重新安装' }}
+                  {{ isInstalling ? '处理中...' : '重新安装' }}
                 </button>
               </div>
             </div>
@@ -1070,8 +1070,7 @@ watch(() => props.initialView, (newVal) => { view.value = newVal as any; });
 
 const coreVersion = ref('读取中...');
 const wintunVersion = ref('读取中...');
-const isReinstallingDriver = ref(false);
-const isInstalling = computed(() => isReinstallingDriver.value);
+const isInstalling = ref(false);
 const updatingCore = ref(false);
 
 const dbList = [
@@ -1334,102 +1333,114 @@ const loadData = async () => {
 onMounted(() => { 
   loadData(); 
 
-  // 🚀 核心：监听 Geo 异步任务事件
-  // 🌟 1. 监听全局一键更新的成功与失败
-  EventsOn("geodb-update-start", () => {
+  // 🌟 3. 监听手动触发的 Geo 数据库更新事件
+  const geoKeys = ["geoip", "geosite", "mmdb", "asn"];
+  geoKeys.forEach((key) => {
+    EventsOn(`geo-update-${key}-start`, () => {
+      updatingDbs.value[key] = true;
+    });
+
+    EventsOn(`geo-update-${key}-success`, async () => {
+      updatingDbs.value[key] = false;
+      const dbInfo = await (API as any).GetGeoDatabaseInfo();
+      if (dbInfo) dbFileInfo.value = dbInfo;
+      // 只有非“更新全部”状态下才弹窗
+      if (!updatingAllDbs.value) {
+        await showAlert(`${dbTitles[key] || key} 文件同步成功！`, "完成");
+      }
+    });
+
+    EventsOn(`geo-update-${key}-error`, async (err: string) => {
+      updatingDbs.value[key] = false;
+      await showAlert(`${key} 更新失败: ${err}`, "错误", true);
+    });
+
+    EventsOn(`geo-update-${key}-cancelled`, () => {
+      updatingDbs.value[key] = false;
+    });
+  });
+
+  // 🌟 4. 监听“更新全部”聚合任务
+  EventsOn("geo-update-all-start", () => {
     updatingAllDbs.value = true;
   });
 
-  EventsOn("geodb-update-all-success", async (msg: string) => {
+  EventsOn("geo-update-all-success", async () => {
+    updatingAllDbs.value = false;
     const dbInfo = await (API as any).GetGeoDatabaseInfo();
     if (dbInfo) dbFileInfo.value = dbInfo;
-    updatingAllDbs.value = false;
-    await showAlert(msg, "完成");
+    await showAlert("全部路由规则数据库更新完成。", "通知");
   });
 
-  EventsOn("geodb-update-all-error", async (err: string) => {
+  EventsOn("geo-update-all-error", async (err: string) => {
+    updatingAllDbs.value = false;
     const dbInfo = await (API as any).GetGeoDatabaseInfo();
     if (dbInfo) dbFileInfo.value = dbInfo;
+    await showAlert("部分数据库更新失败: " + err, "错误", true);
+  });
+
+  EventsOn("geo-update-all-cancelled", () => {
     updatingAllDbs.value = false;
-    await showAlert(err, "部分更新失败");
   });
 
-  // 🌟 2. 监听静默单项 Loading 状态 (消除一键更新时的弹窗轰炸)
-  EventsOn("geodb-item-state", async (payload: {key: string, loading: boolean}) => {
-    updatingDbs.value[payload.key] = payload.loading;
-    if (!payload.loading) {
-      const dbInfo = await (API as any).GetGeoDatabaseInfo();
-      if (dbInfo) dbFileInfo.value = dbInfo;
-    }
-  });
-
-  // 3. 监听单个手动触发的 Geo 数据库更新事件 (保持原有带弹窗的交互)
-  const dbTypes = ["geoip", "geosite", "mmdb", "asn"];
-  dbTypes.forEach(t => {
-    EventsOn(`geodb-update-${t}-start`, () => { updatingDbs.value[t] = true; });
-    EventsOn(`geodb-update-${t}-success`, async () => {
-      const dbInfo = await (API as any).GetGeoDatabaseInfo();
-      if (dbInfo) dbFileInfo.value = dbInfo;
-      updatingDbs.value[t] = false;
-      await showAlert(`${dbTitles[t] || t} 文件同步成功！`, "完成");
-    });
-    EventsOn(`geodb-update-${t}-error`, async (err: string) => {
-      updatingDbs.value[t] = false;
-      await showAlert(`同步异常: ${err}`, "错误");
-    });
-  });
-
-  // 监听 Core 更新事件
+  // 监听 Core 更新事件 (对应 backend: "core-update")
   EventsOn("core-update-start", () => { updatingCore.value = true; });
-  EventsOn("core-update-latest", async (version: string) => {
-    updatingCore.value = false;
-    await showAlert(`当前内核 (${version || coreVersion.value}) 已是最新版本，无需更新！`, "通知");
-  });
-  EventsOn("core-update-updated", async () => {
+  EventsOn("core-update-success", async () => {
     updatingCore.value = false;
     coreVersion.value = await (API as any).GetCoreVersion();
-    await showAlert("内核更新成功！", "通知");
+    await showAlert("Mihomo 内核更新完成。", "通知");
   });
   EventsOn("core-update-error", async (err: string) => {
     updatingCore.value = false;
-    await showAlert("更新异常: " + err, "错误");
+    await showAlert("Mihomo 内核更新失败: " + err, "错误", true);
+  });
+  EventsOn("core-update-cancelled", () => {
+    updatingCore.value = false;
   });
 
-  // 监听 Tun 驱动安装事件
-  EventsOn("tun-driver-install-start", () => { 
-    isReinstallingDriver.value = true; 
+  // 监听 Tun 驱动安装事件 (对应 backend: "driver-install")
+  EventsOn("driver-install-start", () => { 
+    isInstalling.value = true;
   });
-  EventsOn("tun-driver-install-updated", async () => {
-    isReinstallingDriver.value = false;
-    await loadData();
+  EventsOn("driver-install-success", async () => {
+    isInstalling.value = false;
+    const status = await API.CheckTunEnv();
+    tunStatus.value = status as any;
     const wv = await (API as any).GetWintunVersion();
     if (wv) wintunVersion.value = wv;
-    await showAlert(`Wintun 驱动安装成功，现在可以开启 TUN 模式了！`, '安装成功');
+    await showAlert("Wintun 驱动安装完成。", "通知");
   });
-  EventsOn("tun-driver-install-error", async (err: string) => {
-    isReinstallingDriver.value = false;
-    await showAlert('安装提示: ' + err, '发生错误');
+  EventsOn("driver-install-error", async (err: string) => {
+    isInstalling.value = false;
+    await showAlert("Wintun 驱动安装失败: " + err, "错误", true);
+  });
+  EventsOn("driver-install-cancelled", () => {
+    isInstalling.value = false;
   });
 });
 
 onUnmounted(() => {
-  EventsOff("geodb-update-start");
-  EventsOff("geodb-update-all-success");
-  EventsOff("geodb-update-all-error");
-  EventsOff("geodb-item-state");
-  const dbTypes = ["geoip", "geosite", "mmdb", "asn"];
-  dbTypes.forEach(t => {
-    EventsOff(`geodb-update-${t}-start`);
-    EventsOff(`geodb-update-${t}-success`);
-    EventsOff(`geodb-update-${t}-error`);
+  const geoKeys = ["geoip", "geosite", "mmdb", "asn"];
+  geoKeys.forEach(t => {
+    EventsOff(`geo-update-${t}-start`);
+    EventsOff(`geo-update-${t}-success`);
+    EventsOff(`geo-update-${t}-error`);
+    EventsOff(`geo-update-${t}-cancelled`);
   });
+  EventsOff("geo-update-all-start");
+  EventsOff("geo-update-all-success");
+  EventsOff("geo-update-all-error");
+  EventsOff("geo-update-all-cancelled");
+
   EventsOff("core-update-start");
-  EventsOff("core-update-latest");
-  EventsOff("core-update-updated");
+  EventsOff("core-update-success");
   EventsOff("core-update-error");
-  EventsOff("tun-driver-install-start");
-  EventsOff("tun-driver-install-updated");
-  EventsOff("tun-driver-install-error");
+  EventsOff("core-update-cancelled");
+
+  EventsOff("driver-install-start");
+  EventsOff("driver-install-success");
+  EventsOff("driver-install-error");
+  EventsOff("driver-install-cancelled");
 });
 
 const handleTunToggle = async (e: Event) => {
@@ -1453,8 +1464,7 @@ const handleTunToggle = async (e: Event) => {
 
 
 const installDriver = async (force: boolean = true) => {
-  if (isReinstallingDriver.value) return;
-  isReinstallingDriver.value = true;
+  if (isInstalling.value) return;
   (API as any).InstallTunDriverAsync(force);
 };
 // 🚀 核心：监听更新间隔时间，防止用户输入 0 或负数
@@ -1519,7 +1529,6 @@ const saveDbLink = async () => {
 
 const handleUpdateDb = async (type: string) => {
   if (updatingDbs.value[type] || updatingAllDbs.value) return; 
-  updatingDbs.value[type] = true;
   (API as any).UpdateGeoDatabaseAsync(type);
 };
 

@@ -25,6 +25,12 @@ export const globalState = reactive({
   delayRetention: true,
   delayRetentionTime: 'long',
 
+  // 👇 新增：应用更新相关
+  updateReady: false,
+  newAppVersion: '',
+  updateDownloaded: false,
+  downloadedPath: '',
+
   // 🚀 核心：使用缓存初始化消除渲染空窗期的闪烁
   activeConfigId: cachedActiveConfigId,
   activeConfigName: '',
@@ -100,6 +106,19 @@ export function updateStateFromBackend(rawData: any) {
 
   if (rawData.delayRetentionTime !== undefined) globalState.delayRetentionTime = rawData.delayRetentionTime;
   else if (rawData.DelayRetentionTime !== undefined) globalState.delayRetentionTime = rawData.DelayRetentionTime;
+
+  // 👇 新增：应用更新状态清洗
+  if (rawData.updateReady !== undefined) globalState.updateReady = rawData.updateReady;
+  else if (rawData.UpdateReady !== undefined) globalState.updateReady = rawData.UpdateReady;
+
+  if (rawData.newAppVersion !== undefined) globalState.newAppVersion = rawData.newAppVersion;
+  else if (rawData.NewAppVersion !== undefined) globalState.newAppVersion = rawData.NewAppVersion;
+
+  if (rawData.updateDownloaded !== undefined) globalState.updateDownloaded = rawData.updateDownloaded;
+  else if (rawData.UpdateDownloaded !== undefined) globalState.updateDownloaded = rawData.UpdateDownloaded;
+
+  if (rawData.downloadedPath !== undefined) globalState.downloadedPath = rawData.downloadedPath;
+  else if (rawData.DownloadedPath !== undefined) globalState.downloadedPath = rawData.DownloadedPath;
 }
 
 type DelayRetentionTime = 'long' | '30' | '60' | '300' | string;
