@@ -19,7 +19,6 @@ type LogEntry = logger.LogEntry
 type Options struct {
 	Events       EventSink
 	Version      string
-	RunDelayTest func() // 🚀 新增：自动测速回调
 }
 
 type Controller struct {
@@ -28,7 +27,6 @@ type Controller struct {
 	Offline      *OfflineNodeStore
 	Tasks        *tasks.Manager
 	version      string
-	runDelayTest func()
 
 	mu              sync.RWMutex
 	coreLifecycleMu   sync.Mutex
@@ -63,7 +61,6 @@ func NewController(opts Options) *Controller {
 	c := &Controller{
 		events:       opts.Events,
 		version:      opts.Version,
-		runDelayTest: opts.RunDelayTest,
 		Behavior:     NewBehaviorStore(),
 		Offline:      NewOfflineNodeStore(),
 		Tasks:        tasks.NewManager(opts.Events),
@@ -85,6 +82,7 @@ func (c *Controller) Startup(ctx context.Context) {
 	c.ctx = ctx
 	CleanLegacyFiles(c.version)
 	c.RefreshAutoDelayTest()
+	c.RefreshAppAutoUpdate()
 
 	// 🚀 接入内核退出回调：感知底层进程的非预期崩溃
 	clash.SetOnExitCallback(func(e clash.ExitEvent) {
@@ -450,11 +448,17 @@ func (c *Controller) RefreshAutoDelayTest() {
 	}
 
 	behavior := c.Behavior.Get()
-	if !behavior.AutoDelayTest || behavior.AutoDelayTestInterval <= 0 {
+	if !behavior.AutoDelayTest {
 		return
 	}
 
+	intervalMin := behavior.AutoDelayTestInterval
+	if intervalMin <= 0 {
+		intervalMin = 60
+	}
+
 	c.autoTestQuit = make(chan struct{})
+
 	go func(quit chan struct{}, intervalMin int) {
 		ticker := time.NewTicker(time.Duration(intervalMin) * time.Minute)
 		defer ticker.Stop()
@@ -463,14 +467,90 @@ func (c *Controller) RefreshAutoDelayTest() {
 			select {
 			case <-quit:
 				return
+
 			case <-ticker.C:
-				if clash.IsRunning() && c.runDelayTest != nil {
-					// 🚀 核心修复：连通自动测速回调
-					c.runDelayTest()
+				if c.ctx == nil {
+					continue
 				}
+
+				// 不再判断 GetAppState().IsRunning。
+				// TestAllProxies 自己会在需要时确保内核运行。
+				go c.Delay.TestAllProxies(c.ctx, nil)
 			}
 		}
-	}(c.autoTestQuit, behavior.AutoDelayTestInterval)
+	}(c.autoTestQuit, intervalMin)
+}
+
+func (c *Controller) RefreshAppAutoUpdate() {
+	if c.ctx == nil {
+		return
+	}
+
+	behavior := c.Behavior.Get()
+	if !behavior.AutoUpdate {
+		return
+	}
+
+	now := time.Now().Unix()
+	shouldCheck := false
+
+	switch behavior.UpdateMethod {
+	case "startup":
+		shouldCheck = true
+
+	case "scheduled":
+		intervalDays := behavior.UpdateInterval
+		if intervalDays <= 0 {
+			intervalDays = 1
+		}
+
+		if behavior.LastUpdateCheck == 0 ||
+			now-behavior.LastUpdateCheck >= int64(intervalDays)*24*3600 {
+			shouldCheck = true
+		}
+
+	default:
+		shouldCheck = true
+	}
+
+	if !shouldCheck {
+		return
+	}
+
+	// 标记已检查，防止由于配置保存触发的副作用导致死循环
+	behavior.LastUpdateCheck = now
+	_ = c.Behavior.SetAndSave(behavior)
+
+	go c.AutoCheckAndDownloadAppUpdateAsync(c.ctx, c.version)
+}
+
+func (c *Controller) SaveAppBehavior(b AppBehavior) error {
+	old := c.Behavior.Get()
+
+	if err := c.Behavior.SetAndSave(b); err != nil {
+		return err
+	}
+
+	next := c.Behavior.Get()
+
+	// 副作用调度
+	if old.AutoDelayTest != next.AutoDelayTest ||
+		old.AutoDelayTestInterval != next.AutoDelayTestInterval {
+		c.RefreshAutoDelayTest()
+	}
+
+	if old.AutoUpdate != next.AutoUpdate ||
+		old.UpdateMethod != next.UpdateMethod ||
+		old.UpdateInterval != next.UpdateInterval {
+		c.RefreshAppAutoUpdate()
+	}
+
+	if old.LogLevel != next.LogLevel {
+		c.StartLogStream(c.ctx)
+	}
+
+	c.SyncState()
+	return nil
 }
 
 func (c *Controller) SyncTrafficStream(ctx context.Context) {

@@ -186,8 +186,8 @@ type TunConfig struct {
 }
 
 // ================= TUN 设置 =================
-func GetTunConfig() (*TunConfig, error) {
-	defaultTun := TunConfig{
+func GetDefaultTunConfig() TunConfig {
+	return TunConfig{
 		Enable:              false,
 		Stack:               "gvisor",
 		Device:              "GOCLASHZ",
@@ -197,6 +197,10 @@ func GetTunConfig() (*TunConfig, error) {
 		StrictRoute:         false,
 		MTU:                 1430,
 	}
+}
+
+func GetTunConfig() (*TunConfig, error) {
+	defaultTun := GetDefaultTunConfig()
 	return utils.LoadSetting("tun", defaultTun)
 }
 
@@ -236,8 +240,8 @@ type DNSConfig struct {
 }
 
 // ================= DNS 设置 =================
-func GetDNSConfig() (*DNSConfig, error) {
-	defaultDNS := DNSConfig{
+func GetDefaultDNSConfig() DNSConfig {
+	return DNSConfig{
 		Enable:                true,
 		Listen:                "0.0.0.0:1053",
 		IPv6:                  false,
@@ -261,6 +265,10 @@ func GetDNSConfig() (*DNSConfig, error) {
 			Domain:    []string{"+.google.com", "+.facebook.com", "+.twitter.com"},
 		},
 	}
+}
+
+func GetDNSConfig() (*DNSConfig, error) {
+	defaultDNS := GetDefaultDNSConfig()
 	return utils.LoadSetting("dns", defaultDNS)
 }
 
@@ -269,8 +277,8 @@ func UpdateDNSConfig(newDNS *DNSConfig) error {
 }
 
 // ================= 基础网络设置 =================
-func GetNetworkConfig() (*NetworkConfig, error) {
-	defaultNet := NetworkConfig{
+func GetDefaultNetworkConfig() NetworkConfig {
+	return NetworkConfig{
 		Port:                 0,
 		MixedPort:            7890,
 		IPv6:                 false,
@@ -283,6 +291,10 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 		AllowLan:             false,
 		Hosts:                "",
 	}
+}
+
+func GetNetworkConfig() (*NetworkConfig, error) {
+	defaultNet := GetDefaultNetworkConfig()
 	return utils.LoadSetting("network", defaultNet)
 }
 
@@ -414,7 +426,7 @@ func BuildRuntimeConfig(id string, mode string, logLevel string) error {
 	}
 	root["external-controller"] = controller
 	root["secret"] = "" // 确保没有意外的密码阻挡前端 WebSocket
-
+	
 	// 同步更新 Go API Client 的基准地址
 	UpdateAPIBaseURL(controller)
 

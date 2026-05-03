@@ -69,6 +69,8 @@ func (s *BehaviorStore) Get() AppBehavior {
 }
 
 func (s *BehaviorStore) SetAndSave(b AppBehavior) error {
+	b = normalizeBehavior(b)
+
 	s.mu.Lock()
 	s.cache = b
 	s.mu.Unlock()
@@ -114,7 +116,7 @@ func (s *BehaviorStore) Load() error {
 	}
 
 	s.mu.Lock()
-	s.cache = *cfg
+	s.cache = normalizeBehavior(*cfg)
 	s.mu.Unlock()
 	return nil
 }
@@ -128,6 +130,51 @@ func (s *BehaviorStore) Save() error {
 	return utils.SaveSetting("behavior", &cfg)
 }
 
+func normalizeBehavior(b AppBehavior) AppBehavior {
+	if b.LogLevel == "" {
+		b.LogLevel = "info"
+	}
+
+	if b.DelayRetentionTime == "" {
+		b.DelayRetentionTime = "long"
+	}
+
+	if b.ActiveMode == "" {
+		b.ActiveMode = "rule"
+	}
+
+	if b.SubUA == "" {
+		b.SubUA = "clash-verge"
+	}
+
+	if b.UpdateMethod == "" {
+		b.UpdateMethod = "startup"
+	}
+
+	if b.UpdateInterval <= 0 {
+		b.UpdateInterval = 1
+	}
+
+	if b.AutoDelayTest && b.AutoDelayTestInterval <= 0 {
+		b.AutoDelayTestInterval = 60
+	}
+
+	if b.GeoIpLink == "" {
+		b.GeoIpLink = "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb"
+	}
+	if b.GeoSiteLink == "" {
+		b.GeoSiteLink = "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat"
+	}
+	if b.MmdbLink == "" {
+		b.MmdbLink = "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb"
+	}
+	if b.AsnLink == "" {
+		b.AsnLink = "https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb"
+	}
+
+	return b
+}
+
 func (s *BehaviorStore) Default() AppBehavior {
 	return AppBehavior{
 		SilentStart:        false,
@@ -139,12 +186,17 @@ func (s *BehaviorStore) Default() AppBehavior {
 		HideLogs:           false,
 		SubUA:              "clash-verge",
 		ActiveMode:         "rule",
-		AutoUpdate:         true,
-		UpdateMethod:       "startup",
-		UpdateInterval:     1,
-		GeoIpLink:          "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
-		GeoSiteLink:        "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
-		MmdbLink:           "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
-		AsnLink:            "https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
+
+		AutoUpdate:     true,
+		UpdateMethod:   "startup",
+		UpdateInterval: 1,
+
+		AutoDelayTest:         false,
+		AutoDelayTestInterval: 60,
+
+		GeoIpLink:   "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
+		GeoSiteLink: "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
+		MmdbLink:    "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
+		AsnLink:     "https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
 	}
 }

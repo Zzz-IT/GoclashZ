@@ -36,3 +36,17 @@ func (c *Controller) SaveNetworkConfig(ctx context.Context, cfg *clash.NetworkCo
 	}
 	return nil
 }
+func (c *Controller) ResetTunConfig(ctx context.Context) error {
+	defaultCfg := clash.GetDefaultTunConfig()
+	return c.SaveTunConfig(ctx, &defaultCfg)
+}
+
+func (c *Controller) ResetDNSConfig(ctx context.Context) error {
+	defaultCfg := clash.GetDefaultDNSConfig()
+	return c.SaveDNSConfig(ctx, &defaultCfg)
+}
+
+func (c *Controller) ResetNetworkConfig(ctx context.Context) error {
+	defaultCfg := clash.GetDefaultNetworkConfig()
+	return c.SaveNetworkConfig(ctx, &defaultCfg)
+}

@@ -100,14 +100,6 @@ func NewApp() *App {
 	core := appcore.NewController(appcore.Options{
 		Events:  sink,
 		Version: version.AppVersion,
-		RunDelayTest: func() {
-			// 🚀 核心修复：连接自动测速钩子
-			state := a.core.GetAppState()
-			if state.IsRunning {
-				// 获取所有非系统节点的名称（简化处理，触发全量测速）
-				go a.TestAllProxies(nil)
-			}
-		},
 	})
 	a.core = core
 
@@ -361,28 +353,38 @@ func (a *App) GetAppBehavior() AppBehavior {
 }
 
 func (a *App) SaveAppBehavior(config AppBehavior) error {
-	oldLogLevel := a.core.Behavior.Get().LogLevel
-	err := a.core.Behavior.SetAndSave(config)
-	if err == nil {
-		if oldLogLevel != config.LogLevel {
-			if a.core.IsLogStreaming() {
-				go func() {
-					a.StopStreamingLogs()
-					time.Sleep(50 * time.Millisecond)
-					a.StartStreamingLogs()
-				}()
-			}
-		}
-		a.core.RefreshAutoDelayTest()
-		a.SyncState()
-	}
-	return err
+	return a.core.SaveAppBehavior(config)
 }
 
-func (a *App) ResetComponentSettings(_ string) error {
-	err := a.core.Behavior.SetAndSave(a.core.Behavior.Default())
-	a.SyncState()
-	return err
+func (a *App) ResetComponentSettings(section string) error {
+	switch section {
+	case "behavior":
+		old := a.core.Behavior.Get()
+		cfg := a.core.Behavior.Default()
+
+		// 保留用户当前配置选择和模式，不要因为重置行为设置导致订阅/模式丢失
+		cfg.ActiveConfig = old.ActiveConfig
+		cfg.ActiveMode = old.ActiveMode
+
+		if err := a.core.SaveAppBehavior(cfg); err != nil {
+			return err
+		}
+
+		a.SyncState()
+		return nil
+
+	case "network":
+		return a.core.ResetNetworkConfig(a.ctx)
+
+	case "dns":
+		return a.core.ResetDNSConfig(a.ctx)
+
+	case "tun":
+		return a.core.ResetTunConfig(a.ctx)
+
+	default:
+		return fmt.Errorf("unknown settings section: %s", section)
+	}
 }
 
 func (a *App) SaveThemePreference(isDark bool) {
