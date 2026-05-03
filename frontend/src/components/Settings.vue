@@ -741,8 +741,8 @@
                 <h4>软件版本</h4>
                 <p>{{ globalState.appVersion || '获取中...' }}</p>
               </div>
-              <button class="action-btn accent-btn" @click="handleCheckUpdate" :disabled="checkingAppUpdate">
-                {{ checkingAppUpdate ? '检查中...' : '检查更新' }}
+              <button class="action-btn accent-btn" @click="handleCheckUpdate" :disabled="globalState.appUpdateChecking">
+                {{ globalState.appUpdateChecking ? '检查中...' : '检查更新' }}
               </button>
             </div>
 
@@ -1033,7 +1033,6 @@ watch(() => netConfig.value.hosts, (newVal) => {
   validateHosts(newVal || '');
 });
 
-const checkingAppUpdate = ref(false); // 👈 新增：应用更新专用 Loading
 
 // --- 备份与还原状态 ---
 const showRestoreModal = ref(false);
@@ -1323,14 +1322,12 @@ const refreshGeoActiveState = async () => {
 };
 
 const handleCheckUpdate = async () => {
-  checkingAppUpdate.value = true;
+  if (globalState.appUpdateChecking) return;
   try {
     // 🚀 核心改进：调用异步静默下载流，将通知权交给全局监听器 (App.vue)
     await (API as any).CheckAndDownloadAppUpdateAsync();
   } catch (e) {
     await showAlert("检查更新失败: " + e, "错误", true);
-  } finally {
-    checkingAppUpdate.value = false;
   }
 };
 

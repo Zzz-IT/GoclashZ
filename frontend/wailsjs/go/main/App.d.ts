@@ -72,6 +72,8 @@ export function GetUwpApps():Promise<Array<sys.UwpApp>>;
 
 export function GetWintunVersion():Promise<string>;
 
+export function HideMainWindow():Promise<void>;
+
 export function InstallTunDriverAsync(arg1:boolean):Promise<void>;
 
 export function ManualCheckAppUpdate():Promise<string>;
@@ -110,6 +112,8 @@ export function SelectProxy(arg1:string,arg2:string):Promise<void>;
 
 export function SetupSystray():Promise<void>;
 
+export function ShowMainWindow():Promise<void>;
+
 export function StartClash(arg1:string):Promise<void>;
 
 export function StartConnectionMonitor():Promise<void>;
@@ -127,6 +131,8 @@ export function SyncState():Promise<void>;
 export function TestAllProxies(arg1:Array<string>):Promise<void>;
 
 export function TestProxy(arg1:string):Promise<number>;
+
+export function ToggleMainWindow():Promise<void>;
 
 export function ToggleSystemProxy(arg1:boolean):Promise<void>;
 

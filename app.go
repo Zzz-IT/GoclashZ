@@ -34,6 +34,9 @@ type App struct {
 	ctx   context.Context
 	mu    sync.RWMutex
 
+	windowMu      sync.Mutex
+	windowVisible bool
+
 	mSysProxy   *systray.MenuItem
 	mTun        *systray.MenuItem
 	mModeRule   *systray.MenuItem
@@ -41,10 +44,53 @@ type App struct {
 	mModeDirect *systray.MenuItem
 
 	trayMu        sync.Mutex
-	lastTrayClick int64
 	trayOnce      sync.Once
 
 	core *appcore.Controller
+}
+
+func (a *App) setWindowVisible(v bool) {
+	a.windowMu.Lock()
+	a.windowVisible = v
+	a.windowMu.Unlock()
+}
+
+func (a *App) isWindowVisible() bool {
+	a.windowMu.Lock()
+	defer a.windowMu.Unlock()
+	return a.windowVisible
+}
+
+func (a *App) ShowMainWindow() {
+	if a.ctx == nil {
+		return
+	}
+
+	runtime.WindowShow(a.ctx)
+	runtime.WindowUnmaximise(a.ctx)
+
+	// Windows 下从托盘恢复时，有时需要主动拉前台并闪烁提醒
+	sys.FocusMainWindowAndFlashTwiceWin32Only()
+
+	a.setWindowVisible(true)
+}
+
+func (a *App) HideMainWindow() {
+	if a.ctx == nil {
+		return
+	}
+
+	runtime.WindowHide(a.ctx)
+	a.setWindowVisible(false)
+}
+
+func (a *App) ToggleMainWindow() {
+	if a.isWindowVisible() {
+		a.HideMainWindow()
+		return
+	}
+
+	a.ShowMainWindow()
 }
 
 func NewApp() *App {
@@ -79,6 +125,10 @@ func (a *App) startup(ctx context.Context) {
 	config := a.core.Behavior.Get()
 	if !config.SilentStart {
 		runtime.WindowShow(ctx)
+		a.setWindowVisible(true)
+	} else {
+		runtime.WindowHide(ctx)
+		a.setWindowVisible(false)
 	}
 
 	a.SyncState()
@@ -647,6 +697,11 @@ func (a *App) onTrayReady() {
 	systray.SetTitle("GoclashZ")
 	systray.SetTooltip("GoclashZ - Mihomo GUI")
 
+	systray.SetDClickTimeMinInterval(500)
+	systray.SetOnDClick(func(menu systray.IMenu) {
+		a.ToggleMainWindow()
+	})
+
 	mShow := systray.AddMenuItem("显示界面", "显示主窗口")
 	systray.AddSeparator()
 
@@ -664,8 +719,7 @@ func (a *App) onTrayReady() {
 	mQuit := systray.AddMenuItem("退出程序", "彻底退出 GoclashZ")
 
 	mShow.Click(func() {
-		runtime.WindowShow(a.ctx)
-		runtime.WindowUnmaximise(a.ctx)
+		a.ShowMainWindow()
 	})
 	a.mSysProxy.Click(func() {
 		state := a.core.GetAppState()

@@ -30,6 +30,7 @@ export const globalState = reactive({
   newAppVersion: '',
   updateDownloaded: false,
   downloadedPath: '',
+  appUpdateChecking: false, // 👈 新增：跟踪软件更新检查状态
 
   // 🚀 核心：使用缓存初始化消除渲染空窗期的闪烁
   activeConfigId: cachedActiveConfigId,

@@ -155,7 +155,7 @@ const handleToggleMaximise = async () => {
 const handleClose = async () => {
   const config = await (API.GetAppBehavior as any)();
   if (config.closeToTray) {
-    WindowHide();
+    (API as any).HideMainWindow();
   } else {
     Quit();
   }
@@ -250,15 +250,21 @@ onMounted(async () => {
   // 监听窗口大小变化，同步最大化状态
   window.addEventListener('resize', handleResize);
 
-  // 🚀 核心：监听软件更新可用事件 (由后端在检测到更新时触发)
+  // 🚀 软件更新事件协议统一
+  EventsOn("app-update-check-start", () => {
+    globalState.appUpdateChecking = true;
+  });
+
   EventsOn("app-update-available", (info: any) => {
+    globalState.appUpdateChecking = false;
+
     const version = info?.version ?? '';
     const releaseNotes = info?.releaseNotes ?? '';
 
     globalState.modal = {
       show: true,
       title: "发现新版本",
-      message: `GoclashZ 新版本 ${version} 可用。\n\n${releaseNotes || '请前往发布页手动下载更新。'}`,
+      message: `GoclashZ 新版本 ${version} 可用，正在后台静默下载。\n\n${releaseNotes || ''}`,
       type: "alert",
       isDanger: false,
       onConfirm: () => { globalState.modal.show = false; },
@@ -267,33 +273,37 @@ onMounted(async () => {
   });
 
   EventsOn("app-update-start", () => {
-    // 可以在这里显示一个小的加载提示，或者静默
     console.log("App update download started...");
   });
 
-  EventsOn("app-update-error", (err: string) => {
-    globalState.modal = {
-      show: true,
-      title: "更新下载失败",
-      message: `软件更新包下载过程中发生错误: ${err}`,
-      type: "alert",
-      isDanger: true,
-      onConfirm: () => { globalState.modal.show = false; },
-      onCancel: null
-    };
-  });
-
   EventsOn("app-update-downloaded", (payload: any) => {
+    globalState.appUpdateChecking = false;
     console.log("App update downloaded:", payload);
   });
 
   EventsOn("app-update-none", (payload: any) => {
+    globalState.appUpdateChecking = false;
+
     globalState.modal = {
       show: true,
       title: "已是最新版本",
       message: payload?.message || "当前已经是最新版本。",
       type: "alert",
       isDanger: false,
+      onConfirm: () => { globalState.modal.show = false; },
+      onCancel: null
+    };
+  });
+
+  EventsOn("app-update-error", (err: string) => {
+    globalState.appUpdateChecking = false;
+
+    globalState.modal = {
+      show: true,
+      title: "软件更新失败",
+      message: String(err || "未知错误"),
+      type: "alert",
+      isDanger: true,
       onConfirm: () => { globalState.modal.show = false; },
       onCancel: null
     };
@@ -306,6 +316,8 @@ onUnmounted(() => {
   EventsOff("traffic-data");
   EventsOff("log-message");
   EventsOff("clash-exited");
+  
+  EventsOff("app-update-check-start");
   EventsOff("app-update-available");
   EventsOff("app-update-start");
   EventsOff("app-update-error");

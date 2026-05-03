@@ -134,6 +134,10 @@ export function GetWintunVersion() {
   return window['go']['main']['App']['GetWintunVersion']();
 }
 
+export function HideMainWindow() {
+  return window['go']['main']['App']['HideMainWindow']();
+}
+
 export function InstallTunDriverAsync(arg1) {
   return window['go']['main']['App']['InstallTunDriverAsync'](arg1);
 }
@@ -210,6 +214,10 @@ export function SetupSystray() {
   return window['go']['main']['App']['SetupSystray']();
 }
 
+export function ShowMainWindow() {
+  return window['go']['main']['App']['ShowMainWindow']();
+}
+
 export function StartClash(arg1) {
   return window['go']['main']['App']['StartClash'](arg1);
 }
@@ -244,6 +252,10 @@ export function TestAllProxies(arg1) {
 
 export function TestProxy(arg1) {
   return window['go']['main']['App']['TestProxy'](arg1);
+}
+
+export function ToggleMainWindow() {
+  return window['go']['main']['App']['ToggleMainWindow']();
 }
 
 export function ToggleSystemProxy(arg1) {
