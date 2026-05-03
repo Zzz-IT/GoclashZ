@@ -64,6 +64,15 @@ const (
 	DelayRunning   DelayRunState = "running"
 )
 
+// DelayTestOptions 测速策略配置
+type DelayTestOptions struct {
+	Source         string        // 测速来源：manual, startup, scheduled, enabled, restore 等
+	SilentBusy     bool          // 为 true 时，测速开始/结束不发送 Emit 事件，且不报告 busy 状态给 UI
+	RetryFailed    bool          // 第一轮失败后，是否进行第二轮低并发补测 (长尾优化)
+	TotalTimeout   time.Duration // 测速总超时，防止长尾卡死
+	StopSilentCore bool          // 如果是为了测速静默启动的内核，结束后是否尝试关闭内核
+}
+
 type DelayTestManager struct {
 	mu    sync.Mutex
 	state DelayRunState // 🚀 状态机：idle, preparing, running
@@ -194,22 +203,57 @@ func (m *DelayTestManager) endSingleNode(name string) {
 	m.mu.Unlock()
 }
 
-
+// TestAllProxies 手动触发的全部测速 (重负载策略，含长尾补测)
 func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []string) {
+	m.TestAllProxiesWithOptions(ctx, nodeNames, DelayTestOptions{
+		Source:         "manual",
+		SilentBusy:     false,
+		RetryFailed:    true,
+		TotalTimeout:   0,
+		StopSilentCore: true,
+	})
+}
+
+// TestAllProxiesAuto 自动/后台触发的测速 (轻量策略，静默且无补测)
+func (m *DelayTestManager) TestAllProxiesAuto(ctx context.Context, reason string) {
+	m.TestAllProxiesWithOptions(ctx, nil, DelayTestOptions{
+		Source:         reason,
+		SilentBusy:     true,
+		RetryFailed:    false,
+		TotalTimeout:   90 * time.Second, // 自动测速总时长不得超过 90s
+		StopSilentCore: true,
+	})
+}
+
+// TestAllProxiesWithOptions 统一的批量测速编排入口
+func (m *DelayTestManager) TestAllProxiesWithOptions(
+	ctx context.Context,
+	nodeNames []string,
+	opts DelayTestOptions,
+) {
+	if opts.TotalTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, opts.TotalTimeout)
+		defer cancel()
+	}
+
 	m.mu.Lock()
-	// 🛡️ 核心修复：单点测速正在跑时，也禁止批量进入，防止 API 冲突
 	if m.state != DelayIdle || len(m.activeSingles) > 0 {
 		m.mu.Unlock()
-		for _, name := range nodeNames {
-			m.emit.Emit("proxy-delay-update", map[string]interface{}{
-				"name":   name,
-				"delay":  0,
-				"status": "busy",
-			})
+
+		if !opts.SilentBusy {
+			for _, name := range nodeNames {
+				m.emit.Emit("proxy-delay-update", map[string]interface{}{
+					"name":   name,
+					"delay":  0,
+					"status": "busy",
+				})
+			}
+			m.emit.Emit("proxy-test-finished", "当前已有测速任务正在运行")
 		}
-		m.emit.Emit("proxy-test-finished", "当前已有测速任务正在运行")
 		return
 	}
+
 	m.state = DelayPreparing
 	m.mu.Unlock()
 
@@ -223,14 +267,15 @@ func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []strin
 		m.waiters = make(map[string][]chan DelayResult)
 		m.mu.Unlock()
 
-		if silentCore {
-			m.ctrl.StopCoreProcess()
+		if silentCore && opts.StopSilentCore {
+			m.ctrl.StopCoreProcessIfIdle()
 		}
 
-		m.emit.Emit("proxy-test-finished", finishMsg)
+		if !opts.SilentBusy {
+			m.emit.Emit("proxy-test-finished", finishMsg)
+		}
 	}()
 
-	// 1. 🛡️ 核心修复：必须先确保内核运行，再构建拓扑（否则无法读取 API）
 	if !clash.IsRunning() {
 		silentCore = true
 		if err := m.ctrl.EnsureCoreRunning(ctx); err != nil {
@@ -245,7 +290,6 @@ func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []strin
 		return
 	}
 
-	// 🛡️ 核心改进：拓扑归一化
 	var targets []string
 	if len(nodeNames) == 0 {
 		targets = topo.allLeafNodes()
@@ -266,7 +310,7 @@ func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []strin
 	}
 	m.mu.Unlock()
 
-	m.runBatch(ctx, topo, targets)
+	m.runBatch(ctx, topo, targets, opts)
 }
 
 func (m *DelayTestManager) extractDelayTargets() []string {
@@ -309,7 +353,12 @@ func (m *DelayTestManager) getTestURL() string {
 	return clash.DefaultDelayTestURL
 }
 
-func (m *DelayTestManager) runBatch(ctx context.Context, topo *DelayTopology, nodeNames []string) {
+func (m *DelayTestManager) runBatch(
+	ctx context.Context,
+	topo *DelayTopology,
+	nodeNames []string,
+	opts DelayTestOptions,
+) {
 	testURL := m.getTestURL()
 
 	jobs := make(chan string, len(nodeNames))
@@ -332,9 +381,11 @@ func (m *DelayTestManager) runBatch(ctx context.Context, topo *DelayTopology, no
 		go func() {
 			defer wg.Done()
 			for name := range jobs {
-				m.emit.Emit("proxy-test-start", name)
+				if !opts.SilentBusy {
+					m.emit.Emit("proxy-test-start", name)
+				}
 
-				// 第一轮：并发 6
+				// 第一轮：并发执行
 				res := m.testOne(ctx, name, testURL, 7000, 3000)
 
 				if res.Status != "success" {
@@ -350,18 +401,34 @@ func (m *DelayTestManager) runBatch(ctx context.Context, topo *DelayTopology, no
 	}
 	wg.Wait()
 
-	// 🛡️ 第二轮：针对第一轮超时的节点进行“低并发补测”，提高长尾成功率
-	if len(failed) > 0 {
+	if len(failed) == 0 {
+		return
+	}
+
+	// 🛡️ 如果策略要求不补测，则直接分发第一轮的失败状态并结束
+	if !opts.RetryFailed {
 		for _, name := range failed {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				// 第二轮：并发 1 (串行) 补测，给予更宽松的 9s+3s 超时
-				res := m.testOne(ctx, name, testURL, 9000, 3000)
-				m.emitDelayResult(topo, res)
-				m.notifyNodeResult(res)
+			res := DelayResult{
+				Name:   name,
+				Delay:  0,
+				Status: "timeout",
+				Err:    context.DeadlineExceeded,
 			}
+			m.emitDelayResult(topo, res)
+			m.notifyNodeResult(res)
+		}
+		return
+	}
+
+	// 🛡️ 第二轮：针对手动测速等场景，串行补测提高长尾成功率
+	for _, name := range failed {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			res := m.testOne(ctx, name, testURL, 9000, 3000)
+			m.emitDelayResult(topo, res)
+			m.notifyNodeResult(res)
 		}
 	}
 }

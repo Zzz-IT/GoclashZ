@@ -250,6 +250,23 @@ func (c *Controller) stopCoreProcessLocked() error {
 	return nil
 }
 
+// StopCoreProcessIfIdle 静默测速结束后，只有在用户未显式开启代理/TUN 时才停止内核
+func (c *Controller) StopCoreProcessIfIdle() {
+	c.coreLifecycleMu.Lock()
+	defer c.coreLifecycleMu.Unlock()
+
+	c.mu.RLock()
+	needCore := c.sysProxyActive || c.tunActive
+	c.mu.RUnlock()
+
+	if needCore {
+		return
+	}
+
+	c.stopCoreProcessLocked()
+	c.SyncState()
+}
+
 // --- 导出方法 ---
 
 // EnsureCoreRunning 确保内核已启动并就绪 (带锁包装)
@@ -470,7 +487,8 @@ func (c *Controller) RefreshAutoDelayTest(opts AutoDelayRefreshOptions) {
 	c.autoTestMu.Unlock()
 
 	if opts.Immediate {
-		go c.runAutoDelayTestOnceDelayed(quit, opts.Reason, 2*time.Second)
+		delay := autoDelayInitialDelay(opts.Reason)
+		go c.runAutoDelayTestOnceDelayed(quit, opts.Reason, delay)
 	}
 
 	go func(quit <-chan struct{}, intervalMin int) {
@@ -487,6 +505,19 @@ func (c *Controller) RefreshAutoDelayTest(opts AutoDelayRefreshOptions) {
 			}
 		}
 	}(quit, intervalMin)
+}
+
+func autoDelayInitialDelay(reason string) time.Duration {
+	switch reason {
+	case "startup":
+		return 10 * time.Second // 软件启动：10 秒
+	case "restore":
+		return 10 * time.Second // 恢复备份：10 秒
+	case "enabled":
+		return 3 * time.Second  // 手动开启功能：3 秒
+	default:
+		return 5 * time.Second
+	}
 }
 
 func (c *Controller) runAutoDelayTestOnceDelayed(
@@ -517,7 +548,7 @@ func (c *Controller) runAutoDelayTestOnce(reason string) {
 	}
 
 	logger.Infof("Triggering auto delay test, reason: %s", reason)
-	go c.Delay.TestAllProxies(c.ctx, nil)
+	go c.Delay.TestAllProxiesAuto(c.ctx, reason)
 }
 
 func (c *Controller) RefreshAppAutoUpdate() {
