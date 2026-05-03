@@ -1068,6 +1068,12 @@ const props = defineProps({
 const view = ref(props.initialView as 'main' | 'uwp' | 'tun' | 'dns' | 'network' | 'behavior' | 'update' | 'about');
 watch(() => props.initialView, (newVal) => { view.value = newVal as any; });
 
+watch(view, async (v) => {
+  if (v === 'update') {
+    await refreshComponentInfo();
+  }
+});
+
 const coreVersion = ref('读取中...');
 const wintunVersion = ref('读取中...');
 const isInstalling = ref(false);
@@ -1105,10 +1111,31 @@ const logLevelOptions = [
 const showDbModal = ref(false);
 const editingDb = ref({ type: '', link: '' });
 const updatingDbs = ref<Record<string, boolean>>({});
+const componentFileInfo = ref<Record<string, any>>({});
 const dbFileInfo = ref<Record<string, any>>({});
 
 const updatingAllDbs = ref(false);
-const isUpdatingAnyDb = computed(() => Object.values(updatingDbs.value).some(v => v) || updatingAllDbs.value);
+
+const refreshComponentFileInfo = async () => {
+  const info = await (API as any).GetComponentFileInfo();
+  componentFileInfo.value = info || {};
+  dbFileInfo.value = {
+    geoip: info?.geoip || {},
+    geosite: info?.geosite || {},
+    mmdb: info?.mmdb || {},
+    asn: info?.asn || {},
+  };
+};
+
+const refreshComponentInfo = async () => {
+  coreVersion.value = await (API as any).GetCoreVersion();
+  wintunVersion.value = await (API as any).GetWintunVersion();
+  await refreshComponentFileInfo();
+};
+
+const isUpdatingAnyDb = computed(() => {
+  return updatingAllDbs.value || Object.values(updatingDbs.value).some(Boolean);
+});
 
 const formatSize = (bytes: number) => {
   if (!bytes) return '0 B';
@@ -1323,8 +1350,16 @@ const loadData = async () => {
     const behaviorConf = await (API.GetAppBehavior as any)();
     if (behaviorConf) behavior.value = behaviorConf;
 
-    const dbInfo = await (API as any).GetGeoDatabaseInfo();
-    if (dbInfo) dbFileInfo.value = dbInfo;
+    const info = await (API as any).GetComponentFileInfo();
+    if (info) {
+      componentFileInfo.value = info;
+      dbFileInfo.value = {
+        geoip: info?.geoip || {},
+        geosite: info?.geosite || {},
+        mmdb: info?.mmdb || {},
+        asn: info?.asn || {},
+      };
+    }
   } catch (e) {
     console.error('加载配置失败', e);
   }
@@ -1342,8 +1377,7 @@ onMounted(() => {
 
     EventsOn(`geo-update-${key}-success`, async () => {
       updatingDbs.value[key] = false;
-      const dbInfo = await (API as any).GetGeoDatabaseInfo();
-      if (dbInfo) dbFileInfo.value = dbInfo;
+      await refreshComponentInfo();
       // 只有非“更新全部”状态下才弹窗
       if (!updatingAllDbs.value) {
         await showAlert(`${dbTitles[key] || key} 文件同步成功！`, "完成");
@@ -1352,6 +1386,7 @@ onMounted(() => {
 
     EventsOn(`geo-update-${key}-error`, async (err: string) => {
       updatingDbs.value[key] = false;
+      await refreshComponentInfo();
       await showAlert(`${key} 更新失败: ${err}`, "错误", true);
     });
 
@@ -1367,15 +1402,13 @@ onMounted(() => {
 
   EventsOn("geo-update-all-success", async () => {
     updatingAllDbs.value = false;
-    const dbInfo = await (API as any).GetGeoDatabaseInfo();
-    if (dbInfo) dbFileInfo.value = dbInfo;
+    await refreshComponentInfo();
     await showAlert("全部路由规则数据库更新完成。", "通知");
   });
 
   EventsOn("geo-update-all-error", async (err: string) => {
     updatingAllDbs.value = false;
-    const dbInfo = await (API as any).GetGeoDatabaseInfo();
-    if (dbInfo) dbFileInfo.value = dbInfo;
+    await refreshComponentInfo();
     await showAlert("部分数据库更新失败: " + err, "错误", true);
   });
 
@@ -1390,11 +1423,12 @@ onMounted(() => {
   });
   EventsOn("core-update-success", async () => {
     updatingCore.value = false;
-    coreVersion.value = await (API as any).GetCoreVersion();
+    await refreshComponentInfo();
     await showAlert("Mihomo 内核更新完成。", "通知");
   });
   EventsOn("core-update-error", async (err: string) => {
     updatingCore.value = false;
+    await refreshComponentInfo();
     await showAlert("Mihomo 内核更新失败: " + err, "错误", true);
   });
   EventsOn("core-update-cancelled", () => {
@@ -1409,12 +1443,12 @@ onMounted(() => {
     isInstalling.value = false;
     const status = await API.CheckTunEnv();
     tunStatus.value = status as any;
-    const wv = await (API as any).GetWintunVersion();
-    if (wv) wintunVersion.value = wv;
+    await refreshComponentInfo();
     await showAlert("Wintun 驱动安装完成。", "通知");
   });
   EventsOn("driver-install-error", async (err: string) => {
     isInstalling.value = false;
+    await refreshComponentInfo();
     await showAlert("Wintun 驱动安装失败: " + err, "错误", true);
   });
   EventsOn("driver-install-cancelled", () => {

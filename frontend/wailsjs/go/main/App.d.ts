@@ -42,6 +42,8 @@ export function GetAppState():Promise<appcore.AppState>;
 
 export function GetAppVersion():Promise<string>;
 
+export function GetComponentFileInfo():Promise<Record<string, appcore.ComponentFileInfo>>;
+
 export function GetConnections():Promise<appcore.ConnectionsSnapshot>;
 
 export function GetCoreVersion():Promise<string>;

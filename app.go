@@ -1,3 +1,5 @@
+//go:build windows
+
 package main
 
 import (
@@ -97,6 +99,7 @@ func (a *App) shutdown(ctx context.Context) {
 // --- AppState & Sync ---
 
 type AppState = appcore.AppState
+type ComponentFileInfo = appcore.ComponentFileInfo
 
 func (a *App) GetAppState() AppState {
 	return a.core.GetAppState()
@@ -367,10 +370,22 @@ func (a *App) InstallTunDriverAsync(_ bool) {
 }
 
 func (a *App) GetWintunVersion() string {
-	if sys.IsWintunInstalled() {
-		return "Installed"
+	path := filepath.Join(utils.GetCoreBinDir(), "wintun.dll")
+
+	if _, err := os.Stat(path); err != nil {
+		return "未安装"
 	}
-	return "Not Installed"
+
+	v, err := sys.GetFileVersion(path)
+	if err != nil || strings.TrimSpace(v) == "" {
+		return "已安装，版本未知"
+	}
+
+	return v
+}
+
+func (a *App) GetComponentFileInfo() map[string]ComponentFileInfo {
+	return appcore.GetComponentFileInfo()
 }
 
 func (a *App) GetUwpApps() ([]sys.UwpApp, error) {

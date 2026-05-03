@@ -1,3 +1,5 @@
+//go:build windows
+
 package version
 
 // AppVersion 是当前应用的版本号。

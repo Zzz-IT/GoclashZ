@@ -1,3 +1,5 @@
+//go:build windows
+
 package appcore
 
 import (
@@ -6,45 +8,16 @@ import (
 	"goclashz/core/clash"
 	"goclashz/core/downloader"
 	"goclashz/core/utils"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 )
 
-func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
-	c.Tasks.Run(ctx, "core-update", true, func(ctx context.Context) error {
-		state := c.GetAppState()
-		isActive := state.SystemProxy || state.Tun
-
-		if isActive {
-			c.StopCoreProcess()
-			c.SyncState()
-		}
-
-		version, err := clash.UpdateCore(ctx)
-		if err != nil {
-			return err
-		}
-
-		c.events.Emit("core-version-updated", map[string]any{
-			"version": version,
-		})
-
-		c.events.Emit("delay-cache-clear", "core-update")
-
-		if isActive {
-			if err := c.RestartCoreWithReason(ctx, "core-update"); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
-}
-
 func (c *Controller) updateGeoDatabase(ctx context.Context, key string) error {
+	var url string
 	behavior := c.Behavior.Get()
-	url := ""
+
 	switch key {
 	case "geoip":
 		url = behavior.GeoIpLink
@@ -55,23 +28,37 @@ func (c *Controller) updateGeoDatabase(ctx context.Context, key string) error {
 	case "asn":
 		url = behavior.AsnLink
 	default:
-		return fmt.Errorf("unknown geo database key: %s", key)
+		return fmt.Errorf("unknown geo key: %s", key)
 	}
 
 	if url == "" {
-		return fmt.Errorf("no URL configured for %s", key)
+		return fmt.Errorf("下载链接未配置")
 	}
+
 	return clash.UpdateGeoDB(ctx, key, url)
 }
 
 func (c *Controller) UpdateGeoDatabaseAsync(ctx context.Context, key string) {
+	title, _ := clash.GeoDBFileName(key)
+	if title == "" {
+		title = key
+	}
+
 	c.Tasks.Run(ctx, "geo-update-"+key, true, func(ctx context.Context) error {
-		return c.updateGeoDatabase(ctx, key)
+		c.events.Emit("geo-update-"+key+"-start")
+
+		if err := c.updateGeoDatabase(ctx, key); err != nil {
+			c.events.Emit("geo-update-"+key+"-error", err.Error())
+			return err
+		}
+
+		c.events.Emit("geo-update-"+key+"-success")
+		return nil
 	})
 }
 
 func (c *Controller) UpdateAllGeoDatabasesAsync(ctx context.Context) {
-	c.Tasks.Run(ctx, "geo-update-all", false, func(ctx context.Context) error {
+	c.Tasks.Run(ctx, "geo-update-all", true, func(ctx context.Context) error {
 		keys := []string{"geoip", "geosite", "mmdb", "asn"}
 
 		sem := make(chan struct{}, 2) // 建议 2 并发，不要 4 个大文件一起打满
@@ -96,7 +83,7 @@ func (c *Controller) UpdateAllGeoDatabasesAsync(ctx context.Context) {
 					return
 				}
 
-				c.events.Emit("geo-update-"+key+"-start")
+				c.events.Emit("geo-update-" + key + "-start")
 
 				if err := c.updateGeoDatabase(ctx, key); err != nil {
 					c.events.Emit("geo-update-"+key+"-error", err.Error())
@@ -107,7 +94,7 @@ func (c *Controller) UpdateAllGeoDatabasesAsync(ctx context.Context) {
 					return
 				}
 
-				c.events.Emit("geo-update-"+key+"-success")
+				c.events.Emit("geo-update-" + key + "-success")
 			}()
 		}
 
@@ -121,100 +108,56 @@ func (c *Controller) UpdateAllGeoDatabasesAsync(ctx context.Context) {
 	})
 }
 
-func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
-	// 手动检查时，如果已经是最新版，也要提示用户
-	c.checkAndDownloadAppUpdate(ctx, currentVersion, true)
-}
+func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
+	c.Tasks.Run(ctx, "core-update", true, func(ctx context.Context) error {
+		c.events.Emit("core-update-start")
 
-func (c *Controller) AutoCheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
-	// 自动检查时，如果已经是最新版，则保持静默
-	c.checkAndDownloadAppUpdate(ctx, currentVersion, false)
-}
-
-func (c *Controller) checkAndDownloadAppUpdate(ctx context.Context, currentVersion string, notifyLatest bool) {
-	c.Tasks.Run(ctx, "app-update", false, func(ctx context.Context) error {
-		// 🛡️ 开发版本跳过正式更新检查
-		if strings.TrimSpace(currentVersion) == "" || currentVersion == "dev" {
-			if notifyLatest {
-				c.events.Emit("app-update-error", "当前为开发版本，无法执行正式更新检查")
-			}
-			return nil
-		}
-
-		info, err := downloader.CheckAppUpdate(ctx, currentVersion)
+		newVer, err := clash.UpdateCore(ctx)
 		if err != nil {
-			c.events.Emit("app-update-error", "检查更新失败: "+err.Error())
-			return nil
+			c.events.Emit("core-update-error", err.Error())
+			return err
 		}
 
-		if info == nil || !info.HasUpdate {
-			if notifyLatest {
-				c.events.Emit("app-update-none", map[string]any{
-					"message": "当前已经是最新版本",
-				})
-			}
-			return nil
-		}
-
-		// 🛡️ 二次确认：基于严格解析后的版本比对
-		cmp, err := downloader.CompareAppVersion(info.Version, currentVersion)
-		if err != nil {
-			c.events.Emit("app-update-error", "版本比对失败: "+err.Error())
-			return nil
-		}
-
-		if cmp <= 0 {
-			if notifyLatest {
-				c.events.Emit("app-update-none", map[string]any{
-					"message": "当前已经是最新版本",
-				})
-			}
-			return nil
-		}
-
-		// 🚀 核心改进：先确认是否有可下载资产，再决定弹窗内容
-		if info.DownloadURL == "" {
-			c.events.Emit("app-update-error", fmt.Sprintf(
-				"发现新版本 %s，但 Release 中没有匹配的 GoclashZ Windows 安装包。\n当前资产列表: %v",
-				info.Version,
-				info.Assets,
-			))
-			return nil
-		}
-
-		// 1. 记录更新状态
-		c.SetUpdateStatus(true, info.Version)
-
-		// 2. 弹出发现新版本卡片，告知后台正在下载
-		c.events.Emit("app-update-available", map[string]any{
-			"version":      info.Version,
-			"releaseNotes": info.Body,
-			"releaseUrl":   info.ReleaseURL,
-			"downloadUrl":  info.DownloadURL,
-		})
-
-		// 3. 开始后台静默下载
-		c.events.Emit("app-update-start", map[string]any{
-			"version": info.Version,
-		})
-
-		destDir := filepath.Join(utils.GetDataDir(), "updates")
-		path, err := downloader.DownloadAppUpdate(ctx, info, destDir)
-		if err != nil {
-			c.events.Emit("app-update-error", "下载更新失败: "+err.Error())
-			return nil
-		}
-
-		// 4. 下载成功，更新本地记录
-		c.SetDownloadedAppUpdate(path, info.Version)
-		
-		c.events.Emit("app-update-downloaded", map[string]any{
-			"version": info.Version,
-			"path":    path,
-		})
-
+		c.events.Emit("core-version-updated", map[string]string{"version": newVer})
+		c.events.Emit("core-update-success")
 		return nil
 	})
+}
+
+func (c *Controller) InstallTunDriverAsync(ctx context.Context) {
+	c.Tasks.Run(ctx, "driver-install", true, func(ctx context.Context) error {
+		c.events.Emit("driver-install-start")
+
+		// 🎯 核心逻辑：下载并替换 wintun.dll
+		url := "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/wintun-amd64.zip"
+		destPath := filepath.Join(utils.GetCoreBinDir(), "wintun.dll")
+
+		// 下载 Zip 并提取
+		zipPath := destPath + ".zip"
+		defer os.Remove(zipPath)
+
+		err := downloader.DownloadAtomic(ctx, downloader.Options{
+			URLs:     []string{url},
+			DestPath: zipPath,
+		})
+		if err != nil {
+			c.events.Emit("driver-install-error", err.Error())
+			return err
+		}
+
+		// 提取 (简化处理，假设 zip 里就是 dll)
+		if err := downloader.ExtractFileFromZip(zipPath, "wintun.dll", destPath); err != nil {
+			c.events.Emit("driver-install-error", err.Error())
+			return err
+		}
+
+		c.events.Emit("driver-install-success")
+		return nil
+	})
+}
+
+func (c *Controller) GetCoreVersion(ctx context.Context) string {
+	return clash.GetLocalCoreVersion(ctx)
 }
 
 func (c *Controller) ManualCheckAppUpdate(ctx context.Context) (string, error) {
@@ -222,12 +165,52 @@ func (c *Controller) ManualCheckAppUpdate(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if info != nil && info.HasUpdate {
+	if info.HasUpdate {
 		return info.Version, nil
 	}
 	return "", nil
 }
 
-func (c *Controller) GetCoreVersion(ctx context.Context) string {
-	return clash.GetLocalCoreVersion(ctx)
+func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
+	c.Tasks.Run(ctx, "app-update", true, func(ctx context.Context) error {
+		c.events.Emit("app-update-check-start")
+		info, err := downloader.CheckAppUpdate(ctx, currentVersion)
+		if err != nil {
+			c.events.Emit("app-update-check-error", err.Error())
+			return err
+		}
+
+		if !info.HasUpdate {
+			c.events.Emit("app-update-no-new")
+			return nil
+		}
+
+		c.SetUpdateStatus(true, info.Version)
+		c.events.Emit("app-update-ready", info.Version)
+
+		// 开始后台下载
+		c.events.Emit("app-update-download-start", info.Version)
+		destDir := filepath.Join(utils.GetDataDir(), "updates")
+		path, err := downloader.DownloadAppUpdate(ctx, info, destDir)
+		if err != nil {
+			c.events.Emit("app-update-download-error", err.Error())
+			return err
+		}
+
+		c.SetDownloadedAppUpdate(path, info.Version)
+		c.events.Emit("app-update-download-success", map[string]string{
+			"version": info.Version,
+			"path":    path,
+		})
+		return nil
+	})
+}
+
+func (c *Controller) AutoCheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
+	go func() {
+		info, err := downloader.CheckAppUpdate(ctx, currentVersion)
+		if err == nil && info.HasUpdate {
+			c.CheckAndDownloadAppUpdateAsync(ctx, currentVersion)
+		}
+	}()
 }

@@ -74,6 +74,10 @@ export function GetAppVersion() {
   return window['go']['main']['App']['GetAppVersion']();
 }
 
+export function GetComponentFileInfo() {
+  return window['go']['main']['App']['GetComponentFileInfo']();
+}
+
 export function GetConnections() {
   return window['go']['main']['App']['GetConnections']();
 }
