@@ -60,3 +60,23 @@ func createOrderedClients(opt Options) []*http.Client {
 
 	return clients
 }
+func NewProxyClient(proxyURL string) *http.Client {
+	tr := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
+		DisableKeepAlives:     true,
+	}
+
+	if proxyURL != "" {
+		if p, err := url.Parse(proxyURL); err == nil {
+			tr.Proxy = http.ProxyURL(p)
+		}
+	}
+
+	return &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: tr,
+	}
+}

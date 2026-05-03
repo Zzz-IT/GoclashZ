@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,7 +28,8 @@ func PrepareEnv(ctx context.Context) error {
 	
 	if _, err := os.Stat(filepath.Join(binDir, "clash.exe")); os.IsNotExist(err) {
 		// 优先触发一次下载（或者由前端引导）
-		prepared, err := PrepareCoreUpdate(ctx, "")
+		// 初始化时如果不通代理，PrepareCoreUpdate 内部逻辑会处理
+		prepared, err := PrepareCoreUpdate(ctx, "https://github.com/MetaCubeX/mihomo/releases/download/v1.18.1/mihomo-windows-amd64-v1.18.1.zip", "")
 		if err == nil {
 			_, _ = CommitCoreUpdate(ctx, prepared)
 		} else {
@@ -216,7 +216,7 @@ func extractKernelToFile(zipPath, targetExe string) error {
 
 var coreBinaryMu sync.Mutex
 
-func PrepareCoreUpdate(ctx context.Context, proxyURL string) (map[string]string, error) {
+func PrepareCoreUpdate(ctx context.Context, assetURL string, proxyURL string) (map[string]string, error) {
 	coreBinaryMu.Lock()
 	defer coreBinaryMu.Unlock()
 
@@ -228,10 +228,12 @@ func PrepareCoreUpdate(ctx context.Context, proxyURL string) (map[string]string,
 	_ = os.Remove(zipPath)
 	_ = os.Remove(stagedExe)
 
-	url := "https://github.com/MetaCubeX/mihomo/releases/download/v1.18.1/mihomo-windows-amd64-v1.18.1.zip"
+	if strings.TrimSpace(assetURL) == "" {
+		return nil, fmt.Errorf("内核下载地址为空")
+	}
 
 	if err := downloader.DownloadLargeAssetAtomic(ctx, downloader.Options{
-		URLs:                []string{url},
+		URLs:                []string{assetURL},
 		DestPath:            zipPath,
 		ProxyURL:            proxyURL,
 		PreferProxy:         proxyURL != "",
@@ -246,6 +248,7 @@ func PrepareCoreUpdate(ctx context.Context, proxyURL string) (map[string]string,
 	}
 
 	if err := extractKernelToFile(zipPath, stagedExe); err != nil {
+		_ = os.Remove(stagedExe)
 		return nil, err
 	}
 
@@ -283,64 +286,91 @@ func CommitCoreUpdate(ctx context.Context, prepared map[string]string) (string, 
 	return getLocalCoreVersionLocked(ctx), nil
 }
 
-func CheckLatestCoreVersion(ctx context.Context, proxyURL string) (string, string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest", nil)
-	if err != nil {
-		return "", "", err
-	}
-	req.Header.Set("User-Agent", "GoclashZ-UpdateChecker")
+type CoreReleaseInfo struct {
+	TagName string `json:"tag_name"`
+	HTMLURL string `json:"html_url"`
+	Assets  []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+	} `json:"assets"`
+}
 
-	var client *http.Client
-	if proxyURL != "" {
-		if pu, err := url.Parse(proxyURL); err == nil {
-			client = &http.Client{
-				Transport: &http.Transport{
-					Proxy: http.ProxyURL(pu),
-				},
-				Timeout: 10 * time.Second,
-			}
-		}
+func CheckLatestCore(ctx context.Context, proxyURL string) (version, assetURL, releaseURL string, err error) {
+	client := downloader.NewProxyClient(proxyURL)
+
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		"https://api.github.com/repos/MetaCubeX/mihomo/releases/latest",
+		nil,
+	)
+	if err != nil {
+		return "", "", "", err
 	}
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
-	}
+
+	req.Header.Set("User-Agent", "GoclashZ-CoreUpdateChecker")
+	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", "", "", fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
 	}
 
-	var data struct {
-		TagName string `json:"tag_name"`
-		HTMLURL string `json:"html_url"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return "", "", err
+	var release CoreReleaseInfo
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return "", "", "", err
 	}
 
-	if data.TagName == "" {
-		return "", "", fmt.Errorf("未找到 tag_name")
+	assetURL = selectMihomoWindowsAmd64Asset(release.Assets)
+	if assetURL == "" {
+		return "", "", "", fmt.Errorf("未找到 mihomo windows amd64 release asset")
 	}
 
-	return data.TagName, data.HTMLURL, nil
+	return release.TagName, assetURL, release.HTMLURL, nil
 }
 
-func CompareCoreVersion(remote, local string) int {
+func selectMihomoWindowsAmd64Asset(assets []struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}) string {
+	for _, asset := range assets {
+		name := strings.ToLower(asset.Name)
+
+		if !strings.HasSuffix(name, ".zip") {
+			continue
+		}
+		if !strings.Contains(name, "mihomo") {
+			continue
+		}
+		if !strings.Contains(name, "windows") {
+			continue
+		}
+		if !(strings.Contains(name, "amd64") || strings.Contains(name, "x64")) {
+			continue
+		}
+
+		return asset.BrowserDownloadURL
+	}
+
+	return ""
+}
+
+func CompareCoreVersion(remote, local string) (int, error) {
 	remote = strings.TrimPrefix(remote, "v")
 	local = strings.TrimPrefix(local, "v")
 	if remote == local {
-		return 0
+		return 0, nil
 	}
 	// 简单的按字符串比较。在真实的 semver 场景下，这里应改用 semver 库
 	if remote > local {
-		return 1
+		return 1, nil
 	}
-	return -1
+	return -1, nil
 }
 
 func GeoDBFileName(key string) (string, error) {

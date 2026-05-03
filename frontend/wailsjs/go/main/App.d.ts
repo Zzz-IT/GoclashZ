@@ -12,6 +12,8 @@ export function AutoCheckAndDownloadAppUpdateAsync():Promise<void>;
 
 export function CheckAndDownloadAppUpdateAsync():Promise<void>;
 
+export function CheckCoreUpdateAsync():Promise<void>;
+
 export function CheckTunEnv():Promise<Record<string, boolean>>;
 
 export function ClearLogs():Promise<void>;

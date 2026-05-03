@@ -528,6 +528,10 @@ func (a *App) UpdateCoreComponentAsync() {
 	a.core.UpdateCoreComponentAsync(a.ctx)
 }
 
+func (a *App) CheckCoreUpdateAsync() {
+	a.core.CheckCoreUpdateAsync(a.ctx)
+}
+
 func (a *App) UpdateGeoDatabaseAsync(key string) {
 	a.core.UpdateGeoDatabaseAsync(a.ctx, key)
 }

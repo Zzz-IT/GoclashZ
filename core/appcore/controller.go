@@ -54,6 +54,9 @@ type Controller struct {
 	downloadedUpdateVersion string
 
 	GeoUpdates *GeoUpdateManager
+
+	pendingCoreUpdateAssetURL string
+	pendingCoreUpdateVersion  string
 }
 
 func NewController(opts Options) *Controller {

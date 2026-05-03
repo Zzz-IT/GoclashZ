@@ -56,7 +56,23 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 		StopCore:    true,
 		RestartCore: true,
 		Prepare: func(ctx context.Context) (map[string]string, error) {
-			return clash.PrepareCoreUpdate(ctx, resolveLocalProxyURL())
+			assetURL := ""
+			// 优先使用前端检查更新时缓存的下载地址
+			c.mu.RLock()
+			cachedURL := c.pendingCoreUpdateAssetURL
+			c.mu.RUnlock()
+
+			if cachedURL != "" {
+				assetURL = cachedURL
+			} else {
+				_, discoveredURL, _, err := clash.CheckLatestCore(ctx, resolveLocalProxyURL())
+				if err != nil {
+					return nil, err
+				}
+				assetURL = discoveredURL
+			}
+
+			return clash.PrepareCoreUpdate(ctx, assetURL, resolveLocalProxyURL())
 		},
 		Commit: func(ctx context.Context, prepared map[string]string) (map[string]string, error) {
 			version, err := clash.CommitCoreUpdate(ctx, prepared)
@@ -76,20 +92,33 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 
 			// 内核二进制更新后，连接和延迟状态不应沿用旧进程
 			c.events.Emit("delay-cache-clear", "core-update")
+
+			c.mu.Lock()
+			c.pendingCoreUpdateAssetURL = ""
+			c.pendingCoreUpdateVersion = ""
+			c.mu.Unlock()
 		},
 	})
 }
 
 func (c *Controller) CheckCoreUpdateAsync(ctx context.Context) {
 	c.Tasks.Run(ctx, "core-update-check", true, func(ctx context.Context) error {
+		c.events.Emit("core-update-check-start")
 		local := clash.GetLocalCoreVersion(ctx)
 
-		remote, releaseURL, err := clash.CheckLatestCoreVersion(ctx, resolveLocalProxyURL())
+		remote, assetURL, releaseURL, err := clash.CheckLatestCore(ctx, resolveLocalProxyURL())
 		if err != nil {
+			c.events.Emit("core-update-check-error", err.Error())
 			return err
 		}
 
-		if clash.CompareCoreVersion(remote, local) <= 0 {
+		c.mu.Lock()
+		c.pendingCoreUpdateAssetURL = assetURL
+		c.pendingCoreUpdateVersion = remote
+		c.mu.Unlock()
+
+		cmp, _ := clash.CompareCoreVersion(remote, local)
+		if cmp <= 0 {
 			c.events.Emit("core-update-none", map[string]string{
 				"local":  local,
 				"remote": remote,

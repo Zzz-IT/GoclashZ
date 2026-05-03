@@ -14,6 +14,10 @@ export function CheckAndDownloadAppUpdateAsync() {
   return window['go']['main']['App']['CheckAndDownloadAppUpdateAsync']();
 }
 
+export function CheckCoreUpdateAsync() {
+  return window['go']['main']['App']['CheckCoreUpdateAsync']();
+}
+
 export function CheckTunEnv() {
   return window['go']['main']['App']['CheckTunEnv']();
 }

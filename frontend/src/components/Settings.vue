@@ -1616,6 +1616,10 @@ onMounted(() => {
 
   // 监听 Core 检查更新事件
   EventsOn("core-update-check-start", () => { checkingCoreUpdate.value = true; });
+  EventsOn("core-update-check-error", (err: string) => {
+    checkingCoreUpdate.value = false;
+    void enqueueModal({ title: '错误', message: '检查内核更新失败: ' + formatUpdateError(err), danger: true });
+  });
   EventsOn("core-update-none", (data: any) => {
     checkingCoreUpdate.value = false;
     void enqueueModal({ title: '检查更新', message: `内核已是最新版本 (${data.local})。`, danger: false });
@@ -1688,6 +1692,7 @@ onUnmounted(() => {
   EventsOff("geo-update-active-sync");
 
   EventsOff("core-update-check-start");
+  EventsOff("core-update-check-error");
   EventsOff("core-update-none");
   EventsOff("core-update-available");
   EventsOff("core-update-start");
