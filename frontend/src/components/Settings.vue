@@ -699,7 +699,7 @@
             <div class="setting-item">
               <div class="info">
                 <h4>隐藏日志入口</h4>
-                <p>隐藏侧边栏中的日志页面入口，但后台仍会保留最近日志用于故障诊断。</p>
+                <p>隐藏侧边栏中的日志页面入口；后台仍会保留最近日志用于故障诊断。</p>
               </div>
               <label class="modern-switch">
                 <input type="checkbox" v-model="behavior.hideLogs" @change="saveBehavior">
@@ -1659,7 +1659,13 @@ onMounted(() => {
   });
   EventsOn("core-update-none", (data: any) => {
     checkingCoreUpdate.value = false;
-    void enqueueModal({ title: '检查更新', message: `内核已是最新版本 (${data.local})。`, danger: false });
+    pendingCoreUpdate.value = false;
+    coreUpdateInfo.value = {
+      local: data?.local || '',
+      remote: data?.remote || '',
+      releaseUrl: ''
+    };
+    void enqueueModal({ title: '检查更新', message: `内核已是最新版本 (${data?.local || ''})。`, danger: false });
   });
   EventsOn("core-update-available", (data: any) => {
     checkingCoreUpdate.value = false;
@@ -1686,6 +1692,7 @@ onMounted(() => {
   });
   EventsOn("core-update-error", (err: string) => {
     updatingCore.value = false;
+    pendingCoreUpdate.value = false;
     queueComponentInfoRefresh();
     void enqueueModal({ title: '错误', message: 'Mihomo 内核更新失败: ' + formatUpdateError(err), danger: true });
   });
@@ -1714,6 +1721,14 @@ onMounted(() => {
   });
   EventsOn("driver-install-cancelled", () => {
     isInstalling.value = false;
+  });
+  EventsOn("app-update-busy", () => {
+    globalState.appUpdateChecking = false;
+    void enqueueModal({
+      title: "提示",
+      message: "已有软件更新任务正在进行，请稍后再试。",
+      danger: false,
+    });
   });
 });
 
@@ -1746,6 +1761,7 @@ onUnmounted(() => {
   EventsOff("driver-install-success");
   EventsOff("driver-install-error");
   EventsOff("driver-install-cancelled");
+  EventsOff("app-update-busy");
 });
 
 const handleTunToggle = async (e: Event) => {

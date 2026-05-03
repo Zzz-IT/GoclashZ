@@ -305,20 +305,34 @@ func validateRestoreMode(mode string) error {
 
 func validateManifest(stagingDir string) error {
 	path := filepath.Join(stagingDir, "manifest.json")
+
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil // 允许旧版备份
+		// 兼容旧版备份：旧备份没有 manifest.json
+		return nil
 	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return fmt.Errorf("读取备份 manifest 失败: %w", err)
 	}
-	var m Manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil
+
+	var manifest Manifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return fmt.Errorf("备份 manifest 格式损坏: %w", err)
 	}
-	if m.App != "" && m.App != "GoclashZ" {
-		return fmt.Errorf("备份文件校验失败: 归属应用不匹配 (%s)", m.App)
+
+	if manifest.App != "" && manifest.App != "GoclashZ" {
+		return fmt.Errorf("备份文件校验失败: 归属应用不匹配 (%s)", manifest.App)
 	}
+
+	if manifest.BackupVersion > CurrentBackupVersion {
+		return fmt.Errorf(
+			"备份版本过高，当前程序不支持: backupVersion=%d, supported=%d",
+			manifest.BackupVersion,
+			CurrentBackupVersion,
+		)
+	}
+
 	return nil
 }
 

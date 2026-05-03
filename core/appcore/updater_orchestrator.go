@@ -188,7 +188,7 @@ func (c *Controller) ManualCheckAppUpdate(ctx context.Context) (string, error) {
 }
 
 func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
-	c.Tasks.Run(ctx, "app-update-flow", false, func(ctx context.Context) error {
+	ok := c.Tasks.RunIfIdle(ctx, "app-update-flow", false, func(ctx context.Context) error {
 		c.events.Emit("app-update-check-start")
 
 		info, err := downloader.CheckAppUpdate(ctx, currentVersion)
@@ -200,10 +200,14 @@ func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, current
 		_ = c.checkAndDownloadAppUpdateWithInfo(ctx, info, true)
 		return nil
 	})
+
+	if !ok {
+		c.events.Emit("app-update-busy")
+	}
 }
 
 func (c *Controller) AutoCheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
-	c.Tasks.Run(ctx, "app-update-flow", false, func(ctx context.Context) error {
+	c.Tasks.RunIfIdle(ctx, "app-update-flow", false, func(ctx context.Context) error {
 		info, err := downloader.CheckAppUpdate(ctx, currentVersion)
 		if err != nil || info == nil || !info.HasUpdate {
 			return nil

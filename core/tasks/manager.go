@@ -68,6 +68,50 @@ func (m *Manager) Run(parentCtx context.Context, name string, autoSuccess bool, 
 	}(myID)
 }
 
+func (m *Manager) RunIfIdle(
+	parentCtx context.Context,
+	name string,
+	autoSuccess bool,
+	fn func(context.Context) error,
+) bool {
+	m.mu.Lock()
+	if _, exists := m.tasks[name]; exists {
+		m.mu.Unlock()
+		return false
+	}
+
+	taskCtx, cancel := context.WithCancel(parentCtx)
+	myID := time.Now().UnixNano()
+	m.tasks[name] = taskHandle{id: myID, cancel: cancel}
+	m.mu.Unlock()
+
+	go func(currentID int64) {
+		m.events.Emit(name + "-start")
+		err := fn(taskCtx)
+
+		m.mu.Lock()
+		if handle, ok := m.tasks[name]; ok && handle.id == currentID {
+			delete(m.tasks, name)
+		}
+		m.mu.Unlock()
+
+		if err != nil {
+			if taskCtx.Err() != nil {
+				m.events.Emit(name + "-cancelled")
+				return
+			}
+			m.events.Emit(name+"-error", err.Error())
+			return
+		}
+
+		if autoSuccess {
+			m.events.Emit(name + "-success")
+		}
+	}(myID)
+
+	return true
+}
+
 func (m *Manager) Cancel(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
