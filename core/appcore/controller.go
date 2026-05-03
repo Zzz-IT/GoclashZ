@@ -51,6 +51,8 @@ type Controller struct {
 
 	downloadedUpdatePath    string
 	downloadedUpdateVersion string
+
+	GeoUpdates *GeoUpdateManager
 }
 
 func NewController(opts Options) *Controller {
@@ -69,6 +71,9 @@ func NewController(opts Options) *Controller {
 	c.Delay = NewDelayTestManager(opts.Events, c)
 	c.proxyState = NewProxyStateMonitor(opts.Events)
 	c.connections = NewConnectionMonitorManager(opts.Events)
+
+	c.GeoUpdates = NewGeoUpdateManager(opts.Events, c.updateGeoDatabase)
+
 	return c
 }
 

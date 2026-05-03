@@ -10,8 +10,6 @@ import (
 	"goclashz/core/utils"
 	"os"
 	"path/filepath"
-	"strings"
-	"sync"
 )
 
 func (c *Controller) updateGeoDatabase(ctx context.Context, key string) error {
@@ -39,73 +37,11 @@ func (c *Controller) updateGeoDatabase(ctx context.Context, key string) error {
 }
 
 func (c *Controller) UpdateGeoDatabaseAsync(ctx context.Context, key string) {
-	title, _ := clash.GeoDBFileName(key)
-	if title == "" {
-		title = key
-	}
-
-	c.Tasks.Run(ctx, "geo-update-"+key, true, func(ctx context.Context) error {
-		c.events.Emit("geo-update-"+key+"-start")
-
-		if err := c.updateGeoDatabase(ctx, key); err != nil {
-			c.events.Emit("geo-update-"+key+"-error", err.Error())
-			return err
-		}
-
-		c.events.Emit("geo-update-"+key+"-success")
-		return nil
-	})
+	c.GeoUpdates.UpdateOneAsync(ctx, key)
 }
 
 func (c *Controller) UpdateAllGeoDatabasesAsync(ctx context.Context) {
-	c.Tasks.Run(ctx, "geo-update-all", true, func(ctx context.Context) error {
-		keys := []string{"geoip", "geosite", "mmdb", "asn"}
-
-		sem := make(chan struct{}, 2) // 建议 2 并发，不要 4 个大文件一起打满
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-		failed := make([]string, 0)
-
-		for _, key := range keys {
-			key := key
-			wg.Add(1)
-
-			go func() {
-				defer wg.Done()
-
-				select {
-				case sem <- struct{}{}:
-					defer func() { <-sem }()
-				case <-ctx.Done():
-					mu.Lock()
-					failed = append(failed, key+": "+ctx.Err().Error())
-					mu.Unlock()
-					return
-				}
-
-				c.events.Emit("geo-update-" + key + "-start")
-
-				if err := c.updateGeoDatabase(ctx, key); err != nil {
-					c.events.Emit("geo-update-"+key+"-error", err.Error())
-
-					mu.Lock()
-					failed = append(failed, fmt.Sprintf("%s: %v", key, err))
-					mu.Unlock()
-					return
-				}
-
-				c.events.Emit("geo-update-" + key + "-success")
-			}()
-		}
-
-		wg.Wait()
-
-		if len(failed) > 0 {
-			return fmt.Errorf("%s", strings.Join(failed, "; "))
-		}
-
-		return nil
-	})
+	c.GeoUpdates.UpdateAllAsync(ctx)
 }
 
 func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {

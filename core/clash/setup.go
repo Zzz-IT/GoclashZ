@@ -247,7 +247,6 @@ func GeoDBPath(key string) (string, error) {
 	return filepath.Join(utils.GetCoreBinDir(), name), nil
 }
 
-// UpdateGeoDB 更新指定的 Geo 数据库
 func UpdateGeoDB(ctx context.Context, key string, url string) error {
 	destPath, err := GeoDBPath(key)
 	if err != nil {
@@ -259,13 +258,13 @@ func UpdateGeoDB(ctx context.Context, key string, url string) error {
 		DestPath: destPath,
 		Resume:   true,
 		Validator: func(tmpPath string) error {
-			return ValidateGeoDBFile(key, tmpPath)
+			return ValidateGeoDBFile(key, tmpPath, destPath)
 		},
 	})
 }
 
-func ValidateGeoDBFile(key, path string) error {
-	info, err := os.Stat(path)
+func ValidateGeoDBFile(key, tmpPath, destPath string) error {
+	info, err := os.Stat(tmpPath)
 	if err != nil {
 		return err
 	}
@@ -275,12 +274,10 @@ func ValidateGeoDBFile(key, path string) error {
 		return fmt.Errorf("%s 文件体积异常: %d bytes", key, info.Size())
 	}
 
-	lower := strings.ToLower(key)
-
-	switch lower {
+	switch strings.ToLower(strings.TrimSpace(key)) {
 	case "mmdb":
-		if filepath.Ext(path) != ".mmdb" {
-			return fmt.Errorf("mmdb 文件扩展名异常")
+		if filepath.Ext(destPath) != ".mmdb" {
+			return fmt.Errorf("mmdb 目标路径扩展名异常: %s", destPath)
 		}
 	case "geoip", "geosite", "asn":
 		// dat/metadb 不强行解析格式，先做体积保护

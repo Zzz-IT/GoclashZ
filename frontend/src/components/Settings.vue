@@ -114,7 +114,7 @@
               <div class="info">
                 <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">路由规则数据库</h3>
               </div>
-              <button class="action-btn primary-btn accent-btn" @click="handleUpdateAllDbs" :disabled="isUpdatingAnyDb">
+              <button class="action-btn primary-btn accent-btn" @click="handleUpdateAllDbs" :disabled="updatingAllDbs">
                 {{ updatingAllDbs ? '处理中...' : '更新全部' }}
               </button>
             </div>
@@ -134,7 +134,7 @@
                 </div>
                 <div class="btn-group" style="flex-shrink: 0;">
                   <button class="action-btn" @click="openDbEditModal(db.key, behavior[db.behaviorKey])" :disabled="updatingDbs[db.key]">编辑链接</button>
-                  <button class="action-btn" @click="handleUpdateDb(db.key)" :disabled="updatingDbs[db.key] || updatingAllDbs">
+                  <button class="action-btn" @click="handleUpdateDb(db.key)" :disabled="updatingDbs[db.key]">
                     {{ updatingDbs[db.key] ? '同步中...' : '更新同步' }}
                   </button>
                 </div>
@@ -1392,6 +1392,11 @@ onMounted(() => {
 
     EventsOn(`geo-update-${key}-cancelled`, () => {
       updatingDbs.value[key] = false;
+    });
+
+    EventsOn(`geo-update-${key}-busy`, () => {
+      // 同 key 重复点击，静默即可
+      console.log(`[GeoUpdate] ${key} is already updating, ignoring request.`);
     });
   });
 

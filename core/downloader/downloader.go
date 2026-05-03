@@ -22,19 +22,19 @@ import (
 )
 
 type Options struct {
-	URLs            []string // 🚀 1. 竞速容灾：传入多个下载地址（含镜像），第一个通常为主站
+	URLs            []string // 馃殌 1. 绔為€熷鐏撅細浼犲叆澶氫釜涓嬭浇鍦板潃锛堝惈闀滃儚锛夛紝绗竴涓€氬父涓轰富绔?
 	DestPath        string
 	UserAgent       string
 	MaxBytes        int64
 	Client          *http.Client
 	Resume          bool
 	VerifyGitHubSHA bool
-	RequireGitHubSHA bool                       // 🚀 新增：SHA 为可选，Validator 为必须 (支持 digest 缺失场景)
+	RequireGitHubSHA bool                       // 馃殌 鏂板锛歋HA 涓哄彲閫夛紝Validator 涓哄繀椤?(鏀寔 digest 缂哄け鍦烘櫙)
 
-	ProxyURL           string                     // 🚀 2. 自代理加速：指定本地 Clash 代理地址
-	InsecureSkipVerify bool                       // 🚀 3. SSL宽容：无视野鸡机场的过期证书
-	OnResponse         func(resp *http.Response)  // 拦截器：供外部提取 subscription-userinfo 头
-	Validator          func(tmpPath string) error // 🚀 4. 防损屏障：替换前执行验证逻辑 (杜绝坏文件)
+	ProxyURL           string                     // 馃殌 2. 鑷唬鐞嗗姞閫燂細鎸囧畾鏈湴 Clash 浠ｇ悊鍦板潃
+	InsecureSkipVerify bool                       // 馃殌 3. SSL瀹藉锛氭棤瑙嗛噹楦℃満鍦虹殑杩囨湡璇佷功
+	OnResponse         func(resp *http.Response)  // 鎷︽埅鍣細渚涘閮ㄦ彁鍙?subscription-userinfo 澶?
+	Validator          func(tmpPath string) error // 馃殌 4. 闃叉崯灞忛殰锛氭浛鎹㈠墠鎵ц楠岃瘉閫昏緫 (鏉滅粷鍧忔枃浠?
 }
 
 type resumeMeta struct {
@@ -52,7 +52,7 @@ var largeClient = &http.Client{
 	Timeout: 10 * time.Minute,
 }
 
-// createClients 生成网络环境矩阵（直连 vs 代理）
+// createClients 鐢熸垚缃戠粶鐜鐭╅樀锛堢洿杩?vs 浠ｇ悊锛?
 func createClients(opt Options) []*http.Client {
 	if opt.Client != nil {
 		return []*http.Client{opt.Client}
@@ -61,12 +61,12 @@ func createClients(opt Options) []*http.Client {
 	var clients []*http.Client
 	tlsConfig := &tls.Config{InsecureSkipVerify: opt.InsecureSkipVerify}
 
-	// 🚀 [引擎 A]：直连客户端 (System Direct)
+	// 馃殌 [寮曟搸 A]锛氱洿杩炲鎴风 (System Direct)
 	directTransport := &http.Transport{
-		Proxy:               http.ProxyFromEnvironment, // 走系统默认
+		Proxy:               http.ProxyFromEnvironment, // 璧扮郴缁熼粯璁?
 		TLSClientConfig:     tlsConfig,
 		TLSHandshakeTimeout: 5 * time.Second,
-		// 🌟 核心修复：彻底禁用 Keep-Alive，防止在“阅后即焚”的竞速场景下产生大量的幽灵协程泄露
+		// 馃専 鏍稿績淇锛氬交搴曠鐢?Keep-Alive锛岄槻姝㈠湪鈥滈槄鍚庡嵆鐒氣€濈殑绔為€熷満鏅笅浜х敓澶ч噺鐨勫菇鐏靛崗绋嬫硠闇?
 		DisableKeepAlives: true,
 	}
 	clients = append(clients, &http.Client{
@@ -74,14 +74,14 @@ func createClients(opt Options) []*http.Client {
 		Transport: directTransport,
 	})
 
-	// 🚀 [引擎 B]：自代理客户端 (Self-Proxy)
+	// 馃殌 [寮曟搸 B]锛氳嚜浠ｇ悊瀹㈡埛绔?(Self-Proxy)
 	if opt.ProxyURL != "" {
 		if pURL, err := url.Parse(opt.ProxyURL); err == nil {
 			proxyTransport := &http.Transport{
-				Proxy:               http.ProxyURL(pURL), // 强行走本地 Clash 端口
+				Proxy:               http.ProxyURL(pURL), // 寮鸿璧版湰鍦?Clash 绔彛
 				TLSClientConfig:     tlsConfig,
 				TLSHandshakeTimeout: 5 * time.Second,
-				// 🌟 核心修复：同样彻底禁用 Keep-Alive
+				// 馃専 鏍稿績淇锛氬悓鏍峰交搴曠鐢?Keep-Alive
 				DisableKeepAlives: true,
 			}
 			clients = append(clients, &http.Client{
@@ -122,10 +122,15 @@ func writeResumeMeta(path string, meta resumeMeta) error {
 var destLocks sync.Map // map[string]*sync.Mutex
 
 func lockDest(path string) func() {
-	abs, err := filepath.Abs(path)
+	clean := filepath.Clean(path)
+
+	abs, err := filepath.Abs(clean)
 	if err != nil {
-		abs = path
+		abs = clean
 	}
+
+	// 🚀 核心修复：Windows 路径大小写不敏感，统一转小写，彻底防止同一路径绕过锁
+	abs = strings.ToLower(abs)
 
 	v, _ := destLocks.LoadOrStore(abs, &sync.Mutex{})
 	mu := v.(*sync.Mutex)
@@ -150,15 +155,15 @@ func probeSingleRemote(ctx context.Context, client *http.Client, testURL string,
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return resumeMeta{}, false, err // ✅ 修复：向上抛出真实网络报错
+		return resumeMeta{}, false, err // 鉁?淇锛氬悜涓婃姏鍑虹湡瀹炵綉缁滄姤閿?
 	}
 
-	// ✅ 修复：很多机场面板屏蔽 HEAD 请求返回 405/403，触发 GET 降级探测
+	// 鉁?淇锛氬緢澶氭満鍦洪潰鏉垮睆钄?HEAD 璇锋眰杩斿洖 405/403锛岃Е鍙?GET 闄嶇骇鎺㈡祴
 	if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusForbidden {
 		resp.Body.Close()
 		req, _ = http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
 		req.Header.Set("User-Agent", ua)
-		// 使用 Range 限制只请求一点点数据，避免测速时就下载了整个订阅
+		// 浣跨敤 Range 闄愬埗鍙姹備竴鐐圭偣鏁版嵁锛岄伩鍏嶆祴閫熸椂灏变笅杞戒簡鏁翠釜璁㈤槄
 		req.Header.Set("Range", "bytes=0-0")
 		resp, err = client.Do(req)
 		if err != nil {
@@ -168,14 +173,14 @@ func probeSingleRemote(ctx context.Context, client *http.Client, testURL string,
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resumeMeta{}, false, fmt.Errorf("HTTP请求失败，状态码: %d", resp.StatusCode) // ✅ 修复：抛出具体错误
+		return resumeMeta{}, false, fmt.Errorf("HTTP璇锋眰澶辫触锛岀姸鎬佺爜: %d", resp.StatusCode) // 鉁?淇锛氭姏鍑哄叿浣撻敊璇?
 	}
 
 	total := resp.ContentLength
 	acceptRanges := strings.Contains(strings.ToLower(resp.Header.Get("Accept-Ranges")), "bytes")
 
 	return resumeMeta{
-		URL:          resp.Request.URL.String(), // 记录实际起效的重定向真实地址
+		URL:          resp.Request.URL.String(), // 璁板綍瀹為檯璧锋晥鐨勯噸瀹氬悜鐪熷疄鍦板潃
 		ETag:         resp.Header.Get("ETag"),
 		LastModified: resp.Header.Get("Last-Modified"),
 		TotalSize:    total,
@@ -185,11 +190,11 @@ func probeSingleRemote(ctx context.Context, client *http.Client, testURL string,
 type envProbeResult struct {
 	meta       resumeMeta
 	canPartial bool
-	client     *http.Client // 🌟 核心：记录是哪个客户端（环境）赢得了竞速
+	client     *http.Client // 馃専 鏍稿績锛氳褰曟槸鍝釜瀹㈡埛绔紙鐜锛夎耽寰椾簡绔為€?
 	err        error
 }
 
-// probeFastestEnvironment 并发竞速：寻找最快的链接与最通畅的网络环境
+// probeFastestEnvironment 骞跺彂绔為€燂細瀵绘壘鏈€蹇殑閾炬帴涓庢渶閫氱晠鐨勭綉缁滅幆澧?
 func probeFastestEnvironment(ctx context.Context, clients []*http.Client, opt Options) (resumeMeta, bool, *http.Client, error) {
 	urls := opt.URLs
 
@@ -199,12 +204,12 @@ func probeFastestEnvironment(ctx context.Context, clients []*http.Client, opt Op
 	raceCtx, cancelRace := context.WithCancel(ctx)
 	defer cancelRace()
 
-	// 开启 N x M 协程矩阵 (环境 x 镜像)
+	// 寮€鍚?N x M 鍗忕▼鐭╅樀 (鐜 x 闀滃儚)
 	for _, client := range clients {
 		for _, u := range urls {
 			go func(c *http.Client, target string) {
 				meta, partial, err := probeSingleRemote(raceCtx, c, target, opt)
-				if err == nil { // ✅ 移除 TotalSize > 0 的强制依赖
+				if err == nil { // 鉁?绉婚櫎 TotalSize > 0 鐨勫己鍒朵緷璧?
 					resultCh <- envProbeResult{meta, partial, c, nil}
 				} else {
 					resultCh <- envProbeResult{resumeMeta{}, false, nil, err}
@@ -216,14 +221,14 @@ func probeFastestEnvironment(ctx context.Context, clients []*http.Client, opt Op
 	var lastErr error
 	for i := 0; i < totalRaces; i++ {
 		res := <-resultCh
-		if res.err == nil { // ✅ 移除 TotalSize > 0 的强制依赖
-			cancelRace() // 🌟 找到最快的通道，立刻切断其他落后协程
+		if res.err == nil { // 鉁?绉婚櫎 TotalSize > 0 鐨勫己鍒朵緷璧?
+			cancelRace() // 馃専 鎵惧埌鏈€蹇殑閫氶亾锛岀珛鍒诲垏鏂叾浠栬惤鍚庡崗绋?
 			return res.meta, res.canPartial, res.client, nil
 		}
 		lastErr = res.err
 	}
 
-	return resumeMeta{}, false, nil, fmt.Errorf("所有网络环境与镜像均探测失败: %v", lastErr)
+	return resumeMeta{}, false, nil, fmt.Errorf("鎵€鏈夌綉缁滅幆澧冧笌闀滃儚鍧囨帰娴嬪け璐? %v", lastErr)
 }
 
 func parseContentRangeTotal(v string) (int64, bool) {
@@ -244,11 +249,11 @@ func parseContentRangeTotal(v string) (int64, bool) {
 	return total, true
 }
 
-// FetchSmallFileAtomic 🚀 高级并发下载：针对小文件（如订阅、配置）执行“全速体感竞速”
-// 它不仅并发测试连接，还直接并发下载内容。第一个通过 Validator 校验的连接将赢得比赛。
+// FetchSmallFileAtomic 馃殌 楂樼骇骞跺彂涓嬭浇锛氶拡瀵瑰皬鏂囦欢锛堝璁㈤槄銆侀厤缃級鎵ц鈥滃叏閫熶綋鎰熺珵閫熲€?
+// 瀹冧笉浠呭苟鍙戞祴璇曡繛鎺ワ紝杩樼洿鎺ュ苟鍙戜笅杞藉唴瀹广€傜涓€涓€氳繃 Validator 鏍￠獙鐨勮繛鎺ュ皢璧㈠緱姣旇禌銆?
 func FetchSmallFileAtomic(ctx context.Context, opt Options) error {
 	if strings.TrimSpace(opt.DestPath) == "" {
-		return fmt.Errorf("DestPath 为空")
+		return fmt.Errorf("DestPath 涓虹┖")
 	}
 
 	unlock := lockDest(opt.DestPath)
@@ -307,7 +312,7 @@ func FetchSmallFileAtomic(ctx context.Context, opt Options) error {
 				}
 
 				if opt.MaxBytes > 0 && int64(len(body)) > opt.MaxBytes {
-					resultCh <- result{err: fmt.Errorf("文件超过大小限制")}
+					resultCh <- result{err: fmt.Errorf("鏂囦欢瓒呰繃澶у皬闄愬埗")}
 					return
 				}
 
@@ -320,25 +325,25 @@ func FetchSmallFileAtomic(ctx context.Context, opt Options) error {
 	for i := 0; i < totalRaces; i++ {
 		res := <-resultCh
 		if res.err == nil && len(res.body) > 0 {
-			// 1. 写入临时文件，准备“验毒”
+			// 1. 鍐欏叆涓存椂鏂囦欢锛屽噯澶団€滈獙姣掆€?
 			tmpPath := opt.DestPath + ".tmp"
 			if err := os.WriteFile(tmpPath, res.body, 0644); err != nil {
 				lastErr = err
 				continue
 			}
 
-			// 🌟 2. 核心修复：先先验毒，后颁奖！
-			// 如果校验不通过，说明该通道可能被 WAF 拦截返回了 HTML，直接丢弃并继续等待其他慢速但正确的通道
+			// 馃専 2. 鏍稿績淇锛氬厛鍏堥獙姣掞紝鍚庨濂栵紒
+			// 濡傛灉鏍￠獙涓嶉€氳繃锛岃鏄庤閫氶亾鍙兘琚?WAF 鎷︽埅杩斿洖浜?HTML锛岀洿鎺ヤ涪寮冨苟缁х画绛夊緟鍏朵粬鎱㈤€熶絾姝ｇ‘鐨勯€氶亾
 			if opt.Validator != nil {
 				if err := opt.Validator(tmpPath); err != nil {
 					_ = os.Remove(tmpPath)
-					lastErr = fmt.Errorf("探测到无效数据(可能被拦截): %v", err)
+					lastErr = fmt.Errorf("鎺㈡祴鍒版棤鏁堟暟鎹?鍙兘琚嫤鎴?: %v", err)
 					continue
 				}
 			}
 
-			// 🌟 3. 校验通过，它是真的！
-			cancelRace() // 此时才斩断其他还在跑的协程
+			// 馃専 3. 鏍￠獙閫氳繃锛屽畠鏄湡鐨勶紒
+			cancelRace() // 姝ゆ椂鎵嶆柀鏂叾浠栬繕鍦ㄨ窇鐨勫崗绋?
 
 			if opt.OnResponse != nil {
 				opt.OnResponse(&http.Response{Header: res.header})
@@ -352,20 +357,20 @@ func FetchSmallFileAtomic(ctx context.Context, opt Options) error {
 	}
 
 	if lastErr == nil {
-		lastErr = fmt.Errorf("所有竞速通道均已失效")
+		lastErr = fmt.Errorf("鎵€鏈夌珵閫熼€氶亾鍧囧凡澶辨晥")
 	}
-	return fmt.Errorf("竞速下载失败: %v", lastErr)
+	return fmt.Errorf("绔為€熶笅杞藉け璐? %v", lastErr)
 }
 
 func DownloadAtomic(ctx context.Context, opt Options) error {
 	if strings.TrimSpace(opt.DestPath) == "" {
-		return fmt.Errorf("DestPath 为空")
+		return fmt.Errorf("DestPath 涓虹┖")
 	}
 
 	unlock := lockDest(opt.DestPath)
 	defer unlock()
 
-	// 1. 生成竞速矩阵 (直连 & 代理)
+	// 1. 鐢熸垚绔為€熺煩闃?(鐩磋繛 & 浠ｇ悊)
 	clients := createClients(opt)
 
 	ua := opt.UserAgent
@@ -393,7 +398,7 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 		_ = os.Remove(metaFile)
 	}
 
-	// 2. 发起极限竞速 (环境 x 镜像) 🚀
+	// 2. 鍙戣捣鏋侀檺绔為€?(鐜 x 闀滃儚) 馃殌
 	remoteMeta, serverSupportsRange, winningClient, err := probeFastestEnvironment(ctx, clients, opt)
 	if err != nil {
 		return err
@@ -417,9 +422,9 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 		_ = os.Remove(metaFile)
 	}
 
-	// 尝试下载或续传
+	// 灏濊瘯涓嬭浇鎴栫画浼?
 	if startOffset > 0 && remoteMeta.TotalSize > 0 && startOffset >= remoteMeta.TotalSize {
-		// 已下载完，跳过下载阶段
+		// 宸蹭笅杞藉畬锛岃烦杩囦笅杞介樁娈?
 	} else {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, remoteMeta.URL, nil)
 		if err != nil {
@@ -436,14 +441,14 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 			}
 		}
 
-		// 🌟 3. 使用赢得竞速的 client 发起正式的大文件下载
+		// 馃専 3. 浣跨敤璧㈠緱绔為€熺殑 client 鍙戣捣姝ｅ紡鐨勫ぇ鏂囦欢涓嬭浇
 		resp, err := winningClient.Do(req)
 		if err != nil {
 			return err
 		}
 		defer resp.Body.Close()
 
-		// 🚀 在 resp 获取成功后，立刻暴露出 Header 供外部解析
+		// 馃殌 鍦?resp 鑾峰彇鎴愬姛鍚庯紝绔嬪埢鏆撮湶鍑?Header 渚涘閮ㄨВ鏋?
 		if opt.OnResponse != nil {
 			opt.OnResponse(resp)
 		}
@@ -458,7 +463,7 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 			appendMode = true
 		default:
 			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				return fmt.Errorf("下载失败: HTTP %d", resp.StatusCode)
+				return fmt.Errorf("涓嬭浇澶辫触: HTTP %d", resp.StatusCode)
 			}
 		}
 
@@ -497,7 +502,7 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 			remain := opt.MaxBytes - startOffset
 			if remain <= 0 {
 				out.Close()
-				return fmt.Errorf("下载文件超过大小限制")
+				return fmt.Errorf("涓嬭浇鏂囦欢瓒呰繃澶у皬闄愬埗")
 			}
 			reader = io.LimitReader(resp.Body, remain+1)
 		}
@@ -515,7 +520,7 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 		if opt.MaxBytes > 0 && startOffset+n > opt.MaxBytes {
 			_ = os.Remove(tmpPath)
 			_ = os.Remove(metaFile)
-			return fmt.Errorf("下载文件超过大小限制")
+			return fmt.Errorf("涓嬭浇鏂囦欢瓒呰繃澶у皬闄愬埗")
 		}
 	}
 
@@ -525,41 +530,41 @@ func DownloadAtomic(ctx context.Context, opt Options) error {
 			return err
 		}
 		if info.Size() < remoteMeta.TotalSize {
-			return fmt.Errorf("下载未完成: %d/%d", info.Size(), remoteMeta.TotalSize)
+			return fmt.Errorf("涓嬭浇鏈畬鎴? %d/%d", info.Size(), remoteMeta.TotalSize)
 		}
 		if info.Size() > remoteMeta.TotalSize {
 			_ = os.Remove(tmpPath)
 			_ = os.Remove(metaFile)
-			return fmt.Errorf("下载文件大小异常: %d/%d", info.Size(), remoteMeta.TotalSize)
+			return fmt.Errorf("涓嬭浇鏂囦欢澶у皬寮傚父: %d/%d", info.Size(), remoteMeta.TotalSize)
 		}
 	}
 
-	// 校验逻辑
+	// 鏍￠獙閫昏緫
 	if opt.VerifyGitHubSHA {
-		// 校验也需要使用获胜的 client，确保网络通畅
+		// 鏍￠獙涔熼渶瑕佷娇鐢ㄨ幏鑳滅殑 client锛岀‘淇濈綉缁滈€氱晠
 		expectedSHA, err := ResolveGitHubAssetSHA256(ctx, winningClient, remoteMeta.URL, ua)
 		if err != nil {
 			if opt.RequireGitHubSHA {
 				_ = os.Remove(tmpPath)
-				return fmt.Errorf("获取 GitHub 文件哈希失败: %v", err)
+				return fmt.Errorf("鑾峰彇 GitHub 鏂囦欢鍝堝笇澶辫触: %v", err)
 			}
-			// digest 缺失时允许继续，但后续必须依赖 Validator 做格式校验
+			// digest 缂哄け鏃跺厑璁哥户缁紝浣嗗悗缁繀椤讳緷璧?Validator 鍋氭牸寮忔牎楠?
 			expectedSHA = ""
 		}
 
 		if expectedSHA != "" {
 			if err := VerifySHA256(tmpPath, expectedSHA); err != nil {
 				_ = os.Remove(tmpPath)
-				return fmt.Errorf("文件 SHA256 校验失败: %v", err)
+				return fmt.Errorf("鏂囦欢 SHA256 鏍￠獙澶辫触: %v", err)
 			}
 		}
 	}
 
-	// 🚀 在 tmp 文件写入完毕，马上要执行 ReplaceFile 之前：
+	// 馃殌 鍦?tmp 鏂囦欢鍐欏叆瀹屾瘯锛岄┈涓婅鎵ц ReplaceFile 涔嬪墠锛?
 	if opt.Validator != nil {
 		if err := opt.Validator(tmpPath); err != nil {
-			_ = os.Remove(tmpPath) // 校验失败毁尸灭迹，保护系统配置安全
-			return fmt.Errorf("安全校验拦截, 文件存在损坏或格式错误: %v", err)
+			_ = os.Remove(tmpPath) // 鏍￠獙澶辫触姣佸案鐏抗锛屼繚鎶ょ郴缁熼厤缃畨鍏?
+			return fmt.Errorf("瀹夊叏鏍￠獙鎷︽埅, 鏂囦欢瀛樺湪鎹熷潖鎴栨牸寮忛敊璇? %v", err)
 		}
 	}
 
@@ -579,13 +584,13 @@ func ReplaceFile(tmpPath, destPath string) error {
 
 	if _, err := os.Stat(destPath); err == nil {
 		if err := os.Rename(destPath, backupPath); err != nil {
-			return fmt.Errorf("备份旧文件失败: %w", err)
+			return fmt.Errorf("澶囦唤鏃ф枃浠跺け璐? %w", err)
 		}
 	}
 
 	if err := os.Rename(tmpPath, destPath); err != nil {
 		_ = os.Rename(backupPath, destPath)
-		return fmt.Errorf("替换目标文件失败: %w", err)
+		return fmt.Errorf("鏇挎崲鐩爣鏂囦欢澶辫触: %w", err)
 	}
 
 	_ = os.Remove(backupPath)
@@ -630,7 +635,7 @@ var versionRe = regexp.MustCompile(`\d+(?:\.\d+){0,3}`)
 var strictVersionRe = regexp.MustCompile(`(?i)(?:^|[^0-9])v?(\d+\.\d+(?:\.\d+)?(?:\.\d+)?)`)
 
 func CheckAppUpdate(ctx context.Context, currentVersion string) (*AppUpdateInfo, error) {
-	// 请求 GitHub API 获取最新 Release
+	// 璇锋眰 GitHub API 鑾峰彇鏈€鏂?Release
 	apiURL := "https://api.github.com/repos/Zzz-IT/GoclashZ/releases/latest"
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	req.Header.Set("User-Agent", "GoclashZ-Updater")
@@ -642,7 +647,7 @@ func CheckAppUpdate(ctx context.Context, currentVersion string) (*AppUpdateInfo,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("GitHub API 杩斿洖 HTTP %d", resp.StatusCode)
 	}
 
 	var release struct {
@@ -659,7 +664,7 @@ func CheckAppUpdate(ctx context.Context, currentVersion string) (*AppUpdateInfo,
 		return nil, err
 	}
 
-	// 🚀 使用增强的比对逻辑
+	// 馃殌 浣跨敤澧炲己鐨勬瘮瀵归€昏緫
 	cmp, err := CompareAppVersion(release.TagName, currentVersion)
 	if err != nil {
 		return nil, err
@@ -698,7 +703,7 @@ func selectWindowsAsset(assets []struct {
 			continue
 		}
 
-		// 🛡️ 黑名单：这些不是软件本体，哪怕它们也是 .exe
+		// 馃洝锔?榛戝悕鍗曪細杩欎簺涓嶆槸杞欢鏈綋锛屽摢鎬曞畠浠篃鏄?.exe
 		if strings.Contains(lower, "mihomo") ||
 			strings.Contains(lower, "clash") ||
 			strings.Contains(lower, "wintun") ||
@@ -709,7 +714,7 @@ func selectWindowsAsset(assets []struct {
 			continue
 		}
 
-		// 🛡️ 白名单：必须包含 goclashz，且倾向于包含 setup/installer/windows 等关键字
+		// 馃洝锔?鐧藉悕鍗曪細蹇呴』鍖呭惈 goclashz锛屼笖鍊惧悜浜庡寘鍚?setup/installer/windows 绛夊叧閿瓧
 		if strings.Contains(lower, "goclashz") {
 			if strings.Contains(lower, "setup") ||
 				strings.Contains(lower, "installer") ||
@@ -735,10 +740,10 @@ func CompareAppVersion(remote, current string) (int, error) {
 	bb := parseVersionParts(current)
 
 	if len(aa) == 0 {
-		return 0, fmt.Errorf("无法解析远端版本: %s", remote)
+		return 0, fmt.Errorf("鏃犳硶瑙ｆ瀽杩滅鐗堟湰: %s", remote)
 	}
 	if len(bb) == 0 {
-		return 0, fmt.Errorf("无法解析当前版本: %s", current)
+		return 0, fmt.Errorf("鏃犳硶瑙ｆ瀽褰撳墠鐗堟湰: %s", current)
 	}
 
 	maxLen := len(aa)
@@ -746,7 +751,7 @@ func CompareAppVersion(remote, current string) (int, error) {
 		maxLen = len(bb)
 	}
 
-	// 补齐长度
+	// 琛ラ綈闀垮害
 	for len(aa) < maxLen {
 		aa = append(aa, 0)
 	}
@@ -768,7 +773,7 @@ func CompareAppVersion(remote, current string) (int, error) {
 func parseVersionParts(v string) []int {
 	v = strings.TrimSpace(v)
 
-	// 🚀 核心改进：使用更严格的正则提取版本部分，要求至少 x.y
+	// 馃殌 鏍稿績鏀硅繘锛氫娇鐢ㄦ洿涓ユ牸鐨勬鍒欐彁鍙栫増鏈儴鍒嗭紝瑕佹眰鑷冲皯 x.y
 	m := strictVersionRe.FindStringSubmatch(v)
 	if len(m) < 2 {
 		return nil
@@ -787,3 +792,4 @@ func parseVersionParts(v string) []int {
 
 	return out
 }
+
