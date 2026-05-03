@@ -13,10 +13,11 @@
           v-for="opt in options" 
           :key="opt.value" 
           class="select-option"
-          :class="{ active: opt.value === modelValue }"
+          :class="{ active: opt.value === modelValue, 'has-description': opt.description }"
           @click.stop="selectOption(opt.value)"
         >
-          {{ opt.label }}
+          <div class="option-label">{{ opt.label }}</div>
+          <div v-if="opt.description" class="option-description">{{ opt.description }}</div>
         </div>
       </div>
     </transition>
@@ -28,7 +29,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 
 const props = defineProps<{
   modelValue: string | number;
-  options: { label: string; value: string | number }[];
+  options: { label: string; value: string | number; description?: string }[];
   disabled?: boolean;
 }>();
 
@@ -74,7 +75,8 @@ onUnmounted(() => {
 /* 1. 基础容器（无任何系统响应逻辑） */
 .modern-custom-select {
   position: relative;
-  width: 140px; 
+  min-width: 140px; 
+  width: auto;
   height: 36px;
   font-family: inherit;
   font-size: 0.85rem;
@@ -99,14 +101,6 @@ onUnmounted(() => {
   box-sizing: border-box;
   background-color: var(--surface-hover);
 }
-
-/* 悬停时不加高亮 (根据用户要求移除) */
-/* .modern-custom-select:not(.disabled):hover .select-trigger { background-color: var(--surface-panel); } */
-
-
-/* 点击展开时不加高亮 (根据用户要求移除) */
-/* .modern-custom-select.is-open .select-trigger { background-color: var(--surface-panel); } */
-
 
 /* 禁用状态 */
 .modern-custom-select.disabled .select-trigger {
@@ -133,28 +127,42 @@ onUnmounted(() => {
   background-color: var(--surface);
   border: 1px solid var(--glass-border);
   border-radius: 8px;
-  box-shadow: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 100;
   overflow: hidden;
   padding: 4px;
 }
 
 .select-option {
-  padding: 8px 12px;
+  padding: 10px 12px;
   color: var(--text-main);
   cursor: pointer;
   border-radius: 6px;
   transition: background 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-/* 悬停时不加高亮 (根据用户要求移除) */
-/* .select-option:hover { background-color: var(--surface-hover); } */
-
+.select-option:hover {
+  background-color: var(--surface-hover);
+}
 
 .select-option.active {
   background-color: var(--surface-panel);
   color: var(--accent);
-  font-weight: bold;
+}
+
+.option-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.option-description {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-weight: normal;
+  line-height: 1.3;
 }
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s, transform 0.2s; }

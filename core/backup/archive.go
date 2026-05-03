@@ -178,7 +178,6 @@ func buildRestorePlan(mode string) *RestorePlan {
 		plan.ReplaceFiles = []string{"config.yaml"}
 	case "subs-merge":
 		plan.MergeDirs = []string{"Subscriptions"}
-		plan.ReplaceFiles = []string{"profiles/index.json"}
 	}
 	return plan
 }
@@ -255,14 +254,17 @@ func backupCurrentTargets(dataDir string, plan *RestorePlan, rollbackDir string)
 }
 
 func rollbackRestorePlan(dataDir, rollbackDir string, plan *RestorePlan) error {
-	allTargets := append(plan.ReplaceDirs, plan.ReplaceFiles...)
-	// merge 模式通常不需要回滚 MergeDirs，因为是增量操作，除非发生严重 IO 错误
+	allTargets := append([]string{}, plan.ReplaceDirs...)
+	allTargets = append(allTargets, plan.ReplaceFiles...)
+	allTargets = append(allTargets, plan.MergeDirs...)
+
 	for _, target := range allTargets {
 		src := filepath.Join(rollbackDir, target)
 		dst := filepath.Join(dataDir, target)
 		if _, err := os.Stat(src); err == nil {
 			_ = os.RemoveAll(dst)
-			if info, _ := os.Stat(src); info.IsDir() {
+			info, _ := os.Stat(src)
+			if info.IsDir() {
 				_ = copyDir(src, dst)
 			} else {
 				_ = copyFile(src, dst)
@@ -373,6 +375,9 @@ func extractAndNormalizeToStaging(archivePath, stagingDir string) ([]clash.SubIn
 // --- Utils ---
 
 func copyFile(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
 	sourceFile, err := os.Open(src)
 	if err != nil {
 		return err

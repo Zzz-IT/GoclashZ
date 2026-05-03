@@ -959,12 +959,27 @@
                 <ModernSelect 
                   v-model="restoreMode" 
                   :options="[
-                    { label: '全部恢复 (包含订阅与软件设置)', value: 'all' },
-                    { label: '仅恢复订阅配置 (合并入现有列表)', value: 'subs' },
-                    { label: '仅恢复软件设置 (包含主题/日志)', value: 'settings' }
+                    { 
+                      label: '全部恢复（替换设置与订阅）', 
+                      value: 'all',
+                      description: '完整还原软件设置、订阅列表及主配置，当前数据将被完全覆盖。'
+                    },
+                    { 
+                      label: '恢复订阅配置（替换现有列表）', 
+                      value: 'subs',
+                      description: '用备份中的订阅列表替换当前列表，当前多余订阅将被移除。'
+                    },
+                    { 
+                      label: '恢复订阅配置（合并入现有列表）', 
+                      value: 'subs-merge',
+                      description: '保留当前订阅，并将备份中的新订阅合并进来。同 ID 项将被覆盖。'
+                    },
+                    { 
+                      label: '恢复软件设置（包含主题/日志）', 
+                      value: 'settings',
+                      description: '仅还原应用行为、DNS、网络及主题设置，不影响订阅列表。'
+                    }
                   ]"
-                  class="w-full"
-                  style="height: 44px;"
                 />
               </div>
             </div>
@@ -1364,6 +1379,22 @@ const handleSelectFile = async () => {
 
 // 执行还原
 const confirmRestore = async () => {
+  if (!selectedPath.value) return;
+
+  const warnings: Record<string, string> = {
+    all: '完整恢复会替换当前软件设置、订阅列表、运行配置和主题设置。恢复过程中会短暂停止内核。',
+    subs: '此操作会用备份中的订阅列表替换当前订阅列表，当前多余订阅会被移除。',
+    'subs-merge': '此操作会保留当前订阅列表，并将备份中的订阅合并进来。同 ID 订阅可能被备份内容覆盖。',
+    settings: '此操作只恢复软件设置和主题设置，不会影响订阅列表。'
+  };
+
+  const confirmMsg = warnings[restoreMode.value] || '确定要执行数据还原吗？';
+  
+  // 使用确认弹窗
+  if (!window.confirm(confirmMsg + "\n\n还原完成后，部分设置将即时生效。")) {
+    return;
+  }
+
   try {
     const res = await (API as any).ExecuteRestore(selectedPath.value, restoreMode.value);
     if (res === "SUCCESS") {
