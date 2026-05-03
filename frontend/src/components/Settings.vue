@@ -1214,7 +1214,7 @@ const geoKeys = ["geoip", "geosite", "mmdb", "asn"];
 const geoNameMap: Record<string, string> = {
   geoip: 'GeoIP',
   geosite: 'GeoSite',
-  mmdb: 'Country MMDB',
+  mmdb: 'MMDB',
   asn: 'ASN',
 };
 const pendingGeoNotices: GeoNotice[] = [];
@@ -1741,7 +1741,14 @@ const saveDbLink = async () => {
 };
 
 const handleUpdateDb = async (key: string) => {
-  if (updatingDbs.value[key]) return;
+  if (updatingDbs.value[key]) {
+    await refreshGeoActiveState();
+    if (updatingDbs.value[key]) return;
+  }
+
+  // 乐观置位，确保 UI 响应
+  updatingDbs.value[key] = true;
+
   try {
     await (API as any).UpdateGeoDatabaseAsync(key);
   } catch (e) {
@@ -1755,7 +1762,16 @@ const handleUpdateDb = async (key: string) => {
 };
 
 const handleUpdateAllDbs = async () => {
-  if (updatingAllDbs.value) return;
+  if (updatingAllDbs.value) {
+    await refreshGeoActiveState();
+    if (updatingAllDbs.value) return;
+  }
+
+  updatingAllDbs.value = true;
+  geoKeys.forEach((key) => {
+    updatingDbs.value[key] = true;
+  });
+
   try {
     await API.UpdateAllGeoDatabasesAsync();
   } catch (e) {
@@ -1763,6 +1779,7 @@ const handleUpdateAllDbs = async () => {
     geoKeys.forEach((key) => {
       updatingDbs.value[key] = false;
     });
+
     void enqueueModal({
       title: '错误',
       message: '全部更新启动失败：' + formatUpdateError(e),
