@@ -1182,6 +1182,103 @@ const formatUpdateError = (err: any) => {
   return msg;
 };
 
+// --- UI 增强助手：队列、去抖、通知聚合 ---
+
+// 1. 弹窗队列：防止多个弹窗冲突或卡死事件循环
+type ModalJob = {
+  title: string;
+  message: string;
+  danger?: boolean;
+};
+const modalQueue: ModalJob[] = [];
+let modalShowing = false;
+
+const enqueueModal = async (job: ModalJob) => {
+  modalQueue.push(job);
+  if (modalShowing) return;
+  modalShowing = true;
+  while (modalQueue.length > 0) {
+    const current = modalQueue.shift()!;
+    await showAlert(current.message, current.title, !!current.danger);
+  }
+  modalShowing = false;
+};
+
+// 2. Geo 通知聚合：连续单点更新时，合并为一个通知
+type GeoNotice = {
+  key: string;
+  status: 'success' | 'error';
+  error?: string;
+};
+const geoKeys = ["geoip", "geosite", "mmdb", "asn"];
+const geoNameMap: Record<string, string> = {
+  geoip: 'GeoIP',
+  geosite: 'GeoSite',
+  mmdb: 'Country MMDB',
+  asn: 'ASN',
+};
+const pendingGeoNotices: GeoNotice[] = [];
+let geoNoticeTimer: number | undefined;
+
+const pushGeoNotice = (notice: GeoNotice) => {
+  pendingGeoNotices.push(notice);
+  if (geoNoticeTimer) window.clearTimeout(geoNoticeTimer);
+  geoNoticeTimer = window.setTimeout(() => {
+    flushGeoNotices();
+  }, 350);
+};
+
+const flushGeoNotices = () => {
+  geoNoticeTimer = undefined;
+  const notices = pendingGeoNotices.splice(0);
+  if (!notices.length) return;
+
+  const errors = notices.filter(n => n.status === 'error');
+  const successes = notices.filter(n => n.status === 'success');
+
+  if (errors.length > 0) {
+    const message = errors
+      .map(n => `${geoNameMap[n.key] || n.key}: ${n.error || '更新失败'}`)
+      .join('\n');
+    void enqueueModal({ title: '数据库更新失败', message, danger: true });
+    return;
+  }
+
+  if (successes.length > 0) {
+    const names = successes.map(n => geoNameMap[n.key] || n.key).join('、');
+    void enqueueModal({ title: '通知', message: `${names} 更新完成。`, danger: false });
+  }
+};
+
+// 3. 文件信息刷新去抖
+let componentInfoRefreshTimer: number | undefined;
+let componentInfoRefreshing = false;
+let componentInfoRefreshPending = false;
+
+const queueComponentInfoRefresh = () => {
+  if (componentInfoRefreshTimer) window.clearTimeout(componentInfoRefreshTimer);
+  componentInfoRefreshTimer = window.setTimeout(() => {
+    void refreshComponentInfoSafely();
+  }, 200);
+};
+
+const refreshComponentInfoSafely = async () => {
+  if (componentInfoRefreshing) {
+    componentInfoRefreshPending = true;
+    return;
+  }
+  componentInfoRefreshing = true;
+  try {
+    await refreshComponentInfo();
+  } finally {
+    componentInfoRefreshing = false;
+    if (componentInfoRefreshPending) {
+      componentInfoRefreshPending = false;
+      queueComponentInfoRefresh();
+    }
+  }
+};
+
 const handleCheckUpdate = async () => {
   checkingAppUpdate.value = true;
   try {
@@ -1394,61 +1491,77 @@ onMounted(() => {
   loadData(); 
 
   // 🌟 3. 监听手动触发的 Geo 数据库更新事件
-  const geoKeys = ["geoip", "geosite", "mmdb", "asn"];
   geoKeys.forEach((key) => {
     EventsOn(`geo-update-${key}-start`, () => {
       updatingDbs.value[key] = true;
     });
 
-    EventsOn(`geo-update-${key}-success`, async () => {
+    EventsOn(`geo-update-${key}-success`, () => {
       updatingDbs.value[key] = false;
-      await refreshComponentInfo();
-      // 只有非“更新全部”状态下才弹窗
-      if (!updatingAllDbs.value) {
-        await showAlert(`${dbTitles[key] || key} 文件同步成功！`, "完成");
-      }
+      queueComponentInfoRefresh();
+      if (updatingAllDbs.value) return;
+      pushGeoNotice({ key, status: 'success' });
     });
 
-    EventsOn(`geo-update-${key}-error`, async (err: string) => {
+    EventsOn(`geo-update-${key}-error`, (err: string) => {
       updatingDbs.value[key] = false;
-      await refreshComponentInfo();
-      // 更新全部期间，单项错误只记录日志，不弹窗，最后由 all-error 汇总弹窗
-      if (!updatingAllDbs.value) {
-        await showAlert(`${key} 更新失败: ${formatUpdateError(err)}`, "错误", true);
-      } else {
+      queueComponentInfoRefresh();
+      if (updatingAllDbs.value) {
         console.warn(`[GeoUpdate] ${key} failed during bulk update:`, err);
+        return;
       }
+      pushGeoNotice({ key, status: 'error', error: formatUpdateError(err) });
     });
 
     EventsOn(`geo-update-${key}-cancelled`, () => {
       updatingDbs.value[key] = false;
+      queueComponentInfoRefresh();
     });
 
     EventsOn(`geo-update-${key}-busy`, () => {
-      // 同 key 重复点击，静默即可
-      console.log(`[GeoUpdate] ${key} is already updating, ignoring request.`);
+      // 已在更新中，静默即可
     });
   });
 
   // 🌟 4. 监听“更新全部”聚合任务
   EventsOn("geo-update-all-start", () => {
     updatingAllDbs.value = true;
+    geoKeys.forEach(k => updatingDbs.value[k] = true);
   });
 
-  EventsOn("geo-update-all-success", async () => {
+  EventsOn("geo-update-all-success", () => {
     updatingAllDbs.value = false;
-    await refreshComponentInfo();
-    await showAlert("全部路由规则数据库更新完成。", "通知");
+    geoKeys.forEach(k => updatingDbs.value[k] = false);
+    queueComponentInfoRefresh();
+    void enqueueModal({ title: '通知', message: '全部路由规则数据库更新完成。', danger: false });
   });
 
-  EventsOn("geo-update-all-error", async (err: string) => {
+  EventsOn("geo-update-all-error", (err: string) => {
     updatingAllDbs.value = false;
-    await refreshComponentInfo();
-    await showAlert("部分数据库更新失败，已保留原有文件：" + formatUpdateError(err), "错误", true);
+    geoKeys.forEach(k => updatingDbs.value[k] = false);
+    queueComponentInfoRefresh();
+    void enqueueModal({
+      title: '错误',
+      message: '部分数据库更新失败，已保留原有文件：' + formatUpdateError(err),
+      danger: true
+    });
   });
 
   EventsOn("geo-update-all-cancelled", () => {
     updatingAllDbs.value = false;
+    geoKeys.forEach(k => updatingDbs.value[k] = false);
+    queueComponentInfoRefresh();
+  });
+
+  // 🌟 5. 后端状态兜底同步：确保 UI 状态始终与后端一致
+  EventsOn("geo-update-active-sync", (active: string[]) => {
+    const activeSet = new Set(active || []);
+    geoKeys.forEach((key) => {
+      updatingDbs.value[key] = activeSet.has(key);
+    });
+    if (activeSet.size === 0) {
+      updatingAllDbs.value = false;
+    }
   });
 
   // 监听 Core 更新事件 (对应 backend: "core-update")
@@ -1492,17 +1605,18 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  const geoKeys = ["geoip", "geosite", "mmdb", "asn"];
   geoKeys.forEach(t => {
     EventsOff(`geo-update-${t}-start`);
     EventsOff(`geo-update-${t}-success`);
     EventsOff(`geo-update-${t}-error`);
     EventsOff(`geo-update-${t}-cancelled`);
+    EventsOff(`geo-update-${t}-busy`);
   });
   EventsOff("geo-update-all-start");
   EventsOff("geo-update-all-success");
   EventsOff("geo-update-all-error");
   EventsOff("geo-update-all-cancelled");
+  EventsOff("geo-update-active-sync");
 
   EventsOff("core-update-start");
   EventsOff("core-version-updated");
@@ -1600,14 +1714,35 @@ const saveDbLink = async () => {
   await saveBehavior();
 };
 
-const handleUpdateDb = async (type: string) => {
-  if (updatingDbs.value[type] || updatingAllDbs.value) return; 
-  (API as any).UpdateGeoDatabaseAsync(type);
+const handleUpdateDb = async (key: string) => {
+  if (updatingDbs.value[key]) return;
+  try {
+    await (API as any).UpdateGeoDatabaseAsync(key);
+  } catch (e) {
+    updatingDbs.value[key] = false;
+    void enqueueModal({
+      title: '错误',
+      message: `${geoNameMap[key] || key} 更新启动失败：${formatUpdateError(e)}`,
+      danger: true,
+    });
+  }
 };
 
 const handleUpdateAllDbs = async () => {
-  // 🚀 发起异步任务
-  API.UpdateAllGeoDatabasesAsync();
+  if (updatingAllDbs.value) return;
+  try {
+    await API.UpdateAllGeoDatabasesAsync();
+  } catch (e) {
+    updatingAllDbs.value = false;
+    geoKeys.forEach((key) => {
+      updatingDbs.value[key] = false;
+    });
+    void enqueueModal({
+      title: '错误',
+      message: '全部更新启动失败：' + formatUpdateError(e),
+      danger: true,
+    });
+  }
 };
 
 const updateDnsArray = (e: Event, key: string) => {

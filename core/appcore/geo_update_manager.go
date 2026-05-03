@@ -61,6 +61,7 @@ func (m *GeoUpdateManager) beginOrJoin(key string) (wait <-chan GeoResult, owner
 	}
 
 	m.active[key] = &geoJob{}
+	m.emitActiveSnapshot()
 	return nil, true
 }
 
@@ -70,6 +71,8 @@ func (m *GeoUpdateManager) finish(key string, result GeoResult) {
 	delete(m.active, key)
 	m.mu.Unlock()
 
+	m.emitActiveSnapshot()
+
 	if job == nil {
 		return
 	}
@@ -78,6 +81,17 @@ func (m *GeoUpdateManager) finish(key string, result GeoResult) {
 		ch <- result
 		close(ch)
 	}
+}
+
+func (m *GeoUpdateManager) emitActiveSnapshot() {
+	m.mu.Lock()
+	active := make([]string, 0, len(m.active))
+	for key := range m.active {
+		active = append(active, key)
+	}
+	m.mu.Unlock()
+
+	m.emit.Emit("geo-update-active-sync", active)
 }
 
 func (m *GeoUpdateManager) runKey(ctx context.Context, key string) GeoResult {
