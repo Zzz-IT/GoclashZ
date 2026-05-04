@@ -21,7 +21,6 @@
         <div class="wave-box">
           <svg class="wave-svg" viewBox="0 0 320 100" preserveAspectRatio="none">
             <path class="wave-area up" :d="uploadAreaPath" />
-            <path class="wave-line up" :d="uploadPath" />
           </svg>
         </div>
         <span class="total-label">累计 {{ traffic.uploadTotal || '0 B' }}</span>
@@ -36,7 +35,6 @@
         <div class="wave-box">
           <svg class="wave-svg" viewBox="0 0 320 100" preserveAspectRatio="none">
             <path class="wave-area down" :d="downloadAreaPath" />
-            <path class="wave-line down" :d="downloadPath" />
           </svg>
         </div>
         <span class="total-label">累计 {{ traffic.downloadTotal || '0 B' }}</span>
@@ -46,7 +44,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 
 type TrafficSnapshot = {
@@ -64,77 +62,161 @@ const props = defineProps<{
   traffic: TrafficSnapshot;
 }>();
 
-const maxPoints = 60;
-const uploadSamples = ref<number[]>([]);
-const downloadSamples = ref<number[]>([]);
+const WAVE = {
+  sampleIntervalMs: 800,
+  maxPoints: 64,
+  deadZone: 1024, // 低于 1 KB/s 视为 0
+  minVisualMax: 512 * 1024, // 最低 512 KB/s 标尺
+  emaAlpha: 0.18, // 平滑系数
+  peakDecay: 0.965, // 峰值缓释衰减
+  peakBoost: 1.6, // 峰值留白
+  maxAmplitude: 0.46, // 最大视觉高度占比
+};
+
+const makeInitialSamples = () =>
+  Array.from({ length: WAVE.maxPoints }, () => 0);
+
+const uploadSamples = ref<number[]>(makeInitialSamples());
+const downloadSamples = ref<number[]>(makeInitialSamples());
+
+const latestUpload = ref(0);
+const latestDownload = ref(0);
+
+const smoothedUpload = ref(0);
+const smoothedDownload = ref(0);
+
+const uploadPeak = ref(WAVE.minVisualMax);
+const downloadPeak = ref(WAVE.minVisualMax);
 
 watch(
   () => [props.traffic.upRaw, props.traffic.downRaw],
   ([up, down]) => {
-    uploadSamples.value.push(Number(up || 0));
-    downloadSamples.value.push(Number(down || 0));
-
-    if (uploadSamples.value.length > maxPoints) uploadSamples.value.shift();
-    if (downloadSamples.value.length > maxPoints) downloadSamples.value.shift();
+    latestUpload.value = Number(up || 0);
+    latestDownload.value = Number(down || 0);
   },
   { immediate: true }
 );
 
-/**
- * 使用 Catmull-Rom 样条插值生成平滑曲线路径
- * 将折线转为圆润的曲线
- */
-const buildSmoothPath = (samples: number[], width = 320, height = 100) => {
-  if (samples.length < 2) {
-    const y = height * 0.9;
-    return `M0 ${y} L${width} ${y}`;
-  }
+const normalizeInput = (value: number) => {
+  if (!Number.isFinite(value) || value < WAVE.deadZone) return 0;
+  return value;
+};
 
-  const max = Math.max(...samples, 1024);
+const smoothValue = (prev: number, next: number) => {
+  return prev * (1 - WAVE.emaAlpha) + next * WAVE.emaAlpha;
+};
+
+const updatePeak = (oldPeak: number, value: number) => {
+  const decayed = oldPeak * WAVE.peakDecay;
+  const boosted = value * WAVE.peakBoost;
+  return Math.max(WAVE.minVisualMax, decayed, boosted);
+};
+
+const compress = (value: number, scale: number) => {
+  if (value <= 0) return 0;
+  return Math.min(1, Math.log1p(value) / Math.log1p(scale));
+};
+
+const buildAreaPath = (
+  samples: number[],
+  peak: number,
+  width = 320,
+  height = 100
+) => {
+  const baseline = height;
+  const topPadding = height * 0.14;
+  const usableHeight = height * WAVE.maxAmplitude;
   const step = width / Math.max(samples.length - 1, 1);
-  const tension = 0.3; // 控制曲线张力，越小越圆润
 
-  // 将采样值转为坐标点
-  const points = samples.map((value, i) => ({
-    x: i * step,
-    y: height * 0.92 - (value / max) * height * 0.82
-  }));
+  const points = samples.map((value, index) => {
+    const normalized = compress(value, peak);
+    return {
+      x: index * step,
+      y: baseline - topPadding - normalized * usableHeight,
+    };
+  });
 
-  let d = `M${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
-
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[Math.max(i - 1, 0)];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[Math.min(i + 2, points.length - 1)];
-
-    // Catmull-Rom → Cubic Bezier 控制点
-    const cp1x = p1.x + (p2.x - p0.x) * tension;
-    const cp1y = p1.y + (p2.y - p0.y) * tension;
-    const cp2x = p2.x - (p3.x - p1.x) * tension;
-    const cp2y = p2.y - (p3.y - p1.y) * tension;
-
-    d += ` C${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+  if (points.length < 2) {
+    return `M0 ${baseline} L${width} ${baseline} Z`;
   }
+
+  let d = `M0 ${baseline} L${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const midX = (prev.x + curr.x) / 2;
+    const midY = (prev.y + curr.y) / 2;
+
+    d += ` Q${prev.x.toFixed(1)} ${prev.y.toFixed(1)}, ${midX.toFixed(1)} ${midY.toFixed(1)}`;
+  }
+
+  const last = points[points.length - 1];
+  d += ` T${last.x.toFixed(1)} ${last.y.toFixed(1)}`;
+  d += ` L${width} ${baseline} L0 ${baseline} Z`;
 
   return d;
 };
 
-const buildSmoothArea = (samples: number[], width = 320, height = 100) => {
-  const line = buildSmoothPath(samples, width, height);
-  const lastX = samples.length < 2 ? width : ((samples.length - 1) * width) / Math.max(samples.length - 1, 1);
-  return `${line} L${lastX.toFixed(1)} ${height} L0 ${height} Z`;
+const uploadAreaPath = computed(() =>
+  buildAreaPath(uploadSamples.value, uploadPeak.value)
+);
+
+const downloadAreaPath = computed(() =>
+  buildAreaPath(downloadSamples.value, downloadPeak.value)
+);
+
+let sampleTimer: number | null = null;
+
+const pushVisualSamples = () => {
+  const up = normalizeInput(latestUpload.value);
+  const down = normalizeInput(latestDownload.value);
+
+  smoothedUpload.value = smoothValue(smoothedUpload.value, up);
+  smoothedDownload.value = smoothValue(smoothedDownload.value, down);
+
+  uploadPeak.value = updatePeak(uploadPeak.value, smoothedUpload.value);
+  downloadPeak.value = updatePeak(downloadPeak.value, smoothedDownload.value);
+
+  uploadSamples.value = [
+    ...uploadSamples.value.slice(1),
+    smoothedUpload.value,
+  ];
+
+  downloadSamples.value = [
+    ...downloadSamples.value.slice(1),
+    smoothedDownload.value,
+  ];
 };
 
-const uploadPath = computed(() => buildSmoothPath(uploadSamples.value));
-const downloadPath = computed(() => buildSmoothPath(downloadSamples.value));
-const uploadAreaPath = computed(() => buildSmoothArea(uploadSamples.value));
-const downloadAreaPath = computed(() => buildSmoothArea(downloadSamples.value));
+onMounted(() => {
+  sampleTimer = window.setInterval(pushVisualSamples, WAVE.sampleIntervalMs);
+});
+
+onUnmounted(() => {
+  if (sampleTimer !== null) {
+    clearInterval(sampleTimer);
+    sampleTimer = null;
+  }
+});
+
+const resetVisualSamples = () => {
+  uploadSamples.value = makeInitialSamples();
+  downloadSamples.value = makeInitialSamples();
+
+  latestUpload.value = 0;
+  latestDownload.value = 0;
+
+  smoothedUpload.value = 0;
+  smoothedDownload.value = 0;
+
+  uploadPeak.value = WAVE.minVisualMax;
+  downloadPeak.value = WAVE.minVisualMax;
+};
 
 const handleReset = async () => {
   await (API as any).ResetTrafficTotals();
-  uploadSamples.value = [];
-  downloadSamples.value = [];
+  resetVisualSamples();
 };
 </script>
 
@@ -192,7 +274,6 @@ const handleReset = async () => {
   background: var(--surface-hover);
 }
 
-/* 左右双图布局 */
 .wave-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -239,31 +320,16 @@ const handleReset = async () => {
   display: block;
 }
 
-.wave-line {
-  fill: none;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.wave-line.up {
-  stroke: var(--text-sub);
-}
-
-.wave-line.down {
-  stroke: var(--text-main);
-}
-
 .wave-area {
-  opacity: 0.1;
+  opacity: 1;
 }
 
 .wave-area.up {
-  fill: var(--text-sub);
+  fill: var(--surface-hover);
 }
 
 .wave-area.down {
-  fill: var(--text-main);
+  fill: var(--text-sub);
 }
 
 .total-label {
