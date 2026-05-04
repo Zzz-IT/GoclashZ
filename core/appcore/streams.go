@@ -81,8 +81,12 @@ func (m *TrafficStreamManager) Start(parent context.Context, apiURL string) {
 			// 计算累计值 (按时间积分更精准)
 			now := time.Now()
 			elapsed := now.Sub(m.lastTick).Seconds()
-			m.uploadTotalRaw += int64(upRaw * elapsed)
-			m.downloadTotalRaw += int64(downRaw * elapsed)
+
+			if elapsed > 0 && elapsed < 10 {
+				m.uploadTotalRaw += int64(upRaw * elapsed)
+				m.downloadTotalRaw += int64(downRaw * elapsed)
+			}
+
 			m.lastTick = now
 
 			snapshot := m.currentTrafficSnapshot(upRaw, downRaw, upStr+"/s", downStr+"/s")

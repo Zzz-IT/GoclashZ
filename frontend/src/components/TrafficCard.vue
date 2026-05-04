@@ -63,21 +63,40 @@ const props = defineProps<{
 }>();
 
 const WAVE = {
-  sampleIntervalMs: 800,
-  maxPoints: 64,
-  deadZone: 1024, // 低于 1 KB/s 视为 0
-  minVisualMax: 512 * 1024, // 最低 512 KB/s 标尺
-  emaAlpha: 0.18, // 平滑系数
-  peakDecay: 0.965, // 峰值缓释衰减
-  peakBoost: 1.6, // 峰值留白
-  maxAmplitude: 0.46, // 最大视觉高度占比
+  sampleIntervalMs: 600,
+  maxPoints: 64, // 降回 64，每段贝塞尔约 5px，曲线更明显
+
+  // 小流量软区间
+  lowFlowCeil: 32 * 1024,
+  lowFlowMaxRatio: 0.10,
+
+  // 视觉标尺
+  minScale: 1536 * 1024,
+  scaleHeadroom: 1.35,
+
+  // 平滑
+  riseAlpha: 0.20,
+  fallAlpha: 0.065,
+
+  // 标尺
+  scaleRiseAlpha: 0.14,
+  scaleFallAlpha: 0.014,
+
+  // 幂次
+  gamma: 1.35,
+
+  // 图形
+  baselineRatio: 1.0,
+  maxAmplitude: 0.60,
 };
 
 const makeInitialSamples = () =>
   Array.from({ length: WAVE.maxPoints }, () => 0);
 
-const uploadSamples = ref<number[]>(makeInitialSamples());
-const downloadSamples = ref<number[]>(makeInitialSamples());
+// 🚀 核心修复：存储的是预计算好的视觉比例 (0~1)，而非原始字节值
+// 这样旧波峰不会因为 scale 变化而缩水
+const uploadRatios = ref<number[]>(makeInitialSamples());
+const downloadRatios = ref<number[]>(makeInitialSamples());
 
 const latestUpload = ref(0);
 const latestDownload = ref(0);
@@ -85,8 +104,8 @@ const latestDownload = ref(0);
 const smoothedUpload = ref(0);
 const smoothedDownload = ref(0);
 
-const uploadPeak = ref(WAVE.minVisualMax);
-const downloadPeak = ref(WAVE.minVisualMax);
+const uploadScale = ref(WAVE.minScale);
+const downloadScale = ref(WAVE.minScale);
 
 watch(
   () => [props.traffic.upRaw, props.traffic.downRaw],
@@ -97,96 +116,116 @@ watch(
   { immediate: true }
 );
 
-const normalizeInput = (value: number) => {
-  if (!Number.isFinite(value) || value < WAVE.deadZone) return 0;
-  return value;
-};
-
 const smoothValue = (prev: number, next: number) => {
-  return prev * (1 - WAVE.emaAlpha) + next * WAVE.emaAlpha;
+  const alpha = next > prev ? WAVE.riseAlpha : WAVE.fallAlpha;
+  return prev + (next - prev) * alpha;
 };
 
-const updatePeak = (oldPeak: number, value: number) => {
-  const decayed = oldPeak * WAVE.peakDecay;
-  const boosted = value * WAVE.peakBoost;
-  return Math.max(WAVE.minVisualMax, decayed, boosted);
+const updateScale = (prevScale: number, value: number) => {
+  const target = Math.max(WAVE.minScale, value * WAVE.scaleHeadroom);
+  const alpha = target > prevScale ? WAVE.scaleRiseAlpha : WAVE.scaleFallAlpha;
+  return prevScale + (target - prevScale) * alpha;
 };
 
-const compress = (value: number, scale: number) => {
-  if (value <= 0) return 0;
-  return Math.min(1, Math.log1p(value) / Math.log1p(scale));
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+const toVisualRatio = (value: number, scale: number) => {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+
+  if (value <= WAVE.lowFlowCeil) {
+    return (value / WAVE.lowFlowCeil) * WAVE.lowFlowMaxRatio;
+  }
+
+  const activeRange = Math.max(scale - WAVE.lowFlowCeil, 1);
+  const activeValue = value - WAVE.lowFlowCeil;
+  const linear = clamp01(activeValue / activeRange);
+
+  return WAVE.lowFlowMaxRatio +
+    Math.pow(linear, WAVE.gamma) * (1 - WAVE.lowFlowMaxRatio);
+};
+
+/**
+ * 渲染前对样本做轻量高斯模糊，消除棱角
+ * kernel: [0.15, 0.25, 0.20, 0.25, 0.15] (5-point weighted)
+ */
+const blurSamples = (samples: number[]): number[] => {
+  const out = new Array(samples.length);
+  out[0] = samples[0];
+  out[1] = samples[0] * 0.3 + samples[1] * 0.4 + samples[2] * 0.3;
+  for (let i = 2; i < samples.length - 2; i++) {
+    out[i] =
+      samples[i - 2] * 0.1 +
+      samples[i - 1] * 0.22 +
+      samples[i]     * 0.36 +
+      samples[i + 1] * 0.22 +
+      samples[i + 2] * 0.1;
+  }
+  out[samples.length - 2] =
+    samples[samples.length - 3] * 0.3 +
+    samples[samples.length - 2] * 0.4 +
+    samples[samples.length - 1] * 0.3;
+  out[samples.length - 1] = samples[samples.length - 1];
+  return out;
 };
 
 const buildAreaPath = (
-  samples: number[],
-  peak: number,
+  ratios: number[],
   width = 320,
   height = 100
 ) => {
-  const baseline = height;
-  const topPadding = height * 0.14;
+  const baseline = height * WAVE.baselineRatio;
   const usableHeight = height * WAVE.maxAmplitude;
-  const step = width / Math.max(samples.length - 1, 1);
+  const step = width / Math.max(ratios.length - 1, 1);
 
-  const points = samples.map((value, index) => {
-    const normalized = compress(value, peak);
-    return {
-      x: index * step,
-      y: baseline - topPadding - normalized * usableHeight,
-    };
-  });
+  // 模糊后再生成路径
+  const smoothed = blurSamples(ratios);
+
+  const points = smoothed.map((ratio, index) => ({
+    x: index * step,
+    y: baseline - ratio * usableHeight,
+  }));
 
   if (points.length < 2) {
-    return `M0 ${baseline} L${width} ${baseline} Z`;
+    return `M0 ${baseline.toFixed(1)} L${width} ${baseline.toFixed(1)} Z`;
   }
 
-  let d = `M0 ${baseline} L${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+  let d = `M0 ${baseline.toFixed(1)} L${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
 
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1];
-    const curr = points[i];
-    const midX = (prev.x + curr.x) / 2;
-    const midY = (prev.y + curr.y) / 2;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i];
+    const p1 = points[i + 1];
+    const midX = (p0.x + p1.x) / 2;
 
-    d += ` Q${prev.x.toFixed(1)} ${prev.y.toFixed(1)}, ${midX.toFixed(1)} ${midY.toFixed(1)}`;
+    d += ` C${midX.toFixed(1)} ${p0.y.toFixed(1)}, ${midX.toFixed(1)} ${p1.y.toFixed(1)}, ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`;
   }
 
-  const last = points[points.length - 1];
-  d += ` T${last.x.toFixed(1)} ${last.y.toFixed(1)}`;
-  d += ` L${width} ${baseline} L0 ${baseline} Z`;
-
+  d += ` L${width} ${baseline.toFixed(1)} L0 ${baseline.toFixed(1)} Z`;
   return d;
 };
 
 const uploadAreaPath = computed(() =>
-  buildAreaPath(uploadSamples.value, uploadPeak.value)
+  buildAreaPath(uploadRatios.value)
 );
 
 const downloadAreaPath = computed(() =>
-  buildAreaPath(downloadSamples.value, downloadPeak.value)
+  buildAreaPath(downloadRatios.value)
 );
 
 let sampleTimer: number | null = null;
 
 const pushVisualSamples = () => {
-  const up = normalizeInput(latestUpload.value);
-  const down = normalizeInput(latestDownload.value);
+  smoothedUpload.value = smoothValue(smoothedUpload.value, latestUpload.value);
+  smoothedDownload.value = smoothValue(smoothedDownload.value, latestDownload.value);
 
-  smoothedUpload.value = smoothValue(smoothedUpload.value, up);
-  smoothedDownload.value = smoothValue(smoothedDownload.value, down);
+  uploadScale.value = updateScale(uploadScale.value, smoothedUpload.value);
+  downloadScale.value = updateScale(downloadScale.value, smoothedDownload.value);
 
-  uploadPeak.value = updatePeak(uploadPeak.value, smoothedUpload.value);
-  downloadPeak.value = updatePeak(downloadPeak.value, smoothedDownload.value);
+  // 🚀 核心修复：存入预计算好的视觉比例，旧峰不再受 scale 变化影响
+  const upRatio = toVisualRatio(smoothedUpload.value, uploadScale.value);
+  const downRatio = toVisualRatio(smoothedDownload.value, downloadScale.value);
 
-  uploadSamples.value = [
-    ...uploadSamples.value.slice(1),
-    smoothedUpload.value,
-  ];
-
-  downloadSamples.value = [
-    ...downloadSamples.value.slice(1),
-    smoothedDownload.value,
-  ];
+  uploadRatios.value = [...uploadRatios.value.slice(1), upRatio];
+  downloadRatios.value = [...downloadRatios.value.slice(1), downRatio];
 };
 
 onMounted(() => {
@@ -201,8 +240,8 @@ onUnmounted(() => {
 });
 
 const resetVisualSamples = () => {
-  uploadSamples.value = makeInitialSamples();
-  downloadSamples.value = makeInitialSamples();
+  uploadRatios.value = makeInitialSamples();
+  downloadRatios.value = makeInitialSamples();
 
   latestUpload.value = 0;
   latestDownload.value = 0;
@@ -210,8 +249,8 @@ const resetVisualSamples = () => {
   smoothedUpload.value = 0;
   smoothedDownload.value = 0;
 
-  uploadPeak.value = WAVE.minVisualMax;
-  downloadPeak.value = WAVE.minVisualMax;
+  uploadScale.value = WAVE.minScale;
+  downloadScale.value = WAVE.minScale;
 };
 
 const handleReset = async () => {
