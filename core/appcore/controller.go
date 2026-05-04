@@ -643,6 +643,10 @@ func (c *Controller) RestartTrafficStream(ctx context.Context) {
 	c.traffic.Restart(ctx, clash.APIURL("/traffic"))
 }
 
+func (c *Controller) ResetTrafficTotals() {
+	c.traffic.ResetTrafficTotals()
+}
+
 // --- 日志流调度 ---
 
 func (c *Controller) StartLogStream(ctx context.Context) {

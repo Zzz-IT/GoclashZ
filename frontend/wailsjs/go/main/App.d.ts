@@ -84,6 +84,8 @@ export function RenameConfig(arg1:string,arg2:string):Promise<void>;
 
 export function ResetComponentSettings(arg1:string):Promise<void>;
 
+export function ResetTrafficTotals():Promise<void>;
+
 export function RestartCore():Promise<void>;
 
 export function SaveAppBehavior(arg1:appcore.AppBehavior):Promise<void>;

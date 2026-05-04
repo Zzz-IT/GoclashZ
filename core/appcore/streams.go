@@ -11,6 +11,17 @@ import (
 	"time"
 )
 
+type TrafficSnapshot struct {
+	Up               string  `json:"up"`
+	Down             string  `json:"down"`
+	UpRaw            float64 `json:"upRaw"`
+	DownRaw          float64 `json:"downRaw"`
+	UploadTotal      string  `json:"uploadTotal"`
+	DownloadTotal    string  `json:"downloadTotal"`
+	UploadTotalRaw   int64   `json:"uploadTotalRaw"`
+	DownloadTotalRaw int64   `json:"downloadTotalRaw"`
+}
+
 type TrafficStreamManager struct {
 	mu          sync.Mutex
 	cancel      context.CancelFunc
@@ -20,6 +31,10 @@ type TrafficStreamManager struct {
 
 	lastErrAt  time.Time
 	lastErrMsg string
+
+	uploadTotalRaw   int64
+	downloadTotalRaw int64
+	lastTick         time.Time
 }
 
 func NewTrafficStreamManager(emit EventSink, getLogLevel func() string) *TrafficStreamManager {
@@ -41,6 +56,7 @@ func (m *TrafficStreamManager) Start(parent context.Context, apiURL string) {
 
 	ctx, cancel := context.WithCancel(parent)
 	m.cancel = cancel
+	m.lastTick = time.Now()
 	m.mu.Unlock()
 
 	go func(currentGen int) {
@@ -48,28 +64,31 @@ func (m *TrafficStreamManager) Start(parent context.Context, apiURL string) {
 			m.mu.Lock()
 			if m.gen == currentGen {
 				m.cancel = nil
-				m.emit.Emit("traffic-data", map[string]string{
-					"up":   "0 B/s",
-					"down": "0 B/s",
-				})
+				m.emit.Emit("traffic-data", m.currentTrafficSnapshot(0, 0, "0 B/s", "0 B/s"))
 			}
 			m.mu.Unlock()
 		}()
 
-		traffic.StreamTraffic(ctx, apiURL, func(up, down string) {
+		traffic.StreamTraffic(ctx, apiURL, func(upRaw, downRaw float64, upStr, downStr string) {
 			m.mu.Lock()
 			// 如果 generation 已变，或者取消函数为空，说明当前是个僵尸流
 			alive := m.gen == currentGen && m.cancel != nil
-			m.mu.Unlock()
-
 			if !alive {
-				return // 🚀 核心修复：阻断僵尸数据推送
+				m.mu.Unlock()
+				return
 			}
 
-			m.emit.Emit("traffic-data", map[string]string{
-				"up":   up + "/s",
-				"down": down + "/s",
-			})
+			// 计算累计值 (按时间积分更精准)
+			now := time.Now()
+			elapsed := now.Sub(m.lastTick).Seconds()
+			m.uploadTotalRaw += int64(upRaw * elapsed)
+			m.downloadTotalRaw += int64(downRaw * elapsed)
+			m.lastTick = now
+
+			snapshot := m.currentTrafficSnapshot(upRaw, downRaw, upStr+"/s", downStr+"/s")
+			m.mu.Unlock()
+
+			m.emit.Emit("traffic-data", snapshot)
 		}, func(err error) {
 			m.mu.Lock()
 			alive := m.gen == currentGen && m.cancel != nil
@@ -84,23 +103,39 @@ func (m *TrafficStreamManager) Start(parent context.Context, apiURL string) {
 	}(currentGen)
 }
 
+func (m *TrafficStreamManager) currentTrafficSnapshot(upRaw, downRaw float64, upStr, downStr string) TrafficSnapshot {
+	return TrafficSnapshot{
+		Up:               upStr,
+		Down:             downStr,
+		UpRaw:            upRaw,
+		DownRaw:          downRaw,
+		UploadTotal:      traffic.FormatBytes(m.uploadTotalRaw),
+		DownloadTotal:    traffic.FormatBytes(m.downloadTotalRaw),
+		UploadTotalRaw:   m.uploadTotalRaw,
+		DownloadTotalRaw: m.downloadTotalRaw,
+	}
+}
+
 func (m *TrafficStreamManager) Stop() {
-	stopped := false
 	m.mu.Lock()
 	if m.cancel != nil {
 		m.cancel()
 		m.cancel = nil
 		m.gen++
-		stopped = true
 	}
 	m.mu.Unlock()
 
-	if stopped {
-		m.emit.Emit("traffic-data", map[string]string{
-			"up":   "0 B/s",
-			"down": "0 B/s",
-		})
-	}
+	m.emit.Emit("traffic-data", m.currentTrafficSnapshot(0, 0, "0 B/s", "0 B/s"))
+}
+
+func (m *TrafficStreamManager) ResetTrafficTotals() {
+	m.mu.Lock()
+	m.uploadTotalRaw = 0
+	m.downloadTotalRaw = 0
+	m.lastTick = time.Now()
+	m.mu.Unlock()
+
+	m.emit.Emit("traffic-data", m.currentTrafficSnapshot(0, 0, "0 B/s", "0 B/s"))
 }
 
 func (m *TrafficStreamManager) Restart(parent context.Context, apiURL string) {

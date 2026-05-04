@@ -26,23 +26,6 @@
           {{ globalState.activeConfigName || '未选定' }}
         </div>
       </div>
-
-      <div class="traffic-meter">
-        <div class="traffic-box">
-          <div class="t-header">
-            <span class="t-arrow up" v-html="ICONS.arrowUp"></span>
-            <span class="micro-title">上传</span>
-          </div>
-          <div class="t-val">{{ traffic.up }}</div>
-        </div>
-        <div class="traffic-box">
-          <div class="t-header">
-            <span class="t-arrow down" v-html="ICONS.arrowDown"></span>
-            <span class="micro-title">下载</span>
-          </div>
-          <div class="t-val">{{ traffic.down }}</div>
-        </div>
-      </div>
     </section>
 
     <section class="switch-row">
@@ -86,6 +69,8 @@
         <div class="seg-slider" :style="sliderStyle"></div>
       </div>
     </section>
+
+    <TrafficCard :traffic="traffic" />
   </div>
 </template>
 
@@ -94,9 +79,19 @@ import { ref, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { globalState, showAlert, showConfirm, updateStateFromBackend } from '../store'; // 👈 直接引入唯一的真相来源 globalState
 import { ICONS } from '../utils/icons';
+import TrafficCard from './TrafficCard.vue';
 
 defineProps<{
-  traffic: { up: string; down: string; }
+  traffic: { 
+    up: string; 
+    down: string; 
+    upRaw?: number; 
+    downRaw?: number; 
+    uploadTotal?: string; 
+    downloadTotal?: string; 
+    uploadTotalRaw?: number; 
+    downloadTotalRaw?: number; 
+  }
 }>();
 
 const modes = [

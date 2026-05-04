@@ -114,7 +114,16 @@ const currentTab = ref('home');
 const targetSettingsView = ref('main');
 const isMaximized = ref(false);
 
-const traffic = ref({ up: '0 B/s', down: '0 B/s' });
+const traffic = ref({ 
+  up: '0 B/s', 
+  down: '0 B/s',
+  upRaw: 0,
+  downRaw: 0,
+  uploadTotal: '0 B',
+  downloadTotal: '0 B',
+  uploadTotalRaw: 0,
+  downloadTotalRaw: 0
+});
 const logLines = ref<any[]>([]);
 const logBox = ref<HTMLElement | null>(null);
 
@@ -171,7 +180,7 @@ const handleModalCancel = () => {
   if (globalState.modal.onCancel) globalState.modal.onCancel();
 };
 
-watch(() => globalState.theme, (val) => {
+const watchTheme = watch(() => globalState.theme, (val) => {
   if (val === 'dark') {
     document.documentElement.classList.add('dark');
     WindowSetDarkTheme();
@@ -218,7 +227,18 @@ onMounted(async () => {
     globalState.tunStatus = status as any;
   } catch (e) { console.error("TUN Env Check Error:", e); }
 
-  EventsOn("traffic-data", (data: any) => { traffic.value = data; });
+  EventsOn("traffic-data", (data: any) => { 
+    traffic.value = {
+      up: data?.up ?? '0 B/s',
+      down: data?.down ?? '0 B/s',
+      upRaw: data?.upRaw ?? 0,
+      downRaw: data?.downRaw ?? 0,
+      uploadTotal: data?.uploadTotal ?? '0 B',
+      downloadTotal: data?.downloadTotal ?? '0 B',
+      uploadTotalRaw: data?.uploadTotalRaw ?? 0,
+      downloadTotalRaw: data?.downloadTotalRaw ?? 0,
+    };
+  });
 
   const history = await (API as any).GetRecentLogs();
   if (history) logLines.value = history;

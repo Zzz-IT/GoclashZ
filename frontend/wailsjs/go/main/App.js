@@ -158,6 +158,10 @@ export function ResetComponentSettings(arg1) {
   return window['go']['main']['App']['ResetComponentSettings'](arg1);
 }
 
+export function ResetTrafficTotals() {
+  return window['go']['main']['App']['ResetTrafficTotals']();
+}
+
 export function RestartCore() {
   return window['go']['main']['App']['RestartCore']();
 }

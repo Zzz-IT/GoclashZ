@@ -49,7 +49,16 @@ import * as API from '../../wailsjs/go/main/App';
 // 定义 Props 接收外部数据
 defineProps<{
   activeId: string;
-  traffic: { up: string, down: string };
+  traffic: { 
+    up: string; 
+    down: string; 
+    upRaw?: number; 
+    downRaw?: number; 
+    uploadTotal?: string; 
+    downloadTotal?: string; 
+    uploadTotalRaw?: number; 
+    downloadTotalRaw?: number; 
+  };
   menu: Array<{ id: string, label: string, icon: string }>;
   icons: Record<string, string>;
 }>();

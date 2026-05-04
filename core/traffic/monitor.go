@@ -71,7 +71,7 @@ var trafficStreamClient = &http.Client{
 }
 
 // StreamTraffic 建立一个长连接并持续监听内核推送的流量数据
-func StreamTraffic(ctx context.Context, apiURL string, callback func(up, down string), onError func(error)) {
+func StreamTraffic(ctx context.Context, apiURL string, callback func(upRaw, downRaw float64, upStr, downStr string), onError func(error)) {
 	// 🚀 核心修复：包裹重连状态机
 	for {
 		// 1. 检查应用是否已退出
@@ -165,13 +165,13 @@ func StreamTraffic(ctx context.Context, apiURL string, callback func(up, down st
 			}
 			idleTimer.Reset(trafficIdleTimeout)
 
-			callback(formatBytes(int64(data.Up)), formatBytes(int64(data.Down)))
+			callback(data.Up, data.Down, FormatBytes(int64(data.Up)), FormatBytes(int64(data.Down)))
 		}
 	}
 }
 
-// formatBytes 将字节数转换为人类可读的字符串
-func formatBytes(b int64) string {
+// FormatBytes 将字节数转换为人类可读的字符串
+func FormatBytes(b int64) string {
 	const unit = 1024
 	if b < unit {
 		return fmt.Sprintf("%d B", b)
@@ -202,8 +202,8 @@ func ProcessConnections(rawConnections []RawConnection) []ConnectionVO {
 	for _, conn := range rawConnections {
 		vos = append(vos, ConnectionVO{
 			RawConnection: conn,
-			UploadStr:     formatBytes(conn.Upload),
-			DownloadStr:   formatBytes(conn.Download),
+			UploadStr:     FormatBytes(conn.Upload),
+			DownloadStr:   FormatBytes(conn.Download),
 			DurationStr:   formatDuration(conn.Start),
 		})
 	}

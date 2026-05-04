@@ -346,6 +346,10 @@ func (a *App) ClearLogs() {
 	a.core.ClearLogs()
 }
 
+func (a *App) ResetTrafficTotals() {
+	a.core.ResetTrafficTotals()
+}
+
 // --- Behavior & Theme ---
 
 type AppBehavior = appcore.AppBehavior
