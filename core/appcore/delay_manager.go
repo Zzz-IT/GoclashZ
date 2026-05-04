@@ -13,6 +13,17 @@ import (
 
 var ErrDelayTestBusy = fmt.Errorf("DELAY_TEST_BUSY")
 
+type DelaySource string
+
+const (
+	DelaySourceManual    DelaySource = "manual"
+	DelaySourceAuto      DelaySource = "auto"
+	DelaySourceStartup   DelaySource = "startup"
+	DelaySourceScheduled DelaySource = "scheduled"
+	DelaySourceEnabled   DelaySource = "enabled"
+	DelaySourceRestore   DelaySource = "restore"
+)
+
 type DelayResult struct {
 	Name   string
 	Delay  int
@@ -66,21 +77,65 @@ const (
 
 // DelayTestOptions 测速策略配置
 type DelayTestOptions struct {
-	Source         string        // 测速来源：manual, startup, scheduled, enabled, restore 等
-	SilentBusy     bool          // 为 true 时，测速开始/结束不发送 Emit 事件，且不报告 busy 状态给 UI
-	RetryFailed    bool          // 第一轮失败后，是否进行第二轮低并发补测 (长尾优化)
-	TotalTimeout   time.Duration // 测速总超时，防止长尾卡死
-	StopSilentCore bool          // 如果是为了测速静默启动的内核，结束后是否尝试关闭内核
+	Source         DelaySource   // 测速来源
+	SilentUI       bool          // 为 true 时，不发送 proxy-test-start/finished
+	RetryFailed    bool          // 失败后是否补测 (仅限深度/后台模式)
+	TotalTimeout   time.Duration // 测速总超时
+	StopSilentCore bool          // 结束后是否尝试关闭内核
+
+	ProbeTimeout time.Duration // 单次测速 Mihomo 超时
+	ProbeExtra   time.Duration // Context 宽限时长
+	Concurrency  int           // 并发数
+}
+
+func manualDelayOptions() DelayTestOptions {
+	return DelayTestOptions{
+		Source:         DelaySourceManual,
+		SilentUI:       false,
+		RetryFailed:    false,
+		TotalTimeout:   45 * time.Second,
+		StopSilentCore: true,
+		ProbeTimeout:   4 * time.Second,
+		ProbeExtra:     1 * time.Second,
+		Concurrency:    10,
+	}
+}
+
+func autoDelayOptions(source DelaySource) DelayTestOptions {
+	return DelayTestOptions{
+		Source:         source,
+		SilentUI:       true,
+		RetryFailed:    false,
+		TotalTimeout:   60 * time.Second,
+		StopSilentCore: true,
+		ProbeTimeout:   3500 * time.Millisecond,
+		ProbeExtra:     800 * time.Millisecond,
+		Concurrency:    6,
+	}
+}
+
+func singleDelayOptions() DelayTestOptions {
+	return DelayTestOptions{
+		Source:         DelaySourceManual,
+		SilentUI:       false,
+		ProbeTimeout:   5 * time.Second,
+		ProbeExtra:     1 * time.Second,
+		Concurrency:    1,
+	}
 }
 
 type DelayTestManager struct {
 	mu    sync.Mutex
-	state DelayRunState // 🚀 状态机：idle, preparing, running
+	state DelayRunState
 
-	batchNodes map[string]struct{}
-	waiters    map[string][]chan DelayResult
+	batchSource DelaySource
+	batchNodes  map[string]struct{}
+	waiters     map[string][]chan DelayResult
 
-	activeSingles map[string]struct{} // 🚀 跟踪当前正在单点测速的节点，允许不同节点并发
+	batchCancel context.CancelFunc
+	batchDone   chan struct{}
+
+	activeSingles map[string]struct{}
 
 	sem  chan struct{}
 	emit EventSink
@@ -92,17 +147,44 @@ func NewDelayTestManager(emit EventSink, ctrl *Controller) *DelayTestManager {
 		emit:          emit,
 		ctrl:          ctrl,
 		state:         DelayIdle,
-		sem:           make(chan struct{}, 6),
+		sem:           make(chan struct{}, 15), // 提高信号量容量以匹配并发
 		batchNodes:    make(map[string]struct{}),
 		waiters:       make(map[string][]chan DelayResult),
 		activeSingles: make(map[string]struct{}),
 	}
 }
 
-// waitForBatchNode 如果节点正在批量测速中，则挂起当前请求等待批量结果
-func (m *DelayTestManager) waitForBatchNode(ctx context.Context, name string) (DelayResult, bool) {
+func (m *DelayTestManager) cancelAutoBatchAndWait(ctx context.Context, maxWait time.Duration) bool {
 	m.mu.Lock()
-	if m.state != DelayRunning {
+	// 如果不是自动任务在跑，或者没任务，直接返回
+	if m.state == DelayIdle || m.batchSource == DelaySourceManual || m.batchCancel == nil || m.batchDone == nil {
+		m.mu.Unlock()
+		return true
+	}
+
+	cancel := m.batchCancel
+	done := m.batchDone
+	m.mu.Unlock()
+
+	cancel()
+
+	timer := time.NewTimer(maxWait)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (m *DelayTestManager) waitForManualBatchNode(ctx context.Context, name string) (DelayResult, bool) {
+	m.mu.Lock()
+	// 只有手动批量测速才允许挂起等待
+	if m.state != DelayRunning || m.batchSource != DelaySourceManual {
 		m.mu.Unlock()
 		return DelayResult{}, false
 	}
@@ -124,7 +206,6 @@ func (m *DelayTestManager) waitForBatchNode(ctx context.Context, name string) (D
 	}
 }
 
-// notifyNodeResult 通知所有正在等待该节点结果的协程
 func (m *DelayTestManager) notifyNodeResult(res DelayResult) {
 	m.mu.Lock()
 	waiters := m.waiters[res.Name]
@@ -140,8 +221,13 @@ func (m *DelayTestManager) notifyNodeResult(res DelayResult) {
 	}
 }
 
-// testOne 统一的底层测速执行函数，包含并发控制和超时管理
-func (m *DelayTestManager) testOne(ctx context.Context, name string, testURL string, timeoutMs int, contextExtraMs int) DelayResult {
+func (m *DelayTestManager) testOneDuration(
+	ctx context.Context,
+	name string,
+	testURL string,
+	timeout time.Duration,
+	extra time.Duration,
+) DelayResult {
 	select {
 	case m.sem <- struct{}{}:
 		defer func() { <-m.sem }()
@@ -149,9 +235,10 @@ func (m *DelayTestManager) testOne(ctx context.Context, name string, testURL str
 		return DelayResult{Name: name, Delay: 0, Status: "timeout", Err: ctx.Err()}
 	}
 
-	// 实际请求的 context 超时应略大于 mihomo timeout 参数
-	reqCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs+contextExtraMs)*time.Millisecond)
+	reqCtx, cancel := context.WithTimeout(ctx, timeout+extra)
 	defer cancel()
+
+	timeoutMs := int(timeout / time.Millisecond)
 
 	delay, err := clash.GetProxyDelay(reqCtx, name, testURL, timeoutMs)
 	if err != nil || delay <= 0 {
@@ -161,9 +248,7 @@ func (m *DelayTestManager) testOne(ctx context.Context, name string, testURL str
 	return DelayResult{Name: name, Delay: delay, Status: "success"}
 }
 
-// emitDelayResult 核心改进：不仅发叶子节点结果，还分发给受影响的策略组
 func (m *DelayTestManager) emitDelayResult(topo *DelayTopology, res DelayResult) {
-	// 1. 发送叶子节点自己的更新
 	m.emit.Emit("proxy-delay-update", map[string]interface{}{
 		"name":   res.Name,
 		"delay":  res.Delay,
@@ -171,7 +256,6 @@ func (m *DelayTestManager) emitDelayResult(topo *DelayTopology, res DelayResult)
 		"source": "leaf",
 	})
 
-	// 2. 发送派生更新给选中该节点的策略组
 	if topo != nil {
 		for _, groupName := range topo.GroupsBySelectedLeaf[res.Name] {
 			m.emit.Emit("proxy-delay-update", map[string]interface{}{
@@ -203,45 +287,39 @@ func (m *DelayTestManager) endSingleNode(name string) {
 	m.mu.Unlock()
 }
 
-// TestAllProxies 手动触发的全部测速 (重负载策略，含长尾补测)
 func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []string) {
-	m.TestAllProxiesWithOptions(ctx, nodeNames, DelayTestOptions{
-		Source:         "manual",
-		SilentBusy:     false,
-		RetryFailed:    true,
-		TotalTimeout:   0,
-		StopSilentCore: true,
-	})
+	// 用户手动测速，优先取消自动测速
+	m.cancelAutoBatchAndWait(ctx, 500*time.Millisecond)
+
+	m.TestAllProxiesWithOptions(ctx, nodeNames, manualDelayOptions())
 }
 
-// TestAllProxiesAuto 自动/后台触发的测速 (轻量策略，静默且无补测)
-func (m *DelayTestManager) TestAllProxiesAuto(ctx context.Context, reason string) {
-	m.TestAllProxiesWithOptions(ctx, nil, DelayTestOptions{
-		Source:         reason,
-		SilentBusy:     true,
-		RetryFailed:    false,
-		TotalTimeout:   90 * time.Second, // 自动测速总时长不得超过 90s
-		StopSilentCore: true,
-	})
+func (m *DelayTestManager) TestAllProxiesAuto(ctx context.Context, source string) {
+	m.TestAllProxiesWithOptions(ctx, nil, autoDelayOptions(DelaySource(source)))
 }
 
-// TestAllProxiesWithOptions 统一的批量测速编排入口
 func (m *DelayTestManager) TestAllProxiesWithOptions(
-	ctx context.Context,
+	parent context.Context,
 	nodeNames []string,
 	opts DelayTestOptions,
 ) {
-	if opts.TotalTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, opts.TotalTimeout)
-		defer cancel()
+	if opts.TotalTimeout <= 0 {
+		opts.TotalTimeout = 45 * time.Second
 	}
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = 10
+	}
+
+	ctx, cancel := context.WithTimeout(parent, opts.TotalTimeout)
+	done := make(chan struct{})
 
 	m.mu.Lock()
 	if m.state != DelayIdle || len(m.activeSingles) > 0 {
 		m.mu.Unlock()
+		cancel()
+		close(done)
 
-		if !opts.SilentBusy {
+		if !opts.SilentUI {
 			for _, name := range nodeNames {
 				m.emit.Emit("proxy-delay-update", map[string]interface{}{
 					"name":   name,
@@ -255,14 +333,22 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 	}
 
 	m.state = DelayPreparing
+	m.batchSource = opts.Source
+	m.batchCancel = cancel
+	m.batchDone = done
 	m.mu.Unlock()
 
 	finishMsg := "测速完成"
 	silentCore := false
 
 	defer func() {
+		cancel()
+
 		m.mu.Lock()
 		m.state = DelayIdle
+		m.batchSource = ""
+		m.batchCancel = nil
+		m.batchDone = nil
 		m.batchNodes = make(map[string]struct{})
 		m.waiters = make(map[string][]chan DelayResult)
 		m.mu.Unlock()
@@ -271,9 +357,11 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 			m.ctrl.StopCoreProcessIfIdle()
 		}
 
-		if !opts.SilentBusy {
+		if !opts.SilentUI {
 			m.emit.Emit("proxy-test-finished", finishMsg)
 		}
+
+		close(done)
 	}()
 
 	if !clash.IsRunning() {
@@ -313,37 +401,6 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 	m.runBatch(ctx, topo, targets, opts)
 }
 
-func (m *DelayTestManager) extractDelayTargets() []string {
-	var nodeNames []string
-	data, err := clash.GetInitialData()
-	if err != nil {
-		return nodeNames
-	}
-
-	groups, ok := data["groups"].(map[string]interface{})
-	if !ok {
-		return nodeNames
-	}
-
-	for name, raw := range groups {
-		nm, ok := raw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		typ, _ := nm["type"].(string)
-
-		switch typ {
-		case "Selector", "URLTest", "Fallback", "LoadBalance":
-			continue
-		}
-		if name == "GLOBAL" || name == "DIRECT" || name == "REJECT" {
-			continue
-		}
-		nodeNames = append(nodeNames, name)
-	}
-	return nodeNames
-}
-
 func (m *DelayTestManager) getTestURL() string {
 	if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil {
 		if u := strings.TrimSpace(netCfg.TestURL); u != "" {
@@ -359,74 +416,98 @@ func (m *DelayTestManager) runBatch(
 	nodeNames []string,
 	opts DelayTestOptions,
 ) {
-	testURL := m.getTestURL()
-
-	jobs := make(chan string, len(nodeNames))
-	for _, name := range nodeNames {
-		jobs <- name
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = 10
 	}
-	close(jobs)
 
-	workerCount := 6
+	testURL := m.getTestURL()
+	jobs := make(chan string)
+	results := make(chan DelayResult)
+
+	workerCount := opts.Concurrency
 	if len(nodeNames) < workerCount {
 		workerCount = len(nodeNames)
 	}
 
-	var failedMu sync.Mutex
-	var failed []string
-
 	var wg sync.WaitGroup
+
+	// Worker 协程池
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for name := range jobs {
-				if !opts.SilentBusy {
+				select {
+				case <-ctx.Done():
+					results <- DelayResult{Name: name, Delay: 0, Status: "timeout", Err: ctx.Err()}
+					continue
+				default:
+				}
+
+				if !opts.SilentUI {
 					m.emit.Emit("proxy-test-start", name)
 				}
 
-				// 第一轮：并发执行
-				res := m.testOne(ctx, name, testURL, 7000, 3000)
-
-				if res.Status != "success" {
-					failedMu.Lock()
-					failed = append(failed, name)
-					failedMu.Unlock()
-				} else {
-					m.emitDelayResult(topo, res)
-					m.notifyNodeResult(res)
-				}
+				res := m.testOneDuration(
+					ctx,
+					name,
+					testURL,
+					opts.ProbeTimeout,
+					opts.ProbeExtra,
+				)
+				results <- res
 			}
 		}()
 	}
-	wg.Wait()
 
-	if len(failed) == 0 {
-		return
-	}
-
-	// 🛡️ 如果策略要求不补测，则直接分发第一轮的失败状态并结束
-	if !opts.RetryFailed {
-		for _, name := range failed {
-			res := DelayResult{
-				Name:   name,
-				Delay:  0,
-				Status: "timeout",
-				Err:    context.DeadlineExceeded,
+	// 任务分发
+	go func() {
+		defer close(jobs)
+		for _, name := range nodeNames {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- name:
 			}
-			m.emitDelayResult(topo, res)
-			m.notifyNodeResult(res)
 		}
+	}()
+
+	// 等待完成并关闭结果通道
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var failed []string
+
+	// 收集并即时分发结果
+	for res := range results {
+		if res.Status != "success" && opts.RetryFailed {
+			failed = append(failed, res.Name)
+			continue
+		}
+
+		m.emitDelayResult(topo, res)
+		m.notifyNodeResult(res)
+	}
+
+	if !opts.RetryFailed || len(failed) == 0 {
 		return
 	}
 
-	// 🛡️ 第二轮：针对手动测速等场景，串行补测提高长尾成功率
+	// 仅深度/后台模式下的重试
 	for _, name := range failed {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			res := m.testOne(ctx, name, testURL, 9000, 3000)
+			res := m.testOneDuration(
+				ctx,
+				name,
+				testURL,
+				7*time.Second,
+				2*time.Second,
+			)
 			m.emitDelayResult(topo, res)
 			m.notifyNodeResult(res)
 		}
@@ -438,13 +519,14 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 		return 0, fmt.Errorf("empty proxy name")
 	}
 
+	// 用户单点优先，自动测速让路
+	m.cancelAutoBatchAndWait(ctx, 300*time.Millisecond)
+
 	topo, err := buildDelayTopology()
 	if err != nil {
 		return 0, err
 	}
 
-	// 🛡️ 核心修复：单点归一化
-	// 如果测的是策略组，实际上去测该组当前选中的真实叶子
 	target := name
 	if node, ok := topo.Nodes[name]; ok && node.IsGroup {
 		leaf := topo.resolveSelectedLeaf(name, map[string]bool{})
@@ -454,21 +536,20 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 		target = leaf
 	}
 
-	// 🛡️ 归一化后，针对真实叶子检查批量状态
-	if res, ok := m.waitForBatchNode(ctx, target); ok {
+	// 只等待手动批量测速的结果
+	if res, ok := m.waitForManualBatchNode(ctx, target); ok {
 		if res.Err != nil || res.Delay <= 0 {
 			return 0, fmt.Errorf("%s", res.Status)
 		}
-		m.emitDelayResult(topo, res) // 分发同步
+		m.emitDelayResult(topo, res)
 		return res.Delay, nil
 	}
 
-	// 🛡️ 针对真实叶子进行锁检查
 	m.mu.Lock()
-	isBusy := m.state != DelayIdle
+	isManualBatchBusy := m.state != DelayIdle
 	m.mu.Unlock()
 
-	if isBusy {
+	if isManualBatchBusy {
 		return 0, ErrDelayTestBusy
 	}
 
@@ -477,11 +558,9 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 	}
 	defer m.endSingleNode(target)
 
-	testURL := m.getTestURL()
-	// 单点测试：10s 超时，2s Context 宽限
-	res := m.testOne(ctx, target, testURL, 10000, 2000)
+	opts := singleDelayOptions()
+	res := m.testOneDuration(ctx, target, m.getTestURL(), opts.ProbeTimeout, opts.ProbeExtra)
 
-	// 分发结果（包含派生组更新）
 	m.emitDelayResult(topo, res)
 
 	if res.Err != nil || res.Delay <= 0 {

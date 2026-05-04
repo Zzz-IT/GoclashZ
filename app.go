@@ -569,8 +569,8 @@ func (a *App) TestAllProxies(nodeNames []string) {
 }
 
 func (a *App) TestProxy(name string) (int, error) {
-	// 🛡️ 核心修复：放宽外层超时至 15s，为并发排队留出足够空间
-	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	// 🛡️ 用户单点测速优先级最高，设置 8s 超时确保快速反馈
+	ctx, cancel := context.WithTimeout(a.ctx, 8*time.Second)
 	defer cancel()
 
 	return a.core.Delay.TestProxy(ctx, name)

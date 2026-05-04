@@ -2232,8 +2232,9 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 }
 
 .uwp-app-item.active .uwp-status-tag {
-  background: rgba(255, 255, 255, 0.25) !important;
-  color: var(--accent-fg) !important;
+  background: var(--accent-fg) !important;
+  color: var(--accent) !important;
+  opacity: 0.8;
 }
 
 .uwp-footer {
