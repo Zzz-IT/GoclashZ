@@ -61,10 +61,13 @@ type Controller struct {
 	pendingCoreUpdateAssetURL string
 	pendingCoreUpdateVersion  string
 
-	// 🚀 核心新增：静默测速内核生命周期管理
-	delayCoreMu      sync.Mutex
-	delayCoreRefs    int
-	delayCoreStarted bool
+	// 🚀 核心：静默测速内核生命周期管理
+	delayCoreMu       sync.Mutex
+	delayCoreRefs     int
+	delayCoreStarted  bool
+	delayCoreStarting bool
+	delayCoreReady    chan struct{}
+	delayCoreStartErr error
 }
 
 func NewController(opts Options) *Controller {
@@ -301,11 +304,30 @@ func (c *Controller) DisableAll() {
 	c.tunActive = false
 	c.mu.Unlock()
 
-	// 🛡️ 强制重置测速引用计数
+	shouldStopDelayCore := false
+
 	c.delayCoreMu.Lock()
+	if c.delayCoreStarted || c.delayCoreStarting {
+		shouldStopDelayCore = true
+	}
+
 	c.delayCoreRefs = 0
 	c.delayCoreStarted = false
+	c.delayCoreStarting = false
+	c.delayCoreStartErr = nil
+
+	if c.delayCoreReady != nil {
+		// 这里不 close，因为 starting 协程可能正在等它。
+		// 但由于 we set starting = false, EnsureDelayCore 会直接退出。
+		// 实际上 close 是安全的，因为 ready 只是个信号。
+		close(c.delayCoreReady)
+		c.delayCoreReady = nil
+	}
 	c.delayCoreMu.Unlock()
+
+	if shouldStopDelayCore {
+		clash.Stop()
+	}
 
 	c.SyncState()
 }
@@ -314,78 +336,131 @@ func (c *Controller) DisableAll() {
 func (c *Controller) EnsureDelayCore(ctx context.Context) (func(), error) {
 	c.delayCoreMu.Lock()
 
-	// 情况 1：内核已在运行（无论是正式启用还是之前的静默测速）
+	// 情况 1：内核已在物理运行（无论是正式启用还是之前的静默测速）
 	if clash.IsRunning() {
 		c.delayCoreRefs++
 		c.delayCoreMu.Unlock()
-
-		return func() {
-			c.releaseDelayCore()
-		}, nil
+		return c.releaseDelayCore, nil
 	}
 
-	// 情况 2：内核未运行，尝试静默启动
+	// 情况 2：已有其他协程正在启动内核，挂载并等待
+	if c.delayCoreStarting {
+		ready := c.delayCoreReady
+		c.delayCoreMu.Unlock()
+
+		select {
+		case <-ready:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+
+		c.delayCoreMu.Lock()
+		defer c.delayCoreMu.Unlock()
+
+		if c.delayCoreStartErr != nil {
+			return nil, c.delayCoreStartErr
+		}
+
+		if !clash.IsRunning() {
+			return nil, fmt.Errorf("测速内核启动失败")
+		}
+
+		c.delayCoreRefs++
+		return c.releaseDelayCore, nil
+	}
+
+	// 情况 3：内核未运行，且本协程是第一个发起启动的
 	profileID := c.Behavior.Get().ActiveConfig
 	if profileID == "" {
 		c.delayCoreMu.Unlock()
 		return nil, fmt.Errorf("请先在订阅管理中选择并应用一个配置文件")
 	}
 
-	if err := c.StartCoreOnly(ctx, profileID); err != nil {
-		c.delayCoreMu.Unlock()
-		return nil, fmt.Errorf("启动测速内核失败: %w", err)
+	c.delayCoreStarting = true
+	c.delayCoreReady = make(chan struct{})
+	ready := c.delayCoreReady
+	c.delayCoreStartErr = nil
+	c.delayCoreMu.Unlock()
+
+	// 在锁外执行耗时的启动与探测
+	err := c.startDelayCoreAndWaitReady(ctx, profileID)
+
+	c.delayCoreMu.Lock()
+	defer c.delayCoreMu.Unlock()
+
+	c.delayCoreStarting = false
+	c.delayCoreStartErr = err
+	close(ready)
+
+	if err != nil {
+		return nil, err
 	}
 
 	c.delayCoreStarted = true
 	c.delayCoreRefs = 1
-	c.delayCoreMu.Unlock()
 
-	// 探针检测 API 是否就绪
-	apiReady := false
-	for i := 0; i < 20; i++ {
-		if _, err := clash.GetInitialData(); err == nil {
-			apiReady = true
-			break
+	return c.releaseDelayCore, nil
+}
+
+func (c *Controller) startDelayCoreAndWaitReady(ctx context.Context, profileID string) error {
+	if err := c.StartCoreOnly(ctx, profileID); err != nil {
+		return fmt.Errorf("启动测速内核失败: %w", err)
+	}
+
+	ticker := time.NewTicker(150 * time.Millisecond)
+	defer ticker.Stop()
+
+	// 使用更短的 3s 探测超时
+	timeout := time.NewTimer(3 * time.Second)
+	defer timeout.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+
+		case <-timeout.C:
+			return fmt.Errorf("测速内核启动超时")
+
+		case <-ticker.C:
+			if _, err := clash.GetInitialData(); err == nil {
+				return nil
+			}
 		}
-		time.Sleep(150 * time.Millisecond)
 	}
-
-	if !apiReady {
-		c.releaseDelayCore()
-		return nil, fmt.Errorf("测速内核启动超时或失败")
-	}
-
-	return func() {
-		c.releaseDelayCore()
-	}, nil
 }
 
 func (c *Controller) releaseDelayCore() {
+	shouldStop := false
+
 	c.delayCoreMu.Lock()
-	defer c.delayCoreMu.Unlock()
 
 	if c.delayCoreRefs > 0 {
 		c.delayCoreRefs--
 	}
 
 	// 还有其他测速任务正在使用，不退出
-	if c.delayCoreRefs > 0 {
-		return
-	}
-
-	// 🚀 核心判定：如果用户此时已正式启用了代理（isRunning=true），则不能停掉 core
-	state := c.GetAppState()
-	if state.IsRunning {
+	if c.delayCoreRefs == 0 && c.delayCoreStarted {
+		// 🚀 核心判定：只有在用户没有正式开启代理时，才静默杀掉 core
+		if !c.IsUserRunning() {
+			shouldStop = true
+		}
 		c.delayCoreStarted = false
-		return
 	}
 
-	// 如果是由测速触发的临时启动，且当前无任务，则静默退出
-	if c.delayCoreStarted {
+	c.delayCoreMu.Unlock()
+
+	// 锁外执行 IO 与同步逻辑，避免死锁
+	if shouldStop {
 		clash.Stop()
-		c.delayCoreStarted = false
 		c.SyncState()
 	}
+}
+
+func (c *Controller) IsUserRunning() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.sysProxyActive || c.tunActive
 }
 
 // StartCoreOnly 严格执行“只启内核，不改状态”

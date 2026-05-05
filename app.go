@@ -573,8 +573,8 @@ func (a *App) TestAllProxies(nodeNames []string) {
 }
 
 func (a *App) TestProxy(name string) (int, error) {
-	// 🚀 核心恢复：设置 15s 外层超时，为排队等待留出空间
-	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	// 🚀 核心：设置 13s 硬保护超时，为排队等待留出空间
+	ctx, cancel := context.WithTimeout(a.ctx, appcore.SingleOuterTimeout)
 	defer cancel()
 
 	return a.core.Delay.TestProxy(ctx, name)

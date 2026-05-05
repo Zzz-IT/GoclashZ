@@ -24,6 +24,21 @@ const (
 	DelaySourceRestore   DelaySource = "restore"
 )
 
+const (
+	// 单点测速硬保护超时 (13s)，防止 UI 无限等待
+	SingleOuterTimeout = 13 * time.Second
+	// 单点排队超时 (1s)，并发槽位满时快速返回 busy
+	SingleQueueTimeout = 1 * time.Second
+	// 单点测速 API 超时 (8000ms)
+	SingleDelayTimeout = 8000
+	// 单点 Context 宽限时长
+	SingleCtxGrace = 800 * time.Millisecond
+
+	// 批量测速 API 超时
+	ManualBatchDelayTimeout = 8000
+	AutoBatchDelayTimeout   = 5000
+)
+
 type DelayResult struct {
 	Name    string
 	Delay   int
@@ -96,10 +111,14 @@ func manualDelayOptions() DelayTestOptions {
 		RetryFailed:    false,
 		TotalTimeout:   45 * time.Second,
 		StopSilentCore: true,
-		ProbeTimeout:   4 * time.Second,
-		ProbeExtra:     1 * time.Second,
+		ProbeTimeout:   time.Duration(manualBatchBatchTimeout()) * time.Millisecond,
+		ProbeExtra:     800 * time.Millisecond,
 		Concurrency:    10,
 	}
+}
+
+func manualBatchBatchTimeout() int {
+	return ManualBatchDelayTimeout
 }
 
 func autoDelayOptions(source DelaySource) DelayTestOptions {
@@ -109,7 +128,7 @@ func autoDelayOptions(source DelaySource) DelayTestOptions {
 		RetryFailed:    false,
 		TotalTimeout:   60 * time.Second,
 		StopSilentCore: true,
-		ProbeTimeout:   3500 * time.Millisecond,
+		ProbeTimeout:   time.Duration(AutoBatchDelayTimeout) * time.Millisecond,
 		ProbeExtra:     800 * time.Millisecond,
 		Concurrency:    6,
 	}
@@ -119,8 +138,8 @@ func singleDelayOptions() DelayTestOptions {
 	return DelayTestOptions{
 		Source:         DelaySourceManual,
 		SilentUI:       false,
-		ProbeTimeout:   5 * time.Second,
-		ProbeExtra:     1 * time.Second,
+		ProbeTimeout:   time.Duration(SingleDelayTimeout) * time.Millisecond,
+		ProbeExtra:     SingleCtxGrace,
 		Concurrency:    1,
 	}
 }
@@ -148,10 +167,40 @@ func NewDelayTestManager(emit EventSink, ctrl *Controller) *DelayTestManager {
 		emit:          emit,
 		ctrl:          ctrl,
 		state:         DelayIdle,
-		sem:           make(chan struct{}, 15), // 提高信号量容量以匹配并发
+		activeSingles: make(map[string]struct{}),
+		sem:           make(chan struct{}, 10),
 		batchNodes:    make(map[string]struct{}),
 		waiters:       make(map[string][]chan DelayResult),
-		activeSingles: make(map[string]struct{}),
+	}
+}
+
+func (m *DelayTestManager) acquireDelaySlot(ctx context.Context, queueTimeout time.Duration) error {
+	if queueTimeout <= 0 {
+		select {
+		case m.sem <- struct{}{}:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	timer := time.NewTimer(queueTimeout)
+	defer timer.Stop()
+
+	select {
+	case m.sem <- struct{}{}:
+		return nil
+	case <-timer.C:
+		return ErrDelayTestBusy
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (m *DelayTestManager) releaseDelaySlot() {
+	select {
+	case <-m.sem:
+	default:
 	}
 }
 
@@ -361,42 +410,15 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 	ctx, cancel := context.WithTimeout(parent, opts.TotalTimeout)
 	done := make(chan struct{})
 
-	m.mu.Lock()
-	if m.state != DelayIdle || len(m.activeSingles) > 0 {
-		m.mu.Unlock()
-		cancel()
-		close(done)
-
-		if !opts.SilentUI {
-			for _, name := range nodeNames {
-				m.emit.Emit("proxy-delay-update", map[string]interface{}{
-					"name":   name,
-					"delay":  0,
-					"status": "busy",
-				})
-			}
-			m.emit.Emit("proxy-test-finished", "当前已有测速任务正在运行")
-		}
-		return
-	}
-
-	m.state = DelayPreparing
+	m.state = DelayRunning
 	m.batchSource = opts.Source
 	m.batchCancel = cancel
 	m.batchDone = done
+	m.batchNodes = make(map[string]struct{})
+	m.waiters = make(map[string][]chan DelayResult)
 	m.mu.Unlock()
 
 	finishMsg := "测速完成"
-
-	// 🚀 核心接入：静默内核保障
-	cleanup, err := m.ctrl.EnsureDelayCore(ctx)
-	if err != nil {
-		if !opts.SilentUI {
-			m.emit.Emit("proxy-test-finished", err.Error())
-		}
-		return
-	}
-	defer cleanup()
 
 	defer func() {
 		cancel()
@@ -417,6 +439,14 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 		close(done)
 	}()
 
+	// 🚀 核心接入：静默内核保障
+	cleanup, err := m.ctrl.EnsureDelayCore(ctx)
+	if err != nil {
+		finishMsg = "测速启动失败：" + err.Error()
+		return
+	}
+	defer cleanup()
+
 	topo, err := buildDelayTopology()
 	if err != nil {
 		finishMsg = "读取代理拓扑失败：" + err.Error()
@@ -436,8 +466,6 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 	}
 
 	m.mu.Lock()
-	m.state = DelayRunning
-	m.batchNodes = make(map[string]struct{})
 	for _, n := range targets {
 		m.batchNodes[n] = struct{}{}
 	}
@@ -579,6 +607,7 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 		return 0, err
 	}
 
+	// 解析出叶子节点
 	target := name
 	if node, ok := topo.Nodes[name]; ok && node.IsGroup {
 		leaf := topo.resolveSelectedLeaf(name, map[string]bool{})
@@ -588,35 +617,26 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 		target = leaf
 	}
 
-	// 只等待手动批量测速的结果
-	if res, ok := m.waitForManualBatchNode(ctx, target); ok {
-		if res.Err != nil || res.Delay <= 0 {
-			return 0, fmt.Errorf("%s", res.Status)
-		}
-		m.emitDelayResult(topo, res)
-		return res.Delay, nil
-	}
-
-	m.mu.Lock()
-	isManualBatchBusy := m.state != DelayIdle
-	m.mu.Unlock()
-
-	if isManualBatchBusy {
-		return 0, ErrDelayTestBusy
-	}
-
+	// 1. 同节点防重复并发
 	if !m.beginSingleNode(target) {
 		return 0, ErrDelayTestBusy
 	}
 	defer m.endSingleNode(target)
 
-	opts := singleDelayOptions()
-	res := m.testOneDuration(ctx, target, m.getTestURL(), opts.ProbeTimeout, opts.ProbeExtra)
+	// 2. 信号量排队 (1s 超时)
+	if err := m.acquireDelaySlot(ctx, SingleQueueTimeout); err != nil {
+		return 0, err
+	}
+	defer m.releaseDelaySlot()
+
+	// 3. 执行测速
+	testURL := m.getTestURL()
+	res := m.testOneDuration(ctx, target, testURL, SingleDelayTimeout, SingleCtxGrace)
 
 	m.emitDelayResult(topo, res)
 
 	if res.Err != nil || res.Delay <= 0 {
-		return 0, fmt.Errorf("%s", res.Status)
+		return 0, res.Err
 	}
 
 	return res.Delay, nil
