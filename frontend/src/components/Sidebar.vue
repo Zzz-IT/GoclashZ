@@ -116,7 +116,8 @@ const toggleTheme = () => {
 }
 
 .nav-item.active { 
-  background: var(--surface-hover); 
+  background: var(--text-main); 
+  color: var(--accent-fg);
   font-weight: 600; 
 }
 
@@ -128,8 +129,8 @@ const toggleTheme = () => {
   right: 14px;
   width: 5px;
   height: 5px;
-  border-top: 1.5px solid var(--text-main);
-  border-right: 1.5px solid var(--text-main);
+  border-top: 1.5px solid var(--accent-fg);
+  border-right: 1.5px solid var(--accent-fg);
   transform: rotate(45deg);
   opacity: 0.8;
 }

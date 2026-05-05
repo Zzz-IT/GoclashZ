@@ -1953,8 +1953,6 @@ const updateNameserverPolicy = (e: Event) => {
 .settings-container { 
   display: flex; 
   flex-direction: column; 
-  height: 100%; 
-  overflow: hidden; 
   position: relative; 
 }
 
@@ -1962,11 +1960,10 @@ const updateNameserverPolicy = (e: Event) => {
   display: flex;
   flex-direction: column;
   width: 100%;
-  height: 100%;
 }
-.settings-page { display: flex; flex-direction: column; flex: 1; overflow-y: auto; padding-right: 4px; }
+.settings-page { display: flex; flex-direction: column; flex: 1; }
 .setting-group { padding: 20px 24px; margin-bottom: 12px; }
-.scrollable { overflow-y: auto; padding-right: 12px; padding-bottom: 20px; }
+.scrollable { padding-bottom: 20px; }
 
 h3 { margin: 0 0 8px 0; color: var(--text-main); font-size: 1.25rem; padding-bottom: 4px; }
 h4 { margin: 0 0 6px 0; color: var(--text-main); font-size: 1rem;}

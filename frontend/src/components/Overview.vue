@@ -52,8 +52,8 @@
       </div>
     </section>
 
-    <section class="mode-section">
-      <div class="section-title">
+    <section class="mode-section rules-card">
+      <div class="rules-head">
         <h3 class="section-heading">出站路由规则</h3>
       </div>
       <div class="segmented-control">
@@ -430,16 +430,16 @@ const runModeWorker = async (targetMode: string) => {
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .active-config-display { 
-  margin-left: 60px; /* 与左侧状态保持距离 */
+  text-align: right;
   min-width: 0; 
-  flex: 1; 
+  flex: none; /* 改为固定宽度或自然宽度，由 space-between 推向右侧 */
+  margin-left: auto;
 }
 
 .active-config-display .config-name { 
-  max-width: 280px; 
-  font-size: 1rem; 
-  font-weight: 500;
-  margin-top: 4px;
+  font-size: 0.9rem; 
+  font-weight: 700;
+  color: var(--text-main);
 }
 
 /* 开关卡片 */
@@ -477,33 +477,68 @@ const runModeWorker = async (targetMode: string) => {
 .status-node { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
 .on .status-node { background: var(--accent-fg); box-shadow: 0 0 8px var(--accent-fg); }
 
+/* 规则卡片 (与 TrafficCard 统一) */
+.rules-card {
+  padding: 24px 28px;
+  background: var(--surface);
+  border-radius: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.rules-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.section-heading { 
+  margin: 0;
+  font-size: 1rem; 
+  font-weight: 600; 
+  color: var(--text-main); 
+}
+
 /* 分段选择器 */
 .segmented-control {
-  background: var(--surface);
-  padding: 4px; border-radius: 14px; display: flex; position: relative;
-  border: none; overflow: hidden;
+  background: var(--surface-panel);
+  padding: 4px; 
+  border-radius: 12px; 
+  display: flex; 
+  position: relative;
+  border: none; 
+  overflow: hidden;
 }
+
 .seg-item {
-  flex: 1; text-align: center; padding: 12px 0; font-size: 0.9rem; font-weight: 500;
-  color: var(--text-sub); cursor: pointer; z-index: 1; transition: 0.3s;
+  flex: 1; 
+  text-align: center; 
+  padding: 14px 0; 
+  font-size: 0.9rem; 
+  font-weight: 600;
+  color: var(--text-main); 
+  cursor: pointer; 
+  z-index: 1; 
+  transition: 0.3s;
 }
-.seg-item.active { color: var(--text-main); font-weight: 600; }
+
+.seg-item.active { 
+  color: var(--accent-fg); 
+}
+
 .seg-slider {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
-  width: calc(33.33% - 8px);
-  margin-left: 4px; /* 🚀 核心：通过左边距实现滑块在 1/3 槽位内的居中 */
-  background: var(--surface-panel);
-  border-radius: 10px;
+  top: 10px;
+  bottom: 10px;
+  width: calc(33.33% - 20px);
+  margin-left: 10px;
+  background: var(--text-main);
+  border-radius: 8px;
   z-index: 0;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
-
-@keyframes pulse { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(2.5); opacity: 0; } }
-
-.micro-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; color: var(--text-muted); }
-.section-heading { font-size: 1.1rem; font-weight: 600; color: var(--text-main); margin: 0 0 12px 4px; }
 
 </style>

@@ -385,14 +385,17 @@ onUnmounted(() => {
   background: var(--surface-hover);
 }
 .group-tab-btn.active {
-  background: var(--surface-panel);
-  color: var(--text-main);
+  background: var(--accent);
+  color: var(--accent-fg);
   font-weight: 600;
 }
 .group-tab-btn .count {
   font-size: 0.8rem;
   opacity: 0.6;
   margin-left: 6px;
+}
+.group-tab-btn.active .count {
+  opacity: 0.7;
 }
 
 .btn-icon { width: 14px; height: 14px; }

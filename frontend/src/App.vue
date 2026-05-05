@@ -458,6 +458,7 @@ watch(currentTab, (newTab) => {
 .view-scroller { 
   flex: 1; 
   overflow-y: auto; 
+  scrollbar-gutter: stable; /* 始终预留滚动条空间，防止内容切换时的宽度跳变 */
   /* 🚀 修复：右侧 padding 减去滚动条的 4px 宽度，实现绝对像素级对称 */
   padding: 0 calc(var(--content-px) - 4px) var(--content-py) var(--content-px); 
 }
@@ -483,7 +484,7 @@ watch(currentTab, (newTab) => {
 .log-line.error .l-type { color: var(--text-main); font-weight: 700; }
 .log-line.debug .l-type { color: var(--text-muted); }
 
-.view-settings { height: 100%; display: flex; flex-direction: column; }
+.view-settings { display: flex; flex-direction: column; }
 
 /* 页面切换动画：淡入并向上微移 8px */
 .page-fade-enter-active,
