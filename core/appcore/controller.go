@@ -69,6 +69,7 @@ type Controller struct {
 	delayCoreReady       chan struct{}
 	delayCoreStartCancel context.CancelFunc
 	delayCoreStartErr    error
+	delayCoreStopTimer   *time.Timer
 
 	// 🚀 新增：明确用户运行意图
 	userCoreRunning bool
@@ -332,6 +333,11 @@ func (c *Controller) DisableAll() {
 	cancelStart = c.delayCoreStartCancel
 	ready = c.delayCoreReady
 
+	if c.delayCoreStopTimer != nil {
+		c.delayCoreStopTimer.Stop()
+		c.delayCoreStopTimer = nil
+	}
+
 	c.delayCoreRefs = 0
 	c.delayCoreStarted = false
 	c.delayCoreStarting = false
@@ -356,14 +362,20 @@ func (c *Controller) DisableAll() {
 }
 
 // 🚀 核心新增：静默测速内核保障机制
-func (c *Controller) EnsureDelayCore(ctx context.Context) (func(), error) {
+func (c *Controller) EnsureDelayCore(ctx context.Context) (cleanup func(), coldStart bool, err error) {
 	c.delayCoreMu.Lock()
+
+	// 如果有正在倒计时的停止任务，先取消它
+	if c.delayCoreStopTimer != nil {
+		c.delayCoreStopTimer.Stop()
+		c.delayCoreStopTimer = nil
+	}
 
 	// 情况 1：内核已在物理运行
 	if clash.IsRunning() {
 		c.delayCoreRefs++
 		c.delayCoreMu.Unlock()
-		return c.releaseDelayCore, nil
+		return c.releaseDelayCore, false, nil
 	}
 
 	// 情况 2：已有其他协程正在启动内核，挂载并等待
@@ -374,29 +386,29 @@ func (c *Controller) EnsureDelayCore(ctx context.Context) (func(), error) {
 		select {
 		case <-ready:
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, false, ctx.Err()
 		}
 
 		c.delayCoreMu.Lock()
 		defer c.delayCoreMu.Unlock()
 
 		if c.delayCoreStartErr != nil {
-			return nil, c.delayCoreStartErr
+			return nil, false, c.delayCoreStartErr
 		}
 
 		if !clash.IsRunning() {
-			return nil, fmt.Errorf("测速内核启动失败")
+			return nil, false, fmt.Errorf("测速内核启动失败")
 		}
 
 		c.delayCoreRefs++
-		return c.releaseDelayCore, nil
+		return c.releaseDelayCore, true, nil
 	}
 
 	// 情况 3：内核未运行，且本协程是第一个发起启动的
 	profileID := c.Behavior.Get().ActiveConfig
 	if profileID == "" {
 		c.delayCoreMu.Unlock()
-		return nil, fmt.Errorf("请先在订阅管理中选择并应用一个配置文件")
+		return nil, false, fmt.Errorf("请先在订阅管理中选择并应用一个配置文件")
 	}
 
 	startCtx, cancel := context.WithCancel(ctx)
@@ -409,7 +421,7 @@ func (c *Controller) EnsureDelayCore(ctx context.Context) (func(), error) {
 	c.delayCoreMu.Unlock()
 
 	// 在锁外执行耗时的启动与探测
-	err := c.startDelayCoreAndWaitReady(startCtx, profileID)
+	err = c.startDelayCoreAndWaitReady(startCtx, profileID)
 
 	ok := c.finishDelayCoreStart(ready, err)
 	if !ok {
@@ -418,11 +430,11 @@ func (c *Controller) EnsureDelayCore(ctx context.Context) (func(), error) {
 			clash.Stop()
 			c.SyncState()
 		}
-		return nil, fmt.Errorf("测速已取消")
+		return nil, false, fmt.Errorf("测速已取消")
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	c.delayCoreMu.Lock()
@@ -430,7 +442,7 @@ func (c *Controller) EnsureDelayCore(ctx context.Context) (func(), error) {
 	c.delayCoreRefs = 1
 	c.delayCoreMu.Unlock()
 
-	return c.releaseDelayCore, nil
+	return c.releaseDelayCore, true, nil
 }
 
 func (c *Controller) finishDelayCoreStart(ready chan struct{}, err error) bool {
@@ -490,8 +502,10 @@ func (c *Controller) startDelayCoreAndWaitReady(ctx context.Context, profileID s
 	}
 }
 
+const DelayCoreIdleTTL = 15 * time.Second
+
 func (c *Controller) releaseDelayCore() {
-	shouldStop := false
+	shouldScheduleStop := false
 
 	c.delayCoreMu.Lock()
 
@@ -500,21 +514,37 @@ func (c *Controller) releaseDelayCore() {
 	}
 
 	// 还有其他测速任务正在使用，不退出
-	if c.delayCoreRefs == 0 && c.delayCoreStarted {
-		// 🚀 核心判定：只有在用户没有正式开启代理时，才静默杀掉 core
-		if !c.IsUserRunning() {
-			shouldStop = true
+	if c.delayCoreRefs == 0 && c.delayCoreStarted && !c.IsUserRunning() {
+		shouldScheduleStop = true
+	}
+
+	if shouldScheduleStop {
+		// 🚀 核心改进：引入 15s Idle TTL，避免频繁冷启动
+		if c.delayCoreStopTimer != nil {
+			c.delayCoreStopTimer.Stop()
 		}
-		c.delayCoreStarted = false
+
+		c.delayCoreStopTimer = time.AfterFunc(DelayCoreIdleTTL, func() {
+			c.delayCoreMu.Lock()
+
+			// 二次确认：在此期间用户可能又点测速了，或者正式开启了代理
+			if c.delayCoreRefs > 0 || !c.delayCoreStarted || c.IsUserRunning() {
+				c.delayCoreStopTimer = nil
+				c.delayCoreMu.Unlock()
+				return
+			}
+
+			c.delayCoreStarted = false
+			c.delayCoreStopTimer = nil
+			c.delayCoreMu.Unlock()
+
+			// 物理停止内核
+			clash.Stop()
+			c.SyncState()
+		})
 	}
 
 	c.delayCoreMu.Unlock()
-
-	// 锁外执行 IO 与同步逻辑，避免死锁
-	if shouldStop {
-		clash.Stop()
-		c.SyncState()
-	}
 }
 
 func (c *Controller) IsUserRunning() bool {

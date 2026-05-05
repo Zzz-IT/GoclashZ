@@ -25,14 +25,19 @@ const (
 )
 
 const (
-	// 单点测速硬保护超时 (13s)，防止 UI 无限等待
-	SingleOuterTimeout = 13 * time.Second
+	// 单点测速硬保护超时 (14s)，防止 UI 无限等待
+	SingleOuterTimeout = 14 * time.Second
 	// 单点排队超时 (1s)，并发槽位满时快速返回 busy
 	SingleQueueTimeout = 1 * time.Second
 	// 单点测速 API 超时 (8000ms)
 	SingleDelayTimeout = 8000
 	// 单点 Context 宽限时长
 	SingleCtxGrace = 800 * time.Millisecond
+
+	// 🚀 新增：冷启动预热探测参数
+	ColdStartProbeTimeout = 2500
+	ColdStartRetryTimeout = 6500
+	ColdStartRetryGrace   = 600 * time.Millisecond
 
 	// 批量测速 API 超时
 	ManualBatchDelayTimeout = 8000
@@ -448,7 +453,7 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 	}()
 
 	// 🚀 核心接入：静默内核保障
-	cleanup, err := m.ctrl.EnsureDelayCore(ctx)
+	cleanup, _, err := m.ctrl.EnsureDelayCore(ctx)
 	if err != nil {
 		finishMsg = "测速启动失败：" + err.Error()
 		return
@@ -604,7 +609,7 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 	m.cancelAutoBatchAndWait(ctx, 300*time.Millisecond)
 
 	// 🚀 核心接入：静默内核保障
-	cleanup, err := m.ctrl.EnsureDelayCore(ctx)
+	cleanup, coldStart, err := m.ctrl.EnsureDelayCore(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -639,7 +644,23 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 
 	// 3. 执行测速
 	testURL := m.getTestURL()
-	res := m.testOneDuration(ctx, target, testURL, SingleDelayTimeout, SingleCtxGrace)
+
+	var res DelayResult
+
+	if coldStart {
+		// 🚀 核心改进：冷启动预热探测
+		// 第一次失败时不立刻 emit，尝试轻量重试一次
+		res = m.testOneDuration(ctx, target, testURL, ColdStartProbeTimeout, ColdStartRetryGrace)
+
+		if res.Err != nil || res.Delay <= 0 {
+			if isRetryableDelayFailure(res) {
+				time.Sleep(200 * time.Millisecond)
+				res = m.testOneDuration(ctx, target, testURL, ColdStartRetryTimeout, ColdStartRetryGrace)
+			}
+		}
+	} else {
+		res = m.testOneDuration(ctx, target, testURL, SingleDelayTimeout, SingleCtxGrace)
+	}
 
 	m.emitDelayResult(topo, res)
 
@@ -648,6 +669,27 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 	}
 
 	return res.Delay, nil
+}
+
+func isRetryableDelayFailure(res DelayResult) bool {
+	if res.Delay > 0 {
+		return false
+	}
+
+	status := strings.ToLower(strings.TrimSpace(res.Status))
+	if status == "timeout" || status == "connect-error" || status == "test-error" {
+		return true
+	}
+
+	if res.Err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(res.Err.Error())
+	return strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "deadline") ||
+		strings.Contains(msg, "tls") ||
+		strings.Contains(msg, "connect")
 }
 
 // --- Topology Helpers ---
