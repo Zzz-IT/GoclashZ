@@ -399,8 +399,8 @@ onUnmounted(() => {
   background: var(--surface-hover);
 }
 .group-tab-btn.active {
-  background: var(--accent);
-  color: var(--accent-fg);
+  background: var(--surface-panel);
+  color: var(--text-main);
   font-weight: 600;
 }
 .group-tab-btn .count {
