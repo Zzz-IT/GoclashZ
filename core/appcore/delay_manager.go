@@ -111,14 +111,10 @@ func manualDelayOptions() DelayTestOptions {
 		RetryFailed:    false,
 		TotalTimeout:   45 * time.Second,
 		StopSilentCore: true,
-		ProbeTimeout:   time.Duration(manualBatchBatchTimeout()) * time.Millisecond,
+		ProbeTimeout:   time.Duration(ManualBatchDelayTimeout) * time.Millisecond,
 		ProbeExtra:     800 * time.Millisecond,
 		Concurrency:    10,
 	}
-}
-
-func manualBatchBatchTimeout() int {
-	return ManualBatchDelayTimeout
 }
 
 func autoDelayOptions(source DelaySource) DelayTestOptions {
@@ -409,6 +405,18 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 
 	ctx, cancel := context.WithTimeout(parent, opts.TotalTimeout)
 	done := make(chan struct{})
+
+	m.mu.Lock()
+	if m.state != DelayIdle {
+		m.mu.Unlock()
+		cancel()
+		close(done)
+
+		if !opts.SilentUI {
+			m.emit.Emit("proxy-test-finished", ErrDelayTestBusy.Error())
+		}
+		return
+	}
 
 	m.state = DelayRunning
 	m.batchSource = opts.Source

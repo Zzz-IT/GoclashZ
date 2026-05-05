@@ -50,7 +50,7 @@ func (c *Controller) runComponentUpdateTransaction(
 		shouldRestart := wasRunning || wantSysProxy || wantTun
 
 		if opt.StopCore && wasRunning {
-			_ = c.stopCoreProcessLocked()
+			c.stopCoreProcessLocked()
 			c.coreLifecycleMu.Unlock()
 
 			// 停止后立刻同步状态，停掉 traffic/proxy monitor

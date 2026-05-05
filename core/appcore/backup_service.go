@@ -39,7 +39,7 @@ func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode st
 
 	// 2. 预处理：停止内核释放文件句柄
 	if wasRunning {
-		_ = c.stopCoreProcessLocked()
+		c.stopCoreProcessLocked()
 		c.coreLifecycleMu.Unlock() // 停止后释放生命周期锁，允许还原逻辑执行
 		c.SyncState()
 	} else {

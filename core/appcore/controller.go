@@ -62,12 +62,16 @@ type Controller struct {
 	pendingCoreUpdateVersion  string
 
 	// 🚀 核心：静默测速内核生命周期管理
-	delayCoreMu       sync.Mutex
-	delayCoreRefs     int
-	delayCoreStarted  bool
-	delayCoreStarting bool
-	delayCoreReady    chan struct{}
-	delayCoreStartErr error
+	delayCoreMu          sync.Mutex
+	delayCoreRefs        int
+	delayCoreStarted     bool
+	delayCoreStarting    bool
+	delayCoreReady       chan struct{}
+	delayCoreStartCancel context.CancelFunc
+	delayCoreStartErr    error
+
+	// 🚀 新增：明确用户运行意图
+	userCoreRunning bool
 }
 
 func NewController(opts Options) *Controller {
@@ -158,11 +162,12 @@ func (c *Controller) GetAppState() AppState {
 	c.mu.RLock()
 	sysProxy := c.sysProxyActive
 	tunActive := c.tunActive
+	userRunning := c.userCoreRunning
 	c.mu.RUnlock()
 
 	// 🚀 核心逻辑：将内核物理运行状态与 UI 业务接管状态解耦
-	// 只有系统代理或 TUN 开启时，才向前端汇报 true，屏蔽静默测速引发的闪烁
-	logicalIsRunning := clash.IsRunning() && (sysProxy || tunActive)
+	// 只有用户主动开启代理时，才向前端汇报 true，屏蔽静默测速引发的闪烁
+	logicalIsRunning := clash.IsRunning() && userRunning
 
 	state := AppState{
 		IsRunning:          logicalIsRunning,
@@ -250,14 +255,24 @@ func (c *Controller) ensureCoreRunningLocked(ctx context.Context) error {
 
 	if !apiReady {
 		clash.Stop() // 探针失败，及时清理掉内核进程
+		c.mu.Lock()
+		c.userCoreRunning = false
+		c.mu.Unlock()
 		return fmt.Errorf("内核进程已启动，但 API 未能在预期时间内就绪")
 	}
+
+	c.mu.Lock()
+	c.userCoreRunning = true
+	c.mu.Unlock()
 	return nil
 }
 
-func (c *Controller) stopCoreProcessLocked() error {
+func (c *Controller) stopCoreProcessLocked() {
 	clash.Stop()
-	return nil
+	c.mu.Lock()
+	c.userCoreRunning = false
+	c.mu.Unlock()
+	c.SyncState()
 }
 
 // StopCoreProcessIfIdle 静默测速结束后，只有在用户未显式开启代理/TUN 时才停止内核
@@ -302,28 +317,36 @@ func (c *Controller) DisableAll() {
 	c.mu.Lock()
 	c.sysProxyActive = false
 	c.tunActive = false
+	c.userCoreRunning = false
 	c.mu.Unlock()
 
 	shouldStopDelayCore := false
+	var cancelStart context.CancelFunc
+	var ready chan struct{}
 
 	c.delayCoreMu.Lock()
 	if c.delayCoreStarted || c.delayCoreStarting {
 		shouldStopDelayCore = true
 	}
 
+	cancelStart = c.delayCoreStartCancel
+	ready = c.delayCoreReady
+
 	c.delayCoreRefs = 0
 	c.delayCoreStarted = false
 	c.delayCoreStarting = false
-	c.delayCoreStartErr = nil
-
-	if c.delayCoreReady != nil {
-		// 这里不 close，因为 starting 协程可能正在等它。
-		// 但由于 we set starting = false, EnsureDelayCore 会直接退出。
-		// 实际上 close 是安全的，因为 ready 只是个信号。
-		close(c.delayCoreReady)
-		c.delayCoreReady = nil
-	}
+	c.delayCoreStartErr = fmt.Errorf("测速已取消")
+	c.delayCoreStartCancel = nil
+	c.delayCoreReady = nil
 	c.delayCoreMu.Unlock()
+
+	if cancelStart != nil {
+		cancelStart()
+	}
+
+	if ready != nil {
+		close(ready)
+	}
 
 	if shouldStopDelayCore {
 		clash.Stop()
@@ -336,7 +359,7 @@ func (c *Controller) DisableAll() {
 func (c *Controller) EnsureDelayCore(ctx context.Context) (func(), error) {
 	c.delayCoreMu.Lock()
 
-	// 情况 1：内核已在物理运行（无论是正式启用还是之前的静默测速）
+	// 情况 1：内核已在物理运行
 	if clash.IsRunning() {
 		c.delayCoreRefs++
 		c.delayCoreMu.Unlock()
@@ -376,41 +399,77 @@ func (c *Controller) EnsureDelayCore(ctx context.Context) (func(), error) {
 		return nil, fmt.Errorf("请先在订阅管理中选择并应用一个配置文件")
 	}
 
+	startCtx, cancel := context.WithCancel(ctx)
+
 	c.delayCoreStarting = true
 	c.delayCoreReady = make(chan struct{})
+	c.delayCoreStartCancel = cancel
 	ready := c.delayCoreReady
 	c.delayCoreStartErr = nil
 	c.delayCoreMu.Unlock()
 
 	// 在锁外执行耗时的启动与探测
-	err := c.startDelayCoreAndWaitReady(ctx, profileID)
+	err := c.startDelayCoreAndWaitReady(startCtx, profileID)
 
-	c.delayCoreMu.Lock()
-	defer c.delayCoreMu.Unlock()
-
-	c.delayCoreStarting = false
-	c.delayCoreStartErr = err
-	close(ready)
+	ok := c.finishDelayCoreStart(ready, err)
+	if !ok {
+		// 如果启动被 DisableAll 抢先取消了
+		if err == nil && !c.IsUserRunning() {
+			clash.Stop()
+			c.SyncState()
+		}
+		return nil, fmt.Errorf("测速已取消")
+	}
 
 	if err != nil {
 		return nil, err
 	}
 
+	c.delayCoreMu.Lock()
 	c.delayCoreStarted = true
 	c.delayCoreRefs = 1
+	c.delayCoreMu.Unlock()
 
 	return c.releaseDelayCore, nil
 }
 
+func (c *Controller) finishDelayCoreStart(ready chan struct{}, err error) bool {
+	c.delayCoreMu.Lock()
+	defer c.delayCoreMu.Unlock()
+
+	if c.delayCoreReady != ready {
+		return false
+	}
+
+	c.delayCoreStarting = false
+	c.delayCoreStartErr = err
+	c.delayCoreStartCancel = nil
+	close(ready)
+	c.delayCoreReady = nil
+
+	return true
+}
+
 func (c *Controller) startDelayCoreAndWaitReady(ctx context.Context, profileID string) error {
+	started := false
+	ready := false
+
 	if err := c.StartCoreOnly(ctx, profileID); err != nil {
 		return fmt.Errorf("启动测速内核失败: %w", err)
 	}
+	started = true
+
+	// 🛡️ 核心保障：如果启动失败或中途取消，必须停止这个临时 core
+	defer func() {
+		if started && !ready && !c.IsUserRunning() {
+			clash.Stop()
+			c.SyncState()
+		}
+	}()
 
 	ticker := time.NewTicker(150 * time.Millisecond)
 	defer ticker.Stop()
 
-	// 使用更短的 3s 探测超时
 	timeout := time.NewTimer(3 * time.Second)
 	defer timeout.Stop()
 
@@ -424,6 +483,7 @@ func (c *Controller) startDelayCoreAndWaitReady(ctx context.Context, profileID s
 
 		case <-ticker.C:
 			if _, err := clash.GetInitialData(); err == nil {
+				ready = true
 				return nil
 			}
 		}
@@ -460,13 +520,13 @@ func (c *Controller) releaseDelayCore() {
 func (c *Controller) IsUserRunning() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.sysProxyActive || c.tunActive
+	return c.userCoreRunning
 }
 
 // StartCoreOnly 严格执行“只启内核，不改状态”
 func (c *Controller) StartCoreOnly(ctx context.Context, id string) error {
 	behavior := c.Behavior.Get()
-	// 仅构建运行时 YAML 并启动进程，不触碰系统代理、TUN 和 isRunning 逻辑
+	// 仅构建运行时 YAML 并启动进程，不触碰系统代理、TUN 和 userCoreRunning 逻辑
 	if err := clash.BuildRuntimeConfig(id, behavior.ActiveMode, behavior.LogLevel); err != nil {
 		return err
 	}
@@ -505,6 +565,10 @@ func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
 		if !clash.IsRunning() {
 			return fmt.Errorf("内核未能成功启动，系统代理开启失败")
 		}
+
+		c.mu.Lock()
+		c.userCoreRunning = true
+		c.mu.Unlock()
 
 		// 获取实际运行端口并开启系统代理
 		var port int
@@ -600,7 +664,7 @@ func (c *Controller) RestartCoreWithReason(ctx context.Context, reason string) e
 	c.coreLifecycleMu.Lock()
 	defer c.coreLifecycleMu.Unlock()
 
-	_ = c.stopCoreProcessLocked()
+	c.stopCoreProcessLocked()
 
 	if err := c.ensureCoreRunningLocked(ctx); err != nil {
 		c.SyncState()
