@@ -204,7 +204,7 @@ body,
   top: 0;
   z-index: 30;
   isolation: isolate;
-  --sticky-mask-bleed: 8px;
+  --sticky-mask-bleed: 4px;
 }
 
 .page-sticky-mask::before {

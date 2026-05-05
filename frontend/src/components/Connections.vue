@@ -227,7 +227,7 @@ const closeSingleConnection = async (id: string) => {
   border-radius: 12px;
 }
 .action-bar.page-sticky-mask {
-  --sticky-mask-bleed: 10px;
+  --sticky-mask-bleed: 6px;
 }
 .stats .count { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
 

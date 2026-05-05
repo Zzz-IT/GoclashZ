@@ -302,7 +302,7 @@ onMounted(() => {
   background: transparent;
 }
 .rules-header.page-sticky-mask {
-  --sticky-mask-bleed: 4px;
+  --sticky-mask-bleed: 2px;
 }
 .header-actions { display: flex; gap: 12px; }
 .search-bar { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--surface-hover); border-radius: 8px; padding: 8px 12px; flex: 1; }

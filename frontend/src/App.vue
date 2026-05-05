@@ -477,7 +477,7 @@ watch(currentTab, async (newTab) => {
 .view-scroller { 
   flex: 1; 
   min-height: 0;
-  overflow-y: scroll;
+  overflow-y: auto;
   overflow-x: hidden;
   padding: 0 var(--content-px) var(--content-py) var(--content-px); 
   overscroll-behavior: contain;

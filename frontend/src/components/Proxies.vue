@@ -1,23 +1,31 @@
 <template>
   <div class="proxies-view">
-    <div class="action-bar page-sticky-mask">
-      <div class="group-tabs">
-        <button
-          v-for="group in localGroups"
-          :key="group.name"
-          :class="['group-tab-btn', { active: currentGroup === group.name }]"
-          @click="currentGroup = group.name"
-        >
-          {{ group.name }}
-          <span class="count">({{ group.proxies?.length || 0 }})</span>
-        </button>
-      </div>
+    <div class="proxy-toolbar page-sticky-mask">
+      <div class="proxy-toolbar-card">
+        <div class="proxy-tabs-viewport">
+          <div class="proxy-tabs-track">
+            <button
+              v-for="group in localGroups"
+              :key="group.name"
+              :class="['proxy-tab-btn', { active: currentGroup === group.name }]"
+              @click="currentGroup = group.name"
+            >
+              {{ group.name }}
+              <span class="count">({{ group.proxies?.length || 0 }})</span>
+            </button>
+          </div>
+        </div>
 
-      <div class="global-actions">
-        <button class="primary-btn accent-btn" @click="testAllDelays" :disabled="isTesting || !activeGroupData">
-          <span class="btn-icon" v-html="ICONS.zap"></span>
-          {{ isTesting ? '测速中...' : '测速当前组' }}
-        </button>
+        <div class="proxy-toolbar-actions">
+          <button
+            class="primary-btn accent-btn proxy-test-btn"
+            @click="testAllDelays"
+            :disabled="isTesting || !activeGroupData"
+          >
+            <span class="btn-icon" v-html="ICONS.zap"></span>
+            {{ isTesting ? '测速中...' : '测速当前组' }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -345,71 +353,102 @@ onUnmounted(() => {
   overflow: visible; 
 }
 
-.action-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
+.proxy-toolbar {
+  width: 100%;
   margin-bottom: 24px;
-  background: var(--surface);
-  border-radius: 12px;
-}
-.action-bar.page-sticky-mask {
-  --sticky-mask-bleed: 10px;
+  --sticky-mask-bleed: 4px;
 }
 
-.group-tabs {
+.proxy-toolbar-card {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
+  width: 100%;
+  min-height: 60px;
+  padding: 12px;
   gap: 12px;
-  overflow-x: auto;
-  padding-bottom: 4px;
-  margin-bottom: -4px;
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.proxy-tabs-viewport {
   flex: 1;
   min-width: 0;
-  margin-right: 16px;
-  user-select: none;
-  -webkit-user-select: none;
+  height: 36px;
+  overflow: hidden;
+  border-radius: 8px;
 }
 
-.global-actions {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.group-tab-btn {
+.proxy-tabs-track {
   display: flex;
   align-items: center;
-  padding: 8px 16px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-sub);
-  border-radius: 8px;
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.2s ease;
+  gap: 10px;
+  height: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
   user-select: none;
   -webkit-user-select: none;
-  flex-shrink: 0;
 }
-.group-tab-btn:hover {
+
+.proxy-tabs-track::-webkit-scrollbar {
+  display: none;
+}
+
+.proxy-tab-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-sub);
+  font-size: 0.95rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.proxy-tab-btn:hover {
   color: var(--text-main);
   background: var(--surface-hover);
 }
-.group-tab-btn.active {
-  background: var(--surface-panel);
-  color: var(--text-main);
-  font-weight: 600;
+
+.proxy-tab-btn.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 800;
 }
-.group-tab-btn .count {
+
+.proxy-tab-btn .count {
+  margin-left: 6px;
   font-size: 0.8rem;
   opacity: 0.6;
-  margin-left: 6px;
 }
-.group-tab-btn.active .count {
-  opacity: 0.7;
+
+.proxy-tab-btn.active .count {
+  opacity: 0.8;
+}
+
+.proxy-toolbar-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  height: 36px;
+}
+
+.proxy-test-btn {
+  height: 36px;
+  min-width: 132px;
+  padding: 0 18px;
+  border-radius: 8px;
+  white-space: nowrap;
 }
 
 .btn-icon { width: 14px; height: 14px; }
