@@ -1,6 +1,6 @@
 <template>
   <div class="subs-view" @click="activeMenu = null">
-    <div class="page-header">
+    <div class="page-header page-sticky-mask">
       <div class="header-text">
         <h2 class="main-title">本地配置库</h2>
         <span class="sub-text">
@@ -454,11 +454,8 @@ onUnmounted(() => {
   justify-content: space-between; 
   align-items: flex-end; 
   margin-bottom: 32px; 
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: var(--app-bg);
   padding: 4px 0 12px 0;
+  background: transparent;
 }
 .main-title { font-size: 1.6rem; font-weight: 600; margin-bottom: 4px; }
 .sub-text { font-size: 0.85rem; color: var(--text-sub); }

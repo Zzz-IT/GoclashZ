@@ -477,9 +477,10 @@ watch(currentTab, async (newTab) => {
 .view-scroller { 
   flex: 1; 
   min-height: 0;
-  overflow-y: auto;
+  overflow-y: scroll;
   overflow-x: hidden;
   padding: 0 var(--content-px) var(--content-py) var(--content-px); 
+  overscroll-behavior: contain;
 }
 
 .terminal-box { 

@@ -199,6 +199,25 @@ body,
     flex: 1;
 }
 
+.page-sticky-mask {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  isolation: isolate;
+}
+
+.page-sticky-mask::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  right: -8px;
+  top: -1px;
+  bottom: -24px;
+  background: var(--surface-panel);
+  z-index: -1;
+  pointer-events: none;
+}
+
 /* ================================== */
 /* 全局弹窗样式 (统一整合) */
 /* ================================== */

@@ -71,7 +71,7 @@
         </div>
 
         <div v-else-if="view === 'update'" class="settings-page">
-          <div class="sub-header">
+          <div class="sub-header page-sticky-mask">
             <button class="back-btn" @click="view = 'main'">
               <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>
             </button>
@@ -153,7 +153,7 @@
         </div>
 
         <div v-else-if="view === 'tun'" class="settings-page">
-          <div class="sub-header section-header">
+          <div class="sub-header section-header page-sticky-mask">
             <button class="back-btn" @click="view = 'main'">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
             </button>
@@ -251,7 +251,7 @@
         </div>
 
         <div v-else-if="view === 'dns'" class="settings-page">
-          <div class="sub-header section-header">
+          <div class="sub-header section-header page-sticky-mask">
             <button class="back-btn" @click="view = 'main'">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
             </button>
@@ -418,7 +418,7 @@
         </div>
 
         <div v-else-if="view === 'network'" class="settings-page">
-          <div class="sub-header section-header">
+          <div class="sub-header section-header page-sticky-mask">
             <button class="back-btn" @click="view = 'main'">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
             </button>
@@ -571,7 +571,7 @@
         </div>
 
         <div v-else-if="view === 'behavior'" class="settings-page">
-          <div class="sub-header section-header">
+          <div class="sub-header section-header page-sticky-mask">
             <button class="back-btn" @click="view = 'main'">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
             </button>
@@ -740,7 +740,7 @@
         </div>
 
         <div v-else-if="view === 'about'" class="settings-page">
-          <div class="sub-header section-header">
+          <div class="sub-header section-header page-sticky-mask">
             <button class="back-btn" @click="view = 'main'">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
             </button>
@@ -849,7 +849,7 @@
 
         <div v-else-if="view === 'uwp'" class="settings-page">
 
-          <div class="sub-header">
+          <div class="sub-header page-sticky-mask">
             <button class="back-btn" @click="view = 'main'">
               <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>
             </button>

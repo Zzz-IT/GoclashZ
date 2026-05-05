@@ -1,7 +1,7 @@
 <template>
   <div class="connections-view">
     <template v-if="!selectedConn">
-      <div class="action-bar card-panel">
+      <div class="action-bar card-panel page-sticky-mask">
         <div class="stats">
           <span class="count">活跃连接: {{ connections.length }}</span>
         </div>
@@ -225,9 +225,6 @@ const closeSingleConnection = async (id: string) => {
   margin-bottom: 24px; 
   background: var(--surface);
   border-radius: 12px;
-  position: sticky;
-  top: 0;
-  z-index: 10;
 }
 .stats .count { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
 

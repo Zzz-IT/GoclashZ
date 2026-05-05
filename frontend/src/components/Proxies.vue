@@ -1,6 +1,6 @@
 <template>
   <div class="proxies-view">
-    <div class="action-bar">
+    <div class="action-bar page-sticky-mask">
       <div class="group-tabs">
         <button
           v-for="group in localGroups"
@@ -353,9 +353,6 @@ onUnmounted(() => {
   margin-bottom: 24px;
   background: var(--surface);
   border-radius: 12px;
-  position: sticky;
-  top: 0;
-  z-index: 10;
 }
 
 .group-tabs {
@@ -371,6 +368,7 @@ onUnmounted(() => {
   user-select: none;
   -webkit-user-select: none;
 }
+.group-tabs::-webkit-scrollbar { height: 0; }
 
 .global-actions {
   flex-shrink: 0;

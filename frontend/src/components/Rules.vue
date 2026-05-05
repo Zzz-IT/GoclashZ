@@ -4,7 +4,7 @@
       <div class="empty-msg">请先在“订阅管理”中选择并启动一个配置文件</div>
     </div>
     <template v-else>
-      <div class="rules-header">
+      <div class="rules-header page-sticky-mask">
         <div class="search-bar">
           <span v-html="ICONS.search"></span>
           <input v-model="searchQuery" placeholder="搜索我的规则..." />
@@ -298,11 +298,8 @@ onMounted(() => {
   gap: 16px; 
   margin-bottom: 16px; 
   width: 100%; 
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: var(--app-bg);
   padding: 4px 0 12px 0;
+  background: transparent;
 }
 .header-actions { display: flex; gap: 12px; }
 .search-bar { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--surface-hover); border-radius: 8px; padding: 8px 12px; flex: 1; }
