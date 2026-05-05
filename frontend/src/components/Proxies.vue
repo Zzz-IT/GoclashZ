@@ -354,6 +354,9 @@ onUnmounted(() => {
   background: var(--surface);
   border-radius: 12px;
 }
+.action-bar.page-sticky-mask {
+  --sticky-mask-bleed: 10px;
+}
 
 .group-tabs {
   display: flex;
@@ -368,7 +371,6 @@ onUnmounted(() => {
   user-select: none;
   -webkit-user-select: none;
 }
-.group-tabs::-webkit-scrollbar { height: 0; }
 
 .global-actions {
   flex-shrink: 0;

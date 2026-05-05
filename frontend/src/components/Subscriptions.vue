@@ -457,6 +457,9 @@ onUnmounted(() => {
   padding: 4px 0 12px 0;
   background: transparent;
 }
+.page-header.page-sticky-mask {
+  --sticky-mask-bleed: 6px;
+}
 .main-title { font-size: 1.6rem; font-weight: 600; margin-bottom: 4px; }
 .sub-text { font-size: 0.85rem; color: var(--text-sub); }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

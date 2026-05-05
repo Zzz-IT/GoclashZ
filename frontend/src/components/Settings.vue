@@ -2085,11 +2085,11 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   align-items: center; 
   gap: 16px; 
   margin-bottom: 20px; 
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: var(--app-bg);
   padding: 8px 0 12px 0;
+  background: transparent;
+}
+.sub-header.page-sticky-mask {
+  --sticky-mask-bleed: 6px;
 }
 .sub-header h3 { margin: 0; border: none; padding: 0; }
 .back-btn { background: var(--surface); border: none; color: var(--text-main); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; }

@@ -226,6 +226,9 @@ const closeSingleConnection = async (id: string) => {
   background: var(--surface);
   border-radius: 12px;
 }
+.action-bar.page-sticky-mask {
+  --sticky-mask-bleed: 10px;
+}
 .stats .count { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
 
 .global-actions { display: flex; gap: 12px; }

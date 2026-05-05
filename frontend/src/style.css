@@ -204,6 +204,7 @@ body,
   top: 0;
   z-index: 30;
   isolation: isolate;
+  --sticky-mask-bleed: 8px;
 }
 
 .page-sticky-mask::before {
@@ -212,7 +213,7 @@ body,
   left: -8px;
   right: -8px;
   top: -1px;
-  bottom: -24px;
+  bottom: calc(-1 * var(--sticky-mask-bleed));
   background: var(--surface-panel);
   z-index: -1;
   pointer-events: none;
