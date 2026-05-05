@@ -18,7 +18,7 @@ import (
 )
 
 // DefaultDelayTestURL 默认的全球联通性测速地址，与 NetworkConfig 默认值保持一致
-const DefaultDelayTestURL = "http://www.g.cn/generate_204"
+const DefaultDelayTestURL = "http://www.gstatic.com/generate_204"
 
 // 🚀 1. 定义全局共享的无代理 Transport，加入 TCP 探活机制
 var noProxyTransport = &http.Transport{
@@ -297,7 +297,12 @@ func GetProxyDelay(ctx context.Context, proxyName string, testUrl string, timeou
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return -1, fmt.Errorf("http error: %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return -1, fmt.Errorf("mihomo delay failed: HTTP %d: %s", resp.StatusCode, msg)
 	}
 
 	var result struct {

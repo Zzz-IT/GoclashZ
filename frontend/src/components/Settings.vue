@@ -711,6 +711,19 @@
 
             <div class="setting-item">
               <div class="info">
+                <h4>仅统计代理流量</h4>
+                <p>开启后仪表盘流量图将只计算经由代理节点的流量，排除直连 (DIRECT) 流量。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="behavior.proxyTrafficOnly" @change="saveBehavior">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
                 <h4>订阅更新 User-Agent</h4>
                 <p>自定义下载或更新订阅配置时的请求头，留空使用默认值。</p>
               </div>
@@ -1477,6 +1490,7 @@ const behavior = ref<any>({
   colorDelay: false,
   delayRetention: false,          // 👇 移到了这里
   delayRetentionTime: 'long',     // 👇 移到了这里
+  proxyTrafficOnly: false,
   logLevel: 'info',
   hideLogs: false,
   subUA: '',

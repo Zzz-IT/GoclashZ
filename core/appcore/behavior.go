@@ -35,6 +35,9 @@ type AppBehavior struct {
 	// 👇 新增：自动测速控制
 	AutoDelayTest         bool `json:"autoDelayTest"`
 	AutoDelayTestInterval int  `json:"autoDelayTestInterval"`
+
+	// 👇 新增：流量统计模式
+	ProxyTrafficOnly bool `json:"proxyTrafficOnly"`
 }
 
 type BehaviorStore struct {
@@ -193,6 +196,8 @@ func (s *BehaviorStore) Default() AppBehavior {
 
 		AutoDelayTest:         false,
 		AutoDelayTestInterval: 60,
+
+		ProxyTrafficOnly: false,
 
 		GeoIpLink:   "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
 		GeoSiteLink: "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",

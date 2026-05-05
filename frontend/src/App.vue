@@ -97,6 +97,12 @@ import Subscriptions from './components/Subscriptions.vue';
 import Connections from './components/Connections.vue';
 import Rules from './components/Rules.vue';
 import Settings from './components/Settings.vue';
+import { 
+  startWaveSampling, 
+  stopWaveSampling, 
+  updateLatestTraffic, 
+  resetWaveState 
+} from './trafficWaveState';
 import {
   EventsOn,
   EventsOff,
@@ -238,7 +244,15 @@ onMounted(async () => {
       uploadTotalRaw: data?.uploadTotalRaw ?? 0,
       downloadTotalRaw: data?.downloadTotalRaw ?? 0,
     };
+    // 🚀 同步到波形采样器
+    updateLatestTraffic(data?.upRaw ?? 0, data?.downRaw ?? 0);
   });
+
+  EventsOn("traffic-stat-mode-changed", () => {
+    resetWaveState();
+  });
+
+  startWaveSampling(); // 🚀 全局开启波形采样，切页不中断
 
   const history = await (API as any).GetRecentLogs();
   if (history) logLines.value = history;
@@ -331,6 +345,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  stopWaveSampling();
   window.removeEventListener('resize', handleResize);
   (window as any).runtime.EventsOff("config-changed");
   EventsOff("traffic-data");

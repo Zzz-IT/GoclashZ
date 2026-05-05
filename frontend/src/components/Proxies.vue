@@ -40,6 +40,7 @@
             <div 
               class="n-latency-box" 
               :class="{ disabled: isTesting }"
+              :title="globalState.proxyDelays[node.name]?.message || ''"
               @click.stop="testSingleDelay(node)"
             >
               <div v-if="node.testing" class="scanner-container">
@@ -55,8 +56,8 @@
                 </svg>
               </div>
               
-              <span v-else :class="['n-delay font-mono', getDelayColorClass(globalState.proxyDelays[node.name]?.delay ?? null)]">
-                {{ formatDelay(globalState.proxyDelays[node.name]?.delay ?? null) }}
+              <span v-else :class="['n-delay font-mono', getDelayColorClass(globalState.proxyDelays[node.name])]">
+                {{ formatDelay(globalState.proxyDelays[node.name]) }}
               </span>
             </div>
           </div>
@@ -235,23 +236,28 @@ const testSingleDelay = async (node: any) => {
     }
 
     console.error("单点测速失败:", e);
-    const retention = globalState.delayRetention ? globalState.delayRetentionTime : 'long';
-    updateProxyDelay(node.name, 0, retention);
   } finally {
     node.testing = false;
   }
 };
 
-const formatDelay = (delay: number | null) => {
-  if (delay === null) return '--';
-  if (delay <= 0) return '超时'; 
-  return `${delay}ms`;
+const formatDelay = (delayInfo: any) => {
+  if (!delayInfo || delayInfo.delay === null) return '--';
+  const { delay, status } = delayInfo;
+  
+  if (delay > 0 && status === 'success') return `${delay}ms`;
+  
+  if (status === 'timeout') return '超时';
+  if (status === 'connect-error') return '连接失败';
+  return '失败';
 };
 
 // 👇 改写颜色计算逻辑
-const getDelayColorClass = (delay: number | null) => {
-  if (delay === null) return isColorMode.value ? 'c-unknown' : 't-unknown';
-  if (delay <= 0) return isColorMode.value ? 'c-fail' : 't-fail'; 
+const getDelayColorClass = (delayInfo: any) => {
+  if (!delayInfo || delayInfo.delay === null) return isColorMode.value ? 'c-unknown' : 't-unknown';
+  const { delay, status } = delayInfo;
+
+  if (status !== 'success') return isColorMode.value ? 'c-fail' : 't-fail'; 
   
   if (delay <= 300) return isColorMode.value ? 'c-fast' : 't-fast';
   if (delay <= 600) return isColorMode.value ? 'c-mid' : 't-mid';

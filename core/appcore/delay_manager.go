@@ -25,10 +25,11 @@ const (
 )
 
 type DelayResult struct {
-	Name   string
-	Delay  int
-	Status string
-	Err    error
+	Name    string
+	Delay   int
+	Status  string
+	Err     error
+	Message string
 }
 
 // ProxyNodeMeta 代理节点元数据，用于拓扑解析
@@ -221,6 +222,33 @@ func (m *DelayTestManager) notifyNodeResult(res DelayResult) {
 	}
 }
 
+func classifyDelayError(err error) string {
+	if err == nil {
+		return "success"
+	}
+
+	msg := strings.ToLower(err.Error())
+
+	// 1. 超时分类
+	if strings.Contains(msg, "deadline") ||
+		strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "context canceled") {
+		return "timeout"
+	}
+
+	// 2. 网络连接/协议分类
+	if strings.Contains(msg, "tls") ||
+		strings.Contains(msg, "handshake") ||
+		strings.Contains(msg, "connect error") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "connection reset") {
+		return "connect-error"
+	}
+
+	// 3. 其他错误 (如 HTTP 非 200, 格式错误等)
+	return "test-error"
+}
+
 func (m *DelayTestManager) testOneDuration(
 	ctx context.Context,
 	name string,
@@ -232,7 +260,7 @@ func (m *DelayTestManager) testOneDuration(
 	case m.sem <- struct{}{}:
 		defer func() { <-m.sem }()
 	case <-ctx.Done():
-		return DelayResult{Name: name, Delay: 0, Status: "timeout", Err: ctx.Err()}
+		return DelayResult{Name: name, Delay: 0, Status: "timeout", Err: ctx.Err(), Message: "任务取消"}
 	}
 
 	reqCtx, cancel := context.WithTimeout(ctx, timeout+extra)
@@ -241,29 +269,49 @@ func (m *DelayTestManager) testOneDuration(
 	timeoutMs := int(timeout / time.Millisecond)
 
 	delay, err := clash.GetProxyDelay(reqCtx, name, testURL, timeoutMs)
-	if err != nil || delay <= 0 {
-		return DelayResult{Name: name, Delay: 0, Status: "timeout", Err: err}
+
+	status := classifyDelayError(err)
+	msg := ""
+	if err != nil {
+		msg = err.Error()
 	}
 
-	return DelayResult{Name: name, Delay: delay, Status: "success"}
+	if err != nil || delay <= 0 {
+		return DelayResult{
+			Name:    name,
+			Delay:   0,
+			Status:  status,
+			Err:     err,
+			Message: msg,
+		}
+	}
+
+	return DelayResult{
+		Name:    name,
+		Delay:   delay,
+		Status:  "success",
+		Message: "",
+	}
 }
 
 func (m *DelayTestManager) emitDelayResult(topo *DelayTopology, res DelayResult) {
 	m.emit.Emit("proxy-delay-update", map[string]interface{}{
-		"name":   res.Name,
-		"delay":  res.Delay,
-		"status": res.Status,
-		"source": "leaf",
+		"name":    res.Name,
+		"delay":   res.Delay,
+		"status":  res.Status,
+		"message": res.Message,
+		"source":  "leaf",
 	})
 
 	if topo != nil {
 		for _, groupName := range topo.GroupsBySelectedLeaf[res.Name] {
 			m.emit.Emit("proxy-delay-update", map[string]interface{}{
-				"name":   groupName,
-				"delay":  res.Delay,
-				"status": res.Status,
-				"source": "group-derived",
-				"from":   res.Name,
+				"name":    groupName,
+				"delay":   res.Delay,
+				"status":  res.Status,
+				"message": res.Message,
+				"source":  "group-derived",
+				"from":    res.Name,
 			})
 		}
 	}
@@ -564,7 +612,7 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 	m.emitDelayResult(topo, res)
 
 	if res.Err != nil || res.Delay <= 0 {
-		return 0, fmt.Errorf("timeout")
+		return 0, fmt.Errorf("%s", res.Status)
 	}
 
 	return res.Delay, nil

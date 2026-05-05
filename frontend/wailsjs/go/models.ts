@@ -21,6 +21,7 @@ export namespace appcore {
 	    lastUpdateCheck: number;
 	    autoDelayTest: boolean;
 	    autoDelayTestInterval: number;
+	    proxyTrafficOnly: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppBehavior(source);
@@ -48,6 +49,7 @@ export namespace appcore {
 	        this.lastUpdateCheck = source["lastUpdateCheck"];
 	        this.autoDelayTest = source["autoDelayTest"];
 	        this.autoDelayTestInterval = source["autoDelayTestInterval"];
+	        this.proxyTrafficOnly = source["proxyTrafficOnly"];
 	    }
 	}
 	export class AppState {

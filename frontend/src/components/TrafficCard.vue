@@ -69,15 +69,6 @@ const props = defineProps<{
   traffic: TrafficSnapshot;
 }>();
 
-// 同步最新原始流量到全局状态
-watch(
-  () => [props.traffic.upRaw, props.traffic.downRaw],
-  ([up, down]) => {
-    updateLatestTraffic(Number(up || 0), Number(down || 0));
-  },
-  { immediate: true }
-);
-
 // 从全局持久化状态构建路径
 const uploadAreaPath = computed(() =>
   buildMonotoneAreaPath(waveState.uploadRatios)
@@ -86,14 +77,6 @@ const uploadAreaPath = computed(() =>
 const downloadAreaPath = computed(() =>
   buildMonotoneAreaPath(waveState.downloadRatios)
 );
-
-onMounted(() => {
-  startWaveSampling();
-});
-
-onUnmounted(() => {
-  stopWaveSampling();
-});
 
 const handleReset = async () => {
   await (API as any).ResetTrafficTotals();

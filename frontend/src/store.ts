@@ -38,7 +38,7 @@ export const globalState = reactive({
   activeConfigType: '',
 
   // 👇 新增：全局延迟缓存池，用于实现跨页面长效保存
-  proxyDelays: {} as Record<string, { delay: number | null }>,
+  proxyDelays: {} as Record<string, { delay: number | null, status: string, message: string }>,
 
   // 全局模态框状态
   modal: {
@@ -128,11 +128,19 @@ type DelayRetentionTime = 'long' | '30' | '60' | '300' | string;
  * 更新延迟并处理保留逻辑
  * @param name 节点名称
  * @param delay 延迟数值
+ * @param status 状态 (success, timeout, connect-error, test-error)
+ * @param message 详细错误信息
  * @param retentionTime 保留时间 (s) 或 'long'
  */
-export function updateProxyDelay(name: string, delay: number | null, retentionTime: DelayRetentionTime = 'long') {
+export function updateProxyDelay(
+  name: string, 
+  delay: number | null, 
+  status: string = 'success', 
+  message: string = '', 
+  retentionTime: DelayRetentionTime = 'long'
+) {
   // 1. 更新数值
-  globalState.proxyDelays[name] = { delay };
+  globalState.proxyDelays[name] = { delay, status, message };
 
   // 2. 清理之前的计时器
   if (delayTimers[name]) {
@@ -143,12 +151,13 @@ export function updateProxyDelay(name: string, delay: number | null, retentionTi
   // 3. 如果不是长时间保留且有值，开启全局定时清理
   if (delay !== null && retentionTime !== 'long') {
     const seconds = parseInt(retentionTime);
-    // 🚀 核心修复：防止传入非数字字符串（如 'success'）导致 setTimeout(NaN) 立即触发清理
     if (isNaN(seconds) || seconds <= 0) return;
 
     delayTimers[name] = window.setTimeout(() => {
       if (globalState.proxyDelays[name]) {
         globalState.proxyDelays[name].delay = null;
+        globalState.proxyDelays[name].status = 'unknown';
+        globalState.proxyDelays[name].message = '';
       }
       delete delayTimers[name];
     }, seconds * 1000);
@@ -218,6 +227,24 @@ export async function initStore() {
     // 🚀 核心修复：如果是 busy 状态通知，说明还在批量测速中，不要覆盖已有结果
     if (data.status === 'busy') return;
 
-    updateProxyDelay(data.name, data.delay, globalState.delayRetention ? globalState.delayRetentionTime : 'long');
+    const status = data.status || 'success';
+    const message = data.message || '';
+    const delay = data.delay ?? null;
+
+    // 🛡️ 核心优化：如果本次测速失败（非 success），且本地已有成功的延迟，则不覆盖数值，仅更新消息以供 UI 提示
+    const existing = globalState.proxyDelays[data.name];
+    if (status !== 'success' && existing && existing.delay && existing.delay > 0) {
+        existing.status = status;
+        existing.message = message;
+        return;
+    }
+
+    updateProxyDelay(
+      data.name, 
+      delay, 
+      status, 
+      message, 
+      globalState.delayRetention ? globalState.delayRetentionTime : 'long'
+    );
   });
 }

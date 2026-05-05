@@ -197,7 +197,8 @@ func (c *Controller) SyncState() {
 	// 🚀 核心修复：Controller 自助管理流量流
 	if c.ctx != nil {
 		if state.IsRunning {
-			c.traffic.Start(c.ctx, clash.APIURL("/traffic"))
+			behavior := c.Behavior.Get()
+			c.traffic.Start(c.ctx, clash.APIURL("/traffic"), behavior.ProxyTrafficOnly)
 			c.proxyState.Start(c.ctx)
 		} else {
 			c.traffic.Stop()
@@ -622,6 +623,12 @@ func (c *Controller) SaveAppBehavior(b AppBehavior) error {
 		c.StartLogStream(c.ctx)
 	}
 
+	if old.ProxyTrafficOnly != next.ProxyTrafficOnly {
+		c.traffic.ResetRuntimeState()
+		c.SyncState()
+		c.events.Emit("traffic-stat-mode-changed", next.ProxyTrafficOnly)
+	}
+
 	c.SyncState()
 	return nil
 }
@@ -629,7 +636,8 @@ func (c *Controller) SaveAppBehavior(b AppBehavior) error {
 func (c *Controller) SyncTrafficStream(ctx context.Context) {
 	state := c.GetAppState()
 	if state.IsRunning {
-		c.traffic.Start(ctx, clash.APIURL("/traffic"))
+		behavior := c.Behavior.Get()
+		c.traffic.Start(ctx, clash.APIURL("/traffic"), behavior.ProxyTrafficOnly)
 	} else {
 		c.traffic.Stop()
 	}
@@ -640,11 +648,12 @@ func (c *Controller) StopTrafficStream() {
 }
 
 func (c *Controller) RestartTrafficStream(ctx context.Context) {
-	c.traffic.Restart(ctx, clash.APIURL("/traffic"))
+	behavior := c.Behavior.Get()
+	c.traffic.Restart(ctx, clash.APIURL("/traffic"), behavior.ProxyTrafficOnly)
 }
 
 func (c *Controller) ResetTrafficTotals() {
-	c.traffic.ResetTrafficTotals()
+	c.traffic.ResetRuntimeState()
 }
 
 // --- 日志流调度 ---
