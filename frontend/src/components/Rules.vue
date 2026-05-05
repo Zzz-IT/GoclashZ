@@ -19,7 +19,9 @@
           >
             <span class="btn-icon" v-html="ICONS.refresh"></span> 同步
           </button>
-          <button class="primary-btn" @click="showAddModal = true">+ 添加规则</button>
+          <button class="primary-btn header-action-btn" @click="showAddModal = true">
+            <span class="btn-icon" v-html="ICONS.plus"></span> 添加规则
+          </button>
         </div>
       </div>
 
@@ -300,6 +302,9 @@ onMounted(() => {
   width: 100%; 
   padding: 4px 0 12px 0;
   background: transparent;
+}
+.header-action-btn {
+  padding: 0 14px !important;
 }
 .rules-header.page-sticky-mask {
   --sticky-mask-bleed: 2px;

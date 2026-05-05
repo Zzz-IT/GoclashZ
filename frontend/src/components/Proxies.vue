@@ -250,10 +250,11 @@ const testSingleDelay = async (node: any) => {
 };
 
 const formatDelay = (delayInfo: any) => {
-  if (!delayInfo || delayInfo.delay === null) return '--';
+  if (!delayInfo) return '--';
   const { delay, status } = delayInfo;
   
-  if (delay > 0 && status === 'success') return `${delay}ms`;
+  // 🚀 核心优化：只要存在大于 0 的历史有效延迟，就优先展示数字，避免测速波动导致的结果瞬间消失
+  if (delay > 0) return `${delay}ms`;
   
   if (status === 'timeout') return '超时';
   if (status === 'connect-error') return '连接失败';
@@ -363,10 +364,10 @@ onUnmounted(() => {
   position: relative;
   z-index: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* 改为 flex-start 以精确控制垂直位置 */
   width: 100%;
   min-height: 60px;
-  padding: 12px;
+  padding: 12px 12px 4px 12px; /* 顶部12px，底部4px。配合 track 的 44px 高度，总高度精确为 60px */
   gap: 12px;
   border-radius: 12px;
   background: var(--surface);
@@ -375,30 +376,49 @@ onUnmounted(() => {
 .proxy-tabs-viewport {
   flex: 1;
   min-width: 0;
-  height: 36px;
-  overflow: hidden;
+  height: 44px; /* 36px 按钮 + 8px 滚动条空间 */
   border-radius: 8px;
 }
 
 .proxy-tabs-track {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  height: 100%;
+  height: 44px;
   min-width: 0;
+  width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: none;
+  padding: 0 0 8px 0; /* 移除左右内边距，使左侧边距与右侧卡片边距完美对称 */
   user-select: none;
   -webkit-user-select: none;
+  overscroll-behavior-x: contain;
 }
 
 .proxy-tabs-track::-webkit-scrollbar {
+  height: 4px; /* 与全局竖向滚动条宽度一致 */
+  display: block;
+}
+
+.proxy-tabs-track::-webkit-scrollbar-button {
   display: none;
 }
 
+.proxy-tabs-track::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.proxy-tabs-track::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: 999px;
+}
+
+.proxy-tabs-track::-webkit-scrollbar-thumb:hover {
+  background: var(--text-sub);
+}
+
 .proxy-tab-btn {
-  flex-shrink: 0;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -439,7 +459,7 @@ onUnmounted(() => {
 .proxy-toolbar-actions {
   flex-shrink: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   height: 36px;
 }
 

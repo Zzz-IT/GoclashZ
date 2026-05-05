@@ -60,6 +60,11 @@ type Controller struct {
 
 	pendingCoreUpdateAssetURL string
 	pendingCoreUpdateVersion  string
+
+	// 🚀 核心新增：静默测速内核生命周期管理
+	delayCoreMu      sync.Mutex
+	delayCoreRefs    int
+	delayCoreStarted bool
 }
 
 func NewController(opts Options) *Controller {
@@ -162,6 +167,7 @@ func (c *Controller) GetAppState() AppState {
 		SystemProxy:        sysProxy,
 		Tun:                tunActive,
 		Theme:              utils.GetGlobalTheme(),
+		Version:            clash.GetLocalCoreVersion(c.ctx),
 		AppVersion:         c.version,
 		ActiveConfig:       activeConfig,
 		DelayRetention:     behavior.DelayRetention,
@@ -295,7 +301,110 @@ func (c *Controller) DisableAll() {
 	c.tunActive = false
 	c.mu.Unlock()
 
+	// 🛡️ 强制重置测速引用计数
+	c.delayCoreMu.Lock()
+	c.delayCoreRefs = 0
+	c.delayCoreStarted = false
+	c.delayCoreMu.Unlock()
+
 	c.SyncState()
+}
+
+// 🚀 核心新增：静默测速内核保障机制
+func (c *Controller) EnsureDelayCore(ctx context.Context) (func(), error) {
+	c.delayCoreMu.Lock()
+
+	// 情况 1：内核已在运行（无论是正式启用还是之前的静默测速）
+	if clash.IsRunning() {
+		c.delayCoreRefs++
+		c.delayCoreMu.Unlock()
+
+		return func() {
+			c.releaseDelayCore()
+		}, nil
+	}
+
+	// 情况 2：内核未运行，尝试静默启动
+	profileID := c.Behavior.Get().ActiveConfig
+	if profileID == "" {
+		c.delayCoreMu.Unlock()
+		return nil, fmt.Errorf("请先在订阅管理中选择并应用一个配置文件")
+	}
+
+	if err := c.StartCoreOnly(ctx, profileID); err != nil {
+		c.delayCoreMu.Unlock()
+		return nil, fmt.Errorf("启动测速内核失败: %w", err)
+	}
+
+	c.delayCoreStarted = true
+	c.delayCoreRefs = 1
+	c.delayCoreMu.Unlock()
+
+	// 探针检测 API 是否就绪
+	apiReady := false
+	for i := 0; i < 20; i++ {
+		if _, err := clash.GetInitialData(); err == nil {
+			apiReady = true
+			break
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+
+	if !apiReady {
+		c.releaseDelayCore()
+		return nil, fmt.Errorf("测速内核启动超时或失败")
+	}
+
+	return func() {
+		c.releaseDelayCore()
+	}, nil
+}
+
+func (c *Controller) releaseDelayCore() {
+	c.delayCoreMu.Lock()
+	defer c.delayCoreMu.Unlock()
+
+	if c.delayCoreRefs > 0 {
+		c.delayCoreRefs--
+	}
+
+	// 还有其他测速任务正在使用，不退出
+	if c.delayCoreRefs > 0 {
+		return
+	}
+
+	// 🚀 核心判定：如果用户此时已正式启用了代理（isRunning=true），则不能停掉 core
+	state := c.GetAppState()
+	if state.IsRunning {
+		c.delayCoreStarted = false
+		return
+	}
+
+	// 如果是由测速触发的临时启动，且当前无任务，则静默退出
+	if c.delayCoreStarted {
+		clash.Stop()
+		c.delayCoreStarted = false
+		c.SyncState()
+	}
+}
+
+// StartCoreOnly 严格执行“只启内核，不改状态”
+func (c *Controller) StartCoreOnly(ctx context.Context, id string) error {
+	behavior := c.Behavior.Get()
+	// 仅构建运行时 YAML 并启动进程，不触碰系统代理、TUN 和 isRunning 逻辑
+	if err := clash.BuildRuntimeConfig(id, behavior.ActiveMode, behavior.LogLevel); err != nil {
+		return err
+	}
+	return clash.Start(ctx)
+}
+
+func (c *Controller) GetActiveProfilePath() string {
+	id := c.Behavior.Get().ActiveConfig
+	if id == "" {
+		return ""
+	}
+	// 这里直接复用 clash 包里的逻辑
+	return clash.GetConfigPath()
 }
 
 // StopCoreProcess 仅停止物理进程，保留用户开启意图

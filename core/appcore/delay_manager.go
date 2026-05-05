@@ -387,7 +387,16 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 	m.mu.Unlock()
 
 	finishMsg := "测速完成"
-	silentCore := false
+
+	// 🚀 核心接入：静默内核保障
+	cleanup, err := m.ctrl.EnsureDelayCore(ctx)
+	if err != nil {
+		if !opts.SilentUI {
+			m.emit.Emit("proxy-test-finished", err.Error())
+		}
+		return
+	}
+	defer cleanup()
 
 	defer func() {
 		cancel()
@@ -401,24 +410,12 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 		m.waiters = make(map[string][]chan DelayResult)
 		m.mu.Unlock()
 
-		if silentCore && opts.StopSilentCore {
-			m.ctrl.StopCoreProcessIfIdle()
-		}
-
 		if !opts.SilentUI {
 			m.emit.Emit("proxy-test-finished", finishMsg)
 		}
 
 		close(done)
 	}()
-
-	if !clash.IsRunning() {
-		silentCore = true
-		if err := m.ctrl.EnsureCoreRunning(ctx); err != nil {
-			finishMsg = "测速启动失败：" + err.Error()
-			return
-		}
-	}
 
 	topo, err := buildDelayTopology()
 	if err != nil {
@@ -569,6 +566,13 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 
 	// 用户单点优先，自动测速让路
 	m.cancelAutoBatchAndWait(ctx, 300*time.Millisecond)
+
+	// 🚀 核心接入：静默内核保障
+	cleanup, err := m.ctrl.EnsureDelayCore(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer cleanup()
 
 	topo, err := buildDelayTopology()
 	if err != nil {

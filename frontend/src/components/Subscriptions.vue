@@ -17,10 +17,10 @@
           <span class="btn-icon" v-html="ICONS.sort"></span> 
           {{ isSortingMode ? '完成' : '排序' }}
         </button>
-        <button class="action-btn accent-btn" @click.stop="activeModal = 'import'">
+        <button class="primary-btn header-action-btn" @click.stop="activeModal = 'import'">
           <span class="btn-icon" v-html="ICONS.plus"></span> 导入配置
         </button>
-        <button class="primary-btn accent-btn" @click="handleUpdateAll" :disabled="isUpdating">
+        <button class="primary-btn header-action-btn" @click="handleUpdateAll" :disabled="isUpdating">
           <span class="btn-icon" v-html="ICONS.refresh" :class="{ 'spin': isUpdating }"></span>
           {{ isUpdating ? '更新中...' : '更新全部' }}
         </button>
@@ -464,6 +464,9 @@ onUnmounted(() => {
 .sub-text { font-size: 0.85rem; color: var(--text-sub); }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .header-actions { display: flex; gap: 12px; align-items: center; }
+.header-action-btn {
+  padding: 0 14px !important;
+}
 
 .subs-list { flex: 1; position: relative; }
 

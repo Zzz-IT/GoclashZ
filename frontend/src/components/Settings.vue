@@ -1129,9 +1129,10 @@ const view = ref(props.initialView as 'main' | 'uwp' | 'tun' | 'dns' | 'network'
 watch(() => props.initialView, (newVal) => { view.value = newVal as any; });
 
 watch(view, async (v) => {
-  // 🚀 切换设置子页时回到顶部
-  await nextTick();
-  document.querySelector('.view-scroller')?.scrollTo({ top: 0, behavior: 'auto' });
+  // 🚀 延迟 250ms（等待 out-in leave 动画结束）后再回到顶部，消除突兀的跳顶闪烁
+  setTimeout(() => {
+    document.querySelector('.view-scroller')?.scrollTo({ top: 0, behavior: 'auto' });
+  }, 250);
 
   if (v === 'update') {
     await refreshComponentInfo();
@@ -2084,8 +2085,8 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   display: flex; 
   align-items: center; 
   gap: 16px; 
-  margin-bottom: 20px; 
-  padding: 8px 0 12px 0;
+  margin-bottom: 12px; 
+  padding: 0 0 12px 0;
   background: transparent;
 }
 .sub-header.page-sticky-mask {

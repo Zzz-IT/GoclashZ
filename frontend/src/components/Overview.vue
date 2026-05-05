@@ -14,7 +14,7 @@
           </svg>
         </div>
         <div class="status-meta">
-          <span class="micro-title">引擎状态</span>
+          <span class="micro-title">服务状态</span>
           <h2 class="status-heading">{{ isRestarting ? '内核重启中...' : (globalState.isRunning ? '接管中' : '服务停止') }}</h2>
           <span class="version-tag">Mihomo {{ globalState.version || 'Core' }}</span>
         </div>
@@ -320,20 +320,27 @@ const runModeWorker = async (targetMode: string) => {
 
 /* 顶部面板 */
 .hero-panel {
-  padding: 28px 36px;
+  padding: 28px 24px; /* 调整内边距，确保内部列宽度与下方卡片严丝合缝 */
   background: var(--surface);
   border-radius: 20px;
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
   align-items: center;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
 }
 
-.status-core { display: flex; align-items: center; gap: 20px; }
+.status-core { 
+  position: relative;
+  display: flex; 
+  align-items: center; 
+  justify-content: center;
+  width: 100%;
+}
 
 /* ⬇️ 重置的呼吸灯交互区域 ⬇️ */
 .restart-trigger { 
-  position: relative; width: 56px; height: 56px; /* 进一步加大 */
+  position: absolute; left: 10px; width: 56px; height: 56px; /* 增加左边距，脱离文档流以保证文字绝对居中 */
   display: flex; align-items: center; justify-content: center; 
   cursor: pointer; border-radius: 50%; transition: 0.3s;
 }
@@ -394,8 +401,21 @@ const runModeWorker = async (targetMode: string) => {
 }
 /* ⬆️ 呼吸灯交互样式结束 ⬆️ */
 
-.status-heading { font-size: 1.6rem; font-weight: 600; margin: 4px 0; color: var(--text-main); }
-.version-tag { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-sub); opacity: 0.8; }
+.status-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.micro-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-sub);
+  letter-spacing: 0.02em;
+  margin-bottom: 8px;
+}
+.status-heading { font-size: 1.6rem; font-weight: 600; margin: 0; line-height: 1.2; color: var(--text-main); }
+.version-tag { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-sub); opacity: 0.8; margin-top: 8px; }
 
 .traffic-meter { 
   display: flex; 
@@ -432,14 +452,15 @@ const runModeWorker = async (targetMode: string) => {
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .active-config-display { 
-  text-align: right;
+  text-align: center; /* 🚀 核心修复：内容在右侧列中水平居中 */
   min-width: 0; 
-  flex: none; /* 改为固定宽度或自然宽度，由 space-between 推向右侧 */
-  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .active-config-display .config-name { 
-  font-size: 0.9rem; 
+  font-size: 1.1rem; 
   font-weight: 700;
   color: var(--text-main);
 }
