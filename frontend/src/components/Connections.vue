@@ -210,15 +210,35 @@ const closeSingleConnection = async (id: string) => {
 </script>
 
 <style scoped>
-.connections-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.connections-view { 
+  display: flex; 
+  flex-direction: column; 
+  min-height: 100%; 
+  overflow: visible; 
+}
 
-.action-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; margin-bottom: 24px; }
+.action-bar { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  padding: 12px 16px; 
+  margin-bottom: 24px; 
+  background: var(--surface);
+  border-radius: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
 .stats .count { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
 
 .global-actions { display: flex; gap: 12px; }
 .btn-icon { width: 14px; height: 14px; display: inline-flex; align-items: center;}
 
-.scroll-content { flex: 1; overflow-y: auto; padding-right: 8px; }
+.scroll-content { 
+  flex: 1; 
+  min-height: 0;
+  overflow: visible; 
+}
 
 .conn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 
@@ -285,7 +305,15 @@ const closeSingleConnection = async (id: string) => {
 .empty-state { height: 200px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-style: italic; }
 
 /* --- 详情子页样式 --- */
-.detail-page { display: flex; flex-direction: column; height: 100%; border: none; padding: 24px; box-sizing: border-box; }
+.detail-page { 
+  display: flex; 
+  flex-direction: column; 
+  min-height: 100%; 
+  border: none; 
+  padding: 24px; 
+  box-sizing: border-box; 
+  overflow: visible;
+}
 
 /* 详情头部排版：左标题右按钮 */
 .detail-header { 

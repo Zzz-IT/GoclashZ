@@ -284,10 +284,26 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.rules-view { display: flex; flex-direction: column; height: 100%; }
+.rules-view { 
+  display: flex; 
+  flex-direction: column; 
+  min-height: 100%; 
+  overflow: visible;
+}
 .empty-state-view { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 0.9rem; }
 
-.rules-header { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; width: 100%; }
+.rules-header { 
+  display: flex; 
+  align-items: center; 
+  gap: 16px; 
+  margin-bottom: 16px; 
+  width: 100%; 
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--app-bg);
+  padding: 4px 0 12px 0;
+}
 .header-actions { display: flex; gap: 12px; }
 .search-bar { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--surface-hover); border-radius: 8px; padding: 8px 12px; flex: 1; }
 .search-bar input { border: none; background: transparent; color: var(--text-main); outline: none; margin-left: 8px; width: 100%; }
@@ -300,8 +316,7 @@ onMounted(() => {
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); 
   align-content: start; 
   gap: 16px; 
-  overflow-y: auto; 
-  padding-right: 8px; /* 🚀 统一间距：与代理节点页保持一致 */
+  overflow: visible; 
   padding-bottom: 20px; 
 }
 

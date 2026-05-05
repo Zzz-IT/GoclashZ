@@ -624,8 +624,8 @@ func (c *Controller) SaveAppBehavior(b AppBehavior) error {
 	}
 
 	if old.ProxyTrafficOnly != next.ProxyTrafficOnly {
+		c.traffic.Stop()
 		c.traffic.ResetRuntimeState()
-		c.SyncState()
 		c.events.Emit("traffic-stat-mode-changed", next.ProxyTrafficOnly)
 	}
 

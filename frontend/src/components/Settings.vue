@@ -1017,7 +1017,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { BrowserOpenURL, EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 import { showAlert, globalState } from '../store';
@@ -1129,6 +1129,10 @@ const view = ref(props.initialView as 'main' | 'uwp' | 'tun' | 'dns' | 'network'
 watch(() => props.initialView, (newVal) => { view.value = newVal as any; });
 
 watch(view, async (v) => {
+  // 🚀 切换设置子页时回到顶部
+  await nextTick();
+  document.querySelector('.view-scroller')?.scrollTo({ top: 0, behavior: 'auto' });
+
   if (v === 'update') {
     await refreshComponentInfo();
   }
@@ -1967,6 +1971,8 @@ const updateNameserverPolicy = (e: Event) => {
 .settings-container { 
   display: flex; 
   flex-direction: column; 
+  min-height: 100%;
+  overflow: visible;
   position: relative; 
 }
 
@@ -1975,9 +1981,19 @@ const updateNameserverPolicy = (e: Event) => {
   flex-direction: column;
   width: 100%;
 }
-.settings-page { display: flex; flex-direction: column; flex: 1; }
+.settings-page { 
+  display: flex; 
+  flex-direction: column; 
+  flex: 1; 
+  min-height: 100%;
+  overflow: visible;
+}
 .setting-group { padding: 20px 24px; margin-bottom: 12px; }
-.scrollable { padding-bottom: 20px; }
+.setting-group.scrollable { 
+  padding-bottom: 20px; 
+  overflow: visible;
+  max-height: none;
+}
 
 h3 { margin: 0 0 8px 0; color: var(--text-main); font-size: 1.25rem; padding-bottom: 4px; }
 h4 { margin: 0 0 6px 0; color: var(--text-main); font-size: 1rem;}
@@ -2064,7 +2080,17 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 .slide-in { animation: slideIn 0.2s ease forwards; }
 @keyframes slideIn { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
 
-.sub-header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.sub-header { 
+  display: flex; 
+  align-items: center; 
+  gap: 16px; 
+  margin-bottom: 20px; 
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--app-bg);
+  padding: 8px 0 12px 0;
+}
 .sub-header h3 { margin: 0; border: none; padding: 0; }
 .back-btn { background: var(--surface); border: none; color: var(--text-main); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; }
 .back-btn:hover { background: var(--surface-hover); }

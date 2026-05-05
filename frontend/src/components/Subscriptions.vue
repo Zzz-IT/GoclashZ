@@ -442,8 +442,24 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.subs-view { display: flex; flex-direction: column; height: 100%; color: var(--text-main); }
-.page-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 32px; }
+.subs-view { 
+  display: flex; 
+  flex-direction: column; 
+  min-height: 100%; 
+  overflow: visible;
+  color: var(--text-main); 
+}
+.page-header { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: flex-end; 
+  margin-bottom: 32px; 
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--app-bg);
+  padding: 4px 0 12px 0;
+}
 .main-title { font-size: 1.6rem; font-weight: 600; margin-bottom: 4px; }
 .sub-text { font-size: 0.85rem; color: var(--text-sub); }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

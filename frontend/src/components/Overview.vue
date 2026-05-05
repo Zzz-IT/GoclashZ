@@ -314,6 +314,8 @@ const runModeWorker = async (targetMode: string) => {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  min-height: 100%;
+  overflow: visible;
 }
 
 /* 顶部面板 */

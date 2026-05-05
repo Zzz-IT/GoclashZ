@@ -338,7 +338,12 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.proxies-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.proxies-view { 
+  display: flex; 
+  flex-direction: column; 
+  min-height: 100%; 
+  overflow: visible; 
+}
 
 .action-bar {
   display: flex;
@@ -348,6 +353,9 @@ onUnmounted(() => {
   margin-bottom: 24px;
   background: var(--surface);
   border-radius: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .group-tabs {
@@ -406,7 +414,11 @@ onUnmounted(() => {
 
 .btn-icon { width: 14px; height: 14px; }
 
-.scroll-content { flex: 1; overflow-y: auto; padding-right: 8px; }
+.scroll-content { 
+  flex: 1; 
+  min-height: 0;
+  overflow: visible; 
+}
 
 .group-section { margin-bottom: 24px; }
 .node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }

@@ -24,7 +24,7 @@
           <h1>{{ activeMenuLabel }}</h1>
         </header>
 
-        <div class="view-scroller">
+        <div class="view-scroller" ref="viewScroller">
           <Transition name="page-fade" mode="out-in">
             <div :key="currentTab" class="view-transition-wrapper">
               <Overview v-if="currentTab === 'home'" :traffic="traffic" />
@@ -119,6 +119,7 @@ import { globalState, initStore } from './store';
 const currentTab = ref('home');
 const targetSettingsView = ref('main');
 const isMaximized = ref(false);
+const viewScroller = ref<HTMLElement | null>(null);
 
 const traffic = ref({ 
   up: '0 B/s', 
@@ -360,7 +361,10 @@ onUnmounted(() => {
   EventsOff("app-update-downloaded");
 });
 
-watch(currentTab, (newTab) => {
+watch(currentTab, async (newTab) => {
+  await nextTick();
+  viewScroller.value?.scrollTo({ top: 0, behavior: 'auto' });
+
   if (newTab === 'logs') {
     nextTick(() => {
       if (logBox.value) {
@@ -472,10 +476,10 @@ watch(currentTab, (newTab) => {
 
 .view-scroller { 
   flex: 1; 
-  overflow-y: auto; 
-  scrollbar-gutter: stable; /* 始终预留滚动条空间，防止内容切换时的宽度跳变 */
-  /* 🚀 修复：右侧 padding 减去滚动条的 4px 宽度，实现绝对像素级对称 */
-  padding: 0 calc(var(--content-px) - 4px) var(--content-py) var(--content-px); 
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 var(--content-px) var(--content-py) var(--content-px); 
 }
 
 .terminal-box { 
@@ -504,8 +508,7 @@ watch(currentTab, (newTab) => {
 /* 页面切换动画：淡入并向上微移 8px */
 .page-fade-enter-active,
 .page-fade-leave-active {
-  transition: opacity 0.25s ease, transform 0.25s ease;
-  overflow: hidden !important; /* 核心修复：过渡期间强制隐藏溢出，防止滚动条闪现 */
+  transition: opacity 0.22s ease, transform 0.22s ease;
 }
 
 .page-fade-enter-from {
@@ -519,13 +522,8 @@ watch(currentTab, (newTab) => {
 }
 
 .view-transition-wrapper {
-  height: 100%;
   width: 100%;
-}
-
-/* 🚀 终极修复：当内部正在执行页面切换动画时，锁死父容器的滚动条 */
-.view-scroller:has(.page-fade-enter-active),
-.view-scroller:has(.page-fade-leave-active) {
-  overflow-y: hidden !important;
+  min-height: 100%;
+  overflow: visible;
 }
 </style>

@@ -82,6 +82,8 @@ func (m *TrafficStreamManager) Start(parent context.Context, apiURL string, prox
 	} else {
 		m.mode = TrafficModeCore
 	}
+	m.lastTick = time.Now()
+	m.prevConnTraffic = make(map[string]connTrafficMark)
 	m.mu.Unlock()
 
 	if proxyOnly {
