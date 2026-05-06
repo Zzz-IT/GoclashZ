@@ -19,6 +19,7 @@ import (
 	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"goclashz/core/version"
+	"sync/atomic"
 )
 
 //go:embed build/windows/icon.ico
@@ -42,9 +43,20 @@ type App struct {
 	mModeRule   *systray.MenuItem
 	mModeGlobal *systray.MenuItem
 	mModeDirect *systray.MenuItem
+	mRestart    *systray.MenuItem
 
-	trayMu        sync.Mutex
-	trayOnce      sync.Once
+	// 新增：托盘生命周期
+	trayMu       sync.RWMutex
+	trayOnce     sync.Once
+	trayReady    atomic.Bool
+	trayBusy     atomic.Bool
+	trayStopping atomic.Bool
+
+	// 新增：托盘 worker
+	trayCtx       context.Context
+	trayCancel    context.CancelFunc
+	trayActions   chan trayAction
+	trayRenderReq chan appcore.AppState
 
 	core *appcore.Controller
 }
@@ -127,16 +139,13 @@ func (a *App) startup(ctx context.Context) {
 
 	a.SyncState()
 
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		a.SetupSystray()
-	}()
+	a.StartTray(ctx)
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	a.StopTray()
 	a.core.StopCoreService()
 	a.core.StopTrafficStream()
-	systray.Quit()
 }
 
 // --- AppState & Sync ---
@@ -151,35 +160,7 @@ func (a *App) GetAppState() AppState {
 func (a *App) SyncState() {
 	// 内部会发送 app-state-sync 并且自动启停 traffic stream
 	a.core.SyncState()
-
-	state := a.core.GetAppState()
-	if a.mSysProxy != nil {
-		if state.SystemProxy {
-			a.mSysProxy.Check()
-		} else {
-			a.mSysProxy.Uncheck()
-		}
-	}
-	if a.mTun != nil {
-		if state.Tun {
-			a.mTun.Check()
-		} else {
-			a.mTun.Uncheck()
-		}
-	}
-	if a.mModeRule != nil {
-		a.mModeRule.Uncheck()
-		a.mModeGlobal.Uncheck()
-		a.mModeDirect.Uncheck()
-		switch state.Mode {
-		case "rule":
-			a.mModeRule.Check()
-		case "global":
-			a.mModeGlobal.Check()
-		case "direct":
-			a.mModeDirect.Check()
-		}
-	}
+	a.SyncTrayState()
 }
 
 func (a *App) GetInitialData() (map[string]interface{}, error) {
@@ -691,70 +672,3 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 // --- Helpers ---
 
 
-func (a *App) SetupSystray() {
-	a.trayMu.Lock()
-	defer a.trayMu.Unlock()
-
-	a.trayOnce.Do(func() {
-		go systray.Run(a.onTrayReady, a.onTrayExit)
-	})
-}
-
-func (a *App) onTrayReady() {
-	systray.SetIcon(iconData)
-	systray.SetTitle("GoclashZ")
-	systray.SetTooltip("GoclashZ - Mihomo GUI")
-
-	systray.SetDClickTimeMinInterval(500)
-	systray.SetOnDClick(func(menu systray.IMenu) {
-		a.ToggleMainWindow()
-	})
-
-	mShow := systray.AddMenuItem("显示界面", "显示主窗口")
-	systray.AddSeparator()
-
-	a.mSysProxy = systray.AddMenuItem("系统代理", "开启/关闭系统代理")
-	a.mTun = systray.AddMenuItem("TUN 模式", "开启/关闭 TUN 模式")
-
-	systray.AddSeparator()
-	mModes := systray.AddMenuItem("出站模式", "切换 Clash 路由模式")
-	a.mModeRule = mModes.AddSubMenuItem("规则 (Rule)", "Rule 模式")
-	a.mModeGlobal = mModes.AddSubMenuItem("全局 (Global)", "Global 模式")
-	a.mModeDirect = mModes.AddSubMenuItem("直连 (Direct)", "Direct 模式")
-
-	systray.AddSeparator()
-	mRestart := systray.AddMenuItem("重启内核", "重启 Clash 内核")
-	mQuit := systray.AddMenuItem("退出程序", "彻底退出 GoclashZ")
-
-	mShow.Click(func() {
-		a.ShowMainWindow()
-	})
-	a.mSysProxy.Click(func() {
-		state := a.core.GetAppState()
-		_ = a.ToggleSystemProxy(!state.SystemProxy)
-	})
-	a.mTun.Click(func() {
-		state := a.core.GetAppState()
-		_ = a.ToggleTunMode(!state.Tun)
-	})
-	a.mModeRule.Click(func() {
-		_ = a.UpdateClashMode("rule")
-	})
-	a.mModeGlobal.Click(func() {
-		_ = a.UpdateClashMode("global")
-	})
-	a.mModeDirect.Click(func() {
-		_ = a.UpdateClashMode("direct")
-	})
-	mRestart.Click(func() {
-		_ = a.RestartCore()
-	})
-	mQuit.Click(func() {
-		runtime.Quit(a.ctx)
-	})
-
-	a.SyncState()
-}
-
-func (a *App) onTrayExit() {
-}

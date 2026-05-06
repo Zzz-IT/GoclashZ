@@ -135,7 +135,7 @@ func (s *BehaviorStore) Save() error {
 
 func normalizeBehavior(b AppBehavior) AppBehavior {
 	if b.LogLevel == "" {
-		b.LogLevel = "info"
+		b.LogLevel = "error"
 	}
 
 	if b.DelayRetentionTime == "" {
@@ -185,7 +185,7 @@ func (s *BehaviorStore) Default() AppBehavior {
 		ColorDelay:         false,
 		DelayRetention:     true,
 		DelayRetentionTime: "long",
-		LogLevel:           "info",
+		LogLevel:           "error",
 		HideLogs:           false,
 		SubUA:              "clash-verge",
 		ActiveMode:         "rule",
