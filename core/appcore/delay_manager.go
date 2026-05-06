@@ -139,11 +139,11 @@ func autoDelayOptions(source DelaySource) DelayTestOptions {
 
 func singleDelayOptions() DelayTestOptions {
 	return DelayTestOptions{
-		Source:         DelaySourceManual,
-		SilentUI:       false,
-		ProbeTimeout:   SingleDelayTimeout,
-		ProbeExtra:     SingleCtxGrace,
-		Concurrency:    1,
+		Source:       DelaySourceManual,
+		SilentUI:     false,
+		ProbeTimeout: SingleDelayTimeout,
+		ProbeExtra:   SingleCtxGrace,
+		Concurrency:  1,
 	}
 }
 
@@ -315,6 +315,16 @@ func (m *DelayTestManager) testOneDuration(
 		return DelayResult{Name: name, Delay: 0, Status: "timeout", Err: ctx.Err(), Message: "任务取消"}
 	}
 
+	return m.testOneDurationRaw(ctx, name, testURL, timeout, extra)
+}
+
+func (m *DelayTestManager) testOneDurationRaw(
+	ctx context.Context,
+	name string,
+	testURL string,
+	timeout time.Duration,
+	extra time.Duration,
+) DelayResult {
 	reqCtx, cancel := context.WithTimeout(ctx, timeout+extra)
 	defer cancel()
 
@@ -650,14 +660,14 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 
 	if warmupRequired {
 		// 冷启动预热探测：成功就直接用，失败不立即 emit，避免 UI 闪超时
-		res = m.testOneDuration(ctx, target, testURL, ColdStartProbeTimeout, ColdStartRetryGrace)
+		res = m.testOneDurationRaw(ctx, target, testURL, ColdStartProbeTimeout, ColdStartRetryGrace)
 
 		if (res.Err != nil || res.Delay <= 0) && isRetryableDelayFailure(res) {
 			time.Sleep(200 * time.Millisecond)
-			res = m.testOneDuration(ctx, target, testURL, ColdStartRetryTimeout, ColdStartRetryGrace)
+			res = m.testOneDurationRaw(ctx, target, testURL, ColdStartRetryTimeout, ColdStartRetryGrace)
 		}
 	} else {
-		res = m.testOneDuration(ctx, target, testURL, SingleDelayTimeout, SingleCtxGrace)
+		res = m.testOneDurationRaw(ctx, target, testURL, SingleDelayTimeout, SingleCtxGrace)
 	}
 
 	m.emitDelayResult(topo, res)
