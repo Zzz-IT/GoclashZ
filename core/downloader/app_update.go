@@ -148,7 +148,13 @@ func parseVersionParts(v string) []int {
 }
 
 // DownloadAppUpdate 使用通用下载机下载应用更新包
-func DownloadAppUpdate(ctx context.Context, info *AppUpdateInfo, destDir string, proxyURL string) (string, error) {
+func DownloadAppUpdate(
+	ctx context.Context,
+	info *AppUpdateInfo,
+	destDir string,
+	proxyURL string,
+	bandwidthLimit func() int64,
+) (string, error) {
 	if info == nil {
 		return "", fmt.Errorf("更新信息为空")
 	}
@@ -177,6 +183,7 @@ func DownloadAppUpdate(ctx context.Context, info *AppUpdateInfo, destDir string,
 		Resume:      true,
 		ProxyURL:    proxyURL,
 		PreferProxy: proxyURL != "",
+		BandwidthLimit: bandwidthLimit,
 		Validator: func(tmpPath string) error {
 			return ValidateWindowsExecutable(tmpPath)
 		},

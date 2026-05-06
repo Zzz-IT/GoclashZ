@@ -247,13 +247,17 @@ func downloadWithCandidate(ctx context.Context, opt Options, candidate downloadC
 		}
 
 		var reader io.Reader = resp.Body
+		if opt.BandwidthLimit != nil {
+			reader = newAdaptiveRateLimitedReader(resp.Body, opt.BandwidthLimit)
+		}
+
 		if opt.MaxBytes > 0 {
 			remain := opt.MaxBytes - startOffset
 			if remain <= 0 {
 				out.Close()
 				return fmt.Errorf("文件超过大小限制")
 			}
-			reader = io.LimitReader(resp.Body, remain+1)
+			reader = io.LimitReader(reader, remain+1)
 		}
 
 		n, copyErr := io.Copy(out, reader)
@@ -307,4 +311,46 @@ func downloadWithCandidate(ctx context.Context, opt Options, candidate downloadC
 
 	_ = os.Remove(metaFile)
 	return nil
+}
+
+type adaptiveRateLimitedReader struct {
+	r     io.Reader
+	limit func() int64
+}
+
+func newAdaptiveRateLimitedReader(r io.Reader, limit func() int64) io.Reader {
+	return &adaptiveRateLimitedReader{
+		r:     r,
+		limit: limit,
+	}
+}
+
+func (r *adaptiveRateLimitedReader) Read(p []byte) (int, error) {
+	bps := r.limit()
+	if bps <= 0 {
+		return r.r.Read(p)
+	}
+
+	// 每次读取的数据量不要超过 1/10 秒的配额，保证限速平滑
+	maxChunk := int(bps / 10)
+	if maxChunk < 1 {
+		maxChunk = 1
+	}
+	if len(p) > maxChunk {
+		p = p[:maxChunk]
+	}
+
+	start := time.Now()
+	n, err := r.r.Read(p)
+
+	if n > 0 {
+		// 计算理论上读取这些字节需要的时间
+		expected := time.Duration(int64(time.Second) * int64(n) / bps)
+		elapsed := time.Since(start)
+		if expected > elapsed {
+			time.Sleep(expected - elapsed)
+		}
+	}
+
+	return n, err
 }

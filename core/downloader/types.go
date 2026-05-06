@@ -35,6 +35,8 @@ type Options struct {
 
 	OnResponse func(resp *http.Response)  // 拦截器
 	Validator  func(tmpPath string) error // 防损屏障：替换前执行验证逻辑
+
+	BandwidthLimit func() int64 // 🚀 动态限速：返回字节/秒，<=0 表示不限速
 }
 
 type resumeMeta struct {

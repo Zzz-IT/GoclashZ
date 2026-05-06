@@ -277,6 +277,8 @@ func (c *Controller) AutoCheckAndDownloadAppUpdateAsync(ctx context.Context, cur
 
 func (c *Controller) downloadAppUpdateWithInfo(ctx context.Context, info *downloader.AppUpdateInfo) error {
 	c.SetUpdateStatus(true, info.Version)
+	c.setAppUpdateDownloading(true)
+	defer c.setAppUpdateDownloading(false)
 
 	c.events.Emit("app-update-start", map[string]string{
 		"version": info.Version,
@@ -321,7 +323,7 @@ func (c *Controller) downloadAppUpdateViaCurrentProxy(
 		return err
 	}
 
-	path, err := downloader.DownloadAppUpdate(ctx, info, destDir, proxyURL)
+	path, err := downloader.DownloadAppUpdate(ctx, info, destDir, proxyURL, c.appUpdateBandwidthLimit)
 	if err != nil {
 		fmt.Printf("软件下载代理下载失败: %v\n", err)
 		c.events.Emit("app-update-error", userFacingAppUpdateDownloadError(err))
@@ -342,7 +344,7 @@ func (c *Controller) downloadAppUpdateDirectThenProxy(
 	destDir string,
 ) error {
 	// 第一轮：直连
-	path, err := downloader.DownloadAppUpdate(ctx, info, destDir, "")
+	path, err := downloader.DownloadAppUpdate(ctx, info, destDir, "", c.appUpdateBandwidthLimit)
 	if err == nil {
 		c.SetDownloadedAppUpdate(path, info.Version)
 		c.events.Emit("app-update-downloaded", map[string]string{
@@ -358,7 +360,7 @@ func (c *Controller) downloadAppUpdateDirectThenProxy(
 	proxyURL := c.currentAppUpdateProxyURL(ctx)
 	if proxyURL != "" {
 		fmt.Printf("开始使用本地代理重试下载: %s\n", proxyURL)
-		path, err = downloader.DownloadAppUpdate(ctx, info, destDir, proxyURL)
+		path, err = downloader.DownloadAppUpdate(ctx, info, destDir, proxyURL, c.appUpdateBandwidthLimit)
 		if err == nil {
 			c.SetDownloadedAppUpdate(path, info.Version)
 			c.events.Emit("app-update-downloaded", map[string]string{
@@ -380,20 +382,37 @@ func (c *Controller) currentAppUpdateProxyURL(ctx context.Context) string {
 		return proxyURL
 	}
 
-	// 2. 否则，尝试静默启动内核 (带超时)
-	proxyCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
-	defer cancel()
+	// 🚀 优化：只有用户已经开启代理/TUN 时，才尝试恢复/启动当前代理用于更新
+	if c.getAppUpdateDownloadStrategy() == appUpdateCurrentProxyOnly {
+		proxyCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+		defer cancel()
 
-	c.coreLifecycleMu.Lock()
-	err := c.ensureCoreRunningLocked(proxyCtx)
-	c.coreLifecycleMu.Unlock()
+		c.coreLifecycleMu.Lock()
+		// 注意：这里使用 ensureCoreRunningLocked 会设置 userCoreRunning=true，
+		// 因为用户当前本身就在代理/TUN 模式，内核理应在线。
+		err := c.ensureCoreRunningLocked(proxyCtx)
+		c.coreLifecycleMu.Unlock()
 
-	if err != nil {
-		fmt.Printf("获取软件下载代理失败 (内核启动失败): %v\n", err)
-		return ""
+		if err != nil {
+			fmt.Printf("获取软件下载代理失败 (内核启动失败): %v\n", err)
+			return ""
+		}
+
+		return resolveLocalProxyURL()
 	}
 
-	return resolveLocalProxyURL()
+	// 未开启代理/TUN 时，不主动启动内核，保持直连
+	return ""
+}
+
+func (c *Controller) appUpdateBandwidthLimit() int64 {
+	if c.isAutoDelayRunning() {
+		// 🚀 测速竞争模式：将下载限速至 384 KB/s，确保测速包能挤过去
+		return 384 * 1024
+	}
+
+	// 正常后台模式：限速 2 MB/s，既保证下载速度又不至于吃满代理连接
+	return 2 * 1024 * 1024
 }
 
 func userFacingAppUpdateDownloadError(err error) string {

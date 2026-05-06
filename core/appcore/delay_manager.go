@@ -124,7 +124,21 @@ func manualDelayOptions() DelayTestOptions {
 	}
 }
 
-func autoDelayOptions(source DelaySource) DelayTestOptions {
+func (c *Controller) autoDelayOptions(source DelaySource) DelayTestOptions {
+	if c.isAppUpdateDownloading() {
+		// 🚀 核心抗干扰模式：下载中降低压测强度
+		return DelayTestOptions{
+			Source:         source,
+			SilentUI:       true,
+			RetryFailed:    false,
+			TotalTimeout:   90 * time.Second,
+			StopSilentCore: true,
+			ProbeTimeout:   12 * time.Second, // 放宽超时至 12s
+			ProbeExtra:     1200 * time.Millisecond,
+			Concurrency:    2, // 极大降低并发压力
+		}
+	}
+
 	return DelayTestOptions{
 		Source:         source,
 		SilentUI:       true,
@@ -405,7 +419,7 @@ func (m *DelayTestManager) TestAllProxies(ctx context.Context, nodeNames []strin
 }
 
 func (m *DelayTestManager) TestAllProxiesAuto(ctx context.Context, source string) {
-	m.TestAllProxiesWithOptions(ctx, nil, autoDelayOptions(DelaySource(source)))
+	m.TestAllProxiesWithOptions(ctx, nil, m.ctrl.autoDelayOptions(DelaySource(source)))
 }
 
 func (m *DelayTestManager) TestAllProxiesWithOptions(
@@ -437,6 +451,9 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 
 	m.state = DelayRunning
 	m.batchSource = opts.Source
+	if opts.Source != DelaySourceManual {
+		m.ctrl.setAutoDelayRunning(true)
+	}
 	m.batchCancel = cancel
 	m.batchDone = done
 	m.batchNodes = make(map[string]struct{})
@@ -459,6 +476,10 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 
 		if !opts.SilentUI {
 			m.emit.Emit("proxy-test-finished", finishMsg)
+		}
+
+		if opts.Source != DelaySourceManual {
+			m.ctrl.setAutoDelayRunning(false)
 		}
 
 		close(done)
@@ -578,8 +599,29 @@ func (m *DelayTestManager) runBatch(
 
 	var failed []string
 
-	// 收集并即时分发结果
+	var total int
+	var timeoutCount int
+	var buffered []DelayResult
+
+	// 收集结果
 	for res := range results {
+		total++
+		if res.Status == "timeout" {
+			timeoutCount++
+		}
+		buffered = append(buffered, res)
+	}
+
+	// 🚀 核心保护：如果正在下载更新，且 80% 以上节点超时，大概率是下载干扰，不覆盖旧结果
+	if opts.Source != DelaySourceManual && m.ctrl.isAppUpdateDownloading() && total > 0 {
+		if timeoutCount*100/total >= 80 {
+			fmt.Printf("检测到下载干扰导致大面积测速超时 (%d/%d)，放弃更新本次自动测速结果\n", timeoutCount, total)
+			return
+		}
+	}
+
+	// 正常分发结果
+	for _, res := range buffered {
 		if res.Status != "success" && opts.RetryFailed {
 			failed = append(failed, res.Name)
 			continue

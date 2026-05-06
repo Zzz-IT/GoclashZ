@@ -76,6 +76,35 @@ type Controller struct {
 	// 🚀 新增：明确用户运行意图
 	userCoreRunning bool
 	coreStartedAt   time.Time
+
+	// 🚀 核心：自适应调度状态
+	networkMu            sync.RWMutex
+	appUpdateDownloading bool
+	autoDelayRunning     bool
+}
+
+func (c *Controller) setAppUpdateDownloading(active bool) {
+	c.networkMu.Lock()
+	defer c.networkMu.Unlock()
+	c.appUpdateDownloading = active
+}
+
+func (c *Controller) isAppUpdateDownloading() bool {
+	c.networkMu.RLock()
+	defer c.networkMu.RUnlock()
+	return c.appUpdateDownloading
+}
+
+func (c *Controller) setAutoDelayRunning(active bool) {
+	c.networkMu.Lock()
+	defer c.networkMu.Unlock()
+	c.autoDelayRunning = active
+}
+
+func (c *Controller) isAutoDelayRunning() bool {
+	c.networkMu.RLock()
+	defer c.networkMu.RUnlock()
+	return c.autoDelayRunning
 }
 
 func NewController(opts Options) *Controller {
