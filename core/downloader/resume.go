@@ -116,10 +116,15 @@ func probeSingleRemote(ctx context.Context, client *http.Client, testURL string,
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return resumeMeta{}, false, err
-	}
-
-	if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusForbidden {
+		// 🚀 核心优化：HEAD 失败后尝试 GET Range 0-0 探测 (GitHub/CDN 有时对 HEAD 不友好)
+		getReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
+		getReq.Header.Set("User-Agent", ua)
+		getReq.Header.Set("Range", "bytes=0-0")
+		resp, err = client.Do(getReq)
+		if err != nil {
+			return resumeMeta{}, false, err
+		}
+	} else if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusForbidden {
 		resp.Body.Close()
 		req, _ = http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
 		req.Header.Set("User-Agent", ua)

@@ -9,6 +9,8 @@ import (
 	"goclashz/core/downloader"
 	"goclashz/core/utils"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 func (c *Controller) updateGeoDatabase(ctx context.Context, key string) error {
@@ -274,18 +276,107 @@ func (c *Controller) downloadAppUpdateWithInfo(ctx context.Context, info *downlo
 	})
 
 	destDir := filepath.Join(utils.GetDataDir(), "updates")
-	path, err := downloader.DownloadAppUpdate(ctx, info, destDir)
-	if err != nil {
-		c.events.Emit("app-update-error", "下载软件更新失败: "+err.Error())
-		return err
+
+	// 🚀 核心优化：异步准备下载代理 (如果直连失败会用到)
+	proxyReady := c.prepareAppUpdateProxyAsync(ctx)
+
+	// 第一轮：尝试直连下载 (避免不必要的内核启动/代理开销)
+	path, err := downloader.DownloadAppUpdate(ctx, info, destDir, "")
+	if err == nil {
+		c.SetDownloadedAppUpdate(path, info.Version)
+		c.events.Emit("app-update-downloaded", map[string]string{
+			"version": info.Version,
+			"path":    path,
+		})
+		return nil
 	}
 
-	c.SetDownloadedAppUpdate(path, info.Version)
+	fmt.Printf("软件更新直连下载失败，准备尝试本地代理重试: %v\n", err)
 
-	c.events.Emit("app-update-downloaded", map[string]string{
-		"version": info.Version,
-		"path":    path,
-	})
+	// 第二轮：等待代理准备就绪并重试
+	proxyURL := ""
+	select {
+	case proxyURL = <-proxyReady:
+	case <-ctx.Done():
+		fmt.Printf("软件下载已取消: %v\n", ctx.Err())
+		c.events.Emit("app-update-error", "下载软件更新已取消。")
+		return ctx.Err()
+	}
 
-	return nil
+	if proxyURL != "" {
+		fmt.Printf("开始使用本地代理重试下载: %s\n", proxyURL)
+		path, err = downloader.DownloadAppUpdate(ctx, info, destDir, proxyURL)
+		if err == nil {
+			c.SetDownloadedAppUpdate(path, info.Version)
+			c.events.Emit("app-update-downloaded", map[string]string{
+				"version": info.Version,
+				"path":    path,
+			})
+			return nil
+		}
+		fmt.Printf("软件更新代理重试也失败: %v\n", err)
+	}
+
+	// 统一映射为用户友好的短错误
+	c.events.Emit("app-update-error", userFacingAppUpdateDownloadError(err))
+	return err
+}
+
+func (c *Controller) prepareAppUpdateProxyAsync(ctx context.Context) <-chan string {
+	ch := make(chan string, 1)
+
+	go func() {
+		defer close(ch)
+
+		// 如果当前已经有可用的代理端口，直接返回
+		if proxyURL := resolveLocalProxyURL(); proxyURL != "" {
+			ch <- proxyURL
+			return
+		}
+
+		// 否则，尝试静默启动内核
+		proxyCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+
+		c.coreLifecycleMu.Lock()
+		err := c.ensureCoreRunningLocked(proxyCtx)
+		c.coreLifecycleMu.Unlock()
+
+		if err != nil {
+			fmt.Printf("启动内核用于软件下载代理失败: %v\n", err)
+			ch <- ""
+			return
+		}
+
+		ch <- resolveLocalProxyURL()
+	}()
+
+	return ch
+}
+
+func userFacingAppUpdateDownloadError(err error) string {
+	if err == nil {
+		return "下载软件更新失败，请稍后重试。"
+	}
+
+	msg := strings.ToLower(err.Error())
+
+	// 映射网络类错误
+	if strings.Contains(msg, "wsarecv") ||
+		strings.Contains(msg, "connection was aborted") ||
+		strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "context deadline exceeded") ||
+		strings.Contains(msg, "所有网络环境") ||
+		strings.Contains(msg, "github") {
+		return "下载软件更新失败：当前网络无法连接 GitHub 下载地址。请切换可用代理节点后重试。"
+	}
+
+	// 映射文件效验类错误
+	if strings.Contains(msg, "mz") ||
+		strings.Contains(msg, "不是有效的 windows 可执行文件") ||
+		strings.Contains(msg, "体积异常") {
+		return "下载的软件安装包无效，请稍后重新下载。"
+	}
+
+	return "下载软件更新失败，请稍后重试。"
 }

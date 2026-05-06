@@ -148,7 +148,7 @@ func parseVersionParts(v string) []int {
 }
 
 // DownloadAppUpdate 使用通用下载机下载应用更新包
-func DownloadAppUpdate(ctx context.Context, info *AppUpdateInfo, destDir string) (string, error) {
+func DownloadAppUpdate(ctx context.Context, info *AppUpdateInfo, destDir string, proxyURL string) (string, error) {
 	if info == nil {
 		return "", fmt.Errorf("更新信息为空")
 	}
@@ -170,11 +170,13 @@ func DownloadAppUpdate(ctx context.Context, info *AppUpdateInfo, destDir string)
 
 	// 🚀 复用原子下载机
 	err := DownloadAtomic(ctx, Options{
-		URLs:      []string{info.DownloadURL},
-		DestPath:  destPath,
-		UserAgent: "GoclashZ-Updater",
-		MaxBytes:  300 << 20, // 限制 300MB
-		Resume:    true,
+		URLs:        []string{info.DownloadURL},
+		DestPath:    destPath,
+		UserAgent:   "GoclashZ-Updater",
+		MaxBytes:    300 << 20, // 限制 300MB
+		Resume:      true,
+		ProxyURL:    proxyURL,
+		PreferProxy: proxyURL != "",
 		Validator: func(tmpPath string) error {
 			return ValidateWindowsExecutable(tmpPath)
 		},

@@ -339,10 +339,8 @@ onMounted(async () => {
       title: "新版本已下载完成",
       message:
         `GoclashZ ${version} 已下载完成。\n\n` +
-        `文件名：${fileName}\n` +
-        `位置：updates 目录\n\n` +
-        `是否现在关闭 GoclashZ 并启动安装程序？\n\n` +
-        `安装完成后，临时安装包将在下次启动时自动清理。`,
+        `是否现在关闭程序并启动安装程序？\n\n` +
+        `安装完成后会自动清理临时安装包。`,
       type: "confirm",
       isDanger: false,
       onConfirm: async () => {
@@ -395,13 +393,18 @@ onMounted(async () => {
     };
   });
 
+  const shortError = (msg: any) => {
+    const s = String(msg || "未知错误");
+    return s.length > 120 ? "操作失败，请检查网络或稍后重试。" : s;
+  };
+
   EventsOn("app-update-error", (err: string) => {
     globalState.appUpdateChecking = false;
 
     globalState.modal = {
       show: true,
       title: "软件更新失败",
-      message: String(err || "未知错误"),
+      message: shortError(err),
       type: "alert",
       isDanger: true,
       onConfirm: () => { globalState.modal.show = false; },
