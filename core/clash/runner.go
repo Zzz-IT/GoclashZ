@@ -52,9 +52,13 @@ func assignProcessToJobObject(proc *os.Process) error {
 	if err != nil {
 		return err
 	}
-	
-	// 🛑 修改前：绝对不能在这里 defer CloseHandle！这会导致内核刚启动就被系统杀掉
-	// defer windows.CloseHandle(job)
+
+	assigned := false
+	defer func() {
+		if !assigned {
+			windows.CloseHandle(job)
+		}
+	}()
 
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
 		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
@@ -70,16 +74,18 @@ func assignProcessToJobObject(proc *os.Process) error {
 	if err != nil {
 		return err
 	}
-	
+
 	err = windows.AssignProcessToJobObject(job, windows.Handle(proc.Pid))
-	if err == nil {
-		// 🚀 核心修复：释放上一个已死亡进程留下的历史句柄，彻底根治 Handle Leak 隐患
-		if globalJobHandle != 0 {
-			windows.CloseHandle(globalJobHandle)
-		}
-		globalJobHandle = job
+	if err != nil {
+		return err
 	}
-	return err
+
+	if globalJobHandle != 0 {
+		windows.CloseHandle(globalJobHandle)
+	}
+	globalJobHandle = job
+	assigned = true
+	return nil
 }
 
 // killProcessIfClash 安全杀进程：验证 PID 对应进程名是否确为目标执行文件名，防止 PID 复用误杀

@@ -57,6 +57,7 @@ type App struct {
 	trayCancel    context.CancelFunc
 	trayActions   chan trayAction
 	trayRenderReq chan appcore.AppState
+	trayUIOps     chan trayUIOp
 
 	core *appcore.Controller
 }

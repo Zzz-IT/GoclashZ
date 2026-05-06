@@ -27,6 +27,8 @@ type trayItems struct {
 	restart    *systray.MenuItem
 }
 
+type trayUIOp func()
+
 func (a *App) StartTray(parent context.Context) {
 	trayCtx, cancel := context.WithCancel(parent)
 
@@ -34,9 +36,11 @@ func (a *App) StartTray(parent context.Context) {
 	a.trayCancel = cancel
 	a.trayActions = make(chan trayAction, 16)
 	a.trayRenderReq = make(chan appcore.AppState, 4)
+	a.trayUIOps = make(chan trayUIOp, 32)
 
 	go a.trayActionWorker(trayCtx)
 	go a.trayRenderWorker(trayCtx)
+	go a.trayUIWorker(trayCtx)
 
 	go func() {
 		select {
@@ -125,32 +129,32 @@ func (a *App) onTrayReady() {
 	mSysProxy.Click(func() {
 		a.enqueueTrayAction("toggle-system-proxy", 20*time.Second, func(ctx context.Context) error {
 			state := a.core.GetAppState()
-			return a.ToggleSystemProxy(!state.SystemProxy)
+			return a.core.ToggleSystemProxy(ctx, !state.SystemProxy)
 		})
 	})
 
 	mTun.Click(func() {
 		a.enqueueTrayAction("toggle-tun", 25*time.Second, func(ctx context.Context) error {
 			state := a.core.GetAppState()
-			return a.ToggleTunMode(!state.Tun)
+			return a.core.ToggleTunMode(ctx, !state.Tun)
 		})
 	})
 
 	mModeRule.Click(func() {
 		a.enqueueTrayAction("switch-rule-mode", 10*time.Second, func(ctx context.Context) error {
-			return a.UpdateClashMode("rule")
+			return a.core.UpdateClashMode(ctx, "rule")
 		})
 	})
 
 	mModeGlobal.Click(func() {
 		a.enqueueTrayAction("switch-global-mode", 10*time.Second, func(ctx context.Context) error {
-			return a.UpdateClashMode("global")
+			return a.core.UpdateClashMode(ctx, "global")
 		})
 	})
 
 	mModeDirect.Click(func() {
 		a.enqueueTrayAction("switch-direct-mode", 10*time.Second, func(ctx context.Context) error {
-			return a.UpdateClashMode("direct")
+			return a.core.UpdateClashMode(ctx, "direct")
 		})
 	})
 
@@ -188,16 +192,28 @@ func (a *App) trayActionWorker(ctx context.Context) {
 			return
 
 		case action := <-a.trayActions:
-			a.setTrayBusy(true)
-			err := a.runTrayActionSafely(ctx, action)
+			a.handleTrayAction(ctx, action)
+		}
+	}
+}
+
+func (a *App) handleTrayAction(ctx context.Context, action trayAction) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("托盘 action worker 执行 %s 异常: %v\n", action.name, r)
+			a.notifyTrayError(fmt.Sprintf("托盘操作 %s 异常: %v", action.name, r))
+		}
+
+		if !a.trayStopping.Load() {
 			a.setTrayBusy(false)
-
-			if err != nil {
-				a.notifyTrayError(err.Error())
-			}
-
 			a.SyncTrayState()
 		}
+	}()
+
+	a.setTrayBusy(true)
+
+	if err := a.runTrayActionSafely(ctx, action); err != nil {
+		a.notifyTrayError(err.Error())
 	}
 }
 
@@ -232,6 +248,12 @@ func (a *App) trayRenderWorker(ctx context.Context) {
 }
 
 func (a *App) applyTrayState(state appcore.AppState) {
+	a.enqueueTrayUI(func() {
+		a.applyTrayStateUnsafe(state)
+	})
+}
+
+func (a *App) applyTrayStateUnsafe(state appcore.AppState) {
 	if !a.trayReady.Load() || a.trayStopping.Load() {
 		return
 	}
@@ -270,6 +292,40 @@ func (a *App) applyTrayState(state appcore.AppState) {
 	})
 }
 
+func (a *App) trayUIWorker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case op := <-a.trayUIOps:
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						fmt.Printf("托盘 UI 操作异常: %v\n", r)
+					}
+				}()
+
+				if op != nil && a.trayReady.Load() && !a.trayStopping.Load() {
+					op()
+				}
+			}()
+		}
+	}
+}
+
+func (a *App) enqueueTrayUI(op trayUIOp) {
+	if op == nil || !a.trayReady.Load() || a.trayStopping.Load() {
+		return
+	}
+
+	select {
+	case a.trayUIOps <- op:
+	default:
+		fmt.Println("托盘 UI 队列繁忙，丢弃一次 UI 更新")
+	}
+}
+
 func (a *App) withTrayItems(fn func(trayItems)) {
 	if fn == nil {
 		return
@@ -296,22 +352,30 @@ func (a *App) withTrayItems(fn func(trayItems)) {
 func (a *App) setTrayBusy(busy bool) {
 	a.trayBusy.Store(busy)
 
+	a.enqueueTrayUI(func() {
+		a.applyTrayBusyLocked(busy)
+	})
+}
+
+func (a *App) applyTrayBusyLocked(busy bool) {
 	a.withTrayItems(func(items trayItems) {
-		if busy {
-			items.sysProxy.Disable()
-			items.tun.Disable()
-			items.modeRule.Disable()
-			items.modeGlobal.Disable()
-			items.modeDirect.Disable()
-			items.restart.Disable()
-		} else {
-			items.sysProxy.Enable()
-			items.tun.Enable()
-			items.modeRule.Enable()
-			items.modeGlobal.Enable()
-			items.modeDirect.Enable()
-			items.restart.Enable()
+		setEnabled := func(item *systray.MenuItem) {
+			if item == nil {
+				return
+			}
+			if busy {
+				item.Disable()
+			} else {
+				item.Enable()
+			}
 		}
+
+		setEnabled(items.sysProxy)
+		setEnabled(items.tun)
+		setEnabled(items.modeRule)
+		setEnabled(items.modeGlobal)
+		setEnabled(items.modeDirect)
+		setEnabled(items.restart)
 	})
 }
 

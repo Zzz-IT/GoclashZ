@@ -346,8 +346,17 @@ func require2xx(resp *http.Response, endpoint string) error {
 
 // 🚀 [泛型优化]：统一 GET 请求处理，消灭 40 行模板代码
 func doKernelGet[T any](path string) (T, error) {
+	return doKernelGetWithContext[T](context.Background(), path)
+}
+
+func doKernelGetWithContext[T any](ctx context.Context, path string) (T, error) {
 	var result T
-	resp, err := localAPIClient.Get(APIURL(path))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, APIURL(path), nil)
+	if err != nil {
+		return result, err
+	}
+
+	resp, err := localAPIClient.Do(req)
 	if err != nil {
 		return result, err
 	}
@@ -398,12 +407,16 @@ func doKernelRequest(ctx context.Context, method, path string, body any, okStatu
 
 // GetInitialData 获取模式和代理组信息
 func GetInitialData() (map[string]interface{}, error) {
-	configData, err := doKernelGet[map[string]interface{}]("/configs")
+	return GetInitialDataWithContext(context.Background())
+}
+
+func GetInitialDataWithContext(ctx context.Context) (map[string]interface{}, error) {
+	configData, err := doKernelGetWithContext[map[string]interface{}](ctx, "/configs")
 	if err != nil {
 		return nil, err
 	}
 
-	proxiesData, err := doKernelGet[map[string]interface{}]("/proxies")
+	proxiesData, err := doKernelGetWithContext[map[string]interface{}](ctx, "/proxies")
 	if err != nil {
 		return nil, err
 	}

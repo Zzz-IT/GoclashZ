@@ -248,11 +248,34 @@ func (c *Controller) ensureCoreRunningLocked(ctx context.Context) error {
 	// 🛡️ 核心修复：API 探针带超时判定，失败必须报错并清理僵尸进程
 	apiReady := false
 	for i := 0; i < 20; i++ {
-		if _, err := clash.GetInitialData(); err == nil {
+		select {
+		case <-ctx.Done():
+			clash.Stop()
+			c.mu.Lock()
+			c.userCoreRunning = false
+			c.coreStartedAt = time.Time{}
+			c.mu.Unlock()
+			return ctx.Err()
+		default:
+		}
+
+		if _, err := clash.GetInitialDataWithContext(ctx); err == nil {
 			apiReady = true
 			break
 		}
-		time.Sleep(100 * time.Millisecond)
+
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			clash.Stop()
+			c.mu.Lock()
+			c.userCoreRunning = false
+			c.coreStartedAt = time.Time{}
+			c.mu.Unlock()
+			return ctx.Err()
+		case <-timer.C:
+		}
 	}
 
 	if !apiReady {
