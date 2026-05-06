@@ -760,7 +760,7 @@ func (c *Controller) UpdateClashMode(ctx context.Context, mode string) error {
 
 	// 2. 如果内核正在运行，尝试通过 API 热切换
 	if clash.IsRunning() {
-		if err := clash.UpdateMode(mode); err != nil {
+		if err := clash.UpdateModeWithContext(ctx, mode); err != nil {
 			c.SyncState()
 			return fmt.Errorf("内核模式切换失败: %v", err)
 		}

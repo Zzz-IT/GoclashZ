@@ -32,7 +32,6 @@ type trayUIOp func()
 func (a *App) StartTray(parent context.Context) {
 	trayCtx, cancel := context.WithCancel(parent)
 
-	a.trayCtx = trayCtx
 	a.trayCancel = cancel
 	a.trayActions = make(chan trayAction, 16)
 	a.trayRenderReq = make(chan appcore.AppState, 4)
@@ -385,6 +384,11 @@ func (a *App) enqueueTrayAction(name string, timeout time.Duration, run func(con
 	}
 
 	if a.trayStopping.Load() {
+		return
+	}
+
+	if a.trayBusy.Load() {
+		a.notifyTrayError("托盘操作正在执行，请稍后再试")
 		return
 	}
 

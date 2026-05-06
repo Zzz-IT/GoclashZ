@@ -155,7 +155,11 @@ func Start(ctx context.Context) error {
 		return fmt.Errorf("无法启动内核: %v", err)
 	}
 
-	assignProcessToJobObject(cmd.Process)
+	if err := assignProcessToJobObject(cmd.Process); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return fmt.Errorf("无法绑定内核进程到 Job Object: %w", err)
+	}
 
 	clashCmd = cmd
 	isRunning.Store(true)

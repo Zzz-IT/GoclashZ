@@ -429,8 +429,12 @@ func GetInitialDataWithContext(ctx context.Context) (map[string]interface{}, err
 
 // UpdateMode 切换代理模式
 func UpdateMode(mode string) error {
+	return UpdateModeWithContext(context.Background(), mode)
+}
+
+func UpdateModeWithContext(ctx context.Context, mode string) error {
 	return doKernelRequest(
-		context.Background(),
+		ctx,
 		http.MethodPatch,
 		"/configs",
 		map[string]string{"mode": mode},

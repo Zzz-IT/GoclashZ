@@ -5,6 +5,7 @@ import {clash} from '../models';
 import {logger} from '../models';
 import {sys} from '../models';
 import {main} from '../models';
+import {context} from '../models';
 
 export function ApplyAppUpdate(arg1:string):Promise<void>;
 
@@ -122,13 +123,19 @@ export function StartConnectionMonitor():Promise<void>;
 
 export function StartStreamingLogs():Promise<void>;
 
+export function StartTray(arg1:context.Context):Promise<void>;
+
 export function StopConnectionMonitor():Promise<void>;
 
 export function StopStreamingLogs():Promise<void>;
 
+export function StopTray():Promise<void>;
+
 export function SyncRules(arg1:string):Promise<void>;
 
 export function SyncState():Promise<void>;
+
+export function SyncTrayState():Promise<void>;
 
 export function TestAllProxies(arg1:Array<string>):Promise<void>;
 

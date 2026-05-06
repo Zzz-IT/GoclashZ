@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -16,5 +17,12 @@ func (s *WailsEventSink) Emit(name string, args ...any) {
 	if s == nil || s.ctx == nil {
 		return
 	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Wails event emit panic: %s: %v\n", name, r)
+		}
+	}()
+
 	runtime.EventsEmit(s.ctx, name, args...)
 }

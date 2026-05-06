@@ -234,6 +234,10 @@ export function StartStreamingLogs() {
   return window['go']['main']['App']['StartStreamingLogs']();
 }
 
+export function StartTray(arg1) {
+  return window['go']['main']['App']['StartTray'](arg1);
+}
+
 export function StopConnectionMonitor() {
   return window['go']['main']['App']['StopConnectionMonitor']();
 }
@@ -242,12 +246,20 @@ export function StopStreamingLogs() {
   return window['go']['main']['App']['StopStreamingLogs']();
 }
 
+export function StopTray() {
+  return window['go']['main']['App']['StopTray']();
+}
+
 export function SyncRules(arg1) {
   return window['go']['main']['App']['SyncRules'](arg1);
 }
 
 export function SyncState() {
   return window['go']['main']['App']['SyncState']();
+}
+
+export function SyncTrayState() {
+  return window['go']['main']['App']['SyncTrayState']();
 }
 
 export function TestAllProxies(arg1) {

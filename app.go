@@ -33,7 +33,6 @@ type FileInfo struct {
 
 type App struct {
 	ctx   context.Context
-	mu    sync.RWMutex
 
 	windowMu      sync.Mutex
 	windowVisible bool
@@ -53,7 +52,6 @@ type App struct {
 	trayStopping atomic.Bool
 
 	// 新增：托盘 worker
-	trayCtx       context.Context
 	trayCancel    context.CancelFunc
 	trayActions   chan trayAction
 	trayRenderReq chan appcore.AppState
@@ -230,21 +228,15 @@ func (a *App) StopConnectionMonitor() {
 // --- Toggles & Controls ---
 
 func (a *App) ToggleSystemProxy(enable bool) error {
-	err := a.core.ToggleSystemProxy(a.ctx, enable)
-	a.SyncState()
-	return err
+	return a.core.ToggleSystemProxy(a.ctx, enable)
 }
 
 func (a *App) ToggleTunMode(enable bool) error {
-	err := a.core.ToggleTunMode(a.ctx, enable)
-	a.SyncState()
-	return err
+	return a.core.ToggleTunMode(a.ctx, enable)
 }
 
 func (a *App) UpdateClashMode(mode string) error {
-	err := a.core.UpdateClashMode(a.ctx, mode)
-	a.SyncState()
-	return err
+	return a.core.UpdateClashMode(a.ctx, mode)
 }
 
 func (a *App) RestartCore() error {
