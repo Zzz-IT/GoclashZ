@@ -6,10 +6,10 @@ import (
 	"context"
 	"fmt"
 	"goclashz/core/clash"
+	"goclashz/core/logger"
 	"goclashz/core/sys"
 	"goclashz/core/tasks"
 	"goclashz/core/utils"
-	"goclashz/core/logger"
 	"sync"
 	"time"
 )
@@ -22,18 +22,18 @@ type AutoDelayRefreshOptions struct {
 }
 
 type Options struct {
-	Events       EventSink
-	Version      string
+	Events  EventSink
+	Version string
 }
 
 type Controller struct {
-	events       EventSink
-	Behavior     *BehaviorStore
-	Offline      *OfflineNodeStore
-	Tasks        *tasks.Manager
-	version      string
+	events   EventSink
+	Behavior *BehaviorStore
+	Offline  *OfflineNodeStore
+	Tasks    *tasks.Manager
+	version  string
 
-	mu              sync.RWMutex
+	mu                sync.RWMutex
 	coreLifecycleMu   sync.Mutex
 	componentUpdateMu sync.Mutex
 	sysProxyActive    bool
@@ -78,11 +78,11 @@ type Controller struct {
 
 func NewController(opts Options) *Controller {
 	c := &Controller{
-		events:       opts.Events,
-		version:      opts.Version,
-		Behavior:     NewBehaviorStore(),
-		Offline:      NewOfflineNodeStore(),
-		Tasks:        tasks.NewManager(opts.Events),
+		events:   opts.Events,
+		version:  opts.Version,
+		Behavior: NewBehaviorStore(),
+		Offline:  NewOfflineNodeStore(),
+		Tasks:    tasks.NewManager(opts.Events),
 	}
 	c.traffic = NewTrafficStreamManager(opts.Events, func() string {
 		return c.Behavior.Get().LogLevel
@@ -301,7 +301,6 @@ func (c *Controller) stopCoreProcessLocked() {
 	c.coreStartedAt = time.Time{}
 	c.mu.Unlock()
 }
-
 
 // --- 导出方法 ---
 
@@ -822,7 +821,7 @@ func autoDelayInitialDelay(reason string) time.Duration {
 	case "restore":
 		return 30 * time.Second // 恢复备份后给予 30s 宽限
 	case "enabled":
-		return 3 * time.Second  // 手动开启功能：3 秒
+		return 3 * time.Second // 手动开启功能：3 秒
 	default:
 		return 5 * time.Second
 	}

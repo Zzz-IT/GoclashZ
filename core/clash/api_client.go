@@ -509,7 +509,7 @@ func FlushFakeIP() error {
 	// 1. 读取当前的 DNS 配置，判断是否是 Fake-IP 模式
 	dnsCfg, err := GetDNSConfig()
 	if err != nil || dnsCfg == nil {
-		return fmt.Errorf("通信失败：无法获取当前 DNS 状态，请检查内核是否运行") 
+		return fmt.Errorf("通信失败：无法获取当前 DNS 状态，请检查内核是否运行")
 	}
 
 	// 2. 如果根本不是 Fake-IP 模式，直接返回，不打扰内核

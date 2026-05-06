@@ -6,26 +6,25 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
-
-	"github.com/energye/systray"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
-
 	"goclashz/core/appcore"
 	"goclashz/core/clash"
 	"goclashz/core/sys"
 	"goclashz/core/utils"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
 	"goclashz/core/version"
+	"sync/atomic"
+
+	"github.com/energye/systray"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed build/windows/icon.ico
 var iconData []byte
-
 
 type FileInfo struct {
 	Path string `json:"path"`
@@ -124,7 +123,6 @@ func (a *App) startup(ctx context.Context) {
 		sink.ctx = ctx
 	}
 	// 必须先加载订阅索引，再启动 appcore 的自动任务。
-	// 自动测速可能会读取活动配置、构建 runtime config、读取代理拓扑。
 	clash.LoadIndex()
 	a.core.Startup(ctx)
 
@@ -241,27 +239,18 @@ func (a *App) UpdateClashMode(mode string) error {
 }
 
 func (a *App) RestartCore() error {
-	// 🛡️ 核心修复：手动重启显式指定理由，触发延迟缓存清理
 	return a.core.RestartCoreWithReason(a.ctx, "manual")
 }
 
 func (a *App) SelectProxy(groupName, proxyName string) error {
-	// 🛡️ 核心修复：内核确认优先原则
 	if clash.IsRunning() {
-		// 1. 先尝试向内核提交切换请求
 		if err := clash.SelectProxy(groupName, proxyName); err != nil {
 			return err
 		}
-
-		// 2. 内核确认成功后，再更新离线记录以供离线显示
 		a.core.Offline.Mark(groupName, proxyName)
-
-		// 3. 立即触发一次状态同步，确保 UI 拿到最新数据
 		a.SyncState()
 		return nil
 	}
-
-	// 如果内核未运行，则只记录离线选择
 	a.core.Offline.Mark(groupName, proxyName)
 	return nil
 }
@@ -299,7 +288,6 @@ func (a *App) UpdateAllSubsAsync() {
 }
 
 // --- Traffic & Logs ---
-
 
 func (a *App) StartStreamingLogs() {
 	a.core.StartLogStream(a.ctx)
@@ -342,8 +330,6 @@ func (a *App) ResetComponentSettings(section string) error {
 	case "behavior":
 		old := a.core.Behavior.Get()
 		cfg := a.core.Behavior.Default()
-
-		// 保留用户当前配置选择和模式，不要因为重置行为设置导致订阅/模式丢失
 		cfg.ActiveConfig = old.ActiveConfig
 		cfg.ActiveMode = old.ActiveMode
 
@@ -403,16 +389,13 @@ func (a *App) InstallTunDriverAsync(_ bool) {
 
 func (a *App) GetWintunVersion() string {
 	path := filepath.Join(utils.GetCoreBinDir(), "wintun.dll")
-
 	if _, err := os.Stat(path); err != nil {
 		return "未安装"
 	}
-
 	v, err := sys.GetFileVersion(path)
 	if err != nil || strings.TrimSpace(v) == "" {
 		return "已安装，版本未知"
 	}
-
 	return v
 }
 
@@ -471,11 +454,9 @@ func (a *App) OpenConfigFile(id string) error {
 	if id == "" || id == "config.yaml" {
 		path = filepath.Join(utils.GetDataDir(), "config.yaml")
 	}
-
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return fmt.Errorf("file not found: %s", path)
 	}
-
 	return sys.ShellOpen(path)
 }
 
@@ -507,7 +488,6 @@ func (a *App) StartClash(id string) error {
 	if err := a.core.Behavior.SetActiveConfig(id); err != nil {
 		return err
 	}
-	// 🛡️ 核心修复：使用带理由的重启，触发延迟缓存清理
 	return a.core.RestartCoreWithReason(a.ctx, "config-switch")
 }
 
@@ -548,10 +528,8 @@ func (a *App) TestAllProxies(nodeNames []string) {
 }
 
 func (a *App) TestProxy(name string) (int, error) {
-	// 🚀 核心：设置 13s 硬保护超时，为排队等待留出空间
 	ctx, cancel := context.WithTimeout(a.ctx, appcore.SingleOuterTimeout)
 	defer cancel()
-
 	return a.core.Delay.TestProxy(ctx, name)
 }
 
@@ -589,23 +567,16 @@ func (a *App) ApplyAppUpdate(path string) error {
 	if strings.TrimSpace(path) == "" {
 		return fmt.Errorf("更新包路径为空")
 	}
-
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("更新包不存在: %v", err)
 	}
-
-	// 🚀 核心修复：使用 ShellOpen 直接运行安装包，不再闪烁黑框
 	if err := sys.ShellOpen(path); err != nil {
 		return fmt.Errorf("无法启动安装程序: %v", err)
 	}
-
-	// 退出当前程序，让安装程序接管（通常安装程序会提示关闭旧进程）
 	runtime.Quit(a.ctx)
 	return nil
 }
 
-// ManualCheckAppUpdate checks for app updates manually.
-// Deprecated: Use CheckAndDownloadAppUpdateAsync instead.
 func (a *App) ManualCheckAppUpdate() (string, error) {
 	return a.core.ManualCheckAppUpdate(a.ctx)
 }
@@ -626,12 +597,9 @@ func (a *App) ExportBackup() (string, error) {
 	if savePath == "" {
 		return "CANCELLED", nil
 	}
-
-	// 补全后缀
 	if !strings.HasSuffix(strings.ToLower(savePath), ".gocz") {
 		savePath += ".gocz"
 	}
-
 	err = a.core.ExportBackup(savePath)
 	if err != nil {
 		return "", err
@@ -658,11 +626,6 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	a.SyncState()
 	return "SUCCESS", nil
 }
-
-// --- Helpers ---
-
-
