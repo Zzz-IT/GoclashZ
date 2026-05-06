@@ -276,7 +276,6 @@ func (c *Controller) stopCoreProcessLocked() {
 	c.userCoreRunning = false
 	c.coreStartedAt = time.Time{}
 	c.mu.Unlock()
-	c.SyncState()
 }
 
 // StopCoreProcessIfIdle 静默测速结束后，只有在用户未显式开启代理/TUN 时才停止内核
@@ -379,8 +378,8 @@ func (c *Controller) EnsureDelayCore(ctx context.Context) (cleanup func(), warmu
 	// 情况 1：内核已在物理运行
 	if clash.IsRunning() {
 		c.delayCoreRefs++
-		warmup := c.NeedsDelayWarmup()
 		c.delayCoreMu.Unlock()
+		warmup := c.NeedsDelayWarmup()
 		return c.releaseDelayCore, warmup, nil
 	}
 
