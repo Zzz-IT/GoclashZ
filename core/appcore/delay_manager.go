@@ -611,7 +611,7 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 	m.cancelAutoBatchAndWait(ctx, 300*time.Millisecond)
 
 	// 🚀 核心接入：静默内核保障
-	cleanup, coldStart, err := m.ctrl.EnsureDelayCore(ctx)
+	cleanup, warmupRequired, err := m.ctrl.EnsureDelayCore(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -648,7 +648,7 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 	testURL := m.getTestURL()
 	var res DelayResult
 
-	if coldStart {
+	if warmupRequired {
 		// 冷启动预热探测：成功就直接用，失败不立即 emit，避免 UI 闪超时
 		res = m.testOneDuration(ctx, target, testURL, ColdStartProbeTimeout, ColdStartRetryGrace)
 

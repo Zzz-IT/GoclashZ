@@ -73,6 +73,7 @@ type Controller struct {
 
 	// 🚀 新增：明确用户运行意图
 	userCoreRunning bool
+	coreStartedAt   time.Time
 }
 
 func NewController(opts Options) *Controller {
@@ -264,6 +265,7 @@ func (c *Controller) ensureCoreRunningLocked(ctx context.Context) error {
 
 	c.mu.Lock()
 	c.userCoreRunning = true
+	c.coreStartedAt = time.Now()
 	c.mu.Unlock()
 	return nil
 }
@@ -272,6 +274,7 @@ func (c *Controller) stopCoreProcessLocked() {
 	clash.Stop()
 	c.mu.Lock()
 	c.userCoreRunning = false
+	c.coreStartedAt = time.Time{}
 	c.mu.Unlock()
 	c.SyncState()
 }
@@ -319,6 +322,7 @@ func (c *Controller) DisableAll() {
 	c.sysProxyActive = false
 	c.tunActive = false
 	c.userCoreRunning = false
+	c.coreStartedAt = time.Time{}
 	c.mu.Unlock()
 
 	shouldStopDelayCore := false
@@ -362,8 +366,8 @@ func (c *Controller) DisableAll() {
 }
 
 // 🚀 核心新增：静默测速内核保障机制
-// 返回值：cleanup 释放引用, coldStart 是否为本次冷启动, err 错误
-func (c *Controller) EnsureDelayCore(ctx context.Context) (cleanup func(), coldStart bool, err error) {
+// 返回值：cleanup 释放引用, warmupRequired 是否处于启动预热窗口, err 错误
+func (c *Controller) EnsureDelayCore(ctx context.Context) (cleanup func(), warmupRequired bool, err error) {
 	c.delayCoreMu.Lock()
 
 	// 如果有待执行的 idle 停止 timer，先取消
@@ -375,8 +379,9 @@ func (c *Controller) EnsureDelayCore(ctx context.Context) (cleanup func(), coldS
 	// 情况 1：内核已在物理运行
 	if clash.IsRunning() {
 		c.delayCoreRefs++
+		warmup := c.NeedsDelayWarmup()
 		c.delayCoreMu.Unlock()
-		return c.releaseDelayCore, false, nil
+		return c.releaseDelayCore, warmup, nil
 	}
 
 	// 情况 2：已有其他协程正在启动内核，挂载并等待
@@ -442,6 +447,10 @@ func (c *Controller) EnsureDelayCore(ctx context.Context) (cleanup func(), coldS
 	c.delayCoreStarted = true
 	c.delayCoreRefs = 1
 	c.delayCoreMu.Unlock()
+
+	c.mu.Lock()
+	c.coreStartedAt = time.Now()
+	c.mu.Unlock()
 
 	return c.releaseDelayCore, true, nil
 }
@@ -546,6 +555,20 @@ func (c *Controller) IsUserRunning() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.userCoreRunning
+}
+
+const DelayWarmupWindow = 20 * time.Second
+
+func (c *Controller) NeedsDelayWarmup() bool {
+	c.mu.RLock()
+	startedAt := c.coreStartedAt
+	c.mu.RUnlock()
+
+	if startedAt.IsZero() {
+		return false
+	}
+
+	return time.Since(startedAt) <= DelayWarmupWindow
 }
 
 // StartCoreOnly 严格执行“只启内核，不改状态”
