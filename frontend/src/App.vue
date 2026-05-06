@@ -313,7 +313,54 @@ onMounted(async () => {
 
   EventsOn("app-update-downloaded", (payload: any) => {
     globalState.appUpdateChecking = false;
-    console.log("App update downloaded:", payload);
+
+    const version = payload?.version ?? "";
+    const path = payload?.path ?? "";
+
+    globalState.modal = {
+      show: true,
+      title: "新版本已下载完成",
+      message:
+        `GoclashZ ${version} 安装包已下载完成。\n\n` +
+        `安装包位置：\n${path || "未知"}\n\n` +
+        `是否现在关闭 GoclashZ 并启动安装程序？\n\n` +
+        `提示：安装完成后，临时安装包将在下次启动时自动清理。`,
+      type: "confirm",
+      isDanger: false,
+      onConfirm: async () => {
+        globalState.modal.show = false;
+
+        if (!path) {
+          globalState.modal = {
+            show: true,
+            title: "无法启动安装程序",
+            message: "安装包路径为空，请重新检查更新。",
+            type: "alert",
+            isDanger: true,
+            onConfirm: () => { globalState.modal.show = false; },
+            onCancel: null
+          };
+          return;
+        }
+
+        try {
+          await (API as any).ApplyAppUpdate(path);
+        } catch (e: any) {
+          globalState.modal = {
+            show: true,
+            title: "启动安装程序失败",
+            message: String(e?.message || e || "未知错误"),
+            type: "alert",
+            isDanger: true,
+            onConfirm: () => { globalState.modal.show = false; },
+            onCancel: null
+          };
+        }
+      },
+      onCancel: () => {
+        globalState.modal.show = false;
+      }
+    };
   });
 
   EventsOn("app-update-none", (payload: any) => {

@@ -65,15 +65,60 @@ func selectWindowsAsset(assets []struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
 }) (string, string) {
+	type candidate struct {
+		name string
+		url  string
+		rank int
+	}
+
+	var candidates []candidate
+
 	for _, asset := range assets {
 		lower := strings.ToLower(asset.Name)
-		if strings.HasSuffix(lower, ".exe") && strings.Contains(lower, "goclashz") {
-			if strings.Contains(lower, "setup") || strings.Contains(lower, "installer") {
-				return asset.Name, asset.BrowserDownloadURL
-			}
+
+		if !strings.HasSuffix(lower, ".exe") {
+			continue
+		}
+
+		if !strings.Contains(lower, "goclashz") {
+			continue
+		}
+
+		if strings.Contains(lower, "sha256") ||
+			strings.Contains(lower, "checksum") ||
+			strings.Contains(lower, "symbols") ||
+			strings.Contains(lower, "debug") {
+			continue
+		}
+
+		rank := 10
+		if strings.Contains(lower, "setup") || strings.Contains(lower, "installer") {
+			rank = 0
+		} else if strings.Contains(lower, "windows") || strings.Contains(lower, "win") {
+			rank = 1
+		} else if strings.Contains(lower, "x64") || strings.Contains(lower, "amd64") {
+			rank = 2
+		}
+
+		candidates = append(candidates, candidate{
+			name: asset.Name,
+			url:  asset.BrowserDownloadURL,
+			rank: rank,
+		})
+	}
+
+	if len(candidates) == 0 {
+		return "", ""
+	}
+
+	best := candidates[0]
+	for _, c := range candidates[1:] {
+		if c.rank < best.rank {
+			best = c
 		}
 	}
-	return "", ""
+
+	return best.name, best.url
 }
 
 func CompareAppVersion(remote, current string) (int, error) {

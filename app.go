@@ -118,6 +118,8 @@ func NewApp() *App {
 }
 
 func (a *App) startup(ctx context.Context) {
+	cleanupAppliedUpdatePackage()
+
 	a.ctx = ctx
 	if sink, ok := a.core.GetEvents().(*WailsEventSink); ok {
 		sink.ctx = ctx
@@ -567,13 +569,74 @@ func (a *App) ApplyAppUpdate(path string) error {
 	if strings.TrimSpace(path) == "" {
 		return fmt.Errorf("更新包路径为空")
 	}
+
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("更新包不存在: %v", err)
 	}
+
+	// 标记：下次启动后清理这个安装包
+	if err := markAppliedUpdateForCleanup(path); err != nil {
+		fmt.Printf("写入更新清理标记失败: %v\n", err)
+	}
+
+	// 停止托盘，避免安装期间继续触发操作
+	a.StopTray()
+
+	// 停止内核与流量流
+	if a.core != nil {
+		a.core.StopTrafficStream()
+		a.core.StopCoreService()
+	}
+
+	// 兜底清理系统代理
+	sys.ClearOwnedSystemProxy()
+
+	// 启动安装包
 	if err := sys.ShellOpen(path); err != nil {
 		return fmt.Errorf("无法启动安装程序: %v", err)
 	}
+
+	// 退出当前程序，让安装程序接管
 	runtime.Quit(a.ctx)
+	return nil
+}
+
+func markAppliedUpdateForCleanup(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+
+	marker := filepath.Join(utils.GetDataDir(), "update_cleanup_pending")
+	return os.WriteFile(marker, []byte(path), 0644)
+}
+
+func cleanupAppliedUpdatePackage() {
+	marker := filepath.Join(utils.GetDataDir(), "update_cleanup_pending")
+
+	data, err := os.ReadFile(marker)
+	if err != nil {
+		return
+	}
+
+	updatePath := strings.TrimSpace(string(data))
+	if updatePath != "" {
+		_ = os.Remove(updatePath)
+	}
+
+	_ = os.Remove(marker)
+
+	updatesDir := filepath.Join(utils.GetDataDir(), "updates")
+	_ = removeEmptyDir(updatesDir)
+}
+
+func removeEmptyDir(path string) error {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return os.Remove(path)
+	}
 	return nil
 }
 
