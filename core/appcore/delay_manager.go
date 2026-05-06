@@ -27,8 +27,8 @@ const (
 const (
 	// 单点测速硬保护超时 (14s)，防止 UI 无限等待
 	SingleOuterTimeout = 14 * time.Second
-	// 单点排队超时 (1s)，并发槽位满时快速返回 busy
-	SingleQueueTimeout = 1 * time.Second
+	// 单点排队超时 (3s)，并发槽位满时快速返回 busy
+	SingleQueueTimeout = 3 * time.Second
 	// 单点测速 API 超时 (8s)
 	SingleDelayTimeout = 8 * time.Second
 	// 单点 Context 宽限时长
@@ -43,7 +43,7 @@ const (
 
 	// 批量测速 API 超时
 	ManualBatchDelayTimeout = 8000
-	AutoBatchDelayTimeout   = 5000
+	AutoBatchDelayTimeout   = 8000
 )
 
 type DelayResult struct {
