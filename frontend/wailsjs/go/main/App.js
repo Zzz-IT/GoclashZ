@@ -14,6 +14,10 @@ export function CheckAndDownloadAppUpdateAsync() {
   return window['go']['main']['App']['CheckAndDownloadAppUpdateAsync']();
 }
 
+export function CheckAppUpdateAsync() {
+  return window['go']['main']['App']['CheckAppUpdateAsync']();
+}
+
 export function CheckCoreUpdateAsync() {
   return window['go']['main']['App']['CheckCoreUpdateAsync']();
 }
@@ -40,6 +44,10 @@ export function DeleteConfig(arg1) {
 
 export function DoLocalImport(arg1, arg2) {
   return window['go']['main']['App']['DoLocalImport'](arg1, arg2);
+}
+
+export function DownloadPendingAppUpdateAsync() {
+  return window['go']['main']['App']['DownloadPendingAppUpdateAsync']();
 }
 
 export function ElevatePrivileges() {

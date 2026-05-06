@@ -13,6 +13,8 @@ export function AutoCheckAndDownloadAppUpdateAsync():Promise<void>;
 
 export function CheckAndDownloadAppUpdateAsync():Promise<void>;
 
+export function CheckAppUpdateAsync():Promise<void>;
+
 export function CheckCoreUpdateAsync():Promise<void>;
 
 export function CheckTunEnv():Promise<Record<string, boolean>>;
@@ -26,6 +28,8 @@ export function CloseConnection(arg1:string):Promise<void>;
 export function DeleteConfig(arg1:string):Promise<void>;
 
 export function DoLocalImport(arg1:string,arg2:string):Promise<string>;
+
+export function DownloadPendingAppUpdateAsync():Promise<void>;
 
 export function ElevatePrivileges():Promise<void>;
 

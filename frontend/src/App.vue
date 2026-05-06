@@ -293,17 +293,33 @@ onMounted(async () => {
   EventsOn("app-update-available", (info: any) => {
     globalState.appUpdateChecking = false;
 
-    const version = info?.version ?? '';
-    const releaseNotes = info?.releaseNotes ?? '';
+    const version = info?.version ?? "";
 
     globalState.modal = {
       show: true,
       title: "发现新版本",
-      message: `GoclashZ 新版本 ${version} 可用，正在后台静默下载。\n\n${releaseNotes || ''}`,
-      type: "alert",
+      message: `发现 GoclashZ 新版本 ${version}。\n\n是否现在下载更新？`,
+      type: "confirm",
       isDanger: false,
-      onConfirm: () => { globalState.modal.show = false; },
-      onCancel: null
+      onConfirm: async () => {
+        globalState.modal.show = false;
+        try {
+          await (API as any).DownloadPendingAppUpdateAsync();
+        } catch (e: any) {
+          globalState.modal = {
+            show: true,
+            title: "开始下载失败",
+            message: String(e?.message || e || "未知错误"),
+            type: "alert",
+            isDanger: true,
+            onConfirm: () => { globalState.modal.show = false; },
+            onCancel: null
+          };
+        }
+      },
+      onCancel: () => {
+        globalState.modal.show = false;
+      }
     };
   });
 
@@ -315,22 +331,24 @@ onMounted(async () => {
     globalState.appUpdateChecking = false;
 
     const version = payload?.version ?? "";
-    const path = payload?.path ?? "";
+    const fullPath = payload?.path ?? "";
+    const fileName = fullPath.split(/[\\/]/).pop() || fullPath || "未知";
 
     globalState.modal = {
       show: true,
       title: "新版本已下载完成",
       message:
-        `GoclashZ ${version} 安装包已下载完成。\n\n` +
-        `安装包位置：\n${path || "未知"}\n\n` +
+        `GoclashZ ${version} 已下载完成。\n\n` +
+        `文件名：${fileName}\n` +
+        `位置：updates 目录\n\n` +
         `是否现在关闭 GoclashZ 并启动安装程序？\n\n` +
-        `提示：安装完成后，临时安装包将在下次启动时自动清理。`,
+        `安装完成后，临时安装包将在下次启动时自动清理。`,
       type: "confirm",
       isDanger: false,
       onConfirm: async () => {
         globalState.modal.show = false;
 
-        if (!path) {
+        if (!fullPath) {
           globalState.modal = {
             show: true,
             title: "无法启动安装程序",
@@ -344,7 +362,7 @@ onMounted(async () => {
         }
 
         try {
-          await (API as any).ApplyAppUpdate(path);
+          await (API as any).ApplyAppUpdate(fullPath);
         } catch (e: any) {
           globalState.modal = {
             show: true,

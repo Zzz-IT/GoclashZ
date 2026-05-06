@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"goclashz/core/clash"
+	"goclashz/core/downloader"
 	"goclashz/core/logger"
 	"goclashz/core/sys"
 	"goclashz/core/tasks"
@@ -55,6 +56,7 @@ type Controller struct {
 
 	downloadedUpdatePath    string
 	downloadedUpdateVersion string
+	pendingAppUpdateInfo    *downloader.AppUpdateInfo
 
 	GeoUpdates *GeoUpdateManager
 

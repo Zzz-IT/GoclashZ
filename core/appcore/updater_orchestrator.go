@@ -176,7 +176,7 @@ func (c *Controller) GetCoreVersion(ctx context.Context) string {
 }
 
 func (c *Controller) ManualCheckAppUpdate(ctx context.Context) (string, error) {
-	// ⚠️ 建议废弃此入口，前端统一改用 CheckAndDownloadAppUpdateAsync
+	// ⚠️ 建议废弃此入口，前端统一改用 CheckAppUpdateAsync
 	info, err := downloader.CheckAppUpdate(ctx, c.version)
 	if err != nil {
 		return "", err
@@ -187,18 +187,68 @@ func (c *Controller) ManualCheckAppUpdate(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
+func (c *Controller) CheckAppUpdateAsync(ctx context.Context, currentVersion string, manual bool) {
 	ok := c.Tasks.RunIfIdle(ctx, "app-update-flow", false, func(ctx context.Context) error {
-		c.events.Emit("app-update-check-start")
+		if manual {
+			c.events.Emit("app-update-check-start")
+		}
 
 		info, err := downloader.CheckAppUpdate(ctx, currentVersion)
 		if err != nil {
-			c.events.Emit("app-update-error", "检查软件更新失败: "+err.Error())
+			if manual {
+				c.events.Emit("app-update-error", "检查软件更新失败: "+err.Error())
+			}
 			return nil
 		}
 
-		_ = c.checkAndDownloadAppUpdateWithInfo(ctx, info, true)
+		if info == nil || !info.HasUpdate {
+			if manual {
+				c.events.Emit("app-update-none", map[string]string{
+					"message": "当前已经是最新版本。",
+				})
+			}
+			return nil
+		}
+
+		if info.DownloadURL == "" {
+			if manual {
+				c.events.Emit("app-update-error", fmt.Sprintf(
+					"发现新版本 %s，但 Release 中没有匹配的软件本体安装包",
+					info.Version,
+				))
+			}
+			return nil
+		}
+
+		c.mu.Lock()
+		c.pendingAppUpdateInfo = info
+		c.mu.Unlock()
+
+		c.events.Emit("app-update-available", map[string]any{
+			"version": info.Version,
+			"manual":  manual,
+		})
+
 		return nil
+	})
+
+	if !ok && manual {
+		c.events.Emit("app-update-busy")
+	}
+}
+
+func (c *Controller) DownloadPendingAppUpdateAsync(ctx context.Context) {
+	ok := c.Tasks.RunIfIdle(ctx, "app-update-flow", false, func(ctx context.Context) error {
+		c.mu.RLock()
+		info := c.pendingAppUpdateInfo
+		c.mu.RUnlock()
+
+		if info == nil || !info.HasUpdate || info.DownloadURL == "" {
+			c.events.Emit("app-update-error", "没有可下载的软件更新，请重新检查更新。")
+			return nil
+		}
+
+		return c.downloadAppUpdateWithInfo(ctx, info)
 	})
 
 	if !ok {
@@ -206,50 +256,18 @@ func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, current
 	}
 }
 
-func (c *Controller) AutoCheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
-	c.Tasks.RunIfIdle(ctx, "app-update-flow", false, func(ctx context.Context) error {
-		info, err := downloader.CheckAppUpdate(ctx, currentVersion)
-		if err != nil || info == nil || !info.HasUpdate {
-			return nil
-		}
-
-		_ = c.checkAndDownloadAppUpdateWithInfo(ctx, info, false)
-		return nil
-	})
+func (c *Controller) CheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
+	// 兼容接口：现在改为仅检查
+	c.CheckAppUpdateAsync(ctx, currentVersion, true)
 }
 
-func (c *Controller) checkAndDownloadAppUpdateWithInfo(
-	ctx context.Context,
-	info *downloader.AppUpdateInfo,
-	manual bool,
-) error {
-	if info == nil || !info.HasUpdate {
-		if manual {
-			c.events.Emit("app-update-none", map[string]string{
-				"message": "当前已经是最新版本。",
-			})
-		}
-		return nil
-	}
+func (c *Controller) AutoCheckAndDownloadAppUpdateAsync(ctx context.Context, currentVersion string) {
+	// 启动自动检查也改为仅检查
+	c.CheckAppUpdateAsync(ctx, currentVersion, false)
+}
 
-	if info.DownloadURL == "" {
-		err := fmt.Errorf("发现新版本 %s，但 Release 中没有匹配的软件本体安装包", info.Version)
-		if manual {
-			c.events.Emit("app-update-error", err.Error())
-		}
-		return err
-	}
-
+func (c *Controller) downloadAppUpdateWithInfo(ctx context.Context, info *downloader.AppUpdateInfo) error {
 	c.SetUpdateStatus(true, info.Version)
-
-	if manual {
-		c.events.Emit("app-update-available", map[string]any{
-			"version":      info.Version,
-			"releaseNotes": info.Body,
-			"releaseUrl":   info.ReleaseURL,
-			"downloadUrl":  info.DownloadURL,
-		})
-	}
 
 	c.events.Emit("app-update-start", map[string]string{
 		"version": info.Version,
@@ -258,9 +276,7 @@ func (c *Controller) checkAndDownloadAppUpdateWithInfo(
 	destDir := filepath.Join(utils.GetDataDir(), "updates")
 	path, err := downloader.DownloadAppUpdate(ctx, info, destDir)
 	if err != nil {
-		if manual {
-			c.events.Emit("app-update-error", "下载软件更新失败: "+err.Error())
-		}
+		c.events.Emit("app-update-error", "下载软件更新失败: "+err.Error())
 		return err
 	}
 

@@ -557,12 +557,20 @@ func (a *App) GetActiveGeoUpdates() []string {
 	return a.core.GetActiveGeoUpdates()
 }
 
+func (a *App) CheckAppUpdateAsync() {
+	a.core.CheckAppUpdateAsync(a.ctx, version.AppVersion, true)
+}
+
+func (a *App) DownloadPendingAppUpdateAsync() {
+	a.core.DownloadPendingAppUpdateAsync(a.ctx)
+}
+
 func (a *App) CheckAndDownloadAppUpdateAsync() {
-	a.core.CheckAndDownloadAppUpdateAsync(a.ctx, version.AppVersion)
+	a.core.CheckAppUpdateAsync(a.ctx, version.AppVersion, true)
 }
 
 func (a *App) AutoCheckAndDownloadAppUpdateAsync() {
-	a.core.AutoCheckAndDownloadAppUpdateAsync(a.ctx, version.AppVersion)
+	a.core.CheckAppUpdateAsync(a.ctx, version.AppVersion, false)
 }
 
 func (a *App) ApplyAppUpdate(path string) error {
