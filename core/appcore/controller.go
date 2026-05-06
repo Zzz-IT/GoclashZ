@@ -259,6 +259,7 @@ func (c *Controller) ensureCoreRunningLocked(ctx context.Context) error {
 		clash.Stop() // 探针失败，及时清理掉内核进程
 		c.mu.Lock()
 		c.userCoreRunning = false
+		c.coreStartedAt = time.Time{}
 		c.mu.Unlock()
 		return fmt.Errorf("内核进程已启动，但 API 未能在预期时间内就绪")
 	}
@@ -278,22 +279,6 @@ func (c *Controller) stopCoreProcessLocked() {
 	c.mu.Unlock()
 }
 
-// StopCoreProcessIfIdle 静默测速结束后，只有在用户未显式开启代理/TUN 时才停止内核
-func (c *Controller) StopCoreProcessIfIdle() {
-	c.coreLifecycleMu.Lock()
-	defer c.coreLifecycleMu.Unlock()
-
-	c.mu.RLock()
-	needCore := c.sysProxyActive || c.tunActive
-	c.mu.RUnlock()
-
-	if needCore {
-		return
-	}
-
-	c.stopCoreProcessLocked()
-	c.SyncState()
-}
 
 // --- 导出方法 ---
 
@@ -541,6 +526,10 @@ func (c *Controller) releaseDelayCore() {
 			c.delayCoreStarted = false
 			c.delayCoreStopTimer = nil
 			c.delayCoreMu.Unlock()
+
+			c.mu.Lock()
+			c.coreStartedAt = time.Time{}
+			c.mu.Unlock()
 
 			clash.Stop()
 			c.SyncState()
