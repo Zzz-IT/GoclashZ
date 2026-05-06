@@ -29,15 +29,17 @@ const (
 	SingleOuterTimeout = 14 * time.Second
 	// 单点排队超时 (1s)，并发槽位满时快速返回 busy
 	SingleQueueTimeout = 1 * time.Second
-	// 单点测速 API 超时 (8000ms)
-	SingleDelayTimeout = 8000
+	// 单点测速 API 超时 (8s)
+	SingleDelayTimeout = 8 * time.Second
 	// 单点 Context 宽限时长
 	SingleCtxGrace = 800 * time.Millisecond
 
-	// 🚀 新增：冷启动预热探测参数
-	ColdStartProbeTimeout = 2500
-	ColdStartRetryTimeout = 6500
-	ColdStartRetryGrace   = 600 * time.Millisecond
+	// 冷启动预热探测超时
+	ColdStartProbeTimeout = 2500 * time.Millisecond
+	// 冷启动重试超时
+	ColdStartRetryTimeout = 6500 * time.Millisecond
+	// 冷启动重试宽限
+	ColdStartRetryGrace = 600 * time.Millisecond
 
 	// 批量测速 API 超时
 	ManualBatchDelayTimeout = 8000
@@ -139,7 +141,7 @@ func singleDelayOptions() DelayTestOptions {
 	return DelayTestOptions{
 		Source:         DelaySourceManual,
 		SilentUI:       false,
-		ProbeTimeout:   time.Duration(SingleDelayTimeout) * time.Millisecond,
+		ProbeTimeout:   SingleDelayTimeout,
 		ProbeExtra:     SingleCtxGrace,
 		Concurrency:    1,
 	}
@@ -644,19 +646,15 @@ func (m *DelayTestManager) TestProxy(ctx context.Context, name string) (int, err
 
 	// 3. 执行测速
 	testURL := m.getTestURL()
-
 	var res DelayResult
 
 	if coldStart {
-		// 🚀 核心改进：冷启动预热探测
-		// 第一次失败时不立刻 emit，尝试轻量重试一次
+		// 冷启动预热探测：成功就直接用，失败不立即 emit，避免 UI 闪超时
 		res = m.testOneDuration(ctx, target, testURL, ColdStartProbeTimeout, ColdStartRetryGrace)
 
-		if res.Err != nil || res.Delay <= 0 {
-			if isRetryableDelayFailure(res) {
-				time.Sleep(200 * time.Millisecond)
-				res = m.testOneDuration(ctx, target, testURL, ColdStartRetryTimeout, ColdStartRetryGrace)
-			}
+		if (res.Err != nil || res.Delay <= 0) && isRetryableDelayFailure(res) {
+			time.Sleep(200 * time.Millisecond)
+			res = m.testOneDuration(ctx, target, testURL, ColdStartRetryTimeout, ColdStartRetryGrace)
 		}
 	} else {
 		res = m.testOneDuration(ctx, target, testURL, SingleDelayTimeout, SingleCtxGrace)

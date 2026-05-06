@@ -333,17 +333,17 @@ func (c *Controller) DisableAll() {
 	cancelStart = c.delayCoreStartCancel
 	ready = c.delayCoreReady
 
-	if c.delayCoreStopTimer != nil {
-		c.delayCoreStopTimer.Stop()
-		c.delayCoreStopTimer = nil
-	}
-
 	c.delayCoreRefs = 0
 	c.delayCoreStarted = false
 	c.delayCoreStarting = false
 	c.delayCoreStartErr = fmt.Errorf("测速已取消")
 	c.delayCoreStartCancel = nil
 	c.delayCoreReady = nil
+
+	if c.delayCoreStopTimer != nil {
+		c.delayCoreStopTimer.Stop()
+		c.delayCoreStopTimer = nil
+	}
 	c.delayCoreMu.Unlock()
 
 	if cancelStart != nil {
@@ -362,10 +362,11 @@ func (c *Controller) DisableAll() {
 }
 
 // 🚀 核心新增：静默测速内核保障机制
+// 返回值：cleanup 释放引用, coldStart 是否为本次冷启动, err 错误
 func (c *Controller) EnsureDelayCore(ctx context.Context) (cleanup func(), coldStart bool, err error) {
 	c.delayCoreMu.Lock()
 
-	// 如果有正在倒计时的停止任务，先取消它
+	// 如果有待执行的 idle 停止 timer，先取消
 	if c.delayCoreStopTimer != nil {
 		c.delayCoreStopTimer.Stop()
 		c.delayCoreStopTimer = nil
@@ -421,20 +422,20 @@ func (c *Controller) EnsureDelayCore(ctx context.Context) (cleanup func(), coldS
 	c.delayCoreMu.Unlock()
 
 	// 在锁外执行耗时的启动与探测
-	err = c.startDelayCoreAndWaitReady(startCtx, profileID)
+	startErr := c.startDelayCoreAndWaitReady(startCtx, profileID)
 
-	ok := c.finishDelayCoreStart(ready, err)
+	ok := c.finishDelayCoreStart(ready, startErr)
 	if !ok {
 		// 如果启动被 DisableAll 抢先取消了
-		if err == nil && !c.IsUserRunning() {
+		if startErr == nil && !c.IsUserRunning() {
 			clash.Stop()
 			c.SyncState()
 		}
 		return nil, false, fmt.Errorf("测速已取消")
 	}
 
-	if err != nil {
-		return nil, false, err
+	if startErr != nil {
+		return nil, false, startErr
 	}
 
 	c.delayCoreMu.Lock()
@@ -505,21 +506,18 @@ func (c *Controller) startDelayCoreAndWaitReady(ctx context.Context, profileID s
 const DelayCoreIdleTTL = 15 * time.Second
 
 func (c *Controller) releaseDelayCore() {
-	shouldScheduleStop := false
-
 	c.delayCoreMu.Lock()
 
 	if c.delayCoreRefs > 0 {
 		c.delayCoreRefs--
 	}
 
-	// 还有其他测速任务正在使用，不退出
+	shouldScheduleStop := false
 	if c.delayCoreRefs == 0 && c.delayCoreStarted && !c.IsUserRunning() {
 		shouldScheduleStop = true
 	}
 
 	if shouldScheduleStop {
-		// 🚀 核心改进：引入 15s Idle TTL，避免频繁冷启动
 		if c.delayCoreStopTimer != nil {
 			c.delayCoreStopTimer.Stop()
 		}
@@ -527,9 +525,7 @@ func (c *Controller) releaseDelayCore() {
 		c.delayCoreStopTimer = time.AfterFunc(DelayCoreIdleTTL, func() {
 			c.delayCoreMu.Lock()
 
-			// 二次确认：在此期间用户可能又点测速了，或者正式开启了代理
 			if c.delayCoreRefs > 0 || !c.delayCoreStarted || c.IsUserRunning() {
-				c.delayCoreStopTimer = nil
 				c.delayCoreMu.Unlock()
 				return
 			}
@@ -538,7 +534,6 @@ func (c *Controller) releaseDelayCore() {
 			c.delayCoreStopTimer = nil
 			c.delayCoreMu.Unlock()
 
-			// 物理停止内核
 			clash.Stop()
 			c.SyncState()
 		})
