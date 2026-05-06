@@ -387,6 +387,7 @@ func (a *App) enqueueTrayAction(name string, timeout time.Duration, run func(con
 		return
 	}
 
+	// 如果当前正在执行重操作，拒绝重复入队
 	if a.trayBusy.Load() {
 		a.notifyTrayError("托盘操作正在执行，请稍后再试")
 		return

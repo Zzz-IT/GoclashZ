@@ -6,20 +6,21 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"goclashz/core/appcore"
-	"goclashz/core/clash"
-	"goclashz/core/sys"
-	"goclashz/core/utils"
 	"os"
-	"strings"
 	"path/filepath"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"goclashz/core/appcore"
+	"goclashz/core/clash"
+	"goclashz/core/sys"
+	"goclashz/core/utils"
 	"goclashz/core/version"
-	"sync/atomic"
 )
 
 //go:embed build/windows/icon.ico
@@ -32,7 +33,7 @@ type FileInfo struct {
 }
 
 type App struct {
-	ctx   context.Context
+	ctx context.Context
 
 	windowMu      sync.Mutex
 	windowVisible bool
@@ -44,14 +45,14 @@ type App struct {
 	mModeDirect *systray.MenuItem
 	mRestart    *systray.MenuItem
 
-	// 新增：托盘生命周期
+	// 托盘生命周期
 	trayMu       sync.RWMutex
 	trayOnce     sync.Once
 	trayReady    atomic.Bool
 	trayBusy     atomic.Bool
 	trayStopping atomic.Bool
 
-	// 新增：托盘 worker
+	// 托盘 worker
 	trayCancel    context.CancelFunc
 	trayActions   chan trayAction
 	trayRenderReq chan appcore.AppState
