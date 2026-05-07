@@ -445,8 +445,12 @@ func UpdateModeWithContext(ctx context.Context, mode string) error {
 
 // SelectProxy 切换代理节点
 func SelectProxy(groupName, proxyName string) error {
+	return SelectProxyWithContext(context.Background(), groupName, proxyName)
+}
+
+func SelectProxyWithContext(ctx context.Context, groupName, proxyName string) error {
 	return doKernelRequest(
-		context.Background(),
+		ctx,
 		http.MethodPut,
 		"/proxies/"+url.PathEscape(groupName),
 		map[string]string{"name": proxyName},

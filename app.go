@@ -177,7 +177,7 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 				"isOffline":    true,
 			}
 		} else {
-			appcore.MergeOfflineSelection(offlineData, a.core.Offline.Snapshot())
+			appcore.MergeOfflineSelection(offlineData, a.core.Offline.Snapshot(state.ActiveConfig))
 			offlineData["activeConfig"] = state.ActiveConfig
 			offlineData["mode"] = state.Mode
 			offlineData["isOffline"] = true
@@ -245,15 +245,23 @@ func (a *App) RestartCore() error {
 }
 
 func (a *App) SelectProxy(groupName, proxyName string) error {
-	if clash.IsRunning() {
-		if err := clash.SelectProxy(groupName, proxyName); err != nil {
+	state := a.core.GetAppState()
+	profileID := state.ActiveConfig
+	mode := state.Mode
+
+	if clash.IsRunning() && state.IsRunning {
+		ctx, cancel := context.WithTimeout(a.ctx, 3*time.Second)
+		defer cancel()
+
+		if err := a.core.SelectProxyWithModeSync(ctx, profileID, mode, groupName, proxyName); err != nil {
 			return err
 		}
-		a.core.Offline.Mark(groupName, proxyName)
 		a.SyncState()
 		return nil
 	}
-	a.core.Offline.Mark(groupName, proxyName)
+
+	a.core.SelectOfflineProxyWithModeSync(profileID, mode, groupName, proxyName)
+	a.SyncState()
 	return nil
 }
 

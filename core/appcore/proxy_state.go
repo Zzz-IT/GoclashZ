@@ -147,3 +147,11 @@ func (m *ProxyStateMonitor) Stop() {
 	}
 	m.mu.Unlock()
 }
+
+func (m *ProxyStateMonitor) SyncOnce() {
+	states, err := getProxyGroupStates()
+	if err != nil {
+		return
+	}
+	m.emit.Emit("proxy-state-sync", states)
+}

@@ -322,6 +322,11 @@ func (c *Controller) ensureCoreRunningLocked(ctx context.Context) error {
 	c.userCoreRunning = true
 	c.coreStartedAt = time.Now()
 	c.mu.Unlock()
+
+	// 🚀 核心：API ready 后，立即回放离线保存的节点选择
+	c.applyStoredProxySelections(ctx, activeConfig)
+	c.SyncProxyStateOnce()
+
 	return nil
 }
 
@@ -1064,4 +1069,161 @@ func (c *Controller) GetDownloadedUpdate() (string, string) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.downloadedUpdatePath, c.downloadedUpdateVersion
+}
+
+// --- Proxy Selection & Sync ---
+
+func (c *Controller) SelectProxyWithModeSync(
+	ctx context.Context,
+	profileID string,
+	mode string,
+	groupName string,
+	proxyName string,
+) error {
+	if err := clash.SelectProxyWithContext(ctx, groupName, proxyName); err != nil {
+		return err
+	}
+
+	c.Offline.Mark(profileID, groupName, proxyName)
+
+	if mode == "global" {
+		if err := c.selectGlobalProxyIfValid(ctx, proxyName); err != nil {
+			// 如果 GLOBAL 同步失败（例如 GLOBAL 组不存在或不包含该节点），仅记录日志，不中断主流程
+			fmt.Printf("全局出口同步失败: %v\n", err)
+		} else {
+			c.Offline.Mark(profileID, "GLOBAL", proxyName)
+		}
+	}
+
+	c.SyncProxyStateOnce()
+	return nil
+}
+
+func (c *Controller) SelectOfflineProxyWithModeSync(
+	profileID string,
+	mode string,
+	groupName string,
+	proxyName string,
+) {
+	c.Offline.Mark(profileID, groupName, proxyName)
+
+	if mode == "global" {
+		c.Offline.Mark(profileID, "GLOBAL", proxyName)
+	}
+}
+
+func (c *Controller) selectGlobalProxyIfValid(ctx context.Context, proxyName string) error {
+	if proxyName == "" || proxyName == "DIRECT" || proxyName == "REJECT" {
+		return fmt.Errorf("无效的全局出口节点: %s", proxyName)
+	}
+
+	data, err := clash.GetInitialDataWithContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	groups, ok := data["groups"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("内核代理组数据无效")
+	}
+
+	raw, ok := groups["GLOBAL"]
+	if !ok {
+		return fmt.Errorf("GLOBAL 组不存在")
+	}
+
+	globalGroup, ok := raw.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("GLOBAL 组数据无效")
+	}
+
+	if !proxyGroupContainsNode(globalGroup, proxyName) {
+		return fmt.Errorf("GLOBAL 不包含节点: %s", proxyName)
+	}
+
+	return clash.SelectProxyWithContext(ctx, "GLOBAL", proxyName)
+}
+
+func (c *Controller) applyStoredProxySelections(ctx context.Context, profileID string) {
+	selected := c.Offline.Snapshot(profileID)
+	if len(selected) == 0 {
+		return
+	}
+
+	data, err := clash.GetInitialDataWithContext(ctx)
+	if err != nil {
+		fmt.Printf("读取内核代理组失败，跳过节点选择回放: %v\n", err)
+		return
+	}
+
+	groups, ok := data["groups"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// 1. 先回放正常可选组
+	for groupName, nodeName := range selected {
+		if groupName == "GLOBAL" {
+			continue
+		}
+
+		raw, ok := groups[groupName]
+		if !ok {
+			continue
+		}
+
+		group, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		groupType, _ := group["type"].(string)
+		if !isUserSelectableProxyGroupType(groupType) {
+			continue
+		}
+
+		if !proxyGroupContainsNode(group, nodeName) {
+			continue
+		}
+
+		_ = clash.SelectProxyWithContext(ctx, groupName, nodeName)
+	}
+
+	// 2. 全局模式下回放隐藏 GLOBAL
+	behavior := c.Behavior.Get()
+	if behavior.ActiveMode == "global" {
+		if globalNode, ok := selected["GLOBAL"]; ok && globalNode != "" {
+			if err := c.selectGlobalProxyIfValid(ctx, globalNode); err != nil {
+				fmt.Printf("回放 GLOBAL 出口失败: %v\n", err)
+			}
+		}
+	}
+}
+
+func (c *Controller) SyncProxyStateOnce() {
+	if c.proxyState != nil {
+		c.proxyState.SyncOnce()
+	}
+}
+
+func isUserSelectableProxyGroupType(t string) bool {
+	switch t {
+	case "Selector", "Fallback":
+		return true
+	default:
+		return false
+	}
+}
+
+func proxyGroupContainsNode(group map[string]interface{}, nodeName string) bool {
+	all, ok := group["all"].([]interface{})
+	if !ok {
+		return false
+	}
+	for _, v := range all {
+		if s, ok := v.(string); ok && s == nodeName {
+			return true
+		}
+	}
+	return false
 }

@@ -12,13 +12,13 @@ import (
 
 type OfflineNodeStore struct {
 	mu    sync.RWMutex
-	nodes map[string]string
+	nodes map[string]map[string]string // profileID -> groupName -> nodeName
 	path  string
 }
 
 func NewOfflineNodeStore() *OfflineNodeStore {
 	store := &OfflineNodeStore{
-		nodes: make(map[string]string),
+		nodes: make(map[string]map[string]string),
 		path:  filepath.Join(utils.GetDataDir(), "offline_nodes.json"),
 	}
 	store.Load()
@@ -38,44 +38,67 @@ func (s *OfflineNodeStore) Save() {
 	s.mu.RLock()
 	data, err := json.MarshalIndent(s.nodes, "", "  ")
 	s.mu.RUnlock()
-	
+
 	if err == nil {
 		os.WriteFile(s.path, data, 0644)
 	}
 }
 
-func (s *OfflineNodeStore) Mark(groupName string, nodeName string) {
+func (s *OfflineNodeStore) Mark(profileID, groupName, nodeName string) {
+	if profileID == "" {
+		profileID = "default"
+	}
 	s.mu.Lock()
 	if s.nodes == nil {
-		s.nodes = make(map[string]string)
+		s.nodes = make(map[string]map[string]string)
 	}
-	s.nodes[groupName] = nodeName
+	if s.nodes[profileID] == nil {
+		s.nodes[profileID] = make(map[string]string)
+	}
+	s.nodes[profileID][groupName] = nodeName
 	s.mu.Unlock()
 	s.Save()
 }
 
 func (s *OfflineNodeStore) Clear() {
 	s.mu.Lock()
-	s.nodes = make(map[string]string)
+	s.nodes = make(map[string]map[string]string)
 	s.mu.Unlock()
 	s.Save()
 }
 
-func (s *OfflineNodeStore) Get(groupName string) (string, bool) {
+func (s *OfflineNodeStore) Get(profileID, groupName string) (string, bool) {
+	if profileID == "" {
+		profileID = "default"
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.nodes == nil {
 		return "", false
 	}
-	node, exists := s.nodes[groupName]
+	profileNodes, exists := s.nodes[profileID]
+	if !exists {
+		return "", false
+	}
+	node, exists := profileNodes[groupName]
 	return node, exists
 }
 
-func (s *OfflineNodeStore) Snapshot() map[string]string {
+func (s *OfflineNodeStore) Snapshot(profileID string) map[string]string {
+	if profileID == "" {
+		profileID = "default"
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	snapshot := make(map[string]string)
-	for k, v := range s.nodes {
+	if s.nodes == nil {
+		return snapshot
+	}
+	profileNodes, exists := s.nodes[profileID]
+	if !exists {
+		return snapshot
+	}
+	for k, v := range profileNodes {
 		snapshot[k] = v
 	}
 	return snapshot

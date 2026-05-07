@@ -190,12 +190,6 @@ const selectNode = async (groupName: string, nodeName: string) => {
     // 🚀 核心修复：以内核返回的真实 now 为准，不再本地乐观修改
     // 重新拉取一次数据确保同步
     await loadData();
-
-    // 🚀 核心修改：视觉无感穿透同步
-    if (globalState.mode === 'global') {
-        // 使用 catch 忽略潜在错误，不阻断主流程
-        API.SelectProxy('GLOBAL', nodeName).catch(console.error);
-    }
   } catch (e) {
     await showAlert("切换失败: " + e, '错误');
   }
