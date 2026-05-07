@@ -149,6 +149,10 @@ func (m *ProxyStateMonitor) Stop() {
 }
 
 func (m *ProxyStateMonitor) SyncOnce() {
+	if m == nil || m.emit == nil || !clash.IsRunning() {
+		return
+	}
+
 	states, err := getProxyGroupStates()
 	if err != nil {
 		return

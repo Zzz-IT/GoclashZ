@@ -108,11 +108,14 @@ func (c *Controller) isAutoDelayRunning() bool {
 }
 
 func NewController(opts Options) *Controller {
+	behavior := NewBehaviorStore()
+	activeConfig := behavior.Get().ActiveConfig
+
 	c := &Controller{
 		events:   opts.Events,
 		version:  opts.Version,
-		Behavior: NewBehaviorStore(),
-		Offline:  NewOfflineNodeStore(),
+		Behavior: behavior,
+		Offline:  NewOfflineNodeStore(activeConfig),
 		Tasks:    tasks.NewManager(opts.Events),
 	}
 	c.traffic = NewTrafficStreamManager(opts.Events, func() string {
@@ -799,6 +802,11 @@ func (c *Controller) UpdateClashMode(ctx context.Context, mode string) error {
 			c.SyncState()
 			return fmt.Errorf("内核模式切换失败: %v", err)
 		}
+
+		// 🚀 核心修复：切换到全局模式时，主动同步隐藏 GLOBAL
+		if mode == "global" {
+			c.syncGlobalSelectionOnModeEnter(ctx, behavior.ActiveConfig)
+		}
 	}
 
 	c.SyncState()
@@ -1080,23 +1088,101 @@ func (c *Controller) SelectProxyWithModeSync(
 	groupName string,
 	proxyName string,
 ) error {
-	if err := clash.SelectProxyWithContext(ctx, groupName, proxyName); err != nil {
-		return err
-	}
-
-	c.Offline.Mark(profileID, groupName, proxyName)
-
+	// 🚀 核心修复：全局模式下采取“先校验、双切换、双持久化”的严格路径
 	if mode == "global" {
-		if err := c.selectGlobalProxyIfValid(ctx, proxyName); err != nil {
-			// 如果 GLOBAL 同步失败（例如 GLOBAL 组不存在或不包含该节点），仅记录日志，不中断主流程
-			fmt.Printf("全局出口同步失败: %v\n", err)
-		} else {
-			c.Offline.Mark(profileID, "GLOBAL", proxyName)
+		// 1. 预校验 GLOBAL 是否支持该节点
+		if err := c.validateProxySelection(ctx, groupName, proxyName, true); err != nil {
+			return fmt.Errorf("全局同步预校验失败: %w", err)
 		}
+
+		// 2. 依次切换正常组和 GLOBAL 组
+		if err := clash.SelectProxyWithContext(ctx, groupName, proxyName); err != nil {
+			return fmt.Errorf("切换代理组失败: %w", err)
+		}
+		if err := clash.SelectProxyWithContext(ctx, "GLOBAL", proxyName); err != nil {
+			return fmt.Errorf("同步全局出口失败: %w", err)
+		}
+
+		// 3. 依次记录持久化状态
+		c.Offline.Mark(profileID, groupName, proxyName)
+		c.Offline.Mark(profileID, "GLOBAL", proxyName)
+
+	} else {
+		// 规则/直连模式：仅切换正常组
+		if err := clash.SelectProxyWithContext(ctx, groupName, proxyName); err != nil {
+			return err
+		}
+		c.Offline.Mark(profileID, groupName, proxyName)
 	}
 
 	c.SyncProxyStateOnce()
 	return nil
+}
+
+func (c *Controller) validateProxySelection(ctx context.Context, groupName, nodeName string, checkGlobal bool) error {
+	if nodeName == "" || nodeName == "DIRECT" || nodeName == "REJECT" {
+		return fmt.Errorf("无效的节点名称: %s", nodeName)
+	}
+
+	data, err := clash.GetInitialDataWithContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	groups, ok := data["groups"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("无效的代理组数据")
+	}
+
+	// 1. 校验目标组是否包含该节点
+	if g, ok := groups[groupName].(map[string]interface{}); ok {
+		if !proxyGroupContainsNode(g, nodeName) {
+			return fmt.Errorf("代理组 %s 不包含节点 %s", groupName, nodeName)
+		}
+	} else {
+		return fmt.Errorf("代理组 %s 不存在", groupName)
+	}
+
+	// 2. 可选：校验 GLOBAL 是否包含该节点
+	if checkGlobal {
+		if g, ok := groups["GLOBAL"].(map[string]interface{}); ok {
+			if !proxyGroupContainsNode(g, nodeName) {
+				return fmt.Errorf("全局出口 (GLOBAL) 不支持节点 %s", nodeName)
+			}
+		} else {
+			return fmt.Errorf("GLOBAL 组不存在，无法同步")
+		}
+	}
+
+	return nil
+}
+
+func (c *Controller) syncGlobalSelectionOnModeEnter(ctx context.Context, profileID string) {
+	// 🚀 核心逻辑：
+	// 优先寻找已有的 GLOBAL 持久化记录
+	// 如果没有，则寻找一个有效的手动可选组的选择作为兜底同步
+	targetNode, exists := c.Offline.Get(profileID, "GLOBAL")
+
+	if !exists {
+		// 搜索其他可选组的选择
+		selections := c.Offline.Snapshot(profileID)
+		for gName, node := range selections {
+			if gName == "GLOBAL" {
+				continue
+			}
+			// 如果找到了一个节点，且它在 GLOBAL 中合法，就用它
+			if err := c.selectGlobalProxyIfValid(ctx, node); err == nil {
+				c.Offline.Mark(profileID, "GLOBAL", node)
+				return
+			}
+		}
+		return
+	}
+
+	// 执行同步
+	if err := c.selectGlobalProxyIfValid(ctx, targetNode); err != nil {
+		fmt.Printf("进入全局模式同步失败: %v\n", err)
+	}
 }
 
 func (c *Controller) SelectOfflineProxyWithModeSync(

@@ -3,13 +3,13 @@
 ; =========================================================
 
 #define MyAppName "GoclashZ"
-#define MyAppVersion "1.1.4"
+#define MyAppVersion "1.1.5"
 #define MyAppPublisher "Zzz"
 #define MyAppExeName "GoclashZ.exe"
 
 [Setup]
 WizardStyle=modern dynamic includetitlebar
-VersionInfoVersion=1.1.4.0
+VersionInfoVersion=1.1.5.0
 VersionInfoCompany=Zzz
 VersionInfoDescription=GoclashZ Installer
 VersionInfoCopyright=Copyright (C) 2026 Zzz

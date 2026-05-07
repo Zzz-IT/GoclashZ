@@ -79,7 +79,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 import { showAlert, globalState, updateProxyDelay } from '../store';
@@ -194,6 +194,23 @@ const selectNode = async (groupName: string, nodeName: string) => {
     await showAlert("切换失败: " + e, '错误');
   }
 };
+
+// 🎯 修复：增加对运行状态和配置变化的响应式刷新，打通离线态与运行态的数据源切换
+const stopRunningWatch = watch(
+  () => globalState.isRunning,
+  async (running) => {
+    // 只有当状态发生变化时才 reload，避免不必要的请求
+    await loadData();
+  }
+);
+
+const stopActiveConfigWatch = watch(
+  () => globalState.activeConfigId,
+  async () => {
+    currentGroup.value = '';
+    await loadData();
+  }
+);
 
 // 测速当前选中的组
 const testAllDelays = async () => {
@@ -310,8 +327,17 @@ onMounted(async () => {
   });
 
   // 🚀 新增：轻量化策略组状态同步，处理 Fallback/URLTest 的自动切换
-  unsubProxyState = (EventsOn as any)("proxy-state-sync", (states: any[]) => {
+  unsubProxyState = (EventsOn as any)("proxy-state-sync", async (states: any[]) => {
     if (!Array.isArray(states)) return;
+
+    // 🛡️ 核心优化：如果收到一个当前 UI 中不存在的组（可能是配置切换后的残余或新发现的组）
+    // 则执行全量 reload 以确保拓扑结构百分之百对齐
+    const knownNames = new Set(localGroups.value.map(g => g.name));
+    const hasUnknown = states.some((s: any) => s && s.name && !knownNames.has(s.name));
+    if (hasUnknown) {
+        await loadData();
+        return;
+    }
 
     const nowMap = new Map<string, string>();
     states.forEach((s: any) => {
@@ -337,6 +363,10 @@ onUnmounted(() => {
   if (unsubChanged) unsubChanged();
   if (unsubFinish) unsubFinish();
   if (unsubProxyState) unsubProxyState();
+
+  // 销毁监听器
+  stopRunningWatch();
+  stopActiveConfigWatch();
 });
 </script>
 
