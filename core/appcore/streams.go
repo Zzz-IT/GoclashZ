@@ -82,7 +82,6 @@ func (m *TrafficStreamManager) Start(parent context.Context, apiURL string, prox
 	} else {
 		m.mode = TrafficModeCore
 	}
-	m.lastTick = time.Now()
 	m.prevConnTraffic = make(map[string]connTrafficMark)
 	m.mu.Unlock()
 
@@ -98,7 +97,7 @@ func (m *TrafficStreamManager) coreTrafficLoop(ctx context.Context, currentGen i
 		m.mu.Lock()
 		if m.gen == currentGen {
 			m.cancel = nil
-			m.emit.Emit("traffic-data", m.currentTrafficSnapshot(0, 0, "0 B/s", "0 B/s"))
+			m.emit.Emit("traffic-data", m.currentTrafficSnapshotLocked(0, 0, "0 B/s", "0 B/s"))
 		}
 		m.mu.Unlock()
 	}()
@@ -121,7 +120,7 @@ func (m *TrafficStreamManager) coreTrafficLoop(ctx context.Context, currentGen i
 
 		m.lastTick = now
 
-		snapshot := m.currentTrafficSnapshot(upRaw, downRaw, upStr+"/s", downStr+"/s")
+		snapshot := m.currentTrafficSnapshotLocked(upRaw, downRaw, upStr+"/s", downStr+"/s")
 		m.mu.Unlock()
 
 		m.emit.Emit("traffic-data", snapshot)
@@ -142,7 +141,7 @@ func (m *TrafficStreamManager) proxyTrafficLoop(ctx context.Context, currentGen 
 		m.mu.Lock()
 		if m.gen == currentGen {
 			m.cancel = nil
-			m.emit.Emit("traffic-data", m.currentTrafficSnapshot(0, 0, "0 B/s", "0 B/s"))
+			m.emit.Emit("traffic-data", m.currentTrafficSnapshotLocked(0, 0, "0 B/s", "0 B/s"))
 		}
 		m.mu.Unlock()
 	}()
@@ -235,7 +234,7 @@ func (m *TrafficStreamManager) sampleProxyConnections(currentGen int) {
 	upRaw := float64(upDelta) / elapsed
 	downRaw := float64(downDelta) / elapsed
 
-	snapshot := m.currentTrafficSnapshot(
+	snapshot := m.currentTrafficSnapshotLocked(
 		upRaw,
 		downRaw,
 		traffic.FormatBytes(int64(upRaw))+"/s",
@@ -267,7 +266,7 @@ func isProxyConnection(conn traffic.RawConnection) bool {
 	return true
 }
 
-func (m *TrafficStreamManager) currentTrafficSnapshot(upRaw, downRaw float64, upStr, downStr string) TrafficSnapshot {
+func (m *TrafficStreamManager) currentTrafficSnapshotLocked(upRaw, downRaw float64, upStr, downStr string) TrafficSnapshot {
 	return TrafficSnapshot{
 		Up:               upStr,
 		Down:             downStr,
@@ -287,9 +286,11 @@ func (m *TrafficStreamManager) Stop() {
 		m.cancel = nil
 		m.gen++
 	}
+
+	snapshot := m.currentTrafficSnapshotLocked(0, 0, "0 B/s", "0 B/s")
 	m.mu.Unlock()
 
-	m.emit.Emit("traffic-data", m.currentTrafficSnapshot(0, 0, "0 B/s", "0 B/s"))
+	m.emit.Emit("traffic-data", snapshot)
 }
 
 func (m *TrafficStreamManager) ResetRuntimeState() {
@@ -298,9 +299,11 @@ func (m *TrafficStreamManager) ResetRuntimeState() {
 	m.downloadTotalRaw = 0
 	m.lastTick = time.Now()
 	m.prevConnTraffic = make(map[string]connTrafficMark)
+
+	snapshot := m.currentTrafficSnapshotLocked(0, 0, "0 B/s", "0 B/s")
 	m.mu.Unlock()
 
-	m.emit.Emit("traffic-data", m.currentTrafficSnapshot(0, 0, "0 B/s", "0 B/s"))
+	m.emit.Emit("traffic-data", snapshot)
 }
 
 func (m *TrafficStreamManager) Restart(parent context.Context, apiURL string, proxyOnly bool) {

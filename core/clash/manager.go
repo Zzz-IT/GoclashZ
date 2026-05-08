@@ -74,3 +74,50 @@ func SaveIndex() error {
 	return nil
 }
 
+// ListSubIndex 返回订阅索引的副本
+func ListSubIndex() []SubIndexItem {
+	IndexLock.RLock()
+	defer IndexLock.RUnlock()
+
+	out := make([]SubIndexItem, len(SubIndex))
+	copy(out, SubIndex)
+	return out
+}
+
+// FindSubIndexByID 根据 ID 查找订阅索引项
+func FindSubIndexByID(id string) (SubIndexItem, bool) {
+	IndexLock.RLock()
+	defer IndexLock.RUnlock()
+
+	for _, item := range SubIndex {
+		if item.ID == id {
+			return item, true
+		}
+	}
+	return SubIndexItem{}, false
+}
+
+// ReplaceSubIndex 替换整个订阅索引并保存
+func ReplaceSubIndex(next []SubIndexItem) error {
+	IndexLock.Lock()
+	SubIndex = append([]SubIndexItem(nil), next...)
+	IndexLock.Unlock()
+
+	return SaveIndex()
+}
+
+// UpdateSubIndex 使用 mutator 函数更新订阅索引并保存
+func UpdateSubIndex(mutator func([]SubIndexItem) ([]SubIndexItem, error)) error {
+	IndexLock.Lock()
+	next, err := mutator(append([]SubIndexItem(nil), SubIndex...))
+	if err == nil {
+		SubIndex = next
+	}
+	IndexLock.Unlock()
+
+	if err != nil {
+		return err
+	}
+	return SaveIndex()
+}
+

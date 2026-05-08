@@ -24,22 +24,16 @@ func (c *Controller) UpdateSub(ctx context.Context, name, url string) error {
 }
 
 func (c *Controller) UpdateSingleSub(ctx context.Context, id string) error {
-	clash.IndexLock.RLock()
-	var url, name string
-	for _, item := range clash.SubIndex {
-		if item.ID == id {
-			url = item.URL
-			name = item.Name
-			break
-		}
+	item, ok := clash.FindSubIndexByID(id)
+	if !ok {
+		return fmt.Errorf("subscription not found")
 	}
-	clash.IndexLock.RUnlock()
-	if url == "" {
+	if item.URL == "" {
 		return fmt.Errorf("subscription not found")
 	}
 
 	ua := c.Behavior.Get().SubUA
-	_, err := clash.DownloadSub(ctx, name, url, id, ua)
+	_, err := clash.DownloadSub(ctx, item.Name, item.URL, id, ua)
 	if err == nil {
 		state := c.GetAppState()
 		if state.ActiveConfig == id && state.IsRunning {
@@ -51,10 +45,7 @@ func (c *Controller) UpdateSingleSub(ctx context.Context, id string) error {
 
 func (c *Controller) UpdateAllSubsAsync(ctx context.Context) {
 	c.Tasks.Run(ctx, "sub-update-all", true, func(ctx context.Context) error {
-		clash.IndexLock.RLock()
-		items := make([]clash.SubIndexItem, len(clash.SubIndex))
-		copy(items, clash.SubIndex)
-		clash.IndexLock.RUnlock()
+		items := clash.ListSubIndex()
 
 		ua := c.Behavior.Get().SubUA
 		needsRestart := false

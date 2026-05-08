@@ -4,15 +4,16 @@ package backup
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"goclashz/core/clash"
+	"goclashz/core/utils"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-	"context"
 )
 
 // Manifest 备份包元数据
@@ -79,8 +80,13 @@ func Export(dataDir, destPath string, appVersion string) error {
 		CreatedAt:     time.Now().Unix(),
 		Contains:      contains,
 	}
-	mBytes, _ := json.MarshalIndent(manifest, "", "  ")
-	_ = os.WriteFile(filepath.Join(stagingDir, "manifest.json"), mBytes, 0644)
+	mBytes, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("生成备份 manifest 失败: %w", err)
+	}
+	if err := utils.WriteFileAtomic(filepath.Join(stagingDir, "manifest.json"), mBytes, 0644); err != nil {
+		return fmt.Errorf("写入备份 manifest 失败: %w", err)
+	}
 
 	// 4. 执行压缩打包
 	f, err := os.Create(destPath)
@@ -265,10 +271,7 @@ func applyRestorePlan(dataDir, stagingDir string, plan *RestorePlan, mode string
 	switch mode {
 	case "all", "subs":
 		// 替换语义：丢弃本地，全量使用备份
-		clash.IndexLock.Lock()
-		clash.SubIndex = backupIndex
-		clash.IndexLock.Unlock()
-		return clash.SaveIndex()
+		return clash.ReplaceSubIndex(backupIndex)
 	case "subs-merge":
 		// 合并语义：将备份索引项合并进本地
 		return mergeBackupIndex(backupIndex)
@@ -278,22 +281,33 @@ func applyRestorePlan(dataDir, stagingDir string, plan *RestorePlan, mode string
 }
 
 func backupCurrentTargets(dataDir string, plan *RestorePlan, rollbackDir string) error {
-	allTargets := append(plan.ReplaceDirs, plan.ReplaceFiles...)
-	if len(plan.MergeDirs) > 0 {
-		allTargets = append(allTargets, plan.MergeDirs...)
-	}
+	allTargets := append([]string{}, plan.ReplaceDirs...)
+	allTargets = append(allTargets, plan.ReplaceFiles...)
+	allTargets = append(allTargets, plan.MergeDirs...)
 
 	for _, target := range allTargets {
 		src := filepath.Join(dataDir, target)
 		dst := filepath.Join(rollbackDir, target)
-		if _, err := os.Stat(src); err == nil {
-			if info, _ := os.Stat(src); info.IsDir() {
-				_ = copyDir(src, dst)
-			} else {
-				_ = copyFile(src, dst)
+
+		info, err := os.Stat(src)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("读取当前目标失败 %s: %w", target, err)
+		}
+
+		if info.IsDir() {
+			if err := copyDir(src, dst); err != nil {
+				return fmt.Errorf("备份目录失败 %s: %w", target, err)
+			}
+		} else {
+			if err := copyFile(src, dst); err != nil {
+				return fmt.Errorf("备份文件失败 %s: %w", target, err)
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -418,23 +432,35 @@ func extractAndNormalizeToStaging(archivePath, stagingDir string) (*BackupStagin
 			}
 		}
 
-		destPath := filepath.Join(stagingDir, filepath.FromSlash(destRel))
-		os.MkdirAll(filepath.Dir(destPath), 0755)
+		destPath, err := safeJoinUnder(stagingDir, destRel)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return nil, err
+		}
 
 		rc, err := f.Open()
 		if err != nil {
 			return nil, err
 		}
-		dstFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		dstFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 		if err != nil {
 			rc.Close()
 			return nil, err
 		}
 		_, err = io.Copy(dstFile, rc)
-		dstFile.Close()
-		rc.Close()
+		closeErr1 := dstFile.Close()
+		closeErr2 := rc.Close()
 		if err != nil {
 			return nil, err
+		}
+		if closeErr1 != nil {
+			return nil, closeErr1
+		}
+		if closeErr2 != nil {
+			return nil, closeErr2
 		}
 	}
 	return result, nil
@@ -509,20 +535,36 @@ func normalizeBackupEntry(name string) (destRel string, kind string, ok bool) {
 	case strings.HasPrefix(lower, "settings/"):
 		parts := strings.Split(n, "/")
 		rest := strings.Join(parts[1:], "/")
+		rest, ok := cleanBackupRest(rest)
+		if !ok {
+			return "", "", false
+		}
 		switch strings.ToLower(rest) {
-		case "behavior.json": rest = "user_behavior.json"
-		case "dns.json": rest = "user_dns.json"
-		case "network.json": rest = "user_network.json"
-		case "tun.json": rest = "user_tun.json"
+		case "behavior.json":
+			rest = "user_behavior.json"
+		case "dns.json":
+			rest = "user_dns.json"
+		case "network.json":
+			rest = "user_network.json"
+		case "tun.json":
+			rest = "user_tun.json"
 		}
 		return filepath.ToSlash(filepath.Join("Settings", rest)), "settings", true
 	case strings.HasPrefix(lower, "subscriptions/"):
 		parts := strings.Split(n, "/")
 		rest := strings.Join(parts[1:], "/")
+		rest, ok := cleanBackupRest(rest)
+		if !ok {
+			return "", "", false
+		}
 		return filepath.ToSlash(filepath.Join("Subscriptions", rest)), "subs", true
 	case strings.HasPrefix(lower, "profiles/"):
 		parts := strings.Split(n, "/")
 		rest := strings.Join(parts[1:], "/")
+		rest, ok := cleanBackupRest(rest)
+		if !ok {
+			return "", "", false
+		}
 		return filepath.ToSlash(filepath.Join("profiles", rest)), "profiles", true
 	}
 	return "", "", false
@@ -535,23 +577,62 @@ func mergeBackupIndex(backupIndex []clash.SubIndexItem) error {
 	if err := clash.LoadIndex(); err != nil {
 		return err
 	}
-	clash.IndexLock.Lock()
-	localIndexMap := make(map[string]int)
-	for i, item := range clash.SubIndex {
-		localIndexMap[item.ID] = i
-	}
-	changed := false
-	for _, bItem := range backupIndex {
-		if idx, exists := localIndexMap[bItem.ID]; exists {
-			clash.SubIndex[idx] = bItem
-		} else {
-			clash.SubIndex = append(clash.SubIndex, bItem)
+
+	return clash.UpdateSubIndex(func(localIndex []clash.SubIndexItem) ([]clash.SubIndexItem, error) {
+		localIndexMap := make(map[string]int)
+		for i, item := range localIndex {
+			localIndexMap[item.ID] = i
 		}
-		changed = true
+
+		for _, bItem := range backupIndex {
+			if idx, exists := localIndexMap[bItem.ID]; exists {
+				localIndex[idx] = bItem
+			} else {
+				localIndex = append(localIndex, bItem)
+			}
+		}
+
+		return localIndex, nil
+	})
+}
+
+func safeJoinUnder(base, rel string) (string, error) {
+	rel = filepath.FromSlash(rel)
+
+	if filepath.IsAbs(rel) {
+		return "", fmt.Errorf("拒绝绝对路径: %s", rel)
 	}
-	clash.IndexLock.Unlock()
-	if changed {
-		return clash.SaveIndex()
+
+	clean := filepath.Clean(rel)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("拒绝路径穿越: %s", rel)
 	}
-	return nil
+
+	baseAbs, err := filepath.Abs(base)
+	if err != nil {
+		return "", err
+	}
+
+	targetAbs, err := filepath.Abs(filepath.Join(baseAbs, clean))
+	if err != nil {
+		return "", err
+	}
+
+	backRel, err := filepath.Rel(baseAbs, targetAbs)
+	if err != nil || backRel == ".." || strings.HasPrefix(backRel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("目标路径逃逸 staging: %s", rel)
+	}
+
+	return targetAbs, nil
+}
+
+func cleanBackupRest(rest string) (string, bool) {
+	rest = filepath.ToSlash(filepath.Clean(rest))
+	if rest == "." || rest == ".." || strings.HasPrefix(rest, "../") {
+		return "", false
+	}
+	if strings.Contains(rest, "\x00") {
+		return "", false
+	}
+	return rest, true
 }

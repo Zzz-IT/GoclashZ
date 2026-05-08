@@ -1,5 +1,4 @@
 //go:build windows
-// +build windows
 
 package sys
 
@@ -7,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"runtime"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -17,6 +17,8 @@ var (
 
 	rasapi32           = syscall.NewLazyDLL("rasapi32.dll")
 	procRasEnumEntries = rasapi32.NewProc("RasEnumEntriesW")
+
+	systemProxyMu sync.Mutex
 )
 
 const (
@@ -62,6 +64,14 @@ type RasEntryName struct {
 
 // EnableSystemProxy 开启系统代理
 func EnableSystemProxy(host string, port int, bypassDomains string) error {
+	systemProxyMu.Lock()
+	defer systemProxyMu.Unlock()
+
+	return enableSystemProxyLocked(host, port, bypassDomains)
+}
+
+// enableSystemProxyLocked 内部实现，调用方必须持有 systemProxyMu
+func enableSystemProxyLocked(host string, port int, bypassDomains string) error {
 	serverStr := fmt.Sprintf("%s:%d", host, port)
 
 	serverPtr, _ := syscall.UTF16PtrFromString(serverStr)
@@ -95,14 +105,14 @@ func EnableSystemProxy(host string, port int, bypassDomains string) error {
 	setRasProxy(&list)
 
 	// 3. 全局广播，瞬间生效
-	RefreshSystemProxy()
+	refreshSystemProxyLocked()
 
-	// 🚀 新增：标记代理所有权，用于异常崩溃后的精准自愈
-	MarkSystemProxyOwned(host, port)
+	// 标记代理所有权，用于异常崩溃后的精准自愈
+	markSystemProxyOwnedLocked(host, port)
 
 	log.Printf("系统代理设置成功: %s", serverStr)
 
-	// ⚠️ 修复2：GC 护城河！必须保持这些变量在 Syscall 执行完毕前不被回收！
+	// GC 护城河！必须保持这些变量在 Syscall 执行完毕前不被回收！
 	runtime.KeepAlive(serverPtr)
 	runtime.KeepAlive(bypassPtr)
 	runtime.KeepAlive(options)
@@ -113,6 +123,14 @@ func EnableSystemProxy(host string, port int, bypassDomains string) error {
 
 // DisableSystemProxy 关闭系统代理
 func DisableSystemProxy() error {
+	systemProxyMu.Lock()
+	defer systemProxyMu.Unlock()
+
+	return disableSystemProxyLocked()
+}
+
+// disableSystemProxyLocked 内部实现，调用方必须持有 systemProxyMu
+func disableSystemProxyLocked() error {
 	options := []INTERNET_PER_CONN_OPTION{
 		{dwOption: INTERNET_PER_CONN_FLAGS, Value: uintptr(PROXY_TYPE_DIRECT)},
 	}
@@ -136,10 +154,10 @@ func DisableSystemProxy() error {
 
 	setRasProxy(&list)
 
-	RefreshSystemProxy()
+	refreshSystemProxyLocked()
 
-	// 🚀 新增：清理代理所有权标记
-	UnmarkSystemProxyOwned()
+	// 清理代理所有权标记
+	unmarkSystemProxyOwnedLocked()
 
 	log.Println("系统代理已禁用")
 
@@ -150,14 +168,17 @@ func DisableSystemProxy() error {
 	return nil
 }
 
-// ClearSystemProxy 是 DisableSystemProxy 的别名，用于启动清理
-func ClearSystemProxy() error {
-	return DisableSystemProxy()
-}
-
 // RefreshSystemProxy 向整个 Windows 系统广播代理状态变更
 // 通知 Chrome/Edge/IE 等浏览器立即拉取最新注册表设置
 func RefreshSystemProxy() {
+	systemProxyMu.Lock()
+	defer systemProxyMu.Unlock()
+
+	refreshSystemProxyLocked()
+}
+
+// refreshSystemProxyLocked 内部实现，调用方必须持有 systemProxyMu
+func refreshSystemProxyLocked() {
 	// 39 = INTERNET_OPTION_SETTINGS_CHANGED
 	// 37 = INTERNET_OPTION_REFRESH
 	procInternetSetOption.Call(0, uintptr(INTERNET_OPTION_SETTINGS_CHANGED), 0, 0)

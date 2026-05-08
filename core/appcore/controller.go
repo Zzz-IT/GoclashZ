@@ -225,15 +225,10 @@ func (c *Controller) GetAppState() AppState {
 
 	if activeConfig != "" {
 		state.ActiveConfigName = activeConfig
-		clash.IndexLock.RLock()
-		for _, item := range clash.SubIndex {
-			if item.ID == activeConfig {
-				state.ActiveConfigName = item.Name
-				state.ActiveConfigType = item.Type
-				break
-			}
+		if item, ok := clash.FindSubIndexByID(activeConfig); ok {
+			state.ActiveConfigName = item.Name
+			state.ActiveConfigType = item.Type
 		}
-		clash.IndexLock.RUnlock()
 	}
 
 	return state
@@ -656,44 +651,74 @@ func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
 		if behavior.ActiveConfig == "" {
 			return fmt.Errorf("请先选择一个订阅配置")
 		}
+
 		if err := c.ensureCoreRunningLocked(ctx); err != nil {
 			return err
 		}
+
 		if !clash.IsRunning() {
 			return fmt.Errorf("内核未能成功启动，系统代理开启失败")
 		}
 
-		c.mu.Lock()
-		c.userCoreRunning = true
-		c.mu.Unlock()
-
-		// 获取实际运行端口并开启系统代理
-		var port int
-		if netCfg, err := clash.GetNetworkConfig(); err == nil {
-			port = netCfg.MixedPort
-			if port == 0 {
+		port := 7890
+		if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil {
+			if netCfg.MixedPort != 0 {
+				port = netCfg.MixedPort
+			} else if netCfg.Port != 0 {
 				port = netCfg.Port
 			}
 		}
-		if port == 0 {
-			port = 7890 // 兜底
+
+		err := sys.EnableSystemProxy(
+			"127.0.0.1",
+			port,
+			"localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>",
+		)
+		if err != nil {
+			c.mu.Lock()
+			needCore := c.tunActive
+			c.sysProxyActive = false
+			if !needCore {
+				c.userCoreRunning = false
+				c.coreStartedAt = time.Time{}
+			}
+			c.mu.Unlock()
+
+			if !needCore {
+				clash.Stop()
+			}
+
+			c.SyncState()
+			return fmt.Errorf("设置 Windows 系统代理失败: %w", err)
 		}
 
-		if err := sys.EnableSystemProxy("127.0.0.1", port, "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>"); err != nil {
-			return fmt.Errorf("设置 Windows 系统代理失败: %v", err)
+		c.mu.Lock()
+		c.sysProxyActive = true
+		c.userCoreRunning = true
+		if c.coreStartedAt.IsZero() {
+			c.coreStartedAt = time.Now()
 		}
-	} else {
-		_ = sys.DisableSystemProxy()
+		c.mu.Unlock()
+
+		c.SyncState()
+		return nil
 	}
 
+	_ = sys.DisableSystemProxy()
+
 	c.mu.Lock()
-	c.sysProxyActive = enable
-	needCore := c.sysProxyActive || c.tunActive
+	c.sysProxyActive = false
+	needCore := c.tunActive
+	if !needCore {
+		c.userCoreRunning = false
+		c.coreStartedAt = time.Time{}
+	}
 	c.mu.Unlock()
 
 	if !needCore {
-		c.stopCoreProcessLocked()
+		clash.Stop()
 	}
+
 	c.SyncState()
 	return nil
 }

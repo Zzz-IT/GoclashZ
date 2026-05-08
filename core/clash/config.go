@@ -63,21 +63,10 @@ type ProxyGroupSchema struct {
 func GetOfflineData(id string) (map[string]interface{}, error) {
 	configMu.Lock()
 	defer configMu.Unlock()
-	// 如果传入了空或者 config.yaml，直接指向主配置
-	if id == "" || id == "config.yaml" {
-		id = "config.yaml"
-	}
 
-	var configPath string
-	if id == "config.yaml" {
-		configPath = GetConfigPath()
-	} else {
-		configPath = filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
-	}
-
-	// 如果文件不存在，回退到主 config.yaml
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		configPath = GetConfigPath()
+	_, configPath, err := ProfilePathByIDOrMain(id)
+	if err != nil {
+		return nil, err
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -314,21 +303,30 @@ func BuildRuntimeConfig(id string, mode string, logLevel string) error {
 	configPath := GetConfigPath() // 目标: DataDir/config.yaml
 
 	// 1. 提取当前界面的全局设置 (避免被覆盖丢失)
-	userDns, _ := GetDNSConfig()
-	userTun, _ := GetTunConfig()
-	userNet, _ := GetNetworkConfig()
+	userDns, err := GetDNSConfig()
+	if err != nil {
+		return fmt.Errorf("读取 DNS 设置失败: %w", err)
+	}
+
+	userTun, err := GetTunConfig()
+	if err != nil {
+		return fmt.Errorf("读取 TUN 设置失败: %w", err)
+	}
+
+	userNet, err := GetNetworkConfig()
+	if err != nil {
+		return fmt.Errorf("读取网络设置失败: %w", err)
+	}
 
 	// 2. 读取选中的订阅文件作为 "Base Config" (只读模板)
-	var profilePath string
-	if id == "" || id == "config.yaml" {
-		profilePath = GetConfigPath() // 指向 /data/core/config.yaml
-	} else {
-		profilePath = filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
+	_, profilePath, err := ProfilePathByID(id)
+	if err != nil {
+		return err
 	}
 
 	baseData, err := os.ReadFile(profilePath)
 	if err != nil {
-		return fmt.Errorf("读取基础配置失败: %v (路径: %s)", err, profilePath)
+		return fmt.Errorf("读取基础配置失败: %w (路径: %s)", err, profilePath)
 	}
 
 	var root map[string]interface{}
@@ -447,7 +445,7 @@ func BuildRuntimeConfig(id string, mode string, logLevel string) error {
 		return err
 	}
 
-	return os.WriteFile(configPath, out, 0644)
+	return utils.WriteFileAtomic(configPath, out, 0644)
 }
 
 // ExtractGroupOrder 核心逻辑：从 YAML 数据中提取 proxy-groups 的原始定义顺序

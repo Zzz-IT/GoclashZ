@@ -280,9 +280,7 @@ func (a *App) CloseConnection(id string) error {
 // --- Subscriptions ---
 
 func (a *App) GetLocalConfigs() []clash.SubIndexItem {
-	clash.IndexLock.RLock()
-	defer clash.IndexLock.RUnlock()
-	return clash.SubIndex
+	return clash.ListSubIndex()
 }
 
 func (a *App) UpdateSub(name, url string) error {

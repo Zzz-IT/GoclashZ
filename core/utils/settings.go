@@ -4,6 +4,7 @@ package utils
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -38,7 +39,7 @@ func LoadSetting[T any](fileName string, defaultData T) (*T, error) {
 
 	// 3. 都没找到，初始化默认配置文件 (只在第一次运行时触发)
 	defaultBytes, _ := json.MarshalIndent(defaultData, "", "  ")
-	os.WriteFile(defaultPath, defaultBytes, 0644)
+	_ = WriteFileAtomic(defaultPath, defaultBytes, 0644)
 
 	return &defaultData, nil
 }
@@ -48,12 +49,26 @@ func SaveSetting[T any](fileName string, data *T) error {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
 
-	userPath := filepath.Join(GetSettingsDir(), "user_"+fileName+".json")
+	if data == nil {
+		return fmt.Errorf("setting %q cannot be nil", fileName)
+	}
+
+	safeName, err := SanitizeFilename(fileName)
+	if err != nil {
+		return err
+	}
+	if safeName != fileName {
+		return fmt.Errorf("非法设置文件名: %q", fileName)
+	}
+
+	userPath := filepath.Join(GetSettingsDir(), "user_"+safeName+".json")
+
 	bytes, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(userPath, bytes, 0644)
+
+	return WriteFileAtomic(userPath, bytes, 0644)
 }
 
 // ResetSetting 恢复默认：直接删除 user 文件即可

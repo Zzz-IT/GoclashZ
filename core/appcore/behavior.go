@@ -76,15 +76,19 @@ func (s *BehaviorStore) SetAndSave(b AppBehavior) error {
 
 	s.mu.Lock()
 	s.cache = b
+	snapshot := s.cache
 	s.mu.Unlock()
-	return s.Save()
+
+	return utils.SaveSetting("behavior", &snapshot)
 }
 
 func (s *BehaviorStore) SetActiveConfig(id string) error {
 	s.mu.Lock()
 	s.cache.ActiveConfig = id
+	snapshot := s.cache
 	s.mu.Unlock()
-	return s.Save()
+
+	return utils.SaveSetting("behavior", &snapshot)
 }
 
 func (s *BehaviorStore) GetActiveConfig() string {
@@ -96,8 +100,10 @@ func (s *BehaviorStore) GetActiveConfig() string {
 func (s *BehaviorStore) SetActiveMode(mode string) error {
 	s.mu.Lock()
 	s.cache.ActiveMode = mode
+	snapshot := s.cache
 	s.mu.Unlock()
-	return s.Save()
+
+	return utils.SaveSetting("behavior", &snapshot)
 }
 
 func (s *BehaviorStore) GetActiveMode() string {

@@ -26,6 +26,14 @@ func proxyStatePath() string {
 
 // MarkSystemProxyOwned 标记当前系统的代理所有权归属于本程序
 func MarkSystemProxyOwned(host string, port int) {
+	systemProxyMu.Lock()
+	defer systemProxyMu.Unlock()
+
+	markSystemProxyOwnedLocked(host, port)
+}
+
+// markSystemProxyOwnedLocked 内部实现，调用方必须持有 systemProxyMu
+func markSystemProxyOwnedLocked(host string, port int) {
 	state := ownedProxyState{
 		Host:      host,
 		Port:      port,
@@ -37,15 +45,24 @@ func MarkSystemProxyOwned(host string, port int) {
 		return
 	}
 
-	_ = os.WriteFile(proxyStatePath(), data, 0644)
+	_ = utils.WriteFileAtomic(proxyStatePath(), data, 0644)
 }
 
 // UnmarkSystemProxyOwned 清除代理所有权标记
 func UnmarkSystemProxyOwned() {
+	systemProxyMu.Lock()
+	defer systemProxyMu.Unlock()
+
+	unmarkSystemProxyOwnedLocked()
+}
+
+// unmarkSystemProxyOwnedLocked 内部实现，调用方必须持有 systemProxyMu
+func unmarkSystemProxyOwnedLocked() {
 	_ = os.Remove(proxyStatePath())
 }
 
-func readOwnedProxyState() (ownedProxyState, bool) {
+// readOwnedProxyStateLocked 内部实现，调用方必须持有 systemProxyMu
+func readOwnedProxyStateLocked() (ownedProxyState, bool) {
 	data, err := os.ReadFile(proxyStatePath())
 	if err != nil {
 		return ownedProxyState{}, false
@@ -94,14 +111,17 @@ func currentProxyMatches(host string, port int) bool {
 
 // ClearOwnedSystemProxy 仅在检测到代理是由本程序设置且仍匹配时，执行清理
 func ClearOwnedSystemProxy() {
-	state, ok := readOwnedProxyState()
+	systemProxyMu.Lock()
+	defer systemProxyMu.Unlock()
+
+	state, ok := readOwnedProxyStateLocked()
 	if !ok {
 		return
 	}
 
 	if currentProxyMatches(state.Host, state.Port) {
-		_ = DisableSystemProxy()
+		_ = disableSystemProxyLocked()
 	}
 
-	UnmarkSystemProxyOwned()
+	unmarkSystemProxyOwnedLocked()
 }
