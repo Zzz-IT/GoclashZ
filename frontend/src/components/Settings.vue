@@ -1020,7 +1020,7 @@
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { BrowserOpenURL, EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
-import { showAlert, globalState } from '../store';
+import { showAlert, showConfirm, globalState } from '../store';
 import { ICONS } from '../utils/icons';
 import appLogo from '../assets/logo.ico';
 import ModernSelect from './ModernSelect.vue';
@@ -1416,11 +1416,13 @@ const confirmRestore = async () => {
   };
 
   const confirmMsg = warnings[restoreMode.value] || '确定要执行数据还原吗？';
-  
-  // 使用确认弹窗
-  if (!window.confirm(confirmMsg + "\n\n还原完成后，部分设置将即时生效。")) {
-    return;
-  }
+
+  const ok = await showConfirm(
+    confirmMsg + "\n\n还原完成后，部分设置将即时生效。",
+    "还原备份确认",
+    true
+  );
+  if (!ok) return;
 
   try {
     const res = await (API as any).ExecuteRestore(selectedPath.value, restoreMode.value);

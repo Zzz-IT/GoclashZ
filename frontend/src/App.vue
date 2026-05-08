@@ -105,13 +105,12 @@ import {
 } from './trafficWaveState';
 import {
   EventsOn,
-  EventsOff,
   WindowSetLightTheme,
   WindowSetDarkTheme,
   WindowSetBackgroundColour,
   WindowMinimise,
   WindowToggleMaximise,
-  WindowHide,
+  WindowIsMaximised,
   Quit
 } from '../wailsjs/runtime/runtime';
 import { globalState, initStore } from './store';
@@ -134,6 +133,19 @@ const traffic = ref({
 const logLines = ref<any[]>([]);
 const logBox = ref<HTMLElement | null>(null);
 
+let scrollTimer: ReturnType<typeof setTimeout> | null = null;
+
+let unsubTrafficData: (() => void) | null = null;
+let unsubTrafficModeChanged: (() => void) | null = null;
+let unsubLogMessage: (() => void) | null = null;
+let unsubClashExited: (() => void) | null = null;
+let unsubUpdateCheckStart: (() => void) | null = null;
+let unsubUpdateAvailable: (() => void) | null = null;
+let unsubUpdateStart: (() => void) | null = null;
+let unsubUpdateDownloaded: (() => void) | null = null;
+let unsubUpdateNone: (() => void) | null = null;
+let unsubUpdateError: (() => void) | null = null;
+
 const menu = [
   { id: 'home', label: '控制台', icon: ICONS.home },
   { id: 'proxies', label: '代理节点', icon: ICONS.proxies },
@@ -144,22 +156,10 @@ const menu = [
   { id: 'settings', label: '软件设置', icon: ICONS.settings }
 ];
 
-const modes = [
-  { id: 'rule', name: '规则分流' },
-  { id: 'global', name: '全局模式' },
-  { id: 'direct', name: '直连模式' }
-];
-
 const activeMenuLabel = computed(() => menu.find(m => m.id === currentTab.value)?.label);
-const currentModeName = computed(() => modes.find(m => m.id === globalState.mode)?.name || '规则分流');
-
-const toggleTheme = () => {
-  const newTheme = globalState.theme === 'dark' ? 'light' : 'dark';
-  API.SaveThemePreference(newTheme === 'dark');
-};
 
 const handleResize = async () => {
-	isMaximized.value = await (window as any).runtime.WindowIsMaximised();
+	isMaximized.value = await WindowIsMaximised();
 };
 
 const handleToggleMaximise = async () => {
@@ -200,29 +200,23 @@ const watchTheme = watch(() => globalState.theme, (val) => {
 }, { immediate: true });
 
 onMounted(async () => {
-  // 🎯 核心修复 1：正式启动集中式状态管理，将唯一的监听权交给 store.ts
   initStore();
 
-  // ❌ 核心修复 2：彻底删除了 App.vue 原本保留的 EventsOn("app-state-sync") 块！
-
   try {
-    // 🎯 核心修复 3：初始拉取时，也要把新增的三个字段带上
-    const state = await (API as any).GetAppState(); 
+    const state = await (API as any).GetAppState();
     if (state) {
       globalState.isRunning = state.isRunning ?? state.IsRunning ?? false;
       globalState.mode = state.mode ?? state.Mode ?? 'rule';
-      globalState.theme = state.theme ?? state.Theme ?? 'light'; 
-      // 👇 补上新字段的初始化，防止刚打开软件时界面状态错误
+      globalState.theme = state.theme ?? state.Theme ?? 'light';
       globalState.systemProxy = state.systemProxy ?? state.SystemProxy ?? false;
       globalState.tun = state.tun ?? state.Tun ?? false;
       globalState.version = state.version ?? state.Version ?? '';
-      globalState.appVersion = state.appVersion ?? state.AppVersion ?? ''; // 👈 统一初始化
+      globalState.appVersion = state.appVersion ?? state.AppVersion ?? '';
     }
   } catch (e) {
     console.error("获取初始状态失败:", e);
   }
 
-  // 🚀 新增：显式尝试再次拉取应用版本（双重保险）
   try {
     if (!globalState.appVersion) {
       globalState.appVersion = await (API as any).GetAppVersion();
@@ -234,7 +228,7 @@ onMounted(async () => {
     globalState.tunStatus = status as any;
   } catch (e) { console.error("TUN Env Check Error:", e); }
 
-  EventsOn("traffic-data", (data: any) => { 
+  unsubTrafficData = EventsOn("traffic-data", (data: any) => {
     traffic.value = {
       up: data?.up ?? '0 B/s',
       down: data?.down ?? '0 B/s',
@@ -245,54 +239,45 @@ onMounted(async () => {
       uploadTotalRaw: data?.uploadTotalRaw ?? 0,
       downloadTotalRaw: data?.downloadTotalRaw ?? 0,
     };
-    // 🚀 同步到波形采样器
     updateLatestTraffic(data?.upRaw ?? 0, data?.downRaw ?? 0);
   });
 
-  EventsOn("traffic-stat-mode-changed", () => {
+  unsubTrafficModeChanged = EventsOn("traffic-stat-mode-changed", () => {
     resetWaveState();
   });
 
-  startWaveSampling(); // 🚀 全局开启波形采样，切页不中断
+  startWaveSampling();
 
   const history = await (API as any).GetRecentLogs();
   if (history) logLines.value = history;
 
   API.StartStreamingLogs();
-  
-  let scrollTimer: ReturnType<typeof setTimeout> | null = null;
-  
-  EventsOn("log-message", (log: any) => {
+
+  unsubLogMessage = EventsOn("log-message", (log: any) => {
     logLines.value.push(log);
     if (logLines.value.length > 500) logLines.value.shift();
-    
+
     if (!scrollTimer) {
       scrollTimer = setTimeout(() => {
-        if (logBox.value) {
-          logBox.value.scrollTop = logBox.value.scrollHeight;
-        }
+        logBox.value?.scrollTo({ top: logBox.value.scrollHeight });
         scrollTimer = null;
       }, 100);
     }
   });
 
-  EventsOn("clash-exited", () => { 
-    globalState.isRunning = false; 
-    // 同时也让后端同步一下，确保状态一致
+  unsubClashExited = EventsOn("clash-exited", () => {
+    globalState.isRunning = false;
     (API as any).SyncState();
   });
 
-  // 监听窗口大小变化，同步最大化状态
   window.addEventListener('resize', handleResize);
 
-  // 🚀 软件更新事件协议统一
-  EventsOn("app-update-check-start", () => {
+  unsubUpdateCheckStart = EventsOn("app-update-check-start", () => {
     globalState.appUpdateChecking = true;
   });
 
-  EventsOn("app-update-available", (info: any) => {
+  unsubUpdateAvailable = EventsOn("app-update-available", (info: any) => {
     globalState.appUpdateChecking = false;
-
     const version = info?.version ?? "";
 
     globalState.modal = {
@@ -317,22 +302,18 @@ onMounted(async () => {
           };
         }
       },
-      onCancel: () => {
-        globalState.modal.show = false;
-      }
+      onCancel: () => { globalState.modal.show = false; }
     };
   });
 
-  EventsOn("app-update-start", () => {
+  unsubUpdateStart = EventsOn("app-update-start", () => {
     console.log("App update download started...");
   });
 
-  EventsOn("app-update-downloaded", (payload: any) => {
+  unsubUpdateDownloaded = EventsOn("app-update-downloaded", (payload: any) => {
     globalState.appUpdateChecking = false;
-
     const version = payload?.version ?? "";
     const fullPath = payload?.path ?? "";
-    const fileName = fullPath.split(/[\\/]/).pop() || fullPath || "未知";
 
     globalState.modal = {
       show: true,
@@ -345,7 +326,6 @@ onMounted(async () => {
       isDanger: false,
       onConfirm: async () => {
         globalState.modal.show = false;
-
         if (!fullPath) {
           globalState.modal = {
             show: true,
@@ -358,7 +338,6 @@ onMounted(async () => {
           };
           return;
         }
-
         try {
           await (API as any).ApplyAppUpdate(fullPath);
         } catch (e: any) {
@@ -373,15 +352,12 @@ onMounted(async () => {
           };
         }
       },
-      onCancel: () => {
-        globalState.modal.show = false;
-      }
+      onCancel: () => { globalState.modal.show = false; }
     };
   });
 
-  EventsOn("app-update-none", (payload: any) => {
+  unsubUpdateNone = EventsOn("app-update-none", (payload: any) => {
     globalState.appUpdateChecking = false;
-
     globalState.modal = {
       show: true,
       title: "已是最新版本",
@@ -393,18 +369,15 @@ onMounted(async () => {
     };
   });
 
-  const shortError = (msg: any) => {
-    const s = String(msg || "未知错误");
-    return s.length > 120 ? "操作失败，请检查网络或稍后重试。" : s;
-  };
-
-  EventsOn("app-update-error", (err: string) => {
+  unsubUpdateError = EventsOn("app-update-error", (err: string) => {
     globalState.appUpdateChecking = false;
+    const s = String(err || "未知错误");
+    const msg = s.length > 120 ? "操作失败，请检查网络或稍后重试。" : s;
 
     globalState.modal = {
       show: true,
       title: "软件更新失败",
-      message: shortError(err),
+      message: msg,
       type: "alert",
       isDanger: true,
       onConfirm: () => { globalState.modal.show = false; },
@@ -414,19 +387,24 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  if (scrollTimer) {
+    clearTimeout(scrollTimer);
+    scrollTimer = null;
+  }
+
   stopWaveSampling();
   window.removeEventListener('resize', handleResize);
-  (window as any).runtime.EventsOff("config-changed");
-  EventsOff("traffic-data");
-  EventsOff("log-message");
-  EventsOff("clash-exited");
-  
-  EventsOff("app-update-check-start");
-  EventsOff("app-update-available");
-  EventsOff("app-update-start");
-  EventsOff("app-update-error");
-  EventsOff("app-update-none");
-  EventsOff("app-update-downloaded");
+
+  unsubTrafficData?.();
+  unsubTrafficModeChanged?.();
+  unsubLogMessage?.();
+  unsubClashExited?.();
+  unsubUpdateCheckStart?.();
+  unsubUpdateAvailable?.();
+  unsubUpdateStart?.();
+  unsubUpdateDownloaded?.();
+  unsubUpdateNone?.();
+  unsubUpdateError?.();
 });
 
 watch(currentTab, async (newTab) => {

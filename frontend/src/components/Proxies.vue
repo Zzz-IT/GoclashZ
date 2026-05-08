@@ -81,27 +81,21 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
-import { showAlert, globalState, updateProxyDelay } from '../store';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { showAlert, globalState } from '../store';
 import { ICONS } from '../utils/icons';
 
 const localGroups = ref<any[]>([]);
 const currentGroup = ref<string>('');
 const isTesting = ref(false);
 
-// 👇 新增：引用用户设置与计时器控制
 const isColorMode = ref(false);
-const delayRetention = ref(true);
-// 存储全局倒计时 ID，不放在 reactive 中防止不必要的响应式开销
-const delayTimers: Record<string, number> = {};
 
-// 🎯 修复：声明各个监听器的精准取消函数，防止 EventsOff 误杀全局 Store 监听
-let unsubStart: () => void;
-let unsubUpdate: () => void;
-let unsubChanged: () => void;
-let unsubFinish: () => void;
+let unsubStart: (() => void) | null = null;
+let unsubUpdate: (() => void) | null = null;
+let unsubChanged: (() => void) | null = null;
+let unsubFinish: (() => void) | null = null;
 let unsubProxyState: (() => void) | null = null;
-const delayRetentionTime = ref('long');
 
 // 计算当前要显示的组的数据
 const activeGroupData = computed(() => {
@@ -115,8 +109,6 @@ const loadData = async () => {
     const bh = await (API.GetAppBehavior as any)();
     if (bh) {
       isColorMode.value = bh.colorDelay === true;
-      delayRetention.value = bh.delayRetention === true;
-      delayRetentionTime.value = bh.delayRetentionTime || 'long';
     }
   } catch (e) {}
 
@@ -357,14 +349,12 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  // 🎯 组件销毁时，精准反注册当前组件的监听，绝不误伤 store.ts 的全局监听
-  if (unsubStart) unsubStart();
-  if (unsubUpdate) unsubUpdate();
-  if (unsubChanged) unsubChanged();
-  if (unsubFinish) unsubFinish();
-  if (unsubProxyState) unsubProxyState();
+  unsubStart?.();
+  unsubUpdate?.();
+  unsubChanged?.();
+  unsubFinish?.();
+  unsubProxyState?.();
 
-  // 销毁监听器
   stopRunningWatch();
   stopActiveConfigWatch();
 });

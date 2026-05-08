@@ -95,7 +95,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { showConfirm, showAlert } from '../store';
 import { ICONS } from '../utils/icons';
 
@@ -299,7 +299,6 @@ const closeSingleConnection = async (id: string) => {
   justify-content: center; 
   opacity: 0.8;
 }
-.icon-svg :deep(svg) { width: 12px; height: 12px; }
 .icon-svg :deep(svg) { width: 12px; height: 12px; }
 
 .empty-state { height: 200px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-style: italic; }

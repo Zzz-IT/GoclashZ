@@ -183,7 +183,7 @@ import * as API from '../../wailsjs/go/main/App';
 import { ICONS } from '../utils/icons';
 import { showAlert, globalState } from '../store';
 import { clash } from '../../wailsjs/go/models';
-import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 
 const activeModal = ref<'import' | 'import_confirm' | 'rename' | 'delete' | null>(null);
 const targetId = ref('');
@@ -406,26 +406,30 @@ const closeAllModals = () => {
   configNameInput.value = '';
 };
 
+let unsubConfigChanged: (() => void) | null = null;
+let unsubSubsUpdateStart: (() => void) | null = null;
+let unsubSubsUpdateSuccess: (() => void) | null = null;
+let unsubSubsUpdateError: (() => void) | null = null;
+
 onMounted(() => {
   fetchConfigs();
-  
-  // 🚀 核心：监听异步任务事件
-  EventsOn("subs-update-start", () => {
+
+  unsubSubsUpdateStart = EventsOn("subs-update-start", () => {
     isUpdating.value = true;
   });
 
-  EventsOn("subs-update-success", async () => {
+  unsubSubsUpdateSuccess = EventsOn("subs-update-success", async () => {
     isUpdating.value = false;
     await fetchConfigs();
     await showAlert("全部订阅更新完成！\n\n自定义规则已保留。如需应用机场的最新规则，请前往「规则管理」页面手动同步。", "更新成功");
   });
 
-  EventsOn("subs-update-error", async (err: string) => {
+  unsubSubsUpdateError = EventsOn("subs-update-error", async (err: string) => {
     isUpdating.value = false;
     await showAlert(`更新失败: ${err}`, "更新结果");
   });
 
-  (window as any).runtime.EventsOn("config-changed", (newId: string) => {
+  unsubConfigChanged = EventsOn("config-changed", (newId: string) => {
     if (newId) {
       globalState.activeConfigId = newId;
       fetchConfigs();
@@ -434,10 +438,10 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  (window as any).runtime.EventsOff("config-changed");
-  EventsOff("subs-update-start");
-  EventsOff("subs-update-success");
-  EventsOff("subs-update-error");
+  unsubConfigChanged?.();
+  unsubSubsUpdateStart?.();
+  unsubSubsUpdateSuccess?.();
+  unsubSubsUpdateError?.();
 });
 </script>
 
