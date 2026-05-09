@@ -7,7 +7,7 @@
 import { reactive } from 'vue';
 
 const WAVE = {
-  sampleIntervalMs: 400,
+  sampleIntervalMs: 900,
   maxPoints: 96,
 
   lowFlowCeil: 96 * 1024,

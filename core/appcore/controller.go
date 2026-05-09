@@ -257,7 +257,7 @@ func (c *Controller) SyncState() {
 	if c.ctx != nil {
 		if state.IsRunning {
 			behavior := c.Behavior.Get()
-			c.traffic.Start(c.ctx, clash.APIURL("/traffic"), behavior.ProxyTrafficOnly)
+			c.traffic.Start(c.ctx, clash.APIURL("/traffic?interval=900"), behavior.ProxyTrafficOnly)
 			c.proxyState.Start(c.ctx)
 		} else {
 			c.traffic.Stop()
