@@ -38,6 +38,9 @@ type AppBehavior struct {
 
 	// 👇 新增：流量统计模式
 	ProxyTrafficOnly bool `json:"proxyTrafficOnly"`
+
+	// 👇 新增：开机自启 (Task Scheduler)
+	StartupWithOS bool `json:"startupWithOS"`
 }
 
 type BehaviorStore struct {

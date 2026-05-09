@@ -146,8 +146,8 @@ func (m *TrafficStreamManager) proxyTrafficLoop(ctx context.Context, currentGen 
 		m.mu.Unlock()
 	}()
 
-	// /connections 模式下，我们每秒采样一次
-	ticker := time.NewTicker(1 * time.Second)
+	// /connections 模式下，我们每 400ms 采样一次
+	ticker := time.NewTicker(400 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {

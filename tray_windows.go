@@ -6,10 +6,13 @@ import (
 	"context"
 	"fmt"
 	"goclashz/core/appcore"
+	goRuntime "runtime"
 	"time"
+	"unsafe"
 
 	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"golang.org/x/sys/windows"
 )
 
 type trayAction struct {
@@ -29,6 +32,15 @@ type trayItems struct {
 
 type trayUIOp func()
 
+const (
+	wmHotkey      = 0x0312
+	wmQuit        = 0x0012
+	hotkeyIDQuit  = 1
+	hotkeyModCtrl = 0x0002
+	hotkeyModAlt  = 0x0001
+	hotkeyKeyQ    = 0x51
+)
+
 func (a *App) StartTray(parent context.Context) {
 	trayCtx, cancel := context.WithCancel(parent)
 
@@ -40,6 +52,7 @@ func (a *App) StartTray(parent context.Context) {
 	go a.trayActionWorker(trayCtx)
 	go a.trayRenderWorker(trayCtx)
 	go a.trayUIWorker(trayCtx)
+	go a.startHotkeyWorker(trayCtx)
 
 	go func() {
 		select {
@@ -54,6 +67,8 @@ func (a *App) StartTray(parent context.Context) {
 func (a *App) StopTray() {
 	a.trayStopping.Store(true)
 
+	a.stopHotkey()
+
 	if a.trayCancel != nil {
 		a.trayCancel()
 	}
@@ -61,6 +76,64 @@ func (a *App) StopTray() {
 	if a.trayReady.Load() {
 		systray.Quit()
 	}
+}
+
+func (a *App) startHotkeyWorker(ctx context.Context) {
+	goRuntime.LockOSThread()
+	defer goRuntime.UnlockOSThread()
+
+	tid := windows.GetCurrentThreadId()
+	a.hotkeyTID.Store(uint32(tid))
+
+	user32 := windows.NewLazySystemDLL("user32.dll")
+	regHotkey := user32.NewProc("RegisterHotKey")
+	unregHotkey := user32.NewProc("UnregisterHotKey")
+	getMsg := user32.NewProc("GetMessageW")
+
+	ret, _, _ := regHotkey.Call(0, hotkeyIDQuit, hotkeyModCtrl|hotkeyModAlt, hotkeyKeyQ)
+	if ret == 0 {
+		return
+	}
+
+	var msg struct {
+		hWnd    uintptr
+		message uint32
+		wParam  uintptr
+		lParam  uintptr
+		time    uint32
+		pt      struct{ x, y int32 }
+	}
+
+	for {
+		ret, _, _ := getMsg.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
+		if ret == 0 || ret == ^uintptr(0) {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			unregHotkey.Call(0, hotkeyIDQuit)
+			return
+		default:
+		}
+
+		if msg.message == wmHotkey && msg.wParam == hotkeyIDQuit {
+			go a.safeQuit()
+			return
+		}
+	}
+}
+
+func (a *App) stopHotkey() {
+	tid := a.hotkeyTID.Load()
+	if tid == 0 {
+		return
+	}
+	a.hotkeyTID.Store(0)
+
+	user32 := windows.NewLazySystemDLL("user32.dll")
+	user32.NewProc("UnregisterHotKey").Call(0, hotkeyIDQuit)
+	user32.NewProc("PostThreadMessageW").Call(uintptr(tid), wmQuit, 0, 0)
 }
 
 func (a *App) SetupSystray() {

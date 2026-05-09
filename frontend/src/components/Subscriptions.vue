@@ -80,9 +80,10 @@
             <Transition name="dropdown">
               <div v-if="activeMenu === config.id" class="dropdown-menu card-panel">
                 <button v-if="config.type === 'remote'" class="menu-item" @click.stop="handleUpdateSingle(config)">更新订阅</button>
-                <div v-if="config.type === 'remote'" class="menu-divider"></div>
                 <button class="menu-item" @click.stop="openRenameModal(config)">重命名</button>
                 <button class="menu-item" @click.stop="handleEditFile(config.id)">记事本编辑</button>
+                <button v-if="config.type === 'remote' && config.url" class="menu-item" @click.stop="handleShareLink(config)">分享链接</button>
+                <button class="menu-item" @click.stop="handleExport(config)">导出文件</button>
                 <button class="menu-item danger" @click.stop="openDeleteModal(config)">彻底删除</button>
               </div>
             </Transition>
@@ -367,6 +368,56 @@ const handleEditFile = async (id: string) => {
   await API.OpenConfigFile(id);
 };
 
+const handleShareLink = async (config: clash.SubIndexItem) => {
+  activeMenu.value = null;
+  if (!config.url) return;
+  let status: string;
+  try {
+    await navigator.clipboard.writeText(config.url);
+    status = '链接已复制';
+  } catch {
+    status = '复制失败，请手动复制';
+  }
+  globalState.modal = {
+    show: true,
+    title: '分享链接',
+    message: status,
+    detail: config.url,
+    type: 'alert',
+    isDanger: false,
+    onConfirm: () => { globalState.modal.show = false; },
+    onCancel: null,
+  };
+};
+
+const handleExport = (config: clash.SubIndexItem) => {
+  activeMenu.value = null;
+  globalState.modal = {
+    show: true,
+    title: '导出配置文件',
+    message: '是否在导出时使用自定义规则替换原始规则？',
+    detail: '',
+    type: 'confirm',
+    isDanger: false,
+    onConfirm: async () => {
+      globalState.modal.show = false;
+      await doExport(config.id, true);
+    },
+    onCancel: async () => {
+      globalState.modal.show = false;
+      await doExport(config.id, false);
+    },
+  };
+};
+
+const doExport = async (id: string, useCustomRules: boolean) => {
+  try {
+    await API.ExportConfig(id, useCustomRules);
+  } catch (e) {
+    await showAlert('导出失败: ' + e, '错误');
+  }
+};
+
 const openDeleteModal = (config: clash.SubIndexItem) => {
   activeMenu.value = null;
   targetId.value = config.id;
@@ -617,7 +668,6 @@ onUnmounted(() => {
 .menu-item { width: 100%; padding: 10px 16px; border: none; background: transparent; text-align: left; cursor: pointer; font-size: 0.85rem; color: var(--text-main); }
 .menu-item:hover { background: var(--surface-hover); }
 .menu-item.danger { color: #ff4d4f !important; font-weight: 600; }
-.menu-divider { height: 1px; margin: 4px 0; background: var(--surface-hover); }
 .empty-state { padding: 30px; text-align: center; color: var(--text-muted); border: none; border-radius: 10px; background: var(--surface); }
 
 /* --- 下拉菜单动画 --- */

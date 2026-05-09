@@ -21,6 +21,7 @@ import (
 
 	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"gopkg.in/yaml.v3"
 )
 
 //go:embed build/windows/icon.ico
@@ -50,6 +51,9 @@ type App struct {
 	trayReady    atomic.Bool
 	trayBusy     atomic.Bool
 	trayStopping atomic.Bool
+
+	// 全局热键线程 ID (Ctrl+Alt+Q 退出)
+	hotkeyTID atomic.Uint32
 
 	// 托盘 worker
 	trayCancel    context.CancelFunc
@@ -519,6 +523,61 @@ func (a *App) SaveCustomRules(id string, rules []string) error {
 
 func (a *App) SyncRules(id string) error {
 	return clash.SyncRulesFromYaml(id)
+}
+
+func (a *App) ExportConfig(id string, useCustomRules bool) error {
+	_, yamlPath, err := clash.ProfilePathByID(id)
+	if err != nil {
+		return fmt.Errorf("找不到配置文件: %w", err)
+	}
+
+	data, err := os.ReadFile(yamlPath)
+	if err != nil {
+		return fmt.Errorf("读取配置失败: %w", err)
+	}
+
+	if useCustomRules {
+		var root map[string]interface{}
+		if err := yaml.Unmarshal(data, &root); err != nil {
+			return fmt.Errorf("解析 YAML 失败: %w", err)
+		}
+
+		customRules, _ := clash.GetCustomRules(id)
+		if len(customRules) > 0 {
+			ruleInterfaces := make([]interface{}, len(customRules))
+			for i, r := range customRules {
+				ruleInterfaces[i] = r
+			}
+			root["rules"] = ruleInterfaces
+		}
+
+		data, err = yaml.Marshal(root)
+		if err != nil {
+			return fmt.Errorf("序列化 YAML 失败: %w", err)
+		}
+	}
+
+	item, ok := clash.FindSubIndexByID(id)
+	defaultName := id
+	if ok && item.Name != "" {
+		defaultName = item.Name
+	}
+
+	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "导出配置文件",
+		DefaultFilename: defaultName + ".yaml",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "YAML 配置文件 (*.yaml)", Pattern: "*.yaml"},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if savePath == "" {
+		return nil
+	}
+
+	return os.WriteFile(savePath, data, 0644)
 }
 
 func (a *App) GetAppVersion() string {

@@ -271,6 +271,20 @@ body,
     white-space: pre-wrap;
 }
 
+.global-modal-detail {
+    background: var(--surface);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-main);
+    line-height: 1.5;
+    word-break: break-all;
+    overflow-x: auto;
+    white-space: nowrap;
+    max-height: 72px;
+}
+
 .header-actions { display: flex; gap: 12px; align-items: center; }
 
 .modal-input {

@@ -62,6 +62,10 @@ export function ExportBackup() {
   return window['go']['main']['App']['ExportBackup']();
 }
 
+export function ExportConfig(arg1, arg2) {
+  return window['go']['main']['App']['ExportConfig'](arg1, arg2);
+}
+
 export function FixUWPNetwork() {
   return window['go']['main']['App']['FixUWPNetwork']();
 }

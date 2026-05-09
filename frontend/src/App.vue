@@ -68,6 +68,7 @@
           
           <div class="modal-body">
             <p class="global-modal-msg">{{ globalState.modal.message }}</p>
+            <div v-if="globalState.modal.detail" class="global-modal-detail">{{ globalState.modal.detail }}</div>
             
             <div class="modal-footer">
               <template v-if="globalState.modal.type === 'confirm'">
@@ -284,6 +285,7 @@ onMounted(async () => {
       show: true,
       title: "发现新版本",
       message: `发现 GoclashZ 新版本 ${version}。\n\n是否现在下载更新？`,
+      detail: '',
       type: "confirm",
       isDanger: false,
       onConfirm: async () => {
@@ -295,6 +297,7 @@ onMounted(async () => {
             show: true,
             title: "开始下载失败",
             message: String(e?.message || e || "未知错误"),
+            detail: '',
             type: "alert",
             isDanger: true,
             onConfirm: () => { globalState.modal.show = false; },
@@ -322,6 +325,7 @@ onMounted(async () => {
         `GoclashZ ${version} 已下载完成。\n\n` +
         `是否现在关闭程序并启动安装程序？\n\n` +
         `安装完成后会自动清理临时安装包。`,
+      detail: '',
       type: "confirm",
       isDanger: false,
       onConfirm: async () => {
@@ -331,6 +335,7 @@ onMounted(async () => {
             show: true,
             title: "无法启动安装程序",
             message: "安装包路径为空，请重新检查更新。",
+            detail: '',
             type: "alert",
             isDanger: true,
             onConfirm: () => { globalState.modal.show = false; },
@@ -345,6 +350,7 @@ onMounted(async () => {
             show: true,
             title: "启动安装程序失败",
             message: String(e?.message || e || "未知错误"),
+            detail: '',
             type: "alert",
             isDanger: true,
             onConfirm: () => { globalState.modal.show = false; },
@@ -362,6 +368,7 @@ onMounted(async () => {
       show: true,
       title: "已是最新版本",
       message: payload?.message || "当前已经是最新版本。",
+      detail: '',
       type: "alert",
       isDanger: false,
       onConfirm: () => { globalState.modal.show = false; },
@@ -378,6 +385,7 @@ onMounted(async () => {
       show: true,
       title: "软件更新失败",
       message: msg,
+      detail: '',
       type: "alert",
       isDanger: true,
       onConfirm: () => { globalState.modal.show = false; },

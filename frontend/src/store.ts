@@ -46,6 +46,7 @@ export const globalState = reactive({
     type: 'alert' as 'alert' | 'confirm',
     title: '',
     message: '',
+    detail: '',
     isDanger: false,
     onConfirm: null as Function | null,
     onCancel: null as Function | null,

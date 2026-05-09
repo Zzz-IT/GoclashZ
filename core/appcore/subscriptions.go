@@ -44,7 +44,7 @@ func (c *Controller) UpdateSingleSub(ctx context.Context, id string) error {
 }
 
 func (c *Controller) UpdateAllSubsAsync(ctx context.Context) {
-	c.Tasks.Run(ctx, "sub-update-all", true, func(ctx context.Context) error {
+	c.Tasks.Run(ctx, "subs-update", true, func(ctx context.Context) error {
 		items := clash.ListSubIndex()
 
 		ua := c.Behavior.Get().SubUA

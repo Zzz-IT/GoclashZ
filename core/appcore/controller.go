@@ -5,6 +5,8 @@ package appcore
 import (
 	"context"
 	"fmt"
+	"os"
+
 	"goclashz/core/clash"
 	"goclashz/core/downloader"
 	"goclashz/core/logger"
@@ -158,6 +160,18 @@ func (c *Controller) Startup(ctx context.Context) {
 			c.SyncState()
 		}
 	})
+
+	// Sync startup task state with actual Task Scheduler state
+	c.syncStartupTaskState()
+}
+
+func (c *Controller) syncStartupTaskState() {
+	behavior := c.Behavior.Get()
+	actual := sys.CheckStartupTask()
+	if behavior.StartupWithOS != actual {
+		behavior.StartupWithOS = actual
+		_ = c.Behavior.SetAndSave(behavior)
+	}
 }
 
 func (c *Controller) GetEvents() EventSink {
@@ -1004,8 +1018,32 @@ func (c *Controller) SaveAppBehavior(b AppBehavior) error {
 		c.events.Emit("traffic-stat-mode-changed", next.ProxyTrafficOnly)
 	}
 
+	if old.StartupWithOS != next.StartupWithOS {
+		c.handleStartupWithOSChange(next.StartupWithOS)
+	}
+
 	c.SyncState()
 	return nil
+}
+
+func (c *Controller) handleStartupWithOSChange(enable bool) {
+	exePath, err := os.Executable()
+	if err != nil {
+		c.events.Emit("app-state-sync", c.GetAppState())
+		return
+	}
+
+	if enable {
+		if err := sys.CreateStartupTask(exePath); err != nil {
+			// Roll back on failure
+			behavior := c.Behavior.Get()
+			behavior.StartupWithOS = false
+			_ = c.Behavior.SetAndSave(behavior)
+			c.events.Emit("app-state-sync", c.GetAppState())
+		}
+	} else {
+		_ = sys.DeleteStartupTask()
+	}
 }
 
 func (c *Controller) SyncTrafficStream(ctx context.Context) {

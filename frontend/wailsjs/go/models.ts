@@ -22,6 +22,7 @@ export namespace appcore {
 	    autoDelayTest: boolean;
 	    autoDelayTestInterval: number;
 	    proxyTrafficOnly: boolean;
+	    startupWithOS: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppBehavior(source);
@@ -50,6 +51,7 @@ export namespace appcore {
 	        this.autoDelayTest = source["autoDelayTest"];
 	        this.autoDelayTestInterval = source["autoDelayTestInterval"];
 	        this.proxyTrafficOnly = source["proxyTrafficOnly"];
+	        this.startupWithOS = source["startupWithOS"];
 	    }
 	}
 	export class AppState {

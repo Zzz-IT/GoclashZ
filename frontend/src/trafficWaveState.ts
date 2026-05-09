@@ -22,8 +22,8 @@ const WAVE = {
   riseAlpha: 0.30,
   fallAlpha: 0.10,
 
-  scaleRiseAlpha: 0.045,
-  scaleFallAlpha: 0.006,
+  scaleRiseAlpha: 0.06,
+  scaleFallAlpha: 0.025,
 
   lowGamma: 0.72,
   midGamma: 0.82,
@@ -31,8 +31,6 @@ const WAVE = {
 
   baselineRatio: 1.0,
   maxAmplitude: 0.85,
-
-  smoothPasses: 1,
 };
 
 const makeInitialSamples = () =>
@@ -67,16 +65,38 @@ const smoothValue = (prev: number, next: number) => {
 };
 
 const updateScale = (prevScale: number, value: number) => {
-  const target = Math.max(WAVE.minScale, value * WAVE.scaleHeadroom);
+  const instant = Math.max(WAVE.minScale, value * WAVE.scaleHeadroom);
+  const target = Math.max(instant, prevScale);
   const alpha = target > prevScale ? WAVE.scaleRiseAlpha : WAVE.scaleFallAlpha;
   return prevScale + (target - prevScale) * alpha;
+};
+
+// 5 点高斯核平滑（在采样循环中预计算，不在 computed 中重复分配）
+const SMOOTH_KERNEL = [0.06, 0.20, 0.48, 0.20, 0.06];
+const smoothSamples = (src: number[]): number[] => {
+  const n = src.length;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = src[Math.max(0, i - 2)];
+    const b = src[Math.max(0, i - 1)];
+    const c = src[i];
+    const d = src[Math.min(n - 1, i + 1)];
+    const e = src[Math.min(n - 1, i + 2)];
+    out[i] = a * SMOOTH_KERNEL[0] + b * SMOOTH_KERNEL[1] + c * SMOOTH_KERNEL[2] + d * SMOOTH_KERNEL[3] + e * SMOOTH_KERNEL[4];
+  }
+  return out;
 };
 
 // --- 持久化采样状态 ---
 
 export const waveState = reactive({
+  // 原始采样值（用于 scale 计算）
   uploadRatios: makeInitialSamples(),
   downloadRatios: makeInitialSamples(),
+
+  // 平滑后的值（直接用于路径构建，避免 computed 中重复计算）
+  smoothedUploadRatios: makeInitialSamples(),
+  smoothedDownloadRatios: makeInitialSamples(),
 
   latestUpload: 0,
   latestDownload: 0,
@@ -89,7 +109,7 @@ export const waveState = reactive({
 });
 
 let sampleTimer: number | null = null;
-let refCount = 0; // 多组件挂载防重入
+let refCount = 0;
 
 const pushVisualSamples = () => {
   const s = waveState;
@@ -103,8 +123,15 @@ const pushVisualSamples = () => {
   s.uploadScale = updateScale(s.uploadScale, s.smoothedUpload);
   s.downloadScale = updateScale(s.downloadScale, s.smoothedDownload);
 
-  s.uploadRatios = [...s.uploadRatios.slice(1), upRatio];
-  s.downloadRatios = [...s.downloadRatios.slice(1), downRatio];
+  // 原地修改，避免 spread+slice 分配新数组
+  s.uploadRatios.shift();
+  s.uploadRatios.push(upRatio);
+  s.downloadRatios.shift();
+  s.downloadRatios.push(downRatio);
+
+  // 预计算平滑路径数据，buildMonotoneAreaPath 直接读取
+  s.smoothedUploadRatios = smoothSamples(s.uploadRatios);
+  s.smoothedDownloadRatios = smoothSamples(s.downloadRatios);
 };
 
 export function startWaveSampling() {
@@ -131,6 +158,8 @@ export function updateLatestTraffic(upRaw: number, downRaw: number) {
 export function resetWaveState() {
   waveState.uploadRatios = makeInitialSamples();
   waveState.downloadRatios = makeInitialSamples();
+  waveState.smoothedUploadRatios = makeInitialSamples();
+  waveState.smoothedDownloadRatios = makeInitialSamples();
   waveState.latestUpload = 0;
   waveState.latestDownload = 0;
   waveState.smoothedUpload = 0;
@@ -139,37 +168,18 @@ export function resetWaveState() {
   waveState.downloadScale = WAVE.minScale;
 }
 
-// --- 路径构建工具函数 ---
-
-const smoothRatios = (samples: number[], passes = WAVE.smoothPasses): number[] => {
-  let current = samples.slice();
-  for (let pass = 0; pass < passes; pass++) {
-    const next = new Array(current.length);
-    for (let i = 0; i < current.length; i++) {
-      const a = current[Math.max(0, i - 2)];
-      const b = current[Math.max(0, i - 1)];
-      const c = current[i];
-      const d = current[Math.min(current.length - 1, i + 1)];
-      const e = current[Math.min(current.length - 1, i + 2)];
-      next[i] = a * 0.06 + b * 0.20 + c * 0.48 + d * 0.20 + e * 0.06;
-    }
-    current = next;
-  }
-  return current;
-};
+// --- 路径构建 ---
 
 export function buildMonotoneAreaPath(
-  ratios: number[],
+  smoothedRatios: number[],
   width = 320,
   height = 100
 ) {
   const baseline = height * WAVE.baselineRatio;
   const usableHeight = height * WAVE.maxAmplitude;
-  const step = width / Math.max(ratios.length - 1, 1);
+  const step = width / Math.max(smoothedRatios.length - 1, 1);
 
-  const smoothed = smoothRatios(ratios);
-
-  const points = smoothed.map((ratio, index) => ({
+  const points = smoothedRatios.map((ratio, index) => ({
     x: index * step,
     y: baseline - clamp01(ratio) * usableHeight,
   }));

@@ -608,6 +608,18 @@
 
             <div class="setting-item">
               <div class="info">
+                <h4>开机自启</h4>
+                <p>登录 Windows 时自动启动 GoclashZ，使用计划任务实现，无需管理员权限。</p>
+              </div>
+              <label class="modern-switch">
+                <input type="checkbox" v-model="behavior.startupWithOS" @change="saveBehavior">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
                 <h4>自动延迟测速</h4>
                 <p>启用后，将按设定的时间间隔在后台自动更新节点延迟。</p>
               </div>
@@ -1493,6 +1505,7 @@ const netConfig = ref({
 const behavior = ref<any>({
   silentStart: false,
   closeToTray: true,
+  startupWithOS: false,
   // 👇 新增：显色彩色延迟数字
   colorDelay: false,
   delayRetention: false,          // 👇 移到了这里

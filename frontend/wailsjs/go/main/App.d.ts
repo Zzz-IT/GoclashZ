@@ -37,6 +37,8 @@ export function ExecuteRestore(arg1:string,arg2:string):Promise<string>;
 
 export function ExportBackup():Promise<string>;
 
+export function ExportConfig(arg1:string,arg2:boolean):Promise<void>;
+
 export function FixUWPNetwork():Promise<void>;
 
 export function FlashWindow():Promise<void>;

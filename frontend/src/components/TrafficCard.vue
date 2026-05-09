@@ -43,13 +43,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, onMounted, onUnmounted } from 'vue';
+import { computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import {
   waveState,
-  startWaveSampling,
-  stopWaveSampling,
-  updateLatestTraffic,
   resetWaveState,
   buildMonotoneAreaPath,
 } from '../trafficWaveState';
@@ -69,13 +66,12 @@ const props = defineProps<{
   traffic: TrafficSnapshot;
 }>();
 
-// 从全局持久化状态构建路径
 const uploadAreaPath = computed(() =>
-  buildMonotoneAreaPath(waveState.uploadRatios)
+  buildMonotoneAreaPath(waveState.smoothedUploadRatios)
 );
 
 const downloadAreaPath = computed(() =>
-  buildMonotoneAreaPath(waveState.downloadRatios)
+  buildMonotoneAreaPath(waveState.smoothedDownloadRatios)
 );
 
 const handleReset = async () => {
