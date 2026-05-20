@@ -287,6 +287,19 @@ func GetNetworkConfig() (*NetworkConfig, error) {
 	return utils.LoadSetting("network", defaultNet)
 }
 
+// GetProxyPort 获取代理端口：优先 MixedPort，其次 Port，兜底 7890
+func GetProxyPort() int {
+	if netCfg, err := GetNetworkConfig(); err == nil && netCfg != nil {
+		if netCfg.MixedPort != 0 {
+			return netCfg.MixedPort
+		}
+		if netCfg.Port != 0 {
+			return netCfg.Port
+		}
+	}
+	return 7890
+}
+
 func UpdateNetworkConfig(newCfg *NetworkConfig) error {
 	return utils.SaveSetting("network", newCfg)
 }

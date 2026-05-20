@@ -21,23 +21,9 @@ type ConfigTextResult struct {
 
 // ReadConfigText 读取配置文件文本内容
 func ReadConfigText(id string) (ConfigTextResult, error) {
-	safeID, err := utils.SanitizeFilename(id)
+	normalizedID, configPath, err := ProfilePathByIDOrMain(id)
 	if err != nil {
 		return ConfigTextResult{}, err
-	}
-	if safeID != id {
-		return ConfigTextResult{}, fmt.Errorf("非法配置 ID: %q", id)
-	}
-
-	var configPath string
-	var name string
-
-	if id == "" || id == "config.yaml" {
-		configPath = GetConfigPath()
-		name = "config.yaml"
-	} else {
-		configPath = filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
-		name = id + ".yaml"
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -46,8 +32,8 @@ func ReadConfigText(id string) (ConfigTextResult, error) {
 	}
 
 	return ConfigTextResult{
-		ID:      id,
-		Name:    name,
+		ID:      normalizedID,
+		Name:    filepath.Base(configPath),
 		Content: string(data),
 		Path:    configPath,
 	}, nil
@@ -55,20 +41,9 @@ func ReadConfigText(id string) (ConfigTextResult, error) {
 
 // SaveConfigText 保存配置文件文本内容
 func SaveConfigText(id string, content string) error {
-	safeID, err := utils.SanitizeFilename(id)
+	_, configPath, err := ProfilePathByIDOrMain(id)
 	if err != nil {
 		return err
-	}
-	if safeID != id {
-		return fmt.Errorf("非法配置 ID: %q", id)
-	}
-
-	var configPath string
-
-	if id == "" || id == "config.yaml" {
-		configPath = GetConfigPath()
-	} else {
-		configPath = filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
 	}
 
 	if err := utils.WriteFileAtomic(configPath, []byte(content), 0644); err != nil {
@@ -89,33 +64,20 @@ func ValidateConfigText(content string) error {
 
 // GetConfigFilePath 获取配置文件路径
 func GetConfigFilePath(id string) string {
-	safeID, err := utils.SanitizeFilename(id)
-	if err != nil || safeID != id {
+	_, configPath, err := ProfilePathByIDOrMain(id)
+	if err != nil {
 		return ""
 	}
-
-	if id == "" || id == "config.yaml" {
-		return GetConfigPath()
-	}
-
-	return filepath.Join(utils.GetSubscriptionsDir(), id+".yaml")
+	return configPath
 }
 
 // IsConfigEditable 判断配置是否可编辑
 func IsConfigEditable(id string) bool {
-	if id == "" || id == "config.yaml" {
-		path := GetConfigPath()
-		_, err := os.Stat(path)
-		return err == nil
-	}
-
-	safeID, err := utils.SanitizeFilename(id)
-	if err != nil || safeID != id {
+	_, configPath, err := ProfilePathByIDOrMain(id)
+	if err != nil {
 		return false
 	}
-
-	path := filepath.Join(utils.GetSubscriptionsDir(), safeID+".yaml")
-	_, err = os.Stat(path)
+	_, err = os.Stat(configPath)
 	return err == nil
 }
 

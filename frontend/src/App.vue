@@ -21,11 +21,27 @@
 
       <main class="content card-panel">
         <header class="content-header">
-          <h1>{{ activeMenuLabel }}</h1>
+          <div class="content-title-row">
+            <h1>{{ activeMenuLabel }}</h1>
+            <span
+              v-if="currentTab === 'yaml-editor'"
+              class="yaml-save-status"
+              :class="{ modified: yamlEditorModified, error: yamlEditorHasError }"
+            >
+              {{ yamlEditorStatus }}
+            </span>
+            <div style="flex: 1"></div>
+            <span
+              v-if="currentTab === 'yaml-editor' && yamlEditorCursor"
+              class="yaml-cursor-status"
+            >
+              {{ yamlEditorCursor }}
+            </span>
+          </div>
         </header>
 
         <div class="view-scroller" ref="viewScroller">
-          <Transition name="page-fade" mode="out-in" @after-leave="onPageLeave">
+          <Transition name="page-fade" mode="out-in" @after-leave="resetViewScroller" @before-enter="resetViewScroller">
             <div v-if="currentTab === 'home'" key="home" class="view-transition-wrapper">
               <Overview :traffic="traffic" />
             </div>
@@ -35,7 +51,7 @@
             </div>
 
             <div v-else-if="currentTab === 'yaml-editor'" key="yaml-editor" class="view-transition-wrapper">
-              <YamlEditor :config-id="editingConfigId" :config-name="editingConfigName" @back="closeYamlEditor" />
+              <YamlEditor :config-id="editingConfigId" :config-name="editingConfigName" @back="closeYamlEditor" @status-change="handleYamlStatusChange" @cursor-change="handleYamlCursorChange" />
             </div>
 
             <div v-else-if="currentTab === 'proxies'" key="proxies" class="view-transition-wrapper">
@@ -135,6 +151,10 @@ const editingConfigId = ref('');
 const editingConfigName = ref('');
 const isMaximized = ref(false);
 const viewScroller = ref<HTMLElement | null>(null);
+const yamlEditorStatus = ref('已保存');
+const yamlEditorModified = ref(false);
+const yamlEditorHasError = ref(false);
+const yamlEditorCursor = ref('');
 
 const traffic = ref({ 
   up: '0 B/s', 
@@ -191,8 +211,22 @@ watch(currentTab, (newVal) => {
   if (newVal !== 'yaml-editor') {
     editingConfigId.value = '';
     editingConfigName.value = '';
+    yamlEditorStatus.value = '已保存';
+    yamlEditorModified.value = false;
+    yamlEditorHasError.value = false;
+    yamlEditorCursor.value = '';
   }
 });
+
+const handleYamlStatusChange = (payload: { text: string; modified: boolean; error: boolean }) => {
+  yamlEditorStatus.value = payload.text;
+  yamlEditorModified.value = payload.modified;
+  yamlEditorHasError.value = payload.error;
+};
+
+const handleYamlCursorChange = (payload: { line: number; col: number }) => {
+  yamlEditorCursor.value = `行 ${payload.line}，列 ${payload.col}`;
+};
 
 const handleResize = async () => {
 	isMaximized.value = await WindowIsMaximised();
@@ -450,8 +484,10 @@ onUnmounted(() => {
   unsubUpdateError?.();
 });
 
-const onPageLeave = () => {
-  viewScroller.value?.scrollTo({ top: 0, behavior: 'auto' });
+const resetViewScroller = () => {
+  if (viewScroller.value) {
+    viewScroller.value.scrollTop = 0;
+  }
 
   if (currentTab.value === 'logs') {
     nextTick(() => {
@@ -612,8 +648,36 @@ const onPageLeave = () => {
 
 .view-transition-wrapper {
   width: 100%;
-  height: 100%;
   min-height: 100%;
   overflow: visible;
+}
+
+.content-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.yaml-save-status {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-sub);
+  font-family: var(--font-mono);
+}
+
+.yaml-cursor-status {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-left: 4px;
+}
+
+.yaml-save-status.modified {
+  color: var(--text-main);
+}
+
+.yaml-save-status.error {
+  color: #ff4d4f;
 }
 </style>

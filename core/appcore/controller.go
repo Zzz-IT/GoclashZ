@@ -665,14 +665,7 @@ func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
 			return fmt.Errorf("内核未能成功启动，系统代理开启失败")
 		}
 
-		port := 7890
-		if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil {
-			if netCfg.MixedPort != 0 {
-				port = netCfg.MixedPort
-			} else if netCfg.Port != 0 {
-				port = netCfg.Port
-			}
-		}
+		port := clash.GetProxyPort()
 
 		err := sys.EnableSystemProxy(
 			"127.0.0.1",

@@ -371,12 +371,12 @@ onMounted(() => {
 
 .page-info, .tip-text {
   flex: 1;
+  font-size: 0.8rem;
+  color: var(--text-sub);
+  font-family: var(--font-mono);
 }
 .tip-text {
   text-align: right;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  font-style: italic;
 }
 
 .pagination-controls {

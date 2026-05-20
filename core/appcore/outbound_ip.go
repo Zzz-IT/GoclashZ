@@ -71,10 +71,9 @@ func (c *Controller) GetOutboundIP() (OutboundIPResult, error) {
 	ipv4Res := <-ipv4Ch
 
 	result := OutboundIPResult{
-		IPv4:   ipv4Res.ip,
-		IPv6:   ipv6Res.ip,
-		Mode:   mode,
-		Source: ipv6Res.source,
+		IPv4: ipv4Res.ip,
+		IPv6: ipv6Res.ip,
+		Mode: mode,
 	}
 
 	if ipv6Res.ip != "" {
@@ -149,14 +148,7 @@ func fetchIPFromEndpoint(ctx context.Context, endpoint string, network string, u
 	var transport *http.Transport
 
 	if useProxy {
-		port := 7890
-		if netCfg, err := clash.GetNetworkConfig(); err == nil && netCfg != nil {
-			if netCfg.MixedPort != 0 {
-				port = netCfg.MixedPort
-			} else if netCfg.Port != 0 {
-				port = netCfg.Port
-			}
-		}
+		port := clash.GetProxyPort()
 		proxyURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 		transport = &http.Transport{
 			Proxy: http.ProxyURL(proxyURL),

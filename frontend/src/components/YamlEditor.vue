@@ -1,17 +1,21 @@
 <template>
   <div class="yaml-editor-view">
-    <div class="sub-header section-header">
-      <button class="back-btn" @click="$emit('back')" title="返回">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
-             stroke="currentColor" stroke-width="2">
-          <line x1="19" y1="12" x2="5" y2="12"></line>
-          <polyline points="12 19 5 12 12 5"></polyline>
-        </svg>
-      </button>
-      <h3 class="editor-filename-title">
-        {{ configName || '配置编辑' }}
-        <span class="editor-filename">{{ fileName }}</span>
-      </h3>
+    <div class="yaml-toolbar">
+      <div class="editor-left">
+        <button class="back-btn" @click="$emit('back')" title="返回">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+               stroke="currentColor" stroke-width="2">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+        </button>
+
+        <div class="file-meta">
+          <div class="file-name">{{ configName || '配置文件' }}</div>
+          <div class="file-path">{{ fileName }}</div>
+        </div>
+      </div>
+
       <div class="editor-actions">
         <button class="action-btn" @click="handleValidate" :disabled="validating">
           {{ validating ? '校验中...' : '检查语法' }}
@@ -25,9 +29,9 @@
 
     <div class="editor-body" ref="editorContainer"></div>
 
-    <div class="editor-footer">
-      <span class="status-text">{{ statusText }}</span>
-      <span class="cursor-info">行 {{ cursorLine }}, 列 {{ cursorCol }}</span>
+    <div class="editor-summary-bar">
+      <span>共 {{ totalLines }} 行</span>
+      <span>{{ totalChars }} 字符</span>
     </div>
   </div>
 </template>
@@ -50,6 +54,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   back: [];
+  'status-change': [payload: { text: string; modified: boolean; error: boolean }];
+  'cursor-change': [payload: { line: number; col: number }];
 }>();
 
 const editorContainer = ref<HTMLElement>();
@@ -63,6 +69,8 @@ const fileName = ref('');
 const originalContent = ref('');
 const cursorLine = ref(1);
 const cursorCol = ref(1);
+const totalLines = ref(1);
+const totalChars = ref(0);
 const statusText = ref('已保存');
 const yamlError = ref('');
 
@@ -87,6 +95,8 @@ const lightTheme = EditorView.theme({
     backgroundColor: '#F5F5F5',
     color: '#AAAAAA',
     borderRight: '1px solid #E5E5E5',
+    borderTopLeftRadius: '12px',
+    borderBottomLeftRadius: '12px',
   },
   '.cm-activeLineGutter': {
     backgroundColor: '#EEEEEE',
@@ -144,6 +154,8 @@ const darkTheme = EditorView.theme({
     backgroundColor: '#111111',
     color: '#555555',
     borderRight: '1px solid #2A2A2A',
+    borderTopLeftRadius: '12px',
+    borderBottomLeftRadius: '12px',
   },
   '.cm-activeLineGutter': {
     backgroundColor: '#222222',
@@ -186,6 +198,18 @@ const getTheme = () => isDark() ? darkTheme : lightTheme;
 const getHighlight = () => isDark() ? darkHighlight : lightHighlight;
 const highlightCompartment = new Compartment();
 
+const updateEditorStats = (view: EditorView) => {
+  totalLines.value = view.state.doc.lines;
+  totalChars.value = view.state.doc.length;
+
+  const pos = view.state.selection.main.head;
+  const line = view.state.doc.lineAt(pos);
+  cursorLine.value = line.number;
+  cursorCol.value = pos - line.from + 1;
+
+  emit('cursor-change', { line: cursorLine.value, col: cursorCol.value });
+};
+
 const createExtensions = () => [
   basicSetup,
   yaml(),
@@ -194,15 +218,19 @@ const createExtensions = () => [
   themeCompartment.of(getTheme()),
   highlightCompartment.of(syntaxHighlighting(getHighlight())),
   EditorView.updateListener.of((update) => {
+    if (!editorView.value) return;
+
+    updateEditorStats(update.view);
+
     if (update.docChanged) {
       isModified.value = update.state.doc.toString() !== originalContent.value;
       statusText.value = isModified.value ? '未保存' : '已保存';
-    }
-    if (update.selectionSet || update.docChanged) {
-      const pos = update.state.selection.main.head;
-      const line = update.state.doc.lineAt(pos);
-      cursorLine.value = line.number;
-      cursorCol.value = pos - line.from + 1;
+
+      emit('status-change', {
+        text: isModified.value ? '未保存' : '已保存',
+        modified: isModified.value,
+        error: false,
+      });
     }
   }),
 ];
@@ -217,6 +245,8 @@ const loadConfig = async () => {
     statusText.value = '已保存';
     yamlError.value = '';
 
+    emit('status-change', { text: '已保存', modified: false, error: false });
+
     if (editorView.value) {
       editorView.value.dispatch({
         changes: {
@@ -225,6 +255,7 @@ const loadConfig = async () => {
           insert: result.content,
         },
       });
+      updateEditorStats(editorView.value);
     } else if (editorContainer.value) {
       const state = EditorState.create({
         doc: result.content,
@@ -234,9 +265,11 @@ const loadConfig = async () => {
         state,
         parent: editorContainer.value,
       });
+      updateEditorStats(editorView.value);
     }
   } catch (e: any) {
     statusText.value = '加载失败: ' + (e.message || e);
+    emit('status-change', { text: '加载失败', modified: false, error: true });
   } finally {
     loading.value = false;
   }
@@ -253,8 +286,11 @@ const handleSave = async () => {
     isModified.value = false;
     statusText.value = '已保存';
     yamlError.value = '';
+
+    emit('status-change', { text: '已保存', modified: false, error: false });
   } catch (e: any) {
     statusText.value = '保存失败: ' + (e.message || e);
+    emit('status-change', { text: '保存失败', modified: isModified.value, error: true });
   } finally {
     saving.value = false;
   }
@@ -267,9 +303,13 @@ const handleValidate = async () => {
     await API.ValidateConfigText(content);
     yamlError.value = '';
     statusText.value = 'YAML 语法正确';
+
+    emit('status-change', { text: 'YAML 语法正确', modified: isModified.value, error: false });
   } catch (e: any) {
     yamlError.value = e.message || String(e);
     statusText.value = 'YAML 错误: ' + yamlError.value;
+
+    emit('status-change', { text: 'YAML 错误', modified: isModified.value, error: true });
   } finally {
     validating.value = false;
   }
@@ -323,20 +363,48 @@ onUnmounted(() => {
 .yaml-editor-view {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  gap: 12px;
+  min-height: 100%;
+  overflow: visible;
+  gap: 16px;
 }
 
-.sub-header {
+.yaml-toolbar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 16px;
-  padding: 0 0 12px 0;
+  padding: 4px 0 12px 0;
   background: transparent;
 }
 
-.sub-header.section-header {
-  justify-content: space-between;
+.editor-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.file-meta {
+  min-width: 0;
+}
+
+.file-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-path {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--text-sub);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .back-btn {
@@ -358,49 +426,9 @@ onUnmounted(() => {
   background: var(--surface-hover);
 }
 
-.sub-header h3 {
-  margin: 0;
-  border: none;
-  padding: 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-main);
-  flex: 1;
-  margin-left: 12px;
-  white-space: nowrap;
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.editor-filename-title {
-  font-size: 1rem;
-  color: var(--text-main);
-  font-family: var(--font-mono);
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-left: 12px;
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.editor-filename {
-  font-size: 0.85rem;
-  color: var(--text-sub);
-  font-family: var(--font-mono);
-  font-weight: 400;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .editor-actions {
   display: flex;
   gap: 8px;
-  flex-shrink: 0;
 }
 
 .action-btn {
@@ -454,37 +482,40 @@ onUnmounted(() => {
   padding: 8px 14px;
 }
 
+/* 编辑区：自然撑开，不使用内部滚动 */
 .editor-body {
-  flex: 1;
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid var(--surface);
-  min-height: 0;
+  flex: none;
+  min-height: calc(100vh - 260px);
+  overflow: visible;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
 .editor-body :deep(.cm-editor) {
-  height: 100%;
+  height: auto;
+  min-height: calc(100vh - 260px);
+  border-radius: 12px;
+  background: var(--surface);
 }
 
 .editor-body :deep(.cm-scroller) {
-  overflow: auto;
+  overflow: visible !important;
 }
 
-.editor-footer {
+.editor-body :deep(.cm-content) {
+  min-height: calc(100vh - 260px);
+}
+
+/* 底部统计栏：滚到底部后显示 */
+.editor-summary-bar {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  padding: 8px 4px;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 16px;
   font-size: 0.8rem;
   color: var(--text-sub);
   font-family: var(--font-mono);
-}
-
-.status-text {
-  color: var(--text-sub);
-}
-
-.cursor-info {
-  color: var(--text-muted);
 }
 </style>
