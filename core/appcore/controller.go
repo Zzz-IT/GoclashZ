@@ -639,15 +639,6 @@ func (c *Controller) StartCoreOnly(ctx context.Context, id string) error {
 	return clash.Start(ctx)
 }
 
-func (c *Controller) GetActiveProfilePath() string {
-	id := c.Behavior.Get().ActiveConfig
-	if id == "" {
-		return ""
-	}
-	// 这里直接复用 clash 包里的逻辑
-	return clash.GetConfigPath()
-}
-
 // StopCoreProcess 仅停止物理进程，保留用户开启意图
 func (c *Controller) StopCoreProcess() {
 	c.coreLifecycleMu.Lock()

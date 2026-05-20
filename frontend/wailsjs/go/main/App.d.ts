@@ -55,6 +55,8 @@ export function GetAppVersion():Promise<string>;
 
 export function GetComponentFileInfo():Promise<Record<string, appcore.ComponentFileInfo>>;
 
+export function GetConfigFilePath(arg1:string):Promise<string>;
+
 export function GetConnections():Promise<appcore.ConnectionsSnapshot>;
 
 export function GetCoreVersion():Promise<string>;
@@ -63,11 +65,15 @@ export function GetCustomRules(arg1:string):Promise<Array<string>>;
 
 export function GetDNSConfig():Promise<clash.DNSConfig>;
 
+export function GetEditableConfigs():Promise<Array<clash.ConfigTextResult>>;
+
 export function GetInitialData():Promise<Record<string, any>>;
 
 export function GetLocalConfigs():Promise<Array<clash.SubIndexItem>>;
 
 export function GetNetworkConfig():Promise<clash.NetworkConfig>;
+
+export function GetOutboundIP():Promise<appcore.OutboundIPResult>;
 
 export function GetProxyDelay(arg1:string,arg2:string):Promise<number>;
 
@@ -83,9 +89,13 @@ export function HideMainWindow():Promise<void>;
 
 export function InstallTunDriverAsync(arg1:boolean):Promise<void>;
 
+export function IsConfigEditable(arg1:string):Promise<boolean>;
+
 export function ManualCheckAppUpdate():Promise<string>;
 
 export function OpenConfigFile(arg1:string):Promise<void>;
+
+export function ReadConfigText(arg1:string):Promise<clash.ConfigTextResult>;
 
 export function RenameConfig(arg1:string,arg2:string):Promise<void>;
 
@@ -96,6 +106,8 @@ export function ResetTrafficTotals():Promise<void>;
 export function RestartCore():Promise<void>;
 
 export function SaveAppBehavior(arg1:appcore.AppBehavior):Promise<void>;
+
+export function SaveConfigText(arg1:string,arg2:string):Promise<void>;
 
 export function SaveCustomRules(arg1:string,arg2:Array<string>):Promise<void>;
 
@@ -166,3 +178,5 @@ export function UpdateGeoDatabaseAsync(arg1:string):Promise<void>;
 export function UpdateSingleSub(arg1:string):Promise<void>;
 
 export function UpdateSub(arg1:string,arg2:string):Promise<void>;
+
+export function ValidateConfigText(arg1:string):Promise<void>;

@@ -8,10 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"goclashz/core/downloader"
 	"goclashz/core/utils"
-	"sync"
 
 	"gopkg.in/yaml.v3"
 )

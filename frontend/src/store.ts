@@ -6,6 +6,8 @@ import { EventsOn } from '../wailsjs/runtime/runtime';
 const cachedHideLogs = localStorage.getItem('goclashz_hideLogs') === 'true';
 const cachedTheme = localStorage.getItem('goclashz_theme') || 'light';
 const cachedActiveConfigId = localStorage.getItem('goclashz_activeConfigId') || ''; // 👈 新增缓存预热
+const cachedOutboundIP = localStorage.getItem('goclashz_outboundIP');
+const initialOutboundIP = cachedOutboundIP ? JSON.parse(cachedOutboundIP) : null;
 
 // 存储全局倒计时 ID，不放在 reactive 中防止不必要的响应式开销
 const delayTimers: Record<string, number> = {};
@@ -40,6 +42,10 @@ export const globalState = reactive({
   // 👇 新增：全局延迟缓存池，用于实现跨页面长效保存
   proxyDelays: {} as Record<string, { delay: number | null, status: string, message: string }>,
 
+  // 跨页面 IP 状态缓存
+  outboundIP: initialOutboundIP as OutboundIPResult | null,
+  ipDetecting: false,
+
   // 全局模态框状态
   modal: {
     show: false,
@@ -52,6 +58,15 @@ export const globalState = reactive({
     onCancel: null as Function | null,
   }
 });
+
+export type OutboundIPResult = {
+  preferred: string;
+  ipv4: string;
+  ipv6: string;
+  mode: string;
+  source: string;
+  message: string;
+};
 
 // 👇 新增清洗规则：打破数据格式强粘合，防止大小写污染
 export function updateStateFromBackend(rawData: any) {
@@ -191,6 +206,33 @@ export function showConfirm(message: string, title: string = '操作确认', isD
   });
 }
 
+export async function refreshOutboundIP() {
+  if (globalState.ipDetecting) return;
+  globalState.ipDetecting = true;
+
+  const attemptFetch = async () => {
+    const { GetOutboundIP } = await import('../wailsjs/go/main/App');
+    return await GetOutboundIP();
+  };
+
+  try {
+    let result;
+    try {
+      result = await attemptFetch();
+    } catch {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      result = await attemptFetch();
+    }
+    globalState.outboundIP = result;
+    localStorage.setItem('goclashz_outboundIP', JSON.stringify(result));
+  } catch {
+    globalState.outboundIP = null;
+    localStorage.removeItem('goclashz_outboundIP');
+  } finally {
+    globalState.ipDetecting = false;
+  }
+}
+
 let storeInited = false;
 
 export async function initStore() {
@@ -209,6 +251,10 @@ export async function initStore() {
   EventsOn("app-state-sync", (newState: any) => {
     updateStateFromBackend(newState); 
   });
+
+  // 3. 初始化并定时刷新出站 IP
+  refreshOutboundIP();
+  setInterval(refreshOutboundIP, 60000);
 
   // 👇 提取出一个清空延迟的通用函数
   const clearAllDelays = () => {

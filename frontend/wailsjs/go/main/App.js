@@ -98,6 +98,10 @@ export function GetComponentFileInfo() {
   return window['go']['main']['App']['GetComponentFileInfo']();
 }
 
+export function GetConfigFilePath(arg1) {
+  return window['go']['main']['App']['GetConfigFilePath'](arg1);
+}
+
 export function GetConnections() {
   return window['go']['main']['App']['GetConnections']();
 }
@@ -114,6 +118,10 @@ export function GetDNSConfig() {
   return window['go']['main']['App']['GetDNSConfig']();
 }
 
+export function GetEditableConfigs() {
+  return window['go']['main']['App']['GetEditableConfigs']();
+}
+
 export function GetInitialData() {
   return window['go']['main']['App']['GetInitialData']();
 }
@@ -124,6 +132,10 @@ export function GetLocalConfigs() {
 
 export function GetNetworkConfig() {
   return window['go']['main']['App']['GetNetworkConfig']();
+}
+
+export function GetOutboundIP() {
+  return window['go']['main']['App']['GetOutboundIP']();
 }
 
 export function GetProxyDelay(arg1, arg2) {
@@ -154,12 +166,20 @@ export function InstallTunDriverAsync(arg1) {
   return window['go']['main']['App']['InstallTunDriverAsync'](arg1);
 }
 
+export function IsConfigEditable(arg1) {
+  return window['go']['main']['App']['IsConfigEditable'](arg1);
+}
+
 export function ManualCheckAppUpdate() {
   return window['go']['main']['App']['ManualCheckAppUpdate']();
 }
 
 export function OpenConfigFile(arg1) {
   return window['go']['main']['App']['OpenConfigFile'](arg1);
+}
+
+export function ReadConfigText(arg1) {
+  return window['go']['main']['App']['ReadConfigText'](arg1);
 }
 
 export function RenameConfig(arg1, arg2) {
@@ -180,6 +200,10 @@ export function RestartCore() {
 
 export function SaveAppBehavior(arg1) {
   return window['go']['main']['App']['SaveAppBehavior'](arg1);
+}
+
+export function SaveConfigText(arg1, arg2) {
+  return window['go']['main']['App']['SaveConfigText'](arg1, arg2);
 }
 
 export function SaveCustomRules(arg1, arg2) {
@@ -320,4 +344,8 @@ export function UpdateSingleSub(arg1) {
 
 export function UpdateSub(arg1, arg2) {
   return window['go']['main']['App']['UpdateSub'](arg1, arg2);
+}
+
+export function ValidateConfigText(arg1) {
+  return window['go']['main']['App']['ValidateConfigText'](arg1);
 }

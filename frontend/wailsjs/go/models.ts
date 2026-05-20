@@ -203,11 +203,51 @@ export namespace appcore {
 		    return a;
 		}
 	}
+	export class OutboundIPResult {
+	    preferred: string;
+	    ipv4: string;
+	    ipv6: string;
+	    mode: string;
+	    source: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OutboundIPResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.preferred = source["preferred"];
+	        this.ipv4 = source["ipv4"];
+	        this.ipv6 = source["ipv6"];
+	        this.mode = source["mode"];
+	        this.source = source["source"];
+	        this.message = source["message"];
+	    }
+	}
 
 }
 
 export namespace clash {
 	
+	export class ConfigTextResult {
+	    id: string;
+	    name: string;
+	    content: string;
+	    path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConfigTextResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.content = source["content"];
+	        this.path = source["path"];
+	    }
+	}
 	export class FallbackFilterConfig {
 	    geoip: boolean;
 	    geoipCode: string;

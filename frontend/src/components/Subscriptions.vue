@@ -81,7 +81,7 @@
               <div v-if="activeMenu === config.id" class="dropdown-menu card-panel">
                 <button v-if="config.type === 'remote'" class="menu-item" @click.stop="handleUpdateSingle(config)">更新订阅</button>
                 <button class="menu-item" @click.stop="openRenameModal(config)">重命名</button>
-                <button class="menu-item" @click.stop="handleEditFile(config.id)">记事本编辑</button>
+                <button class="menu-item" @click.stop="handleEditFile(config)">编辑配置</button>
                 <button v-if="config.type === 'remote' && config.url" class="menu-item" @click.stop="handleShareLink(config)">分享链接</button>
                 <button class="menu-item" @click.stop="handleExport(config)">导出文件</button>
                 <button class="menu-item danger" @click.stop="openDeleteModal(config)">彻底删除</button>
@@ -185,6 +185,10 @@ import { ICONS } from '../utils/icons';
 import { showAlert, globalState } from '../store';
 import { clash } from '../../wailsjs/go/models';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
+
+const emit = defineEmits<{
+  'edit-config': [id: string, name: string];
+}>();
 
 const activeModal = ref<'import' | 'import_confirm' | 'rename' | 'delete' | null>(null);
 const targetId = ref('');
@@ -363,9 +367,9 @@ const confirmRename = async () => {
   }
 };
 
-const handleEditFile = async (id: string) => {
+const handleEditFile = async (config: clash.SubIndexItem) => {
   activeMenu.value = null;
-  await API.OpenConfigFile(id);
+  emit('edit-config', config.id, config.name);
 };
 
 const handleShareLink = async (config: clash.SubIndexItem) => {

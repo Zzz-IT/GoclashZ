@@ -77,7 +77,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { globalState, showAlert, showConfirm, updateStateFromBackend } from '../store'; // 👈 直接引入唯一的真相来源 globalState
+import { globalState, showAlert, showConfirm, updateStateFromBackend, refreshOutboundIP } from '../store'; // 👈 直接引入唯一的真相来源 globalState
 import { ICONS } from '../utils/icons';
 import TrafficCard from './TrafficCard.vue';
 
@@ -177,6 +177,7 @@ const runSysProxyWorker = async (target: boolean) => {
     } else {
       pendingSysProxyTarget = null;
       sysProxyWorkerActive = false;
+      setTimeout(() => refreshOutboundIP(), 1500);
     }
   }
 };
@@ -217,6 +218,7 @@ const runTunWorker = async (target: boolean) => {
     } else {
       pendingTunTarget = null;
       tunWorkerActive = false;
+      setTimeout(() => refreshOutboundIP(), 1500);
     }
   }
 };
@@ -301,6 +303,7 @@ const runModeWorker = async (targetMode: string) => {
     } else {
       pendingModeTarget = null;
       modeWorkerActive = false;
+      setTimeout(() => refreshOutboundIP(), 1500);
     }
   }
 };

@@ -73,17 +73,3 @@ func ProfilePathByIDOrMain(id string) (string, string, error) {
 
 	return normalizedID, path, nil
 }
-
-func ProfileExists(id string) bool {
-	normalizedID, err := NormalizeProfileID(id)
-	if err != nil {
-		return false
-	}
-
-	if normalizedID == MainConfigID {
-		return true
-	}
-
-	_, ok := FindSubIndexByID(normalizedID)
-	return ok
-}

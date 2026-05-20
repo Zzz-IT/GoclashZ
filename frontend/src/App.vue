@@ -25,31 +25,43 @@
         </header>
 
         <div class="view-scroller" ref="viewScroller">
-          <Transition name="page-fade" mode="out-in">
-            <div :key="currentTab" class="view-transition-wrapper">
-              <Overview v-if="currentTab === 'home'" :traffic="traffic" />
+          <Transition name="page-fade" mode="out-in" @after-leave="onPageLeave">
+            <div v-if="currentTab === 'home'" key="home" class="view-transition-wrapper">
+              <Overview :traffic="traffic" />
+            </div>
 
-              <Subscriptions v-if="currentTab === 'subs'" />
+            <div v-else-if="currentTab === 'subs'" key="subs" class="view-transition-wrapper">
+              <Subscriptions @edit-config="openYamlEditor" />
+            </div>
 
-              <Proxies v-if="currentTab === 'proxies'" />
+            <div v-else-if="currentTab === 'yaml-editor'" key="yaml-editor" class="view-transition-wrapper">
+              <YamlEditor :config-id="editingConfigId" :config-name="editingConfigName" @back="closeYamlEditor" />
+            </div>
 
-              <Rules v-if="currentTab === 'rules'" />
+            <div v-else-if="currentTab === 'proxies'" key="proxies" class="view-transition-wrapper">
+              <Proxies />
+            </div>
 
-              <Connections v-if="currentTab === 'connections'" />
+            <div v-else-if="currentTab === 'rules'" key="rules" class="view-transition-wrapper">
+              <Rules />
+            </div>
 
-              <div v-if="currentTab === 'logs'" class="view-logs">
-                <div class="terminal-box" ref="logBox">
-                  <div v-for="(log, i) in logLines" :key="i" :class="['log-line', log.type]">
-                    <span class="l-time">{{ log.time }}</span>
-                    <span class="l-type">[{{ log.type.toUpperCase() }}]</span>
-                    <span class="l-msg">{{ log.payload }}</span>
-                  </div>
+            <div v-else-if="currentTab === 'connections'" key="connections" class="view-transition-wrapper">
+              <Connections />
+            </div>
+
+            <div v-else-if="currentTab === 'logs'" key="logs" class="view-transition-wrapper view-logs">
+              <div class="terminal-box" ref="logBox">
+                <div v-for="(log, i) in logLines" :key="i" :class="['log-line', log.type]">
+                  <span class="l-time">{{ log.time }}</span>
+                  <span class="l-type">[{{ log.type.toUpperCase() }}]</span>
+                  <span class="l-msg">{{ log.payload }}</span>
                 </div>
               </div>
+            </div>
 
-              <div v-if="currentTab === 'settings'" class="view-settings">
-                <Settings :initialView="targetSettingsView" />
-              </div>
+            <div v-else-if="currentTab === 'settings'" key="settings" class="view-transition-wrapper view-settings">
+              <Settings :initialView="targetSettingsView" />
             </div>
           </Transition>
         </div>
@@ -98,6 +110,7 @@ import Subscriptions from './components/Subscriptions.vue';
 import Connections from './components/Connections.vue';
 import Rules from './components/Rules.vue';
 import Settings from './components/Settings.vue';
+import YamlEditor from './components/YamlEditor.vue';
 import { 
   startWaveSampling, 
   stopWaveSampling, 
@@ -118,6 +131,8 @@ import { globalState, initStore } from './store';
 
 const currentTab = ref('home');
 const targetSettingsView = ref('main');
+const editingConfigId = ref('');
+const editingConfigName = ref('');
 const isMaximized = ref(false);
 const viewScroller = ref<HTMLElement | null>(null);
 
@@ -157,7 +172,27 @@ const menu = [
   { id: 'settings', label: '软件设置', icon: ICONS.settings }
 ];
 
-const activeMenuLabel = computed(() => menu.find(m => m.id === currentTab.value)?.label);
+const activeMenuLabel = computed(() => {
+  if (currentTab.value === 'yaml-editor') return '配置编辑';
+  return menu.find(m => m.id === currentTab.value)?.label;
+});
+
+const openYamlEditor = (id: string, name: string) => {
+  editingConfigId.value = id;
+  editingConfigName.value = name;
+  currentTab.value = 'yaml-editor';
+};
+
+const closeYamlEditor = () => {
+  currentTab.value = 'subs';
+};
+
+watch(currentTab, (newVal) => {
+  if (newVal !== 'yaml-editor') {
+    editingConfigId.value = '';
+    editingConfigName.value = '';
+  }
+});
 
 const handleResize = async () => {
 	isMaximized.value = await WindowIsMaximised();
@@ -415,18 +450,17 @@ onUnmounted(() => {
   unsubUpdateError?.();
 });
 
-watch(currentTab, async (newTab) => {
-  await nextTick();
+const onPageLeave = () => {
   viewScroller.value?.scrollTo({ top: 0, behavior: 'auto' });
 
-  if (newTab === 'logs') {
+  if (currentTab.value === 'logs') {
     nextTick(() => {
       if (logBox.value) {
         logBox.value.scrollTop = logBox.value.scrollHeight;
       }
     });
   }
-});
+};
 </script>
 
 <style scoped>
@@ -578,6 +612,7 @@ watch(currentTab, async (newTab) => {
 
 .view-transition-wrapper {
   width: 100%;
+  height: 100%;
   min-height: 100%;
   overflow: visible;
 }

@@ -5,6 +5,17 @@
         <h3>网络流量</h3>
       </div>
 
+      <div
+        class="outbound-ip"
+        :title="outboundIPTitle"
+        @click="refreshOutboundIP"
+      >
+        <span class="ip-label">当前出站IP</span>
+        <span class="ip-value" :class="{ detecting: globalState.ipDetecting }">
+          {{ outboundIPText }}
+        </span>
+      </div>
+
       <button class="reset-btn" @click="handleReset">
         重置
       </button>
@@ -45,6 +56,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
+import { globalState, refreshOutboundIP } from '../store';
 import {
   waveState,
   resetWaveState,
@@ -65,6 +77,26 @@ type TrafficSnapshot = {
 const props = defineProps<{
   traffic: TrafficSnapshot;
 }>();
+
+const outboundIPText = computed(() => {
+  if (globalState.ipDetecting) return '检测中...';
+  if (!globalState.outboundIP) return '检测中...';
+  if (globalState.outboundIP.preferred) return globalState.outboundIP.preferred;
+  return '检测失败';
+});
+
+const outboundIPTitle = computed(() => {
+  if (!globalState.outboundIP) return '';
+  const r = globalState.outboundIP;
+  const lines = [
+    `模式：${r.mode === 'proxy' ? '代理检测' : '直连检测'}`,
+    `IPv6：${r.ipv6 || '不可用'}`,
+    `IPv4：${r.ipv4 || '不可用'}`,
+    `来源：${r.source || '-'}`,
+  ];
+  if (r.message) lines.push(`说明：${r.message}`);
+  return lines.join('\n');
+});
 
 const uploadAreaPath = computed(() =>
   buildMonotoneAreaPath(waveState.smoothedUploadRatios)
@@ -90,9 +122,9 @@ const handleReset = async () => {
 }
 
 .traffic-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   margin-bottom: 20px;
 }
 
@@ -100,6 +132,7 @@ const handleReset = async () => {
   display: flex;
   align-items: center;
   gap: 10px;
+  justify-self: start;
 }
 
 .title-wrap h3 {
@@ -107,6 +140,42 @@ const handleReset = async () => {
   font-size: 1rem;
   font-weight: 600;
   color: var(--text-main);
+}
+
+.outbound-ip {
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 8px;
+  transition: 0.2s;
+}
+
+.outbound-ip:hover {
+  background: var(--surface-hover);
+}
+
+.ip-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-main);
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.ip-value {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text-main);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ip-value.detecting {
+  color: var(--text-muted);
 }
 
 .reset-btn {
@@ -119,6 +188,7 @@ const handleReset = async () => {
   font-weight: 600;
   cursor: pointer;
   transition: 0.2s ease;
+  justify-self: end;
 }
 
 .reset-btn:hover {
