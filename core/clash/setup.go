@@ -12,11 +12,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
-	"time"
-	"regexp"
 	"sync"
+	"time"
 
 	"goclashz/core/downloader"
 	"goclashz/core/utils"
@@ -26,11 +26,11 @@ import (
 func PrepareEnv(ctx context.Context) error {
 	MigrateCoreAssetsToBin()
 	binDir := utils.GetCoreBinDir() // 取向安全的 DataDir
-	
+
 	if _, err := os.Stat(filepath.Join(binDir, "clash.exe")); os.IsNotExist(err) {
 		// 优先触发一次下载（或者由前端引导）
 		// 初始化时如果不通代理，PrepareCoreUpdate 内部逻辑会处理
-		prepared, err := PrepareCoreUpdate(ctx, "https://github.com/MetaCubeX/mihomo/releases/download/v1.18.1/mihomo-windows-amd64-v1.18.1.zip", "")
+		prepared, err := PrepareCoreUpdate(ctx, "https://github.com/MetaCubeX/mihomo/releases/download/v1.18.1/mihomo-windows-amd64-v1.18.1.zip", nil)
 		if err == nil {
 			_, _ = CommitCoreUpdate(ctx, prepared)
 		} else {
@@ -40,7 +40,7 @@ func PrepareEnv(ctx context.Context) error {
 
 	// 提前创建配置文件夹
 	os.MkdirAll(utils.GetSubscriptionsDir(), 0755)
-	
+
 	// 初始化默认配置 (如果不存在)
 	defaultCfg := filepath.Join(utils.GetDataDir(), "config.yaml")
 	if _, err := os.Stat(defaultCfg); os.IsNotExist(err) {
@@ -57,7 +57,7 @@ func MigrateCoreAssetsToBin() {
 	os.MkdirAll(binDir, 0755)
 
 	assets := []string{
-		"clash.exe", "wintun.dll", 
+		"clash.exe", "wintun.dll",
 		"geoip.metadb", "geosite.dat", "country.mmdb", "asn.dat",
 	}
 
@@ -165,7 +165,6 @@ func readLocalCoreVersionByCommand(ctx context.Context, path string) string {
 	return s
 }
 
-
 func validateKernelZip(path string) error {
 	r, err := zip.OpenReader(path)
 	if err != nil {
@@ -217,7 +216,7 @@ func extractKernelToFile(zipPath, targetExe string) error {
 
 var coreBinaryMu sync.Mutex
 
-func PrepareCoreUpdate(ctx context.Context, assetURL string, proxyURL string) (map[string]string, error) {
+func PrepareCoreUpdate(ctx context.Context, assetURL string, strategy func() downloader.DownloadStrategy) (map[string]string, error) {
 	coreBinaryMu.Lock()
 	defer coreBinaryMu.Unlock()
 
@@ -236,8 +235,7 @@ func PrepareCoreUpdate(ctx context.Context, assetURL string, proxyURL string) (m
 	if err := downloader.DownloadLargeAssetAtomic(ctx, downloader.Options{
 		URLs:                []string{assetURL},
 		DestPath:            zipPath,
-		ProxyURL:            proxyURL,
-		PreferProxy:         proxyURL != "",
+		Strategy:            strategy,
 		MaxBytes:            200 << 20,
 		UserAgent:           "GoclashZ-CoreUpdater",
 		AttemptsPerEndpoint: 3,
@@ -296,35 +294,70 @@ type CoreReleaseInfo struct {
 	} `json:"assets"`
 }
 
-func CheckLatestCore(ctx context.Context, proxyURL string) (version, assetURL, releaseURL string, err error) {
-	client := downloader.NewProxyClient(proxyURL)
-
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		"https://api.github.com/repos/MetaCubeX/mihomo/releases/latest",
-		nil,
-	)
-	if err != nil {
-		return "", "", "", err
+func CheckLatestCore(ctx context.Context, strategy func() downloader.DownloadStrategy) (version, assetURL, releaseURL string, err error) {
+	var pUrl string
+	var preferProxy bool
+	if strategy != nil {
+		strat := strategy()
+		pUrl = strat.ProxyURL
+		preferProxy = strat.PreferProxy
 	}
 
-	req.Header.Set("User-Agent", "GoclashZ-CoreUpdateChecker")
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", "", "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", "", "", fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
+	var clients []*http.Client
+	directClient := &http.Client{Timeout: 60 * time.Second}
+	if preferProxy && pUrl != "" {
+		clients = append(clients, downloader.NewProxyClient(pUrl))
+		clients = append(clients, directClient)
+	} else {
+		clients = append(clients, directClient)
+		if pUrl != "" {
+			clients = append(clients, downloader.NewProxyClient(pUrl))
+		}
 	}
 
 	var release CoreReleaseInfo
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", "", "", err
+	var lastErr error
+
+	for _, client := range clients {
+		req, reqErr := http.NewRequestWithContext(
+			ctx,
+			http.MethodGet,
+			"https://api.github.com/repos/MetaCubeX/mihomo/releases/latest",
+			nil,
+		)
+		if reqErr != nil {
+			lastErr = reqErr
+			continue
+		}
+
+		req.Header.Set("User-Agent", "GoclashZ-CoreUpdateChecker")
+		req.Header.Set("Accept", "application/vnd.github+json")
+
+		resp, reqErr := client.Do(req)
+		if reqErr != nil {
+			lastErr = reqErr
+			continue
+		}
+
+		func() {
+			defer resp.Body.Close()
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				lastErr = fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
+				return
+			}
+			lastErr = json.NewDecoder(resp.Body).Decode(&release)
+		}()
+
+		if lastErr == nil && release.TagName != "" {
+			break
+		}
+	}
+
+	if lastErr != nil || release.TagName == "" {
+		if lastErr == nil {
+			lastErr = fmt.Errorf("未获取到有效的最新版本信息")
+		}
+		return "", "", "", lastErr
 	}
 
 	assetURL = selectMihomoWindowsAmd64Asset(release.Assets)
@@ -449,7 +482,7 @@ func GeoDBPath(key string) (string, error) {
 	return filepath.Join(utils.GetCoreBinDir(), name), nil
 }
 
-func UpdateGeoDB(ctx context.Context, key string, url string, proxyURL string) error {
+func UpdateGeoDB(ctx context.Context, key string, url string, strategy func() downloader.DownloadStrategy, onProgress func(bytesDone, totalBytes, speedBps int64, etaSec int64)) error {
 	destPath, err := GeoDBPath(key)
 	if err != nil {
 		return err
@@ -458,14 +491,14 @@ func UpdateGeoDB(ctx context.Context, key string, url string, proxyURL string) e
 	return downloader.DownloadLargeAssetAtomic(ctx, downloader.Options{
 		URLs:                []string{url},
 		DestPath:            destPath,
-		ProxyURL:            proxyURL,
-		PreferProxy:         proxyURL != "",
+		Strategy:            strategy,
 		MaxBytes:            geoDBMaxBytes(key),
 		UserAgent:           "GoclashZ-GeoUpdater",
 		AttemptsPerEndpoint: 3,
 		Validator: func(tmpPath string) error {
 			return ValidateGeoDBFile(key, tmpPath, destPath)
 		},
+		OnProgress: onProgress,
 	})
 }
 

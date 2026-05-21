@@ -18,7 +18,11 @@ func FetchSmallFileAtomic(ctx context.Context, opt Options) error {
 	unlock := lockDest(opt.DestPath)
 	defer unlock()
 
-	clients := createOrderedClients(opt)
+	var lastStrategy DownloadStrategy
+	if opt.Strategy != nil {
+		lastStrategy = opt.Strategy()
+	}
+	clients := createOrderedClientsFromStrategy(opt, lastStrategy)
 	urls := opt.URLs
 	totalRaces := len(clients) * len(urls)
 

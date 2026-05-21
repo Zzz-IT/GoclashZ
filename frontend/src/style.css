@@ -42,7 +42,8 @@
 @font-face {
     font-family: 'MiSans';
     src: url('/webfonts/MiSans-Semibold.woff2') format('woff2');
-    font-weight: 500; /* 500 也指向 Semibold 保证清晰度 */
+    font-weight: 500;
+    /* 500 也指向 Semibold 保证清晰度 */
     font-style: normal;
     font-display: swap;
 }
@@ -64,26 +65,34 @@
 }
 
 /* 彻底清除所有元素的默认获取焦点轮廓线 */
-*, *::before, *::after {
-  outline: none !important;
-  -webkit-tap-highlight-color: transparent;
+*,
+*::before,
+*::after {
+    outline: none !important;
+    -webkit-tap-highlight-color: transparent;
 }
 
-*:focus, *:focus-visible {
-  outline: none !important;
-  box-shadow: none; /* 防止有些内核用 boxShadow 模拟边框 */
+*:focus,
+*:focus-visible {
+    outline: none !important;
+    box-shadow: none;
+    /* 防止有些内核用 boxShadow 模拟边框 */
 }
 
 /* 🚀 极致细节：禁止一切非输入框文字的可选性，让 WebApp 更有 Native 质感 */
-html, body {
-  user-select: none;
-  -webkit-user-select: none;
+html,
+body {
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 /* 允许输入框、文本域以及自定义可编辑区域保留选择权 */
-input, textarea, .modern-input, [contenteditable="true"] {
-  user-select: text;
-  -webkit-user-select: text;
+input,
+textarea,
+.modern-input,
+[contenteditable="true"] {
+    user-select: text;
+    -webkit-user-select: text;
 }
 
 :root {
@@ -91,9 +100,10 @@ input, textarea, .modern-input, [contenteditable="true"] {
     --font-mono: 'JetBrains Mono', 'MiSans', monospace;
 
     /* 将侧边栏宽度从 180px 进一步缩减到 160px */
-    --sidebar-width: 160px; 
-    
-    --layout-padding: 10px; /* 进一步收窄全局边距，提升视觉张力 */
+    --sidebar-width: 160px;
+
+    --layout-padding: 10px;
+    /* 进一步收窄全局边距，提升视觉张力 */
     --layout-gap: 16px;
     --content-px: 36px;
     --content-py: 32px;
@@ -200,23 +210,23 @@ body,
 }
 
 .page-sticky-mask {
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  isolation: isolate;
-  --sticky-mask-bleed: 4px;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    isolation: isolate;
+    --sticky-mask-bleed: 4px;
 }
 
 .page-sticky-mask::before {
-  content: "";
-  position: absolute;
-  left: -8px;
-  right: -8px;
-  top: -1px;
-  bottom: calc(-1 * var(--sticky-mask-bleed));
-  background: var(--surface-panel);
-  z-index: -1;
-  pointer-events: none;
+    content: "";
+    position: absolute;
+    left: -8px;
+    right: -8px;
+    top: -1px;
+    bottom: calc(-1 * var(--sticky-mask-bleed));
+    background: var(--surface-panel);
+    z-index: -1;
+    pointer-events: none;
 }
 
 /* ================================== */
@@ -239,6 +249,8 @@ body,
 .custom-modal-card {
     width: 90%;
     max-width: 440px;
+    max-height: 80vh;
+    overflow: hidden;
     padding: 24px;
     border-radius: 16px;
     background: var(--surface-panel);
@@ -261,6 +273,7 @@ body,
     display: flex;
     flex-direction: column;
     gap: 20px;
+    min-width: 0;
 }
 
 .global-modal-msg {
@@ -269,6 +282,10 @@ body,
     color: var(--text-sub);
     line-height: 1.6;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    max-height: 220px;
+    overflow-y: auto;
 }
 
 .global-modal-detail {
@@ -285,7 +302,11 @@ body,
     max-height: 72px;
 }
 
-.header-actions { display: flex; gap: 12px; align-items: center; }
+.header-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
 
 .modal-input {
     width: 100%;

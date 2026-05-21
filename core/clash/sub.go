@@ -65,23 +65,25 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 
 	finalPath := filepath.Join(dir, safeId+".yaml")
 
-	// 🚀 1. 动态探测本地 Clash 混合端口，拿来实现“自代理更新”
-	var proxyURL string
-	if IsRunning() {
-		if netCfg, err := GetNetworkConfig(); err == nil && netCfg.MixedPort != 0 {
-			proxyURL = fmt.Sprintf("http://127.0.0.1:%d", netCfg.MixedPort)
-		}
-	}
-
 	var upload, download, total, expire int64
 
-	// 🚀 2. 全面拥抱底层 downloader，直接集齐五大神器
 	err = downloader.FetchSmallFileAtomic(ctx, downloader.Options{
 		URLs:               []string{url},
 		DestPath:           finalPath,
 		UserAgent:          userAgent,
 		MaxBytes:           50 * 1024 * 1024,
-		ProxyURL:           proxyURL, // 🛡️ [自代理] 被墙也能下载
+		Strategy: func() downloader.DownloadStrategy {
+			var pUrl string
+			if IsRunning() {
+				if netCfg, err := GetNetworkConfig(); err == nil && netCfg.MixedPort != 0 {
+					pUrl = fmt.Sprintf("http://127.0.0.1:%d", netCfg.MixedPort)
+				}
+			}
+			return downloader.DownloadStrategy{
+				ProxyURL:    pUrl,
+				PreferProxy: pUrl != "",
+			}
+		},
 		InsecureSkipVerify: true,     // 🛡️ [SSL宽容] 机场证书烂也能下载
 		OnResponse: func(resp *http.Response) {
 			// 🛡️ [流量提取] 解析 Subscription-Userinfo

@@ -78,6 +78,8 @@
             <h3>组件与库更新</h3>
           </div>
 
+          <UpdateTaskPanel />
+
           <div class="glass-card setting-group scrollable">
             <div class="setting-item col-item" style="padding-bottom: 0; align-items: flex-start;">
               <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">内核与驱动</h3>
@@ -91,13 +93,13 @@
               </div>
               <button 
                 class="action-btn" 
-                :class="{ 'accent-btn': pendingCoreUpdate }"
-                @click="pendingCoreUpdate ? executeCoreUpdate() : handleUpdateCore()" 
-                :disabled="checkingCoreUpdate || updatingCore"
+                :class="{ 'accent-btn': globalState.componentUpdate.pendingCoreUpdate }"
+                @click="globalState.componentUpdate.pendingCoreUpdate ? executeCoreUpdate() : handleUpdateCore()" 
+                :disabled="globalState.componentUpdate.checkingCoreUpdate || globalState.componentUpdate.updatingCore"
               >
-                <template v-if="checkingCoreUpdate">正在检查...</template>
-                <template v-else-if="updatingCore">正在处理...</template>
-                <template v-else-if="pendingCoreUpdate">更新到 {{ coreUpdateInfo.remote }}</template>
+                <template v-if="globalState.componentUpdate.checkingCoreUpdate">正在检查...</template>
+                <template v-else-if="globalState.componentUpdate.updatingCore">正在处理...</template>
+                <template v-else-if="globalState.componentUpdate.pendingCoreUpdate">更新到 {{ globalState.componentUpdate.coreUpdateInfo.remote }}</template>
                 <template v-else>检查更新</template>
               </button>
             </div>
@@ -122,8 +124,8 @@
               <div class="info">
                 <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">路由规则数据库</h3>
               </div>
-              <button class="action-btn primary-btn accent-btn" @click="handleUpdateAllDbs" :disabled="updatingAllDbs">
-                {{ updatingAllDbs ? '处理中...' : '更新全部' }}
+              <button class="action-btn primary-btn accent-btn" @click="handleUpdateAllDbs" :disabled="isUpdatingAnyDb">
+                {{ isUpdatingAnyDb ? '更新中' : '更新全部' }}
               </button>
             </div>
             <div class="divider" style="margin-top: 14px;"></div>
@@ -141,9 +143,9 @@
                   <p v-else style="font-size: 0.75rem; color: var(--red-text); margin-top: 2px;">文件不存在，请点击更新同步</p>
                 </div>
                 <div class="btn-group" style="flex-shrink: 0;">
-                  <button class="action-btn" @click="openDbEditModal(db.key, behavior[db.behaviorKey])" :disabled="updatingDbs[db.key]">编辑链接</button>
-                  <button class="action-btn" @click="handleUpdateDb(db.key)" :disabled="updatingDbs[db.key]">
-                    {{ updatingDbs[db.key] ? '同步中...' : '更新同步' }}
+                  <button class="action-btn" @click="openDbEditModal(db.key, behavior[db.behaviorKey])" :disabled="isUpdatingDb(db.key)">编辑链接</button>
+                  <button class="action-btn" @click="handleUpdateDb(db.key)" :disabled="isUpdatingDb(db.key)">
+                    {{ isUpdatingDb(db.key) ? '同步中...' : '更新同步' }}
                   </button>
                 </div>
               </div>
@@ -761,10 +763,25 @@
 
           <div class="glass-card setting-group scrollable">
             <!-- 软件图标与名称展示行 -->
-            <div class="setting-item" style="padding: 20px 0;">
+            <div class="setting-item" style="padding: 20px 0; display: flex; justify-content: space-between; align-items: center;">
               <div class="info" style="display: flex; align-items: center; gap: 18px;">
                 <img :src="appLogo" style="width: 52px; height: 52px; border-radius: 12px;" />
                 <h4 style="margin: 0; font-weight: 800; font-size: 1.6rem; letter-spacing: -0.01em;">GoclashZ</h4>
+              </div>
+
+              <!-- 新增：右侧空间显示后台静默下载进度 -->
+              <div v-if="globalState.appUpdateProgress" class="app-update-progress-container">
+                <div class="progress-info">
+                  <span class="speed">{{ formatSpeed(globalState.appUpdateProgress.speedBps) }}</span>
+                  <span class="divider-dot">·</span>
+                  <span class="eta">剩余 {{ formatTime(globalState.appUpdateProgress.etaSec) }}</span>
+                </div>
+                <div class="progress-bar-wrap">
+                  <div class="progress-bar-fill" :style="{ width: appUpdatePercent + '%' }"></div>
+                </div>
+                <div class="progress-size">
+                  {{ formatBytes(globalState.appUpdateProgress.bytesDone) }} / {{ formatBytes(globalState.appUpdateProgress.totalBytes) }}
+                </div>
               </div>
             </div>
 
@@ -956,7 +973,7 @@
           </div>
           <div class="modal-body">
             <p class="global-modal-msg">
-              检测到 Mihomo 内核新版本 <strong>{{ coreUpdateInfo.remote }}</strong>，当前版本为 <strong>{{ coreUpdateInfo.local }}</strong>。<br/><br/>
+              检测到 Mihomo 内核新版本 <strong>{{ globalState.componentUpdate.coreUpdateInfo.remote }}</strong>，当前版本为 <strong>{{ globalState.componentUpdate.coreUpdateInfo.local }}</strong>。<br/><br/>
               更新内核将会短暂断开代理连接。是否立即更新？
             </p>
             <div class="modal-footer">
@@ -1035,6 +1052,9 @@ import { BrowserOpenURL, EventsOn, EventsOff } from '../../wailsjs/runtime/runti
 import { showAlert, showConfirm, globalState } from '../store';
 import { ICONS } from '../utils/icons';
 import appLogo from '../assets/logo.ico';
+import UpdateTaskPanel from './UpdateTaskPanel.vue';
+
+const emits = defineEmits(['close', 'restart']);
 import ModernSelect from './ModernSelect.vue';
 import ModernNumberInput from './ModernNumberInput.vue';
 
@@ -1047,10 +1067,7 @@ const resetModule = ref('');
 const resetModuleName = ref('');
 const hostsError = ref('');
 
-const checkingCoreUpdate = ref(false);
-const pendingCoreUpdate = ref(false);
 const showCoreUpdateConfirm = ref(false);
-const coreUpdateInfo = ref({ local: '', remote: '', releaseUrl: '' });
 
 // 👇 新增：校验 Hosts 是否符合 YAML 字典基础格式
 const validateHosts = (val: string) => {
@@ -1154,7 +1171,7 @@ watch(view, async (v) => {
 const coreVersion = ref('读取中...');
 const wintunVersion = ref('读取中...');
 const isInstalling = ref(false);
-const updatingCore = ref(false);
+
 
 const dbList = [
   { key: 'geoip', title: 'GeoIP', behaviorKey: 'geoIpLink' },
@@ -1187,11 +1204,16 @@ const logLevelOptions = [
 
 const showDbModal = ref(false);
 const editingDb = ref({ type: '', link: '' });
-const updatingDbs = ref<Record<string, boolean>>({});
 const componentFileInfo = ref<Record<string, any>>({});
 const dbFileInfo = ref<Record<string, any>>({});
 
-const updatingAllDbs = ref(false);
+const isUpdatingDb = (key: string) => globalState.componentUpdate.tasks[key]?.status === 'running';
+
+const updatedDbCount = computed(() => {
+  return ["geoip", "geosite", "mmdb", "asn"].filter(k => 
+    globalState.componentUpdate.tasks[k]?.status === 'success' || !isUpdatingDb(k)
+  ).length;
+});
 
 const refreshComponentFileInfo = async () => {
   const info = await (API as any).GetComponentFileInfo();
@@ -1211,7 +1233,7 @@ const refreshComponentInfo = async () => {
 };
 
 const isUpdatingAnyDb = computed(() => {
-  return updatingAllDbs.value || Object.values(updatingDbs.value).some(Boolean);
+  return ["geoip", "geosite", "mmdb", "asn"].some(isUpdatingDb);
 });
 
 const formatSize = (bytes: number) => {
@@ -1259,121 +1281,7 @@ const formatUpdateError = (err: any) => {
   return msg;
 };
 
-// --- UI 增强助手：队列、去抖、通知聚合 ---
 
-// 1. 弹窗队列：防止多个弹窗冲突或卡死事件循环
-type ModalJob = {
-  title: string;
-  message: string;
-  danger?: boolean;
-};
-const modalQueue: ModalJob[] = [];
-let modalShowing = false;
-
-const enqueueModal = async (job: ModalJob) => {
-  modalQueue.push(job);
-  if (modalShowing) return;
-  modalShowing = true;
-  while (modalQueue.length > 0) {
-    const current = modalQueue.shift()!;
-    await showAlert(current.message, current.title, !!current.danger);
-  }
-  modalShowing = false;
-};
-
-// 2. Geo 通知聚合：连续单点更新时，合并为一个通知
-type GeoNotice = {
-  key: string;
-  status: 'success' | 'error';
-  error?: string;
-};
-const geoKeys = ["geoip", "geosite", "mmdb", "asn"];
-const geoNameMap: Record<string, string> = {
-  geoip: 'GeoIP',
-  geosite: 'GeoSite',
-  mmdb: 'MMDB',
-  asn: 'ASN',
-};
-const pendingGeoNotices: GeoNotice[] = [];
-let geoNoticeTimer: number | undefined;
-
-const pushGeoNotice = (notice: GeoNotice) => {
-  pendingGeoNotices.push(notice);
-  if (geoNoticeTimer) window.clearTimeout(geoNoticeTimer);
-  geoNoticeTimer = window.setTimeout(() => {
-    flushGeoNotices();
-  }, 350);
-};
-
-const flushGeoNotices = () => {
-  geoNoticeTimer = undefined;
-  const notices = pendingGeoNotices.splice(0);
-  if (!notices.length) return;
-
-  const errors = notices.filter(n => n.status === 'error');
-  const successes = notices.filter(n => n.status === 'success');
-
-  if (errors.length > 0) {
-    const message = errors
-      .map(n => `${geoNameMap[n.key] || n.key}: ${n.error || '更新失败'}`)
-      .join('\n');
-    void enqueueModal({ title: '数据库更新失败', message, danger: true });
-    return;
-  }
-
-  if (successes.length > 0) {
-    const names = successes.map(n => geoNameMap[n.key] || n.key).join('、');
-    void enqueueModal({ title: '通知', message: `${names} 更新完成。`, danger: false });
-  }
-};
-
-// 3. 文件信息刷新去抖
-let componentInfoRefreshTimer: number | undefined;
-let componentInfoRefreshing = false;
-let componentInfoRefreshPending = false;
-
-const queueComponentInfoRefresh = () => {
-  if (componentInfoRefreshTimer) window.clearTimeout(componentInfoRefreshTimer);
-  componentInfoRefreshTimer = window.setTimeout(() => {
-    void refreshComponentInfoSafely();
-  }, 200);
-};
-
-const refreshComponentInfoSafely = async () => {
-  if (componentInfoRefreshing) {
-    componentInfoRefreshPending = true;
-    return;
-  }
-  componentInfoRefreshing = true;
-  try {
-    await refreshComponentInfo();
-  } finally {
-    componentInfoRefreshing = false;
-    if (componentInfoRefreshPending) {
-      componentInfoRefreshPending = false;
-      queueComponentInfoRefresh();
-    }
-  }
-};
-
-const syncGeoActiveState = (active: string[] = []) => {
-  const activeSet = new Set(active || []);
-  geoKeys.forEach((key) => {
-    updatingDbs.value[key] = activeSet.has(key);
-  });
-  if (activeSet.size === 0) {
-    updatingAllDbs.value = false;
-  }
-};
-
-const refreshGeoActiveState = async () => {
-  try {
-    const active = await (API as any).GetActiveGeoUpdates();
-    syncGeoActiveState(active || []);
-  } catch {
-    syncGeoActiveState([]);
-  }
-};
 
 const handleCheckUpdate = async () => {
   if (globalState.appUpdateChecking) return;
@@ -1448,13 +1356,13 @@ const confirmRestore = async () => {
 };
 
 const handleUpdateCore = async () => {
-  if (checkingCoreUpdate.value || updatingCore.value) return;
+  if (globalState.componentUpdate.checkingCoreUpdate || globalState.componentUpdate.updatingCore) return;
   (API as any).CheckCoreUpdateAsync();
 };
 
 const executeCoreUpdate = () => {
   showCoreUpdateConfirm.value = false;
-  if (updatingCore.value) return;
+  if (globalState.componentUpdate.updatingCore) return;
   (API as any).UpdateCoreComponentAsync();
 };
 
@@ -1611,191 +1519,55 @@ const loadData = async () => {
 onMounted(() => { 
   loadData(); 
 
-  // 🌟 3. 监听手动触发的 Geo 数据库更新事件
-  geoKeys.forEach((key) => {
-    EventsOn(`geo-update-${key}-start`, () => {
-      updatingDbs.value[key] = true;
-    });
-
-    EventsOn(`geo-update-${key}-success`, () => {
-      updatingDbs.value[key] = false;
-      queueComponentInfoRefresh();
-      if (updatingAllDbs.value) return;
-      pushGeoNotice({ key, status: 'success' });
-    });
-
-    EventsOn(`geo-update-${key}-error`, (err: string) => {
-      updatingDbs.value[key] = false;
-      queueComponentInfoRefresh();
-      if (updatingAllDbs.value) {
-        console.warn(`[GeoUpdate] ${key} failed during bulk update:`, err);
-        return;
-      }
-      pushGeoNotice({ key, status: 'error', error: formatUpdateError(err) });
-    });
-
-    EventsOn(`geo-update-${key}-cancelled`, () => {
-      updatingDbs.value[key] = false;
-      queueComponentInfoRefresh();
-    });
-
-    EventsOn(`geo-update-${key}-busy`, () => {
-      // 已在更新中，静默即可
-    });
+  EventsOn("core-version-updated", (payload: any) => {
+    coreVersion.value = payload?.version || coreVersion.value;
+    void showAlert(`内核更新成功，当前版本: ${coreVersion.value}`, "更新成功");
   });
 
-  // 🌟 4. 监听“更新全部”聚合任务
-  EventsOn("geo-update-all-start", () => {
-    updatingAllDbs.value = true;
-    geoKeys.forEach(k => updatingDbs.value[k] = true);
+  EventsOn("core-update-none", () => {
+    void showAlert("当前已是最新版本，无需更新。", "检查更新");
   });
 
-  EventsOn("geo-update-all-success", () => {
-    updatingAllDbs.value = false;
-    geoKeys.forEach(k => updatingDbs.value[k] = false);
-    queueComponentInfoRefresh();
-    void enqueueModal({ title: '通知', message: '全部路由规则数据库更新完成。', danger: false });
-  });
-
-  EventsOn("geo-update-all-error", (err: string) => {
-    updatingAllDbs.value = false;
-    geoKeys.forEach(k => updatingDbs.value[k] = false);
-    queueComponentInfoRefresh();
-    void enqueueModal({
-      title: '错误',
-      message: '部分数据库更新失败，已保留原有文件：' + formatUpdateError(err),
-      danger: true
-    });
-  });
-
-  EventsOn("geo-update-all-cancelled", () => {
-    updatingAllDbs.value = false;
-    geoKeys.forEach(k => updatingDbs.value[k] = false);
-    queueComponentInfoRefresh();
-  });
-
-  // 🌟 5. 后端状态兜底同步：确保 UI 状态始终与后端一致
-  EventsOn("geo-update-active-sync", (active: string[]) => {
-    const activeSet = new Set(active || []);
-    geoKeys.forEach((key) => {
-      updatingDbs.value[key] = activeSet.has(key);
-    });
-    if (activeSet.size === 0) {
-      updatingAllDbs.value = false;
-    }
-  });
-
-  // 监听 Core 检查更新事件
-  EventsOn("core-update-check-start", () => { checkingCoreUpdate.value = true; });
-  EventsOn("core-update-check-error", (err: string) => {
-    checkingCoreUpdate.value = false;
-    void enqueueModal({ title: '错误', message: '检查内核更新失败: ' + formatUpdateError(err), danger: true });
-  });
-  EventsOn("core-update-none", (data: any) => {
-    checkingCoreUpdate.value = false;
-    pendingCoreUpdate.value = false;
-    coreUpdateInfo.value = {
-      local: data?.local || '',
-      remote: data?.remote || '',
-      releaseUrl: ''
-    };
-    void enqueueModal({ title: '检查更新', message: `内核已是最新版本 (${data?.local || ''})。`, danger: false });
-  });
-  EventsOn("core-update-available", (data: any) => {
-    checkingCoreUpdate.value = false;
-    pendingCoreUpdate.value = true;
-    coreUpdateInfo.value = {
-      local: data.local || '',
-      remote: data.remote || '',
-      releaseUrl: data.releaseUrl || ''
-    };
-    // 依然保留模态框作为强提醒，也可以选择只改按钮文字
+  EventsOn("core-update-available", () => {
     showCoreUpdateConfirm.value = true;
   });
 
-  // 监听 Core 更新事件 (对应 backend: "core-update")
-  EventsOn("core-update-start", () => { updatingCore.value = true; });
-  EventsOn("core-version-updated", (payload: any) => {
-    coreVersion.value = payload?.version || coreVersion.value;
-  });
-  EventsOn("core-update-success", () => {
-    updatingCore.value = false;
-    pendingCoreUpdate.value = false;
-    queueComponentInfoRefresh();
-    void enqueueModal({ title: '通知', message: 'Mihomo 内核更新完成。', danger: false });
-  });
-  EventsOn("core-update-error", (err: string) => {
-    updatingCore.value = false;
-    pendingCoreUpdate.value = false;
-    queueComponentInfoRefresh();
-    void enqueueModal({ title: '错误', message: 'Mihomo 内核更新失败: ' + formatUpdateError(err), danger: true });
-  });
-  EventsOn("core-update-cancelled", () => {
-    updatingCore.value = false;
-  });
-
-  // 监听 Tun 驱动安装事件 (对应 backend: "driver-install")
-  EventsOn("driver-install-start", () => { 
-    isInstalling.value = true;
-  });
   EventsOn("wintun-version-updated", (payload: any) => {
     wintunVersion.value = payload?.version || wintunVersion.value;
   });
-  EventsOn("driver-install-success", async () => {
-    isInstalling.value = false;
-    const status = await API.CheckTunEnv();
-    tunStatus.value = status as any;
-    queueComponentInfoRefresh();
-    void enqueueModal({ title: '通知', message: 'Wintun 驱动安装完成。', danger: false });
-  });
-  EventsOn("driver-install-error", (err: string) => {
-    isInstalling.value = false;
-    queueComponentInfoRefresh();
-    void enqueueModal({ title: '错误', message: 'Wintun 驱动安装失败: ' + formatUpdateError(err), danger: true });
-  });
-  EventsOn("driver-install-cancelled", () => {
-    isInstalling.value = false;
-  });
   EventsOn("app-update-busy", () => {
     globalState.appUpdateChecking = false;
-    void enqueueModal({
-      title: "提示",
-      message: "已有软件更新任务正在进行，请稍后再试。",
-      danger: false,
-    });
+    void showAlert("已有软件更新任务正在进行，请稍后再试。", "提示");
+  });
+
+  ['geoip', 'geosite', 'mmdb', 'asn'].forEach(key => {
+    EventsOn(`geo-update-${key}-success`, refreshComponentInfo);
+  });
+
+  EventsOn("driver-install-start", () => {
+    isInstalling.value = true;
+  });
+  EventsOn("driver-install-success", () => {
+    isInstalling.value = false;
+    refreshComponentInfo(); // To update wintun version immediately if needed, or rely on wintun-version-updated
+  });
+  EventsOn("driver-install-error", () => {
+    isInstalling.value = false;
   });
 });
 
 onUnmounted(() => {
-  geoKeys.forEach(t => {
-    EventsOff(`geo-update-${t}-start`);
-    EventsOff(`geo-update-${t}-success`);
-    EventsOff(`geo-update-${t}-error`);
-    EventsOff(`geo-update-${t}-cancelled`);
-    EventsOff(`geo-update-${t}-busy`);
-  });
-  EventsOff("geo-update-all-start");
-  EventsOff("geo-update-all-success");
-  EventsOff("geo-update-all-error");
-  EventsOff("geo-update-all-cancelled");
-  EventsOff("geo-update-active-sync");
-
-  EventsOff("core-update-check-start");
-  EventsOff("core-update-check-error");
+  EventsOff("core-version-updated");
   EventsOff("core-update-none");
   EventsOff("core-update-available");
-  EventsOff("core-update-start");
-  EventsOff("core-version-updated");
-  EventsOff("core-update-success");
-  EventsOff("core-update-error");
-  EventsOff("core-update-cancelled");
-
-  EventsOff("driver-install-start");
   EventsOff("wintun-version-updated");
+  EventsOff("app-update-busy");
+  ['geoip', 'geosite', 'mmdb', 'asn'].forEach(key => {
+    EventsOff(`geo-update-${key}-success`);
+  });
+  EventsOff("driver-install-start");
   EventsOff("driver-install-success");
   EventsOff("driver-install-error");
-  EventsOff("driver-install-cancelled");
-  EventsOff("app-update-busy");
 });
 
 const handleTunToggle = async (e: Event) => {
@@ -1820,12 +1592,18 @@ const handleTunToggle = async (e: Event) => {
 
 const installDriver = async (force: boolean = true) => {
   if (isInstalling.value) return;
+  const ok = await showConfirm(
+    "安装过程中，应用网络将会短暂断开。如果正在使用 TUN 模式，系统将自动重启代理内核。",
+    "确定要重新安装 Wintun 驱动吗？",
+    false
+  );
+  if (!ok) return;
+
   (API as any).InstallTunDriverAsync(force);
 };
 watch(view, async (v) => {
   if (v === 'update') {
-    await refreshComponentInfoSafely();
-    await refreshGeoActiveState();
+    await refreshComponentInfo();
   }
 });
 
@@ -1846,6 +1624,31 @@ watch(() => behavior.value.updateInterval, async (newVal) => {
 
 const saveTun = async () => {
   try { await API.SaveTunConfig(tunConfig.value); } catch (e) { console.error('保存失败', e); }
+};
+
+const appUpdatePercent = computed(() => {
+  const p = globalState.appUpdateProgress;
+  if (!p || !p.totalBytes) return 0;
+  return Math.min(100, Math.floor((p.bytesDone / p.totalBytes) * 100));
+});
+
+const formatBytes = (bytes: number) => {
+  if (!bytes) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
+const formatSpeed = (bps: number) => {
+  if (!bps) return '0 B/s';
+  return formatBytes(bps) + '/s';
+};
+
+const formatTime = (seconds: number) => {
+  if (!seconds || seconds < 0) return '--';
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 };
 
 const updateTunDnsHijack = (e: Event) => {
@@ -1890,50 +1693,18 @@ const saveDbLink = async () => {
 };
 
 const handleUpdateDb = async (key: string) => {
-  if (updatingDbs.value[key]) {
-    await refreshGeoActiveState();
-    if (updatingDbs.value[key]) return;
-  }
-
-  // 乐观置位，确保 UI 响应
-  updatingDbs.value[key] = true;
-
   try {
     await (API as any).UpdateGeoDatabaseAsync(key);
   } catch (e) {
-    updatingDbs.value[key] = false;
-    void enqueueModal({
-      title: '错误',
-      message: `${geoNameMap[key] || key} 更新启动失败：${formatUpdateError(e)}`,
-      danger: true,
-    });
+    void showAlert(`${key} 更新启动失败：${formatUpdateError(e)}`, '错误', true);
   }
 };
 
 const handleUpdateAllDbs = async () => {
-  if (updatingAllDbs.value) {
-    await refreshGeoActiveState();
-    if (updatingAllDbs.value) return;
-  }
-
-  updatingAllDbs.value = true;
-  geoKeys.forEach((key) => {
-    updatingDbs.value[key] = true;
-  });
-
   try {
     await API.UpdateAllGeoDatabasesAsync();
   } catch (e) {
-    updatingAllDbs.value = false;
-    geoKeys.forEach((key) => {
-      updatingDbs.value[key] = false;
-    });
-
-    void enqueueModal({
-      title: '错误',
-      message: '全部更新启动失败：' + formatUpdateError(e),
-      danger: true,
-    });
+    void showAlert(`更新启动失败：${formatUpdateError(e)}`, '错误', true);
   }
 };
 
@@ -2454,5 +2225,50 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+.app-update-progress-container {
+  flex: 1;
+  max-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--surface-hover);
+  padding: 10px 14px;
+  border-radius: 8px;
+}
+
+.progress-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.divider-dot {
+  color: var(--text-muted);
+  font-weight: bold;
+}
+
+.progress-bar-wrap {
+  width: 100%;
+  height: 6px;
+  background: var(--surface-panel);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.progress-size {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 </style>

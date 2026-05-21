@@ -5,7 +5,7 @@ package downloader
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+
 	"fmt"
 	"io"
 	"net/url"
@@ -38,26 +38,7 @@ func metaPath(tmpPath string) string {
 	return tmpPath + ".meta.json"
 }
 
-func readResumeMeta(path string) (resumeMeta, bool) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return resumeMeta{}, false
-	}
 
-	var meta resumeMeta
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return resumeMeta{}, false
-	}
-	return meta, true
-}
-
-func writeResumeMeta(path string, meta resumeMeta) error {
-	data, err := json.MarshalIndent(meta, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0644)
-}
 
 func ReplaceFile(tmpPath, destPath string) error {
 	backupPath := destPath + ".bak"

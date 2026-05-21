@@ -61,6 +61,7 @@ type Controller struct {
 	pendingAppUpdateInfo    *downloader.AppUpdateInfo
 
 	GeoUpdates *GeoUpdateManager
+	UpdateTasks *ComponentUpdateTaskStore
 
 	pendingCoreUpdateAssetURL string
 	pendingCoreUpdateVersion  string
@@ -128,7 +129,8 @@ func NewController(opts Options) *Controller {
 	c.proxyState = NewProxyStateMonitor(opts.Events)
 	c.connections = NewConnectionMonitorManager(opts.Events)
 
-	c.GeoUpdates = NewGeoUpdateManager(opts.Events, c.updateGeoDatabase)
+	c.UpdateTasks = NewComponentUpdateTaskStore(opts.Events)
+	c.GeoUpdates = NewGeoUpdateManager(opts.Events, c.updateGeoDatabase, c.UpdateTasks)
 
 	return c
 }

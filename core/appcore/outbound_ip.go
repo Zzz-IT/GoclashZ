@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"goclashz/core/clash"
+	"goclashz/core/logger"
 	"io"
 	"net"
 	"net/http"
@@ -40,6 +41,25 @@ var ipv4Endpoints = []string{
 func (c *Controller) GetOutboundIP() (OutboundIPResult, error) {
 	state := c.GetAppState()
 	proxyActive := state.SystemProxy || state.Tun
+
+	if proxyActive && !clash.IsRunning() {
+		proxyActive = false
+	}
+
+	if proxyActive {
+		port := clash.GetProxyPort()
+		if port > 0 {
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond)
+			if err != nil {
+				proxyActive = false
+			} else {
+				conn.Close()
+			}
+		} else {
+			proxyActive = false
+		}
+	}
+
 	mode := "direct"
 	if proxyActive {
 		mode = "proxy"
@@ -89,6 +109,16 @@ func (c *Controller) GetOutboundIP() (OutboundIPResult, error) {
 		if ipv6Res.err != nil {
 			result.Message = fmt.Sprintf("IPv6: %v; IPv4: %v", ipv6Res.err, ipv4Res.err)
 		}
+		
+		entry := logger.LogEntry{
+			Type:    "error",
+			Payload: "出站 IP 检测失败: " + result.Message,
+			Time:    time.Now().Format("15:04:05"),
+		}
+		logger.AppLogs.Add(entry)
+		if c.events != nil {
+			c.events.Emit(EventLogMessage, entry)
+		}
 	}
 
 	return result, nil
@@ -110,7 +140,7 @@ func detectIP(ctx context.Context, endpoints []string, network string, useProxy 
 				ch <- epResult{err: err}
 				return
 			}
-			
+
 			ip = strings.TrimSpace(ip)
 			parsed := net.ParseIP(ip)
 			if parsed == nil {

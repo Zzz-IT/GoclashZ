@@ -10,7 +10,6 @@ import (
 	"goclashz/core/utils"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 type appUpdateDownloadStrategy int
@@ -20,7 +19,7 @@ const (
 	appUpdateCurrentProxyOnly
 )
 
-func (c *Controller) updateGeoDatabase(ctx context.Context, key string) error {
+func (c *Controller) updateGeoDatabase(ctx context.Context, key string, onProgress func(bytesDone, totalBytes, speedBps, etaSec int64)) error {
 	var url string
 	behavior := c.Behavior.Get()
 
@@ -41,7 +40,7 @@ func (c *Controller) updateGeoDatabase(ctx context.Context, key string) error {
 		return fmt.Errorf("下载链接未配置")
 	}
 
-	return clash.UpdateGeoDB(ctx, key, url, resolveLocalProxyURL())
+	return clash.UpdateGeoDB(ctx, key, url, c.getDynamicStrategy, onProgress)
 }
 
 func (c *Controller) UpdateGeoDatabaseAsync(ctx context.Context, key string) {
@@ -74,14 +73,14 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 			if cachedURL != "" {
 				assetURL = cachedURL
 			} else {
-				_, discoveredURL, _, err := clash.CheckLatestCore(ctx, resolveLocalProxyURL())
+				_, discoveredURL, _, err := clash.CheckLatestCore(ctx, c.getDynamicStrategy)
 				if err != nil {
 					return nil, err
 				}
 				assetURL = discoveredURL
 			}
 
-			return clash.PrepareCoreUpdate(ctx, assetURL, resolveLocalProxyURL())
+			return clash.PrepareCoreUpdate(ctx, assetURL, c.getDynamicStrategy)
 		},
 		Commit: func(ctx context.Context, prepared map[string]string) (map[string]string, error) {
 			version, err := clash.CommitCoreUpdate(ctx, prepared)
@@ -114,7 +113,7 @@ func (c *Controller) CheckCoreUpdateAsync(ctx context.Context) {
 	c.Tasks.Run(ctx, "core-update-check", true, func(ctx context.Context) error {
 		local := clash.GetLocalCoreVersion(ctx)
 
-		remote, assetURL, releaseURL, err := clash.CheckLatestCore(ctx, resolveLocalProxyURL())
+		remote, assetURL, releaseURL, err := clash.CheckLatestCore(ctx, c.getDynamicStrategy)
 		if err != nil {
 			return err
 		}
@@ -159,7 +158,7 @@ func (c *Controller) InstallTunDriverAsync(ctx context.Context) {
 		StopCore:    true,
 		RestartCore: true,
 		Prepare: func(ctx context.Context) (map[string]string, error) {
-			return clash.PrepareWintunRuntime(ctx, resolveLocalProxyURL())
+			return clash.PrepareWintunRuntime(ctx, c.getDynamicStrategy)
 		},
 		Commit: func(ctx context.Context, prepared map[string]string) (map[string]string, error) {
 			version, err := clash.CommitWintunRuntime(ctx, prepared)
@@ -286,46 +285,19 @@ func (c *Controller) downloadAppUpdateWithInfo(ctx context.Context, info *downlo
 
 	destDir := filepath.Join(utils.GetDataDir(), "updates")
 
-	// 🚀 自适应策略选择
-	strategy := c.getAppUpdateDownloadStrategy()
-
-	switch strategy {
-	case appUpdateCurrentProxyOnly:
-		fmt.Println("检测到系统代理/TUN 已开启，进入自适应模式：代理优先下载")
-		return c.downloadAppUpdateViaCurrentProxy(ctx, info, destDir)
-	default:
-		fmt.Println("检测到代理/TUN 未开启，进入自适应模式：直连优先，代理兜底")
-		return c.downloadAppUpdateDirectThenProxy(ctx, info, destDir)
-	}
-}
-
-func (c *Controller) getAppUpdateDownloadStrategy() appUpdateDownloadStrategy {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	// 如果用户已经手动开启了系统代理或 TUN，说明用户当前网络意图是走代理
-	if c.sysProxyActive || c.tunActive {
-		return appUpdateCurrentProxyOnly
+	onProgress := func(bytesDone, totalBytes, speedBps, etaSec int64) {
+		c.events.Emit("app-update-progress", map[string]interface{}{
+			"bytesDone":  bytesDone,
+			"totalBytes": totalBytes,
+			"speedBps":   speedBps,
+			"etaSec":     etaSec,
+		})
 	}
 
-	return appUpdateDirectThenProxy
-}
-
-func (c *Controller) downloadAppUpdateViaCurrentProxy(
-	ctx context.Context,
-	info *downloader.AppUpdateInfo,
-	destDir string,
-) error {
-	proxyURL := c.currentAppUpdateProxyURL(ctx)
-	if proxyURL == "" {
-		err := fmt.Errorf("当前代理不可用")
-		c.events.Emit("app-update-error", "下载软件更新失败：当前代理不可用，请检查内核或切换节点后重试。")
-		return err
-	}
-
-	path, err := downloader.DownloadAppUpdate(ctx, info, destDir, proxyURL, c.appUpdateBandwidthLimit)
+	// 🚀 这里只调用一次，底层的 DownloadLargeAssetAtomic 会通过 Strategy() 回调动态感知代理切换并自动进行内部无感断点续传！
+	path, err := downloader.DownloadAppUpdate(ctx, info, destDir, onProgress, c.getDynamicStrategy)
 	if err != nil {
-		fmt.Printf("软件下载代理下载失败: %v\n", err)
+		fmt.Printf("软件更新下载失败: %v\n", err)
 		c.events.Emit("app-update-error", userFacingAppUpdateDownloadError(err))
 		return err
 	}
@@ -338,81 +310,19 @@ func (c *Controller) downloadAppUpdateViaCurrentProxy(
 	return nil
 }
 
-func (c *Controller) downloadAppUpdateDirectThenProxy(
-	ctx context.Context,
-	info *downloader.AppUpdateInfo,
-	destDir string,
-) error {
-	// 第一轮：直连
-	path, err := downloader.DownloadAppUpdate(ctx, info, destDir, "", c.appUpdateBandwidthLimit)
-	if err == nil {
-		c.SetDownloadedAppUpdate(path, info.Version)
-		c.events.Emit("app-update-downloaded", map[string]string{
-			"version": info.Version,
-			"path":    path,
-		})
-		return nil
+func (c *Controller) getDynamicStrategy() downloader.DownloadStrategy {
+	c.mu.RLock()
+	preferProxy := c.sysProxyActive || c.tunActive
+	c.mu.RUnlock()
+
+	// 注意：resolveLocalProxyURL() 只是获取格式化字符串，它不启动内核。
+	// 如果用户当前没有开启代理（preferProxy 为 false），且直连失败了，
+	// 下载机将会尝试走代理兜底。如果此时内核未启动，代理请求也会迅速失败（connection refused）。
+	// 这是合理的行为，因为我们不希望在用户完全没有开启代理时偷偷在后台启动内核耗电。
+	return downloader.DownloadStrategy{
+		ProxyURL:    resolveLocalProxyURL(),
+		PreferProxy: preferProxy,
 	}
-
-	fmt.Printf("软件更新直连下载失败，准备尝试本地代理兜底: %v\n", err)
-
-	// 第二轮：代理兜底
-	proxyURL := c.currentAppUpdateProxyURL(ctx)
-	if proxyURL != "" {
-		fmt.Printf("开始使用本地代理重试下载: %s\n", proxyURL)
-		path, err = downloader.DownloadAppUpdate(ctx, info, destDir, proxyURL, c.appUpdateBandwidthLimit)
-		if err == nil {
-			c.SetDownloadedAppUpdate(path, info.Version)
-			c.events.Emit("app-update-downloaded", map[string]string{
-				"version": info.Version,
-				"path":    path,
-			})
-			return nil
-		}
-		fmt.Printf("软件更新代理重试也失败: %v\n", err)
-	}
-
-	c.events.Emit("app-update-error", userFacingAppUpdateDownloadError(err))
-	return err
-}
-
-func (c *Controller) currentAppUpdateProxyURL(ctx context.Context) string {
-	// 1. 如果当前已经有可用的代理端口，直接返回
-	if proxyURL := resolveLocalProxyURL(); proxyURL != "" {
-		return proxyURL
-	}
-
-	// 🚀 优化：只有用户已经开启代理/TUN 时，才尝试恢复/启动当前代理用于更新
-	if c.getAppUpdateDownloadStrategy() == appUpdateCurrentProxyOnly {
-		proxyCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
-		defer cancel()
-
-		c.coreLifecycleMu.Lock()
-		// 注意：这里使用 ensureCoreRunningLocked 会设置 userCoreRunning=true，
-		// 因为用户当前本身就在代理/TUN 模式，内核理应在线。
-		err := c.ensureCoreRunningLocked(proxyCtx)
-		c.coreLifecycleMu.Unlock()
-
-		if err != nil {
-			fmt.Printf("获取软件下载代理失败 (内核启动失败): %v\n", err)
-			return ""
-		}
-
-		return resolveLocalProxyURL()
-	}
-
-	// 未开启代理/TUN 时，不主动启动内核，保持直连
-	return ""
-}
-
-func (c *Controller) appUpdateBandwidthLimit() int64 {
-	if c.isAutoDelayRunning() {
-		// 🚀 测速竞争模式：将下载限速至 384 KB/s，确保测速包能挤过去
-		return 384 * 1024
-	}
-
-	// 正常后台模式：限速 2 MB/s，既保证下载速度又不至于吃满代理连接
-	return 2 * 1024 * 1024
 }
 
 func userFacingAppUpdateDownloadError(err error) string {

@@ -20,7 +20,7 @@ const wintunURL = "https://www.wintun.net/builds/wintun-0.14.1.zip"
 
 var wintunBinaryMu sync.Mutex
 
-func PrepareWintunRuntime(ctx context.Context, proxyURL string) (map[string]string, error) {
+func PrepareWintunRuntime(ctx context.Context, strategy func() downloader.DownloadStrategy) (map[string]string, error) {
 	wintunBinaryMu.Lock()
 	defer wintunBinaryMu.Unlock()
 
@@ -34,8 +34,7 @@ func PrepareWintunRuntime(ctx context.Context, proxyURL string) (map[string]stri
 	if err := downloader.DownloadLargeAssetAtomic(ctx, downloader.Options{
 		URLs:                []string{wintunURL},
 		DestPath:            zipPath,
-		ProxyURL:            proxyURL,
-		PreferProxy:         proxyURL != "",
+		Strategy:            strategy,
 		MaxBytes:            50 << 20,
 		UserAgent:           "GoclashZ-WintunUpdater",
 		AttemptsPerEndpoint: 3,

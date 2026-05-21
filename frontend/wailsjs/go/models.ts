@@ -225,6 +225,40 @@ export namespace appcore {
 	        this.message = source["message"];
 	    }
 	}
+	export class UpdateTaskState {
+	    key: string;
+	    title: string;
+	    status: string;
+	    stage: string;
+	    progress: number;
+	    bytesDone: number;
+	    bytesTotal: number;
+	    speedBps: number;
+	    etaSeconds: number;
+	    error: string;
+	    startedAt: number;
+	    finishedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateTaskState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.title = source["title"];
+	        this.status = source["status"];
+	        this.stage = source["stage"];
+	        this.progress = source["progress"];
+	        this.bytesDone = source["bytesDone"];
+	        this.bytesTotal = source["bytesTotal"];
+	        this.speedBps = source["speedBps"];
+	        this.etaSeconds = source["etaSeconds"];
+	        this.error = source["error"];
+	        this.startedAt = source["startedAt"];
+	        this.finishedAt = source["finishedAt"];
+	    }
+	}
 
 }
 

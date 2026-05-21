@@ -13,7 +13,7 @@ var defaultClient = &http.Client{
 	Timeout: 60 * time.Second,
 }
 
-func createOrderedClients(opt Options) []*http.Client {
+func createOrderedClientsFromStrategy(opt Options, strategy DownloadStrategy) []*http.Client {
 	if opt.Client != nil {
 		return []*http.Client{opt.Client}
 	}
@@ -45,17 +45,17 @@ func createOrderedClients(opt Options) []*http.Client {
 
 	var clients []*http.Client
 
-	if opt.PreferProxy && opt.ProxyURL != "" {
+	if strategy.PreferProxy && strategy.ProxyURL != "" {
 		// 代理优先模式：先尝试代理，失败后再直连
-		clients = append(clients, makeClient(opt.ProxyURL))
+		clients = append(clients, makeClient(strategy.ProxyURL))
 		clients = append(clients, makeClient(""))
 		return clients
 	}
 
 	// 默认模式：先尝试直连，失败后再尝试代理
 	clients = append(clients, makeClient(""))
-	if opt.ProxyURL != "" {
-		clients = append(clients, makeClient(opt.ProxyURL))
+	if strategy.ProxyURL != "" {
+		clients = append(clients, makeClient(strategy.ProxyURL))
 	}
 
 	return clients

@@ -82,7 +82,7 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { showAlert, globalState } from '../store';
+import { showAlert, globalState, refreshOutboundIP } from '../store';
 import { ICONS } from '../utils/icons';
 
 const localGroups = ref<any[]>([]);
@@ -182,6 +182,9 @@ const selectNode = async (groupName: string, nodeName: string) => {
     // 🚀 核心修复：以内核返回的真实 now 为准，不再本地乐观修改
     // 重新拉取一次数据确保同步
     await loadData();
+    
+    // 触发刷新出站 IP
+    setTimeout(() => refreshOutboundIP(), 1500);
   } catch (e) {
     await showAlert("切换失败: " + e, '错误');
   }

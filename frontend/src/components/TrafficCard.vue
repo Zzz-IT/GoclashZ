@@ -8,7 +8,7 @@
       <div
         class="outbound-ip"
         :title="outboundIPTitle"
-        @click="refreshOutboundIP"
+        @click="refreshOutboundIP({ force: true })"
       >
         <span class="ip-label">当前出站IP</span>
         <span class="ip-value" :class="{ detecting: globalState.ipDetecting }">
@@ -81,20 +81,38 @@ const props = defineProps<{
 const outboundIPText = computed(() => {
   if (globalState.ipDetecting) return '检测中...';
   if (!globalState.outboundIP) return '检测中...';
-  if (globalState.outboundIP.preferred) return globalState.outboundIP.preferred;
-  return '检测失败';
+  
+  const ip = globalState.outboundIP.preferred;
+  const status = (globalState.outboundIP as any).status;
+  const stale = (globalState.outboundIP as any).stale;
+  
+  if (!ip) return '检测失败';
+  
+  if (status === 'network_busy') {
+    return ip + ' (任务繁忙)';
+  } else if (status === 'proxy_starting') {
+    return ip + ' (代理启动中)';
+  } else if (status === 'stale' || stale) {
+    return '检测失败';
+  }
+  
+  return ip;
 });
 
 const outboundIPTitle = computed(() => {
   if (!globalState.outboundIP) return '';
   const r = globalState.outboundIP;
-  const lines = [
-    `模式：${r.mode === 'proxy' ? '代理检测' : '直连检测'}`,
-    `IPv6：${r.ipv6 || '不可用'}`,
-    `IPv4：${r.ipv4 || '不可用'}`,
-    `来源：${r.source || '-'}`,
-  ];
-  if (r.message) lines.push(`说明：${r.message}`);
+  const stale = (r as any).stale;
+  
+  const lines = [];
+  if (stale && r.preferred) {
+    lines.push(`上次成功检测结果：${r.preferred}`);
+  }
+  lines.push(`模式：${r.mode === 'proxy' ? '代理检测' : '直连检测'}`);
+  lines.push(`IPv6：${r.ipv6 || '不可用'}`);
+  lines.push(`IPv4：${r.ipv4 || '不可用'}`);
+  lines.push(`来源：${r.source || '-'}`);
+  
   return lines.join('\n');
 });
 
@@ -172,6 +190,11 @@ const handleReset = async () => {
   color: var(--text-main);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  vertical-align: bottom;
 }
 
 .ip-value.detecting {

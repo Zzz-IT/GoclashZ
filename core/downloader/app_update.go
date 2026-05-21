@@ -152,8 +152,8 @@ func DownloadAppUpdate(
 	ctx context.Context,
 	info *AppUpdateInfo,
 	destDir string,
-	proxyURL string,
-	bandwidthLimit func() int64,
+	onProgress func(bytesDone, totalBytes, speedBps int64, etaSec int64),
+	strategy func() DownloadStrategy,
 ) (string, error) {
 	if info == nil {
 		return "", fmt.Errorf("更新信息为空")
@@ -174,16 +174,14 @@ func DownloadAppUpdate(
 
 	destPath := filepath.Join(destDir, fileName)
 
-	// 🚀 复用原子下载机
-	err := DownloadAtomic(ctx, Options{
+	// 🚀 复用 grab/v3 下载机
+	err := DownloadLargeAssetAtomic(ctx, Options{
 		URLs:        []string{info.DownloadURL},
 		DestPath:    destPath,
 		UserAgent:   "GoclashZ-Updater",
 		MaxBytes:    300 << 20, // 限制 300MB
-		Resume:      true,
-		ProxyURL:    proxyURL,
-		PreferProxy: proxyURL != "",
-		BandwidthLimit: bandwidthLimit,
+		Strategy:    strategy,
+		OnProgress:  onProgress,
 		Validator: func(tmpPath string) error {
 			return ValidateWindowsExecutable(tmpPath)
 		},

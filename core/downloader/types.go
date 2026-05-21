@@ -6,14 +6,6 @@ import (
 	"net/http"
 )
 
-type Mode string
-
-const (
-	ModeLargeAsset Mode = "large_asset"
-	ModeResume     Mode = "resume"
-	ModeSmallFile  Mode = "small_file"
-)
-
 type Options struct {
 	URLs      []string // 🚀 竞速容灾：传入多个下载地址
 	DestPath  string
@@ -21,9 +13,10 @@ type Options struct {
 	MaxBytes  int64
 
 	Client   *http.Client
-	ProxyURL string
 
-	Mode Mode
+	Strategy func() DownloadStrategy
+
+
 
 	Resume           bool
 	VerifyGitHubSHA  bool
@@ -31,17 +24,17 @@ type Options struct {
 	InsecureSkipVerify bool                     // SSL 宽容
 
 	AttemptsPerEndpoint int
-	PreferProxy         bool
-
 	OnResponse func(resp *http.Response)  // 拦截器
 	Validator  func(tmpPath string) error // 防损屏障：替换前执行验证逻辑
 
 	BandwidthLimit func() int64 // 🚀 动态限速：返回字节/秒，<=0 表示不限速
+
+	OnProgress func(bytesDone, totalBytes, speedBps int64, etaSec int64)
 }
 
-type resumeMeta struct {
-	URL          string `json:"url"`
-	ETag         string `json:"etag"`
-	LastModified string `json:"lastModified"`
-	TotalSize    int64  `json:"totalSize"`
+type DownloadStrategy struct {
+	ProxyURL    string
+	PreferProxy bool
 }
+
+

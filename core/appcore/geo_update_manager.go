@@ -8,9 +8,10 @@ import (
 	"goclashz/core/downloader"
 	"strings"
 	"sync"
+	"time"
 )
 
-const GeoUpdateConcurrency = 4
+const GeoUpdateConcurrency = 2
 
 type GeoResult struct {
 	Key string
@@ -26,18 +27,21 @@ type GeoUpdateManager struct {
 	active    map[string]*geoJob
 	sem       chan struct{}
 	emit      EventSink
-	updateOne func(ctx context.Context, key string) error
+	updateOne func(ctx context.Context, key string, onProgress func(bytesDone, totalBytes, speedBps int64, etaSec int64)) error
+	tasks     *ComponentUpdateTaskStore
 }
 
 func NewGeoUpdateManager(
 	emit EventSink,
-	updateOne func(ctx context.Context, key string) error,
+	updateOne func(ctx context.Context, key string, onProgress func(bytesDone, totalBytes, speedBps int64, etaSec int64)) error,
+	tasks *ComponentUpdateTaskStore,
 ) *GeoUpdateManager {
 	return &GeoUpdateManager{
 		active:    make(map[string]*geoJob),
 		sem:       make(chan struct{}, GeoUpdateConcurrency),
 		emit:      emit,
 		updateOne: updateOne,
+		tasks:     tasks,
 	}
 }
 
@@ -108,6 +112,15 @@ func (m *GeoUpdateManager) emitActiveSnapshot() {
 }
 
 func (m *GeoUpdateManager) runKey(ctx context.Context, key string) GeoResult {
+	m.tasks.Set(key, UpdateTaskState{
+		Key:       key,
+		Title:     "更新 " + strings.ToUpper(key),
+		Status:    "running",
+		Stage:     "downloading",
+		StartedAt: time.Now().Unix(),
+	})
+	
+	startedAt := time.Now().Unix()
 	m.emit.Emit("geo-update-" + key + "-start")
 
 	select {
@@ -115,19 +128,52 @@ func (m *GeoUpdateManager) runKey(ctx context.Context, key string) GeoResult {
 		defer func() { <-m.sem }()
 	case <-ctx.Done():
 		result := GeoResult{Key: key, Err: ctx.Err()}
+		m.tasks.Set(key, UpdateTaskState{
+			Key:        key,
+			Title:      "更新 " + strings.ToUpper(key),
+			Status:     "cancelled",
+			Error:      ctx.Err().Error(),
+			FinishedAt: time.Now().Unix(),
+		})
 		m.emit.Emit("geo-update-" + key + "-cancelled")
 		return result
 	}
 
-	err := m.updateOne(ctx, key)
+	err := m.updateOne(ctx, key, func(bytesDone, totalBytes, speedBps int64, etaSec int64) {
+		m.tasks.Set(key, UpdateTaskState{
+			Key:        key,
+			Title:      "更新 " + strings.ToUpper(key),
+			Status:     "running",
+			Stage:      "downloading",
+			BytesDone:  bytesDone,
+			BytesTotal: totalBytes,
+			SpeedBps:   speedBps,
+			ETASeconds: etaSec,
+			StartedAt:  startedAt,
+		})
+	})
 	if err != nil {
 		err = downloader.SanitizeDownloadError(err)
 	}
 	result := GeoResult{Key: key, Err: err}
 
 	if err != nil {
+		m.tasks.Set(key, UpdateTaskState{
+			Key:        key,
+			Title:      "更新 " + strings.ToUpper(key),
+			Status:     "error",
+			Error:      err.Error(),
+			FinishedAt: time.Now().Unix(),
+		})
 		m.emit.Emit("geo-update-"+key+"-error", err.Error())
 	} else {
+		m.tasks.Set(key, UpdateTaskState{
+			Key:        key,
+			Title:      "更新 " + strings.ToUpper(key),
+			Status:     "success",
+			Progress:   1.0,
+			FinishedAt: time.Now().Unix(),
+		})
 		m.emit.Emit("geo-update-" + key + "-success")
 	}
 

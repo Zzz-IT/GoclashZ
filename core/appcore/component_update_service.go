@@ -5,6 +5,8 @@ package appcore
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"goclashz/core/clash"
 )
 
@@ -24,6 +26,15 @@ func (c *Controller) runComponentUpdateTransaction(
 	opt ComponentUpdateOptions,
 ) {
 	c.Tasks.Run(ctx, taskName, true, func(ctx context.Context) error {
+		c.events.Emit(taskName + "-start")
+		c.UpdateTasks.Set(taskName, UpdateTaskState{
+			Key:       taskName,
+			Title:     opt.Name,
+			Status:    "running",
+			Stage:     "preparing",
+			StartedAt: time.Now().Unix(),
+		})
+
 		// 1. 获取组件更新全局锁，避免多个组件同时更新
 		c.componentUpdateMu.Lock()
 		defer c.componentUpdateMu.Unlock()
@@ -32,8 +43,24 @@ func (c *Controller) runComponentUpdateTransaction(
 		prepared, err := opt.Prepare(ctx)
 		if err != nil {
 			c.SyncState()
+			c.UpdateTasks.Set(taskName, UpdateTaskState{
+				Key:        taskName,
+				Title:      opt.Name,
+				Status:     "error",
+				Error:      fmt.Sprintf("准备失败: %v", err),
+				FinishedAt: time.Now().Unix(),
+			})
+			c.events.Emit(taskName+"-error", err.Error())
 			return fmt.Errorf("%s准备失败: %w", opt.Name, err)
 		}
+
+		c.UpdateTasks.Set(taskName, UpdateTaskState{
+			Key:       taskName,
+			Title:     opt.Name,
+			Status:    "running",
+			Stage:     "committing",
+			StartedAt: time.Now().Unix(),
+		})
 
 		// 3. 获取内核生命周期锁，准备短暂停机替换文件
 		c.coreLifecycleMu.Lock()
@@ -70,6 +97,14 @@ func (c *Controller) runComponentUpdateTransaction(
 			}
 
 			c.SyncState()
+			c.UpdateTasks.Set(taskName, UpdateTaskState{
+				Key:        taskName,
+				Title:      opt.Name,
+				Status:     "error",
+				Error:      fmt.Sprintf("提交失败: %v", err),
+				FinishedAt: time.Now().Unix(),
+			})
+			c.events.Emit(taskName+"-error", err.Error())
 			return fmt.Errorf("%s失败: %w", opt.Name, err)
 		}
 
@@ -86,9 +121,26 @@ func (c *Controller) runComponentUpdateTransaction(
 
 			if err != nil {
 				c.SyncState()
+				c.UpdateTasks.Set(taskName, UpdateTaskState{
+					Key:        taskName,
+					Title:      opt.Name,
+					Status:     "error",
+					Error:      fmt.Sprintf("内核恢复失败: %v", err),
+					FinishedAt: time.Now().Unix(),
+				})
+				c.events.Emit(taskName+"-error", err.Error())
 				return fmt.Errorf("%s成功，但内核恢复启动失败: %w", opt.Name, err)
 			}
 		}
+
+		c.UpdateTasks.Set(taskName, UpdateTaskState{
+			Key:        taskName,
+			Title:      opt.Name,
+			Status:     "success",
+			Progress:   100,
+			FinishedAt: time.Now().Unix(),
+		})
+		c.events.Emit(taskName + "-success")
 
 		c.SyncState()
 		return nil

@@ -622,6 +622,20 @@ func (a *App) GetActiveGeoUpdates() []string {
 	return a.core.GetActiveGeoUpdates()
 }
 
+func (a *App) GetUpdateTaskSnapshot() []appcore.UpdateTaskState {
+	if a.core == nil || a.core.UpdateTasks == nil {
+		return nil
+	}
+	return a.core.UpdateTasks.Snapshot()
+}
+
+// ClearFinishedUpdateTasks clears completed, failed, or cancelled tasks
+func (a *App) ClearFinishedUpdateTasks() {
+	if a.core != nil && a.core.UpdateTasks != nil {
+		a.core.UpdateTasks.ClearFinished()
+	}
+}
+
 func (a *App) CheckAppUpdateAsync() {
 	a.core.CheckAppUpdateAsync(a.ctx, version.AppVersion, true)
 }

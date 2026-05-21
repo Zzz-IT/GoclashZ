@@ -10,6 +10,10 @@ node_modules/
 !/data/core/
 !/data/core/bin/
 !/data/core/bin/*
+data/core/bin/*.tmp
+data/core/bin/*.zip
+data/core/bin/*.meta.json
+
 
 # IDEs
 .idea/

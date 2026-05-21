@@ -26,6 +26,10 @@ export function CheckTunEnv() {
   return window['go']['main']['App']['CheckTunEnv']();
 }
 
+export function ClearFinishedUpdateTasks() {
+  return window['go']['main']['App']['ClearFinishedUpdateTasks']();
+}
+
 export function ClearLogs() {
   return window['go']['main']['App']['ClearLogs']();
 }
@@ -148,6 +152,10 @@ export function GetRecentLogs() {
 
 export function GetTunConfig() {
   return window['go']['main']['App']['GetTunConfig']();
+}
+
+export function GetUpdateTaskSnapshot() {
+  return window['go']['main']['App']['GetUpdateTaskSnapshot']();
 }
 
 export function GetUwpApps() {

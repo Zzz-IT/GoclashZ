@@ -19,6 +19,8 @@ export function CheckCoreUpdateAsync():Promise<void>;
 
 export function CheckTunEnv():Promise<Record<string, boolean>>;
 
+export function ClearFinishedUpdateTasks():Promise<void>;
+
 export function ClearLogs():Promise<void>;
 
 export function CloseAllConnections():Promise<void>;
@@ -80,6 +82,8 @@ export function GetProxyDelay(arg1:string,arg2:string):Promise<number>;
 export function GetRecentLogs():Promise<Array<logger.LogEntry>>;
 
 export function GetTunConfig():Promise<clash.TunConfig>;
+
+export function GetUpdateTaskSnapshot():Promise<Array<appcore.UpdateTaskState>>;
 
 export function GetUwpApps():Promise<Array<sys.UwpApp>>;
 
