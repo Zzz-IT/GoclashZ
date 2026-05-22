@@ -34,11 +34,6 @@ func lockDest(path string) func() {
 	}
 }
 
-func metaPath(tmpPath string) string {
-	return tmpPath + ".meta.json"
-}
-
-
 
 func ReplaceFile(tmpPath, destPath string) error {
 	backupPath := destPath + ".bak"

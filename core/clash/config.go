@@ -3,14 +3,12 @@
 package clash
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
-	"goclashz/core/downloader"
 	"goclashz/core/utils"
 
 	"gopkg.in/yaml.v3"
@@ -136,30 +134,6 @@ func GetOfflineData(id string) (map[string]interface{}, error) {
 		"groups":     proxiesMap, // 现在包含了所有真实节点信息
 		"groupOrder": ExtractGroupOrder(data),
 	}, nil
-}
-
-// DownloadSubscription 安全地下载远程配置并原子覆盖本地 config.yaml
-func DownloadSubscription(ctx context.Context, subUrl string, userAgent string) error {
-	configMu.Lock()
-	defer configMu.Unlock()
-
-	configPath := GetConfigPath()
-
-	// 🚀 全面接入原子防损下载器，杜绝坏文件覆盖核心配置
-	return downloader.FetchSmallFileAtomic(ctx, downloader.Options{
-		URLs:               []string{subUrl},
-		DestPath:           configPath,
-		UserAgent:          userAgent,
-		InsecureSkipVerify: true, // 🛡️ 容忍证书错误
-		Validator: func(tmpPath string) error {
-			// 🛡️ 只有通过严格 YAML 校验的文件才会被最终替换
-			data, err := os.ReadFile(tmpPath)
-			if err != nil {
-				return err
-			}
-			return StrictVerifyClashConfig(data)
-		},
-	})
 }
 
 // TunConfig 映射 yaml 中的 tun 配置块

@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type AppUpdateInfo struct {
@@ -26,16 +27,26 @@ type AppUpdateInfo struct {
 
 var strictVersionRe = regexp.MustCompile(`(?i)(?:^|[^0-9])v?(\d+\.\d+(?:\.\d+)?(?:\.\d+)?)`)
 
-func CheckAppUpdate(ctx context.Context, currentVersion string) (*AppUpdateInfo, error) {
+func CheckAppUpdate(ctx context.Context, currentVersion string, strategy func() DownloadStrategy) (*AppUpdateInfo, error) {
 	apiURL := "https://api.github.com/repos/Zzz-IT/GoclashZ/releases/latest"
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
-	req.Header.Set("User-Agent", "GoclashZ-Updater")
 
-	resp, err := defaultClient.Do(req)
-	if err != nil {
-		return nil, err
+	var clients []*http.Client
+	directClient := &http.Client{Timeout: 60 * time.Second}
+
+	if strategy != nil {
+		strat := strategy()
+		if strat.PreferProxy && strat.ProxyURL != "" {
+			clients = append(clients, NewProxyClient(strat.ProxyURL))
+			clients = append(clients, directClient)
+		} else {
+			clients = append(clients, directClient)
+			if strat.ProxyURL != "" {
+				clients = append(clients, NewProxyClient(strat.ProxyURL))
+			}
+		}
+	} else {
+		clients = append(clients, directClient)
 	}
-	defer resp.Body.Close()
 
 	var release struct {
 		TagName string `json:"tag_name"`
@@ -46,7 +57,39 @@ func CheckAppUpdate(ctx context.Context, currentVersion string) (*AppUpdateInfo,
 			BrowserDownloadURL string `json:"browser_download_url"`
 		} `json:"assets"`
 	}
-	_ = json.NewDecoder(resp.Body).Decode(&release)
+
+	var lastErr error
+	for _, client := range clients {
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+		if reqErr != nil {
+			lastErr = reqErr
+			continue
+		}
+		req.Header.Set("User-Agent", "GoclashZ-Updater")
+
+		resp, reqErr := client.Do(req)
+		if reqErr != nil {
+			lastErr = reqErr
+			continue
+		}
+
+		func() {
+			defer resp.Body.Close()
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				lastErr = fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
+				return
+			}
+			lastErr = json.NewDecoder(resp.Body).Decode(&release)
+		}()
+
+		if lastErr == nil && release.TagName != "" {
+			break
+		}
+	}
+
+	if lastErr != nil {
+		return nil, lastErr
+	}
 
 	cmp, _ := CompareAppVersion(release.TagName, currentVersion)
 	assetName, downloadURL := selectWindowsAsset(release.Assets)

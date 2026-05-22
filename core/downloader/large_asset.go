@@ -26,8 +26,15 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 
 	tmpPath := opt.DestPath + ".tmp"
 	_ = os.Remove(tmpPath)
-	metaFile := metaPath(tmpPath)
-	_ = os.Remove(metaFile)
+	_ = os.Remove(tmpPath + ".meta.json")
+
+	downloadSuccess := false
+	defer func() {
+		if !downloadSuccess {
+			_ = os.Remove(tmpPath)
+		}
+		_ = os.Remove(tmpPath + ".meta.json")
+	}()
 
 	var lastErr error
 	ua := opt.UserAgent
@@ -179,6 +186,7 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 					continue
 				}
 
+				downloadSuccess = true
 				return nil
 			}
 		}

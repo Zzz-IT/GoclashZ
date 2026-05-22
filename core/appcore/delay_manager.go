@@ -151,15 +151,6 @@ func (c *Controller) autoDelayOptions(source DelaySource) DelayTestOptions {
 	}
 }
 
-func singleDelayOptions() DelayTestOptions {
-	return DelayTestOptions{
-		Source:       DelaySourceManual,
-		SilentUI:     false,
-		ProbeTimeout: SingleDelayTimeout,
-		ProbeExtra:   SingleCtxGrace,
-		Concurrency:  1,
-	}
-}
 
 type DelayTestManager struct {
 	mu    sync.Mutex
@@ -248,30 +239,6 @@ func (m *DelayTestManager) cancelAutoBatchAndWait(ctx context.Context, maxWait t
 	}
 }
 
-func (m *DelayTestManager) waitForManualBatchNode(ctx context.Context, name string) (DelayResult, bool) {
-	m.mu.Lock()
-	// 只有手动批量测速才允许挂起等待
-	if m.state != DelayRunning || m.batchSource != DelaySourceManual {
-		m.mu.Unlock()
-		return DelayResult{}, false
-	}
-
-	if _, ok := m.batchNodes[name]; !ok {
-		m.mu.Unlock()
-		return DelayResult{}, false
-	}
-
-	ch := make(chan DelayResult, 1)
-	m.waiters[name] = append(m.waiters[name], ch)
-	m.mu.Unlock()
-
-	select {
-	case res := <-ch:
-		return res, true
-	case <-ctx.Done():
-		return DelayResult{Name: name, Delay: 0, Status: "timeout", Err: ctx.Err()}, true
-	}
-}
 
 func (m *DelayTestManager) notifyNodeResult(res DelayResult) {
 	m.mu.Lock()

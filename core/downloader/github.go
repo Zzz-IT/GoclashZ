@@ -48,11 +48,6 @@ func normalizeGitHubAssetURL(rawURL string) string {
 	return rawURL
 }
 
-func ShouldVerifyGitHubSHA(rawURL string) bool {
-	rawURL = normalizeGitHubAssetURL(rawURL)
-	return githubReleaseAssetRe.MatchString(rawURL)
-}
-
 func ResolveGitHubAssetSHA256(ctx context.Context, client *http.Client, rawURL string, userAgent string) (string, error) {
 	rawURL = normalizeGitHubAssetURL(rawURL)
 

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,16 +26,30 @@ type OutboundIPResult struct {
 	Message   string `json:"message"` // 失败原因或说明
 }
 
-var ipv6Endpoints = []string{
+var ipv6ProxyEndpoints = []string{
 	"https://api6.ipify.org",
 	"https://ipv6.icanhazip.com",
 	"https://ipv6.seeip.org",
 }
 
-var ipv4Endpoints = []string{
+var ipv4ProxyEndpoints = []string{
 	"https://api.ipify.org",
 	"https://ipv4.icanhazip.com",
 	"https://ipv4.seeip.org",
+}
+
+var ipv6DirectEndpoints = []string{
+	"https://6.ipw.cn",
+	"https://ipv6.ddnspod.com",
+	"https://api-ipv6.ip.sb/ip",
+	"https://api6.ipify.org",
+}
+
+var ipv4DirectEndpoints = []string{
+	"https://4.ipw.cn",
+	"http://ip.3322.net",
+	"https://api.ip.sb/ip",
+	"https://api.ipify.org",
 }
 
 // GetOutboundIP 检测出站 IP
@@ -65,7 +80,7 @@ func (c *Controller) GetOutboundIP() (OutboundIPResult, error) {
 		mode = "proxy"
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 
 	type ipResult struct {
@@ -74,16 +89,25 @@ func (c *Controller) GetOutboundIP() (OutboundIPResult, error) {
 		err    error
 	}
 
+	var endpointsV6, endpointsV4 []string
+	if proxyActive {
+		endpointsV6 = ipv6ProxyEndpoints
+		endpointsV4 = ipv4ProxyEndpoints
+	} else {
+		endpointsV6 = ipv6DirectEndpoints
+		endpointsV4 = ipv4DirectEndpoints
+	}
+
 	ipv6Ch := make(chan ipResult, 1)
 	ipv4Ch := make(chan ipResult, 1)
 
 	go func() {
-		ip, source, err := detectIP(ctx, ipv6Endpoints, "tcp6", proxyActive)
+		ip, source, err := detectIP(ctx, endpointsV6, "tcp6", proxyActive)
 		ipv6Ch <- ipResult{ip: ip, source: source, err: err}
 	}()
 
 	go func() {
-		ip, source, err := detectIP(ctx, ipv4Endpoints, "tcp4", proxyActive)
+		ip, source, err := detectIP(ctx, endpointsV4, "tcp4", proxyActive)
 		ipv4Ch <- ipResult{ip: ip, source: source, err: err}
 	}()
 
@@ -132,38 +156,62 @@ func detectIP(ctx context.Context, endpoints []string, network string, useProxy 
 	}
 
 	ch := make(chan epResult, len(endpoints))
+	reqCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-	for _, ep := range endpoints {
-		go func(endpoint string) {
-			ip, err := fetchIPFromEndpoint(ctx, endpoint, network, useProxy)
-			if err != nil {
-				ch <- epResult{err: err}
-				return
-			}
+	var wg sync.WaitGroup
 
-			ip = strings.TrimSpace(ip)
-			parsed := net.ParseIP(ip)
-			if parsed == nil {
-				ch <- epResult{err: fmt.Errorf("invalid IP: %s", ip)}
-				return
-			}
-			if network == "tcp4" && parsed.To4() == nil {
-				ch <- epResult{err: fmt.Errorf("expected IPv4 but got IPv6: %s", ip)}
-				return
-			}
-			if network == "tcp6" && parsed.To4() != nil {
-				ch <- epResult{err: fmt.Errorf("expected IPv6 but got IPv4: %s", ip)}
-				return
-			}
+	go func() {
+		for i, ep := range endpoints {
+			wg.Add(1)
+			go func(endpoint string) {
+				defer wg.Done()
+				
+				// 给单个请求一个合理的超时，避免无限期挂起
+				fetchCtx, fetchCancel := context.WithTimeout(reqCtx, 2500*time.Millisecond)
+				defer fetchCancel()
 
-			ch <- epResult{ip: ip, source: stripScheme(endpoint)}
-		}(ep)
-	}
+				ip, err := fetchIPFromEndpoint(fetchCtx, endpoint, network, useProxy)
+				if err != nil {
+					ch <- epResult{err: err}
+					return
+				}
+				ip = strings.TrimSpace(ip)
+				parsed := net.ParseIP(ip)
+				if parsed == nil {
+					ch <- epResult{err: fmt.Errorf("invalid IP: %s", ip)}
+					return
+				}
+				if network == "tcp4" && parsed.To4() == nil {
+					ch <- epResult{err: fmt.Errorf("expected IPv4 but got IPv6: %s", ip)}
+					return
+				}
+				if network == "tcp6" && parsed.To4() != nil {
+					ch <- epResult{err: fmt.Errorf("expected IPv6 but got IPv4: %s", ip)}
+					return
+				}
+				ch <- epResult{ip: ip, source: stripScheme(endpoint), err: nil}
+			}(ep)
+
+			if i < len(endpoints)-1 {
+				select {
+				case <-reqCtx.Done():
+					return // 如果已经拿到正确结果被 cancel，则停止继续分发后续请求
+				case <-time.After(150 * time.Millisecond):
+					// 等待 150ms 的错峰延时。如果前一个请求非常快，则不会启动后面的协程。
+				}
+			}
+		}
+
+		go func() {
+			wg.Wait()
+			close(ch)
+		}()
+	}()
 
 	var lastErr error
-	for range endpoints {
-		res := <-ch
-		if res.ip != "" {
+	for res := range ch {
+		if res.err == nil && res.ip != "" {
 			return res.ip, res.source, nil
 		}
 		if res.err != nil {

@@ -104,11 +104,7 @@ func (c *Controller) setAutoDelayRunning(active bool) {
 	c.autoDelayRunning = active
 }
 
-func (c *Controller) isAutoDelayRunning() bool {
-	c.networkMu.RLock()
-	defer c.networkMu.RUnlock()
-	return c.autoDelayRunning
-}
+
 
 func NewController(opts Options) *Controller {
 	behavior := NewBehaviorStore()
@@ -1032,24 +1028,11 @@ func (c *Controller) handleStartupWithOSChange(enable bool) {
 	}
 }
 
-func (c *Controller) SyncTrafficStream(ctx context.Context) {
-	state := c.GetAppState()
-	if state.IsRunning {
-		behavior := c.Behavior.Get()
-		c.traffic.Start(ctx, clash.APIURL("/traffic"), behavior.ProxyTrafficOnly)
-	} else {
-		c.traffic.Stop()
-	}
-}
 
 func (c *Controller) StopTrafficStream() {
 	c.traffic.Stop()
 }
 
-func (c *Controller) RestartTrafficStream(ctx context.Context) {
-	behavior := c.Behavior.Get()
-	c.traffic.Restart(ctx, clash.APIURL("/traffic"), behavior.ProxyTrafficOnly)
-}
 
 func (c *Controller) ResetTrafficTotals() {
 	c.traffic.ResetRuntimeState()
@@ -1081,9 +1064,6 @@ func (c *Controller) ClearLogs() {
 	logger.AppLogs.Clear()
 }
 
-func (c *Controller) IsLogStreaming() bool {
-	return c.logs.IsRunning()
-}
 
 func (c *Controller) GetConnections() (ConnectionsSnapshot, error) {
 	return c.connections.GetSnapshot()
@@ -1097,11 +1077,6 @@ func (c *Controller) StopConnectionMonitor() {
 	c.connections.Stop()
 }
 
-func (c *Controller) AppUpdateStatus() (bool, string) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.updateReady, c.newAppVersion
-}
 
 func (c *Controller) SetUpdateStatus(ready bool, version string) {
 	c.mu.Lock()
@@ -1122,11 +1097,6 @@ func (c *Controller) SetDownloadedAppUpdate(path, version string) {
 	}
 }
 
-func (c *Controller) GetDownloadedUpdate() (string, string) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.downloadedUpdatePath, c.downloadedUpdateVersion
-}
 
 // --- Proxy Selection & Sync ---
 

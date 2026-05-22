@@ -3,8 +3,8 @@
 package appcore
 
 import (
-	"goclashz/core/updater"
 	"goclashz/core/utils"
+	"goclashz/core/version"
 	"os"
 	"path/filepath"
 )
@@ -27,7 +27,7 @@ func CleanLegacyFiles(currentAppVersion string) {
 
 	// 如果本地存在的更新包版本已经等于当前运行的版本，则说明是旧包，清理掉
 	if cachedVer, err := os.ReadFile(updateVer); err == nil {
-		if updater.NormalizeVersion(string(cachedVer)) == updater.NormalizeVersion(currentAppVersion) {
+		if version.NormalizeVersion(string(cachedVer)) == version.NormalizeVersion(currentAppVersion) {
 			_ = os.Remove(updateExe)
 			_ = os.Remove(updateVer)
 		}

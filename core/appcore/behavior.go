@@ -94,26 +94,6 @@ func (s *BehaviorStore) SetActiveConfig(id string) error {
 	return utils.SaveSetting("behavior", &snapshot)
 }
 
-func (s *BehaviorStore) GetActiveConfig() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.cache.ActiveConfig
-}
-
-func (s *BehaviorStore) SetActiveMode(mode string) error {
-	s.mu.Lock()
-	s.cache.ActiveMode = mode
-	snapshot := s.cache
-	s.mu.Unlock()
-
-	return utils.SaveSetting("behavior", &snapshot)
-}
-
-func (s *BehaviorStore) GetActiveMode() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.cache.ActiveMode
-}
 
 func (s *BehaviorStore) Load() error {
 	defaults := s.Default()

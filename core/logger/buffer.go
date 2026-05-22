@@ -88,13 +88,6 @@ func Infof(format string, args ...any) {
 	})
 }
 
-func Warnf(format string, args ...any) {
-	AppLogs.Add(LogEntry{
-		Type:    "warning",
-		Payload: fmt.Sprintf(format, args...),
-		Time:    time.Now().Format("15:04:05"),
-	})
-}
 
 func Errorf(format string, args ...any) {
 	AppLogs.Add(LogEntry{

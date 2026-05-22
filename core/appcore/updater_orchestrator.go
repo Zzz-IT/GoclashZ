@@ -12,13 +12,6 @@ import (
 	"strings"
 )
 
-type appUpdateDownloadStrategy int
-
-const (
-	appUpdateDirectThenProxy appUpdateDownloadStrategy = iota
-	appUpdateCurrentProxyOnly
-)
-
 func (c *Controller) updateGeoDatabase(ctx context.Context, key string, onProgress func(bytesDone, totalBytes, speedBps, etaSec int64)) error {
 	var url string
 	behavior := c.Behavior.Get()
@@ -51,12 +44,6 @@ func (c *Controller) UpdateAllGeoDatabasesAsync(ctx context.Context) {
 	c.GeoUpdates.UpdateAllAsync(ctx)
 }
 
-func (c *Controller) GetActiveGeoUpdates() []string {
-	if c.GeoUpdates == nil {
-		return nil
-	}
-	return c.GeoUpdates.ActiveKeys()
-}
 
 func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 	c.runComponentUpdateTransaction(ctx, "core-update", ComponentUpdateOptions{
@@ -183,17 +170,6 @@ func (c *Controller) GetCoreVersion(ctx context.Context) string {
 	return clash.GetLocalCoreVersion(ctx)
 }
 
-func (c *Controller) ManualCheckAppUpdate(ctx context.Context) (string, error) {
-	// ⚠️ 建议废弃此入口，前端统一改用 CheckAppUpdateAsync
-	info, err := downloader.CheckAppUpdate(ctx, c.version)
-	if err != nil {
-		return "", err
-	}
-	if info.HasUpdate {
-		return info.Version, nil
-	}
-	return "", nil
-}
 
 func (c *Controller) CheckAppUpdateAsync(ctx context.Context, currentVersion string, manual bool) {
 	ok := c.Tasks.RunIfIdle(ctx, "app-update-flow", false, func(ctx context.Context) error {
@@ -201,7 +177,7 @@ func (c *Controller) CheckAppUpdateAsync(ctx context.Context, currentVersion str
 			c.events.Emit("app-update-check-start")
 		}
 
-		info, err := downloader.CheckAppUpdate(ctx, currentVersion)
+		info, err := downloader.CheckAppUpdate(ctx, currentVersion, c.getDynamicStrategy)
 		if err != nil {
 			if manual {
 				c.events.Emit("app-update-error", "检查软件更新失败: "+err.Error())

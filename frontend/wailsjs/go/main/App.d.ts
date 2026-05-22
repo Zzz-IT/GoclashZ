@@ -9,11 +9,7 @@ import {context} from '../models';
 
 export function ApplyAppUpdate(arg1:string):Promise<void>;
 
-export function AutoCheckAndDownloadAppUpdateAsync():Promise<void>;
-
 export function CheckAndDownloadAppUpdateAsync():Promise<void>;
-
-export function CheckAppUpdateAsync():Promise<void>;
 
 export function CheckCoreUpdateAsync():Promise<void>;
 
@@ -33,21 +29,13 @@ export function DoLocalImport(arg1:string,arg2:string):Promise<string>;
 
 export function DownloadPendingAppUpdateAsync():Promise<void>;
 
-export function ElevatePrivileges():Promise<void>;
-
 export function ExecuteRestore(arg1:string,arg2:string):Promise<string>;
 
 export function ExportBackup():Promise<string>;
 
 export function ExportConfig(arg1:string,arg2:boolean):Promise<void>;
 
-export function FixUWPNetwork():Promise<void>;
-
-export function FlashWindow():Promise<void>;
-
 export function FlushFakeIP():Promise<void>;
-
-export function GetActiveGeoUpdates():Promise<Array<string>>;
 
 export function GetAppBehavior():Promise<appcore.AppBehavior>;
 
@@ -83,8 +71,6 @@ export function GetRecentLogs():Promise<Array<logger.LogEntry>>;
 
 export function GetTunConfig():Promise<clash.TunConfig>;
 
-export function GetUpdateTaskSnapshot():Promise<Array<appcore.UpdateTaskState>>;
-
 export function GetUwpApps():Promise<Array<sys.UwpApp>>;
 
 export function GetWintunVersion():Promise<string>;
@@ -94,10 +80,6 @@ export function HideMainWindow():Promise<void>;
 export function InstallTunDriverAsync(arg1:boolean):Promise<void>;
 
 export function IsConfigEditable(arg1:string):Promise<boolean>;
-
-export function ManualCheckAppUpdate():Promise<string>;
-
-export function OpenConfigFile(arg1:string):Promise<void>;
 
 export function ReadConfigText(arg1:string):Promise<clash.ConfigTextResult>;
 
@@ -148,8 +130,6 @@ export function StartStreamingLogs():Promise<void>;
 export function StartTray(arg1:context.Context):Promise<void>;
 
 export function StopConnectionMonitor():Promise<void>;
-
-export function StopStreamingLogs():Promise<void>;
 
 export function StopTray():Promise<void>;
 

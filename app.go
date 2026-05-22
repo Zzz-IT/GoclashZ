@@ -305,9 +305,6 @@ func (a *App) StartStreamingLogs() {
 	a.core.StartLogStream(a.ctx)
 }
 
-func (a *App) StopStreamingLogs() {
-	a.core.StopLogStream()
-}
 
 func (a *App) GetRecentLogs() []appcore.LogEntry {
 	return a.core.GetRecentLogs()
@@ -377,12 +374,6 @@ func (a *App) SaveThemePreference(isDark bool) {
 
 // --- System Tools ---
 
-func (a *App) FixUWPNetwork() error {
-	if !sys.CheckAdmin() {
-		return fmt.Errorf("admin privileges required")
-	}
-	return sys.ExemptAllUWP()
-}
 
 func (a *App) CheckTunEnv() map[string]bool {
 	return map[string]bool{
@@ -391,9 +382,6 @@ func (a *App) CheckTunEnv() map[string]bool {
 	}
 }
 
-func (a *App) ElevatePrivileges() error {
-	return sys.RequestAdmin()
-}
 
 func (a *App) InstallTunDriverAsync(_ bool) {
 	a.core.InstallTunDriverAsync(a.ctx)
@@ -457,20 +445,6 @@ func (a *App) DeleteConfig(id string) error {
 	return a.core.DeleteConfig(id)
 }
 
-func (a *App) OpenConfigFile(id string) error {
-	safeId, err := utils.SanitizeFilename(id)
-	if err != nil {
-		return err
-	}
-	path := filepath.Join(utils.GetSubscriptionsDir(), safeId+".yaml")
-	if id == "" || id == "config.yaml" {
-		path = filepath.Join(utils.GetDataDir(), "config.yaml")
-	}
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return fmt.Errorf("file not found: %s", path)
-	}
-	return sys.ShellOpen(path)
-}
 
 func (a *App) SelectLocalConfig(id string) error {
 	return a.core.SelectLocalConfig(a.ctx, id)
@@ -584,9 +558,6 @@ func (a *App) GetAppVersion() string {
 	return version.AppVersion
 }
 
-func (a *App) FlashWindow() {
-	sys.FocusMainWindowAndFlashTwiceWin32Only()
-}
 
 // --- Delay Test ---
 
@@ -618,26 +589,11 @@ func (a *App) UpdateAllGeoDatabasesAsync() {
 	a.core.UpdateAllGeoDatabasesAsync(a.ctx)
 }
 
-func (a *App) GetActiveGeoUpdates() []string {
-	return a.core.GetActiveGeoUpdates()
-}
-
-func (a *App) GetUpdateTaskSnapshot() []appcore.UpdateTaskState {
-	if a.core == nil || a.core.UpdateTasks == nil {
-		return nil
-	}
-	return a.core.UpdateTasks.Snapshot()
-}
-
 // ClearFinishedUpdateTasks clears completed, failed, or cancelled tasks
 func (a *App) ClearFinishedUpdateTasks() {
 	if a.core != nil && a.core.UpdateTasks != nil {
 		a.core.UpdateTasks.ClearFinished()
 	}
-}
-
-func (a *App) CheckAppUpdateAsync() {
-	a.core.CheckAppUpdateAsync(a.ctx, version.AppVersion, true)
 }
 
 func (a *App) DownloadPendingAppUpdateAsync() {
@@ -646,10 +602,6 @@ func (a *App) DownloadPendingAppUpdateAsync() {
 
 func (a *App) CheckAndDownloadAppUpdateAsync() {
 	a.core.CheckAppUpdateAsync(a.ctx, version.AppVersion, true)
-}
-
-func (a *App) AutoCheckAndDownloadAppUpdateAsync() {
-	a.core.CheckAppUpdateAsync(a.ctx, version.AppVersion, false)
 }
 
 func (a *App) ApplyAppUpdate(path string) error {
@@ -725,10 +677,6 @@ func removeEmptyDir(path string) error {
 		return os.Remove(path)
 	}
 	return nil
-}
-
-func (a *App) ManualCheckAppUpdate() (string, error) {
-	return a.core.ManualCheckAppUpdate(a.ctx)
 }
 
 // --- Backup ---

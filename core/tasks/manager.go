@@ -121,11 +121,3 @@ func (m *Manager) Cancel(name string) {
 	}
 }
 
-func (m *Manager) CancelAll() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for name, handle := range m.tasks {
-		handle.cancel()
-		delete(m.tasks, name)
-	}
-}

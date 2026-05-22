@@ -6,22 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
-	"strings"
 )
-
-func isTransientDownloadError(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "eof") ||
-		strings.Contains(s, "timeout") ||
-		strings.Contains(s, "tls handshake timeout") ||
-		strings.Contains(s, "connection reset") ||
-		strings.Contains(s, "connection refused") ||
-		strings.Contains(s, "unexpected eof") ||
-		strings.Contains(s, "use of closed network connection")
-}
 
 func SanitizeDownloadError(err error) error {
 	if err == nil {

@@ -329,7 +329,7 @@ onMounted(() => {
 
 .rule-card { 
   background: var(--surface); 
-  border: 1px solid var(--surface-hover); 
+  border: none; 
   border-radius: 10px; 
   padding: 14px 16px; 
   display: flex; 

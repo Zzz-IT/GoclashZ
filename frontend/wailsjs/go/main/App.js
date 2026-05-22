@@ -6,16 +6,8 @@ export function ApplyAppUpdate(arg1) {
   return window['go']['main']['App']['ApplyAppUpdate'](arg1);
 }
 
-export function AutoCheckAndDownloadAppUpdateAsync() {
-  return window['go']['main']['App']['AutoCheckAndDownloadAppUpdateAsync']();
-}
-
 export function CheckAndDownloadAppUpdateAsync() {
   return window['go']['main']['App']['CheckAndDownloadAppUpdateAsync']();
-}
-
-export function CheckAppUpdateAsync() {
-  return window['go']['main']['App']['CheckAppUpdateAsync']();
 }
 
 export function CheckCoreUpdateAsync() {
@@ -54,10 +46,6 @@ export function DownloadPendingAppUpdateAsync() {
   return window['go']['main']['App']['DownloadPendingAppUpdateAsync']();
 }
 
-export function ElevatePrivileges() {
-  return window['go']['main']['App']['ElevatePrivileges']();
-}
-
 export function ExecuteRestore(arg1, arg2) {
   return window['go']['main']['App']['ExecuteRestore'](arg1, arg2);
 }
@@ -70,20 +58,8 @@ export function ExportConfig(arg1, arg2) {
   return window['go']['main']['App']['ExportConfig'](arg1, arg2);
 }
 
-export function FixUWPNetwork() {
-  return window['go']['main']['App']['FixUWPNetwork']();
-}
-
-export function FlashWindow() {
-  return window['go']['main']['App']['FlashWindow']();
-}
-
 export function FlushFakeIP() {
   return window['go']['main']['App']['FlushFakeIP']();
-}
-
-export function GetActiveGeoUpdates() {
-  return window['go']['main']['App']['GetActiveGeoUpdates']();
 }
 
 export function GetAppBehavior() {
@@ -154,10 +130,6 @@ export function GetTunConfig() {
   return window['go']['main']['App']['GetTunConfig']();
 }
 
-export function GetUpdateTaskSnapshot() {
-  return window['go']['main']['App']['GetUpdateTaskSnapshot']();
-}
-
 export function GetUwpApps() {
   return window['go']['main']['App']['GetUwpApps']();
 }
@@ -176,14 +148,6 @@ export function InstallTunDriverAsync(arg1) {
 
 export function IsConfigEditable(arg1) {
   return window['go']['main']['App']['IsConfigEditable'](arg1);
-}
-
-export function ManualCheckAppUpdate() {
-  return window['go']['main']['App']['ManualCheckAppUpdate']();
-}
-
-export function OpenConfigFile(arg1) {
-  return window['go']['main']['App']['OpenConfigFile'](arg1);
 }
 
 export function ReadConfigText(arg1) {
@@ -284,10 +248,6 @@ export function StartTray(arg1) {
 
 export function StopConnectionMonitor() {
   return window['go']['main']['App']['StopConnectionMonitor']();
-}
-
-export function StopStreamingLogs() {
-  return window['go']['main']['App']['StopStreamingLogs']();
 }
 
 export function StopTray() {
