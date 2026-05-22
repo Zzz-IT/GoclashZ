@@ -32,4 +32,21 @@ func CleanLegacyFiles(currentAppVersion string) {
 			_ = os.Remove(updateVer)
 		}
 	}
+
+	// 遍历并清理可能由于异常退出导致的 .tmp 和 .zip 残留
+	if tmpFiles, err := filepath.Glob(filepath.Join(binDir, "*.tmp")); err == nil {
+		for _, f := range tmpFiles {
+			_ = os.Remove(f)
+		}
+	}
+	if zipFiles, err := filepath.Glob(filepath.Join(binDir, "*.zip")); err == nil {
+		for _, f := range zipFiles {
+			_ = os.Remove(f)
+		}
+	}
+	if metaFiles, err := filepath.Glob(filepath.Join(binDir, "*.meta.json")); err == nil {
+		for _, f := range metaFiles {
+			_ = os.Remove(f)
+		}
+	}
 }

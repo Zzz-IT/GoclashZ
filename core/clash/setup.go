@@ -227,6 +227,7 @@ func PrepareCoreUpdate(ctx context.Context, assetURL string, strategy func() dow
 
 	_ = os.Remove(zipPath)
 	_ = os.Remove(stagedExe)
+	defer os.Remove(zipPath)
 
 	if strings.TrimSpace(assetURL) == "" {
 		return nil, fmt.Errorf("内核下载地址为空")

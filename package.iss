@@ -49,8 +49,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: ".\build\bin\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
 ; 2. --- 🎯 核心修改 3：修正打包源路径 ---
-; 源码中内核存放在 .\core\bin，打包时我们把它塞进安装目录的 {app}\data\core\bin 下
-Source: ".\data\core\bin\*"; DestDir: "{app}\data\core\bin"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 源码中内核存放在 .\data\core\bin，打包时我们把它塞进安装目录的 {app}\data\core\bin 下
+; 排除在开发运行时产生的临时下载文件和内核缓存数据库 (如 cache.db, geoip.metadb)
+Source: ".\data\core\bin\*"; DestDir: "{app}\data\core\bin"; Excludes: "*.tmp,*.zip,*.old,*.txt,*.json,*.db,*.metadb"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

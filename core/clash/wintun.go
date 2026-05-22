@@ -30,6 +30,7 @@ func PrepareWintunRuntime(ctx context.Context, strategy func() downloader.Downlo
 
 	_ = os.Remove(zipPath)
 	_ = os.Remove(stagedDLL)
+	defer os.Remove(zipPath)
 
 	if err := downloader.DownloadLargeAssetAtomic(ctx, downloader.Options{
 		URLs:                []string{wintunURL},
