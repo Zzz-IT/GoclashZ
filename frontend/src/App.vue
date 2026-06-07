@@ -22,7 +22,10 @@
       <main class="content card-panel">
         <header class="content-header">
           <div class="content-title-row">
-            <h1>{{ activeMenuLabel }}</h1>
+            <h1>
+              {{ activeMenuLabel }}
+              <span id="title-extra-target"></span>
+            </h1>
             <span
               v-if="currentTab === 'yaml-editor'"
               class="yaml-save-status"
@@ -596,7 +599,15 @@ const resetViewScroller = () => {
   /* 绝对对称：直接使用全局变量 */
   padding: 0 var(--content-px);
 }
-.content-header h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 32px; }
+.content-header h1 { 
+  font-size: 1.5rem; 
+  font-weight: 600; 
+  letter-spacing: -0.02em; 
+  margin-bottom: 32px; 
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
 
 .view-scroller { 
   flex: 1; 

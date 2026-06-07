@@ -73,9 +73,8 @@ func (a *App) StopTray() {
 		a.trayCancel()
 	}
 
-	if a.trayReady.Load() {
-		systray.Quit()
-	}
+	defer func() { recover() }()
+	systray.Quit()
 }
 
 func (a *App) startHotkeyWorker(ctx context.Context) {
@@ -92,6 +91,7 @@ func (a *App) startHotkeyWorker(ctx context.Context) {
 
 	ret, _, _ := regHotkey.Call(0, hotkeyIDQuit, hotkeyModCtrl|hotkeyModAlt, hotkeyKeyQ)
 	if ret == 0 {
+		a.hotkeyTID.Store(0)
 		return
 	}
 
@@ -125,15 +125,14 @@ func (a *App) startHotkeyWorker(ctx context.Context) {
 }
 
 func (a *App) stopHotkey() {
-	tid := a.hotkeyTID.Load()
-	if tid == 0 {
-		return
-	}
-	a.hotkeyTID.Store(0)
+	tid := a.hotkeyTID.Swap(0)
 
 	user32 := windows.NewLazySystemDLL("user32.dll")
 	user32.NewProc("UnregisterHotKey").Call(0, hotkeyIDQuit)
-	user32.NewProc("PostThreadMessageW").Call(uintptr(tid), wmQuit, 0, 0)
+
+	if tid != 0 {
+		user32.NewProc("PostThreadMessageW").Call(uintptr(tid), wmQuit, 0, 0)
+	}
 }
 
 func (a *App) SetupSystray() {
@@ -157,6 +156,11 @@ func (a *App) SetupSystray() {
 }
 
 func (a *App) onTrayReady() {
+	if a.trayStopping.Load() {
+		systray.Quit()
+		return
+	}
+
 	systray.SetIcon(iconData)
 	systray.SetTitle("GoclashZ")
 	systray.SetTooltip("GoclashZ - Mihomo GUI")
@@ -192,7 +196,11 @@ func (a *App) onTrayReady() {
 	a.trayMu.Unlock()
 
 	a.trayReady.Store(true)
-	a.trayStopping.Store(false)
+
+	if a.trayStopping.Load() {
+		systray.Quit()
+		return
+	}
 
 	mShow.Click(func() {
 		go a.safeShowMainWindow()
@@ -276,10 +284,8 @@ func (a *App) handleTrayAction(ctx context.Context, action trayAction) {
 			a.notifyTrayError(fmt.Sprintf("托盘操作 %s 异常: %v", action.name, r))
 		}
 
-		if !a.trayStopping.Load() {
-			a.setTrayBusy(false)
-			a.SyncTrayState()
-		}
+		a.setTrayBusy(false)
+		a.SyncTrayState()
 	}()
 
 	a.setTrayBusy(true)
@@ -304,7 +310,23 @@ func (a *App) runTrayActionSafely(parent context.Context, action trayAction) (er
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
-	return action.run(ctx)
+	errCh := make(chan error, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errCh <- fmt.Errorf("panic: %v", r)
+			}
+		}()
+		errCh <- action.run(ctx)
+	}()
+
+	select {
+	case <-ctx.Done():
+		go func() { <-errCh }()
+		return fmt.Errorf("托盘操作 %s 超时", action.name)
+	case err := <-errCh:
+		return err
+	}
 }
 
 func (a *App) trayRenderWorker(ctx context.Context) {

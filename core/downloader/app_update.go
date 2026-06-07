@@ -30,23 +30,7 @@ var strictVersionRe = regexp.MustCompile(`(?i)(?:^|[^0-9])v?(\d+\.\d+(?:\.\d+)?(
 func CheckAppUpdate(ctx context.Context, currentVersion string, strategy func() DownloadStrategy) (*AppUpdateInfo, error) {
 	apiURL := "https://api.github.com/repos/Zzz-IT/GoclashZ/releases/latest"
 
-	var clients []*http.Client
-	directClient := &http.Client{Timeout: 60 * time.Second}
-
-	if strategy != nil {
-		strat := strategy()
-		if strat.PreferProxy && strat.ProxyURL != "" {
-			clients = append(clients, NewProxyClient(strat.ProxyURL))
-			clients = append(clients, directClient)
-		} else {
-			clients = append(clients, directClient)
-			if strat.ProxyURL != "" {
-				clients = append(clients, NewProxyClient(strat.ProxyURL))
-			}
-		}
-	} else {
-		clients = append(clients, directClient)
-	}
+	clients := BuildOrderedClients(strategy, 60*time.Second)
 
 	var release struct {
 		TagName string `json:"tag_name"`

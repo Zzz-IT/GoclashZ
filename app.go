@@ -113,8 +113,9 @@ func NewApp() *App {
 
 	sink := &WailsEventSink{}
 	core := appcore.NewController(appcore.Options{
-		Events:  sink,
-		Version: version.AppVersion,
+		Events:        sink,
+		Version:       version.AppVersion,
+		OnStateChange: a.SyncTrayState,
 	})
 	a.core = core
 
@@ -162,9 +163,8 @@ func (a *App) GetAppState() AppState {
 }
 
 func (a *App) SyncState() {
-	// 内部会发送 app-state-sync 并且自动启停 traffic stream
+	// 内部会发送 app-state-sync、自动启停 traffic stream，以及通过 OnStateChange 同步托盘
 	a.core.SyncState()
-	a.SyncTrayState()
 }
 
 func (a *App) GetInitialData() (map[string]interface{}, error) {

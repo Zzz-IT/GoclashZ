@@ -27,11 +27,15 @@ type AutoDelayRefreshOptions struct {
 type Options struct {
 	Events  EventSink
 	Version string
+
+	// OnStateChange 在每次 SyncState() 时回调，用于 App 层同步托盘等外部 UI
+	OnStateChange func()
 }
 
 type Controller struct {
-	events   EventSink
-	Behavior *BehaviorStore
+	events        EventSink
+	onStateChange func()
+	Behavior      *BehaviorStore
 	Offline  *OfflineNodeStore
 	Tasks    *tasks.Manager
 	version  string
@@ -111,11 +115,12 @@ func NewController(opts Options) *Controller {
 	activeConfig := behavior.Get().ActiveConfig
 
 	c := &Controller{
-		events:   opts.Events,
-		version:  opts.Version,
-		Behavior: behavior,
-		Offline:  NewOfflineNodeStore(activeConfig),
-		Tasks:    tasks.NewManager(opts.Events),
+		events:        opts.Events,
+		onStateChange: opts.OnStateChange,
+		version:       opts.Version,
+		Behavior:      behavior,
+		Offline:       NewOfflineNodeStore(activeConfig),
+		Tasks:         tasks.NewManager(opts.Events),
 	}
 	c.traffic = NewTrafficStreamManager(opts.Events, func() string {
 		return c.Behavior.Get().LogLevel
@@ -250,6 +255,10 @@ func (c *Controller) GetAppState() AppState {
 func (c *Controller) SyncState() {
 	state := c.GetAppState()
 	c.events.Emit("app-state-sync", state)
+
+	if c.onStateChange != nil {
+		c.onStateChange()
+	}
 
 	// 🚀 核心修复：Controller 自助管理流量流
 	if c.ctx != nil {

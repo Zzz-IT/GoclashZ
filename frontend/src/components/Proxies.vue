@@ -3,16 +3,18 @@
     <div class="proxy-toolbar page-sticky-mask">
       <div class="proxy-toolbar-card">
         <div class="proxy-tabs-viewport">
-          <div class="proxy-tabs-track">
+          <div class="proxy-tabs-track" ref="tabsTrackRef">
             <button
               v-for="group in localGroups"
               :key="group.name"
+              :ref="(el) => { if (group.name === currentGroup) activeTabEl = el as HTMLElement | null }"
               :class="['proxy-tab-btn', { active: currentGroup === group.name }]"
               @click="currentGroup = group.name"
             >
               {{ group.name }}
               <span class="count">({{ group.proxies?.length || 0 }})</span>
             </button>
+            <div class="proxy-tab-slider" :class="{ animated: sliderReady }" :style="{ ...sliderStyle, visibility: sliderVisible ? 'visible' : 'hidden' }"></div>
           </div>
         </div>
 
@@ -27,12 +29,37 @@
           </button>
         </div>
       </div>
+
+      <div v-if="activeGroupData" class="proxy-sub-toolbar">
+        <div class="sub-toolbar-actions">
+          <button class="tool-btn" :class="{ 'active': sortState === 1 }" @click="toggleSort" title="按延迟排序">
+            <span class="btn-icon" v-html="ICONS.sort"></span>
+          </button>
+          <button class="tool-btn" @click="locateActiveNode" title="定位当前节点">
+            <span class="btn-icon" v-html="ICONS.target"></span>
+          </button>
+          <button class="tool-btn" :class="{ 'active': showSearch || searchQuery }" @click="toggleSearch" title="搜索节点">
+            <span class="btn-icon" v-html="ICONS.search"></span>
+          </button>
+          <div class="search-wrapper" :class="{ 'is-active': showSearch }">
+            <input 
+              ref="searchInputRef"
+              v-model="searchQuery" 
+              type="text" 
+              class="search-input" 
+              placeholder="搜索节点..." 
+              @keyup.esc="toggleSearch"
+            />
+          </div>
+        </div>
+        <div class="sub-toolbar-spacer"></div>
+      </div>
     </div>
 
     <div class="scroll-content">
       <div v-if="activeGroupData" :key="activeGroupData.name" class="group-section">
         <div class="node-grid">
-            <div v-for="node in activeGroupData.proxies" :key="node.name"
+            <div v-for="node in filteredAndSortedNodes" :key="node.name"
                  :class="['node-item', { active: activeGroupData.now === node.name, readonly: !activeGroupData.selectable }]"
                  @click="selectNode(activeGroupData.name, node.name)">
 
@@ -79,23 +106,124 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed, watch, nextTick } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { showAlert, globalState, refreshOutboundIP } from '../store';
 import { ICONS } from '../utils/icons';
 
 const localGroups = ref<any[]>([]);
-const currentGroup = ref<string>('');
+const currentGroup = ref<string>(localStorage.getItem('goclashz_proxyGroup') || '');
 const isTesting = ref(false);
 
 const isColorMode = ref(false);
+
+const tabsTrackRef = ref<HTMLElement | null>(null);
+const activeTabEl = ref<HTMLElement | null>(null);
+const sliderStyle = ref({ left: '0px', width: '0px' });
+const sliderReady = ref(false);
+const sliderVisible = ref(false);
+
+const updateSlider = () => {
+  if (localGroups.value.length === 0) return;
+  const track = tabsTrackRef.value;
+  const btn = activeTabEl.value;
+  if (track && btn) {
+    sliderStyle.value = {
+      left: `${btn.offsetLeft}px`,
+      width: `${btn.offsetWidth}px`,
+    };
+  }
+};
+
+const resetSlider = () => {
+  if (localGroups.value.length === 0) return;
+  sliderReady.value = false;
+  sliderVisible.value = false;
+  nextTick(() => {
+    updateSlider();
+    // 强制触发一次重排，让浏览器“记住”此时无动画的起始位置
+    if (tabsTrackRef.value) void tabsTrackRef.value.offsetHeight;
+    
+    requestAnimationFrame(() => {
+      sliderVisible.value = true;
+      sliderReady.value = true;
+    });
+  });
+};
+
+watch(currentGroup, (v) => { if (v) localStorage.setItem('goclashz_proxyGroup', v); nextTick(updateSlider); });
+watch(() => localGroups.value.length, () => { resetSlider(); });
+onMounted(() => resetSlider());
+onActivated(() => {
+  // Give browser time to restore DOM and scroll positions before re-enabling animation
+  setTimeout(() => { sliderReady.value = true; }, 50);
+});
+onDeactivated(() => {
+  sliderReady.value = false;
+});
 
 let unsubStart: (() => void) | null = null;
 let unsubUpdate: (() => void) | null = null;
 let unsubChanged: (() => void) | null = null;
 let unsubFinish: (() => void) | null = null;
 let unsubProxyState: (() => void) | null = null;
+
+const storedSort = parseInt(localStorage.getItem('goclashz_proxySortState') || '0');
+const sortState = ref(isNaN(storedSort) ? 0 : storedSort);
+
+watch(sortState, (newVal) => {
+  localStorage.setItem('goclashz_proxySortState', newVal.toString());
+});
+const searchQuery = ref('');
+const showSearch = ref(false);
+const searchInputRef = ref<HTMLInputElement | null>(null);
+
+const toggleSearch = () => {
+  showSearch.value = !showSearch.value;
+  if (!showSearch.value) {
+    searchQuery.value = '';
+  } else {
+    nextTick(() => {
+      searchInputRef.value?.focus();
+    });
+  }
+};
+
+const toggleSort = () => {
+  sortState.value = sortState.value === 0 ? 1 : 0;
+};
+
+const locateActiveNode = () => {
+  nextTick(() => {
+    const activeEl = document.querySelector('.node-item.active');
+    if (activeEl) {
+      activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+};
+
+const filteredAndSortedNodes = computed(() => {
+  if (!activeGroupData.value || !activeGroupData.value.proxies) return [];
+  let nodes = [...activeGroupData.value.proxies];
+  
+  if (searchQuery.value) {
+    const q = searchQuery.value.toLowerCase();
+    nodes = nodes.filter(n => n.name.toLowerCase().includes(q));
+  }
+
+  if (sortState.value === 1) {
+    nodes.sort((a, b) => {
+      const delayA = globalState.proxyDelays[a.name]?.delay;
+      const delayB = globalState.proxyDelays[b.name]?.delay;
+      const vA = (delayA !== undefined && delayA !== null && delayA > 0) ? delayA : 999999;
+      const vB = (delayB !== undefined && delayB !== null && delayB > 0) ? delayB : 999999;
+      return vA - vB;
+    });
+  }
+  
+  return nodes;
+});
 
 // 计算当前要显示的组的数据
 const activeGroupData = computed(() => {
@@ -202,7 +330,6 @@ const stopRunningWatch = watch(
 const stopActiveConfigWatch = watch(
   () => globalState.activeConfigId,
   async () => {
-    currentGroup.value = '';
     await loadData();
   }
 );
@@ -305,7 +432,6 @@ onMounted(async () => {
   });
 
   unsubChanged = EventsOn("config-changed", async () => {
-      currentGroup.value = '';
       await loadData();
   });
 
@@ -373,7 +499,6 @@ onUnmounted(() => {
 
 .proxy-toolbar {
   width: 100%;
-  margin-bottom: 24px;
   --sticky-mask-bleed: 4px;
 }
 
@@ -406,10 +531,11 @@ onUnmounted(() => {
   width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0 0 8px 0; /* 移除左右内边距，使左侧边距与右侧卡片边距完美对称 */
+  padding: 0 0 8px 0;
   user-select: none;
   -webkit-user-select: none;
   overscroll-behavior-x: contain;
+  position: relative;
 }
 
 .proxy-tabs-track::-webkit-scrollbar {
@@ -449,16 +575,16 @@ onUnmounted(() => {
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color 0.16s ease, color 0.16s ease;
+  position: relative;
+  z-index: 1;
+  transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .proxy-tab-btn:hover {
   color: var(--text-main);
-  background: var(--surface-hover);
 }
 
 .proxy-tab-btn.active {
-  background: var(--accent);
   color: var(--accent-fg);
   font-weight: 800;
 }
@@ -471,6 +597,20 @@ onUnmounted(() => {
 
 .proxy-tab-btn.active .count {
   opacity: 0.8;
+}
+
+.proxy-tab-slider {
+  position: absolute;
+  top: 0;
+  height: 36px;
+  background: var(--accent);
+  border-radius: 8px;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.proxy-tab-slider.animated {
+  transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .proxy-toolbar-actions {
@@ -490,10 +630,88 @@ onUnmounted(() => {
 
 .btn-icon { width: 14px; height: 14px; }
 
+.proxy-sub-toolbar {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  margin-top: 4px;
+  margin-bottom: 0;
+  padding: 0 4px;
+}
+
+.sub-toolbar-spacer {
+  flex: 1;
+}
+
+.sub-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-wrapper {
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  width: 0;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+}
+
+.search-wrapper.is-active {
+  width: 180px;
+  opacity: 1;
+}
+
+.search-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-main);
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-sub);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tool-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-main);
+}
+
+.tool-btn.active {
+  color: var(--accent);
+  background: var(--surface); /* 启用状态与节点卡片(未选中)背景色一致 */
+}
+
+.tool-btn .btn-icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .scroll-content { 
   flex: 1; 
   min-height: 0;
   overflow: visible; 
+  padding-top: 4px;
 }
 
 .group-section { margin-bottom: 24px; }

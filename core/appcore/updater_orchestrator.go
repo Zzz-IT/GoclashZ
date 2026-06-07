@@ -44,7 +44,6 @@ func (c *Controller) UpdateAllGeoDatabasesAsync(ctx context.Context) {
 	c.GeoUpdates.UpdateAllAsync(ctx)
 }
 
-
 func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 	c.runComponentUpdateTransaction(ctx, "core-update", ComponentUpdateOptions{
 		Name:        "Mihomo 内核更新",

@@ -9,10 +9,6 @@ import (
 	"time"
 )
 
-var defaultClient = &http.Client{
-	Timeout: 60 * time.Second,
-}
-
 func createOrderedClientsFromStrategy(opt Options, strategy DownloadStrategy) []*http.Client {
 	if opt.Client != nil {
 		return []*http.Client{opt.Client}
@@ -60,6 +56,27 @@ func createOrderedClientsFromStrategy(opt Options, strategy DownloadStrategy) []
 
 	return clients
 }
+
+// BuildOrderedClients 根据动态策略构建有序 HTTP 客户端列表（供 API 检查等轻量场景复用）
+func BuildOrderedClients(strategy func() DownloadStrategy, timeout time.Duration) []*http.Client {
+	directClient := &http.Client{Timeout: timeout}
+
+	if strategy == nil {
+		return []*http.Client{directClient}
+	}
+
+	strat := strategy()
+	if strat.PreferProxy && strat.ProxyURL != "" {
+		return []*http.Client{NewProxyClient(strat.ProxyURL), directClient}
+	}
+
+	clients := []*http.Client{directClient}
+	if strat.ProxyURL != "" {
+		clients = append(clients, NewProxyClient(strat.ProxyURL))
+	}
+	return clients
+}
+
 func NewProxyClient(proxyURL string) *http.Client {
 	tr := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,

@@ -34,7 +34,6 @@ func lockDest(path string) func() {
 	}
 }
 
-
 func ReplaceFile(tmpPath, destPath string) error {
 	backupPath := destPath + ".bak"
 	_ = os.Remove(backupPath)

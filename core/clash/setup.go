@@ -296,25 +296,7 @@ type CoreReleaseInfo struct {
 }
 
 func CheckLatestCore(ctx context.Context, strategy func() downloader.DownloadStrategy) (version, assetURL, releaseURL string, err error) {
-	var pUrl string
-	var preferProxy bool
-	if strategy != nil {
-		strat := strategy()
-		pUrl = strat.ProxyURL
-		preferProxy = strat.PreferProxy
-	}
-
-	var clients []*http.Client
-	directClient := &http.Client{Timeout: 60 * time.Second}
-	if preferProxy && pUrl != "" {
-		clients = append(clients, downloader.NewProxyClient(pUrl))
-		clients = append(clients, directClient)
-	} else {
-		clients = append(clients, directClient)
-		if pUrl != "" {
-			clients = append(clients, downloader.NewProxyClient(pUrl))
-		}
-	}
+	clients := downloader.BuildOrderedClients(strategy, 60*time.Second)
 
 	var release CoreReleaseInfo
 	var lastErr error

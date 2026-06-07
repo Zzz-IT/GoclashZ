@@ -1,9 +1,17 @@
 <template>
   <div class="connections-view">
     <template v-if="!selectedConn">
+      <Teleport to="#title-extra-target">
+        <span v-if="connections.length > 0" class="conn-title-count">活跃连接: {{ connections.length }}</span>
+      </Teleport>
       <div class="action-bar card-panel page-sticky-mask">
-        <div class="stats">
-          <span class="count">活跃连接: {{ connections.length }}</span>
+        <div class="conn-tabs-viewport">
+          <div class="conn-tabs-track" ref="tabsTrackRef">
+            <button :ref="(el) => { if (filterMode === 'all') connTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: filterMode === 'all' }]" @click="filterMode = 'all'">全部</button>
+            <button :ref="(el) => { if (filterMode === 'proxy') connTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: filterMode === 'proxy' }]" @click="filterMode = 'proxy'">代理</button>
+            <button :ref="(el) => { if (filterMode === 'direct') connTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: filterMode === 'direct' }]" @click="filterMode = 'direct'">直连</button>
+            <div class="conn-tab-slider" :class="{ animated: connSliderReady }" v-show="connSliderVisible" :style="connSliderStyle"></div>
+          </div>
         </div>
         <div class="global-actions">
           <button class="action-btn" @click="isPaused = !isPaused">
@@ -21,8 +29,8 @@
         <div v-if="isLoading" class="empty-state">
           <p>正在获取连接列表...</p>
         </div>
-        <div class="conn-grid" v-else-if="connections.length > 0">
-          <div v-for="conn in connections" :key="conn.id" class="conn-card" @click="openDetail(conn)">
+        <div class="conn-grid" v-else-if="filteredConnections.length > 0">
+          <div v-for="conn in filteredConnections" :key="conn.id" class="conn-card" @click="openDetail(conn)">
             <div class="conn-header">
               <span class="host" :title="conn.metadata.host || conn.metadata.destinationIP">
                 {{ conn.metadata.host || conn.metadata.destinationIP }}
@@ -58,7 +66,8 @@
           </div>
         </div>
         <div v-else class="empty-state">
-          <p>当前没有流量经过</p>
+          <p v-if="connections.length > 0">当前分类下没有连接</p>
+          <p v-else>当前没有流量经过</p>
         </div>
       </div>
     </template>
@@ -93,7 +102,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue';
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed, watch, nextTick } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { showConfirm, showAlert } from '../store';
@@ -102,6 +111,38 @@ import { ICONS } from '../utils/icons';
 const connections = ref<any[]>([]);
 const isPaused = ref(false);
 const selectedConn = ref<any>(null);
+const filterMode = ref(localStorage.getItem('goclashz_connFilter') || 'all');
+
+const tabsTrackRef = ref<HTMLElement | null>(null);
+const connTabEl = ref<HTMLElement | null>(null);
+const connSliderStyle = ref({ left: '0px', width: '0px' });
+const connSliderReady = ref(false);
+const connSliderVisible = ref(false);
+
+const updateConnSlider = () => {
+  const track = tabsTrackRef.value;
+  const btn = connTabEl.value;
+  if (track && btn) {
+    connSliderStyle.value = {
+      left: `${btn.offsetLeft}px`,
+      width: `${btn.offsetWidth}px`,
+    };
+  }
+};
+
+const resetConnSlider = () => {
+  connSliderReady.value = false;
+  connSliderVisible.value = false;
+  nextTick(() => {
+    updateConnSlider();
+    nextTick(() => {
+      connSliderVisible.value = true;
+      connSliderReady.value = true;
+    });
+  });
+};
+
+watch(filterMode, (v) => { localStorage.setItem('goclashz_connFilter', v); nextTick(updateConnSlider); });
 
 const isMonitoring = ref(false); // 增加一个状态锁，防止重复注册监听
 const isLoading = ref(true); // 🚀 新增：控制初始加载状态
@@ -160,8 +201,8 @@ const stopMonitor = () => {
 };
 
 // 配合 KeepAlive 的生命周期控制
-onMounted(() => startMonitor());
-onActivated(() => startMonitor());       // 再次切回连接页时恢复更新
+onMounted(() => { startMonitor(); resetConnSlider(); });
+onActivated(() => { startMonitor(); resetConnSlider(); });       // 再次切回连接页时恢复更新
 onDeactivated(() => stopMonitor());      // 切到别的页面时暂停后台请求，节省性能
 onUnmounted(() => stopMonitor());
 
@@ -169,6 +210,13 @@ const isDirect = (conn: any) => {
   const chains = conn.chains || [];
   return chains.includes('DIRECT') || chains.includes('REJECT');
 };
+
+const filteredConnections = computed(() => {
+  if (filterMode.value === 'all') return connections.value;
+  if (filterMode.value === 'proxy') return connections.value.filter(c => !isDirect(c));
+  if (filterMode.value === 'direct') return connections.value.filter(c => isDirect(c));
+  return connections.value;
+});
 
 const getProxyName = (conn: any) => {
   const chains = conn.chains || [];
@@ -229,9 +277,79 @@ const closeSingleConnection = async (id: string) => {
 .action-bar.page-sticky-mask {
   --sticky-mask-bleed: 6px;
 }
-.stats .count { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
-
 .global-actions { display: flex; gap: 12px; }
+
+/* 注入到大标题右侧的计数器样式 (被 Teleport 使用) */
+.conn-title-count {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  transform: translateY(-1px);
+}
+
+/* 选项卡样式 (移植自 Proxies.vue) */
+.conn-tabs-viewport {
+  flex: 1;
+  min-width: 0;
+  border-radius: 8px;
+}
+
+.conn-tabs-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-hover);
+  padding: 6px;
+  border-radius: 12px;
+  user-select: none;
+  -webkit-user-select: none;
+  position: relative;
+}
+
+.conn-tab-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-sub);
+  font-size: 0.95rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+  transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.conn-tab-btn:hover {
+  color: var(--text-main);
+}
+
+.conn-tab-btn.active {
+  color: var(--accent-fg);
+  font-weight: 800;
+}
+
+.conn-tab-slider {
+  position: absolute;
+  top: 6px;
+  height: 36px;
+  background: var(--accent);
+  border-radius: 8px;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.conn-tab-slider.animated {
+  transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 .btn-icon { width: 14px; height: 14px; display: inline-flex; align-items: center;}
 
 .scroll-content { 
