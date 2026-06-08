@@ -233,6 +233,7 @@ export function showAlert(message: string, title: string = '提示', isDanger: b
     globalState.modal.type = 'alert';
     globalState.modal.title = title;
     globalState.modal.message = message;
+    globalState.modal.detail = ''; // Clear detail to prevent state leakage
     globalState.modal.isDanger = isDanger;
     globalState.modal.onConfirm = () => resolve();
     globalState.modal.onCancel = () => resolve(); // Alert 模式下点击遮罩层取消也视为 resolve
@@ -246,6 +247,7 @@ export function showConfirm(message: string, title: string = '操作确认', isD
     globalState.modal.type = 'confirm';
     globalState.modal.title = title;
     globalState.modal.message = message;
+    globalState.modal.detail = ''; // Clear detail to prevent state leakage
     globalState.modal.isDanger = isDanger;
     globalState.modal.onConfirm = () => resolve(true);
     globalState.modal.onCancel = () => resolve(false);

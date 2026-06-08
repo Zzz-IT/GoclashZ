@@ -4,8 +4,11 @@ package appcore
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"os"
+	"strings"
 
 	"goclashz/core/clash"
 	"goclashz/core/downloader"
@@ -297,6 +300,7 @@ func (c *Controller) ensureCoreRunningLocked(ctx context.Context) error {
 
 	// 🛡️ 核心修复：API 探针带超时判定，失败必须报错并清理僵尸进程
 	apiReady := false
+	var lastProbeErr error
 	for i := 0; i < 20; i++ {
 		select {
 		case <-ctx.Done():
@@ -312,6 +316,8 @@ func (c *Controller) ensureCoreRunningLocked(ctx context.Context) error {
 		if _, err := clash.GetInitialDataWithContext(ctx); err == nil {
 			apiReady = true
 			break
+		} else {
+			lastProbeErr = err
 		}
 
 		timer := time.NewTimer(100 * time.Millisecond)
@@ -334,7 +340,7 @@ func (c *Controller) ensureCoreRunningLocked(ctx context.Context) error {
 		c.userCoreRunning = false
 		c.coreStartedAt = time.Time{}
 		c.mu.Unlock()
-		return fmt.Errorf("内核进程已启动，但 API 未能在预期时间内就绪")
+		return fmt.Errorf("内核启动失败: %s", classifyProbeError(lastProbeErr))
 	}
 
 	c.mu.Lock()
@@ -355,6 +361,49 @@ func (c *Controller) stopCoreProcessLocked() {
 	c.userCoreRunning = false
 	c.coreStartedAt = time.Time{}
 	c.mu.Unlock()
+}
+
+// classifyProbeError 将探针错误分类为用户可读的诊断信息
+func classifyProbeError(err error) string {
+	if err == nil {
+		return "API 未能在预期时间内就绪"
+	}
+
+	msg := err.Error()
+
+	// 端口未监听：内核未绑定 API 端口
+	if strings.Contains(msg, "connection refused") {
+		return "端口未监听，内核未绑定 API 端口"
+	}
+
+	// 超时
+	if strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded") {
+		return "内核响应超时，可能配置文件过大或系统资源不足"
+	}
+
+	// HTTP 状态码非 2xx
+	if strings.Contains(msg, "failed: HTTP") || strings.Contains(msg, "HTTP ") {
+		return "端口被其他程序占用，收到非预期响应"
+	}
+
+	// 响应非合法 JSON
+	if strings.Contains(msg, "unexpected end") || strings.Contains(msg, "invalid character") ||
+		strings.Contains(msg, "cannot decode") || strings.Contains(msg, "JSON") {
+		return "端口被其他程序占用，响应内容非内核格式"
+	}
+
+	// 连接重置 / 连接断开
+	if strings.Contains(msg, "connection reset") || strings.Contains(msg, "broken pipe") {
+		return "连接被重置，内核可能已崩溃"
+	}
+
+	// 其他 net.OpError
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return "网络连接异常"
+	}
+
+	return "API 探针异常，请检查内核配置"
 }
 
 // --- 导出方法 ---

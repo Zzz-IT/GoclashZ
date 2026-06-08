@@ -322,7 +322,6 @@ func (a *App) runTrayActionSafely(parent context.Context, action trayAction) (er
 
 	select {
 	case <-ctx.Done():
-		go func() { <-errCh }()
 		return fmt.Errorf("托盘操作 %s 超时", action.name)
 	case err := <-errCh:
 		return err
@@ -383,6 +382,26 @@ func (a *App) applyTrayStateUnsafe(state appcore.AppState) {
 				items.modeDirect.Check()
 			}
 		}
+
+		// 🛡️ 核心修复：防御性恢复。每次同步状态时，强制应用当前最新的 busy 状态。
+		// 这可以防止解除禁用的 UI 事件被意外丢弃导致菜单永久变灰。
+		busy := a.trayBusy.Load()
+		setEnabled := func(item *systray.MenuItem) {
+			if item == nil {
+				return
+			}
+			if busy {
+				item.Disable()
+			} else {
+				item.Enable()
+			}
+		}
+		setEnabled(items.sysProxy)
+		setEnabled(items.tun)
+		setEnabled(items.modeRule)
+		setEnabled(items.modeGlobal)
+		setEnabled(items.modeDirect)
+		setEnabled(items.restart)
 	})
 }
 
@@ -415,8 +434,8 @@ func (a *App) enqueueTrayUI(op trayUIOp) {
 
 	select {
 	case a.trayUIOps <- op:
-	default:
-		fmt.Println("托盘 UI 队列繁忙，丢弃一次 UI 更新")
+	case <-time.After(1 * time.Second):
+		fmt.Println("托盘 UI 队列繁忙，等待 1 秒后丢弃一次 UI 更新")
 	}
 }
 

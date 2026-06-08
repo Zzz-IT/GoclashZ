@@ -264,16 +264,22 @@ const fetchConfigs = async () => {
 const handleSelectConfig = async (config: clash.SubIndexItem) => {
   if (isCurrentConfig(config.id) || selecting.value) return;
   selecting.value = config.id;
-  try {
-    await API.StartClash(config.id);
-    globalState.activeConfigId = config.id;
-    globalState.activeConfigName = config.name;
-    globalState.activeConfigType = config.type;
-  } catch (error) {
-    console.error("切换失败:", error);
-  } finally {
-    selecting.value = null;
+  const maxAttempts = 2;
+  let lastError: any = null;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      await API.SelectLocalConfig(config.id);
+      lastError = null;
+      break;
+    } catch (error) {
+      lastError = error;
+      if (i < maxAttempts - 1) await new Promise(r => setTimeout(r, 500));
+    }
   }
+  if (lastError) {
+    await showAlert("切换订阅失败: " + lastError, "错误");
+  }
+  selecting.value = null;
 };
 
 const handleUpdateAll = async () => {
