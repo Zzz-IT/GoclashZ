@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-ole/go-ole"
 )
@@ -134,11 +135,42 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 			prin.Release()
 		}
 
+		// Get Actions
+		actionsV, err := def.GetProperty("Actions")
+		if err == nil {
+			actions := actionsV.ToIDispatch()
+			actionCountV, err := actions.GetProperty("Count")
+			if err == nil && actionCountV.Value().(int32) > 0 {
+				actionV, err := actions.GetProperty("Item", 1) // 1-indexed in COM collections
+				if err == nil {
+					action := actionV.ToIDispatch()
+					pathV, err := action.GetProperty("Path")
+					if err == nil && pathV.Value() != nil {
+						info.Path = pathV.Value().(string)
+					}
+					argsV, err := action.GetProperty("Arguments")
+					if err == nil && argsV.Value() != nil {
+						info.Arguments = argsV.Value().(string)
+					}
+					action.Release()
+				}
+			}
+			actions.Release()
+		}
+
 		if info.RunLevel == 1 {
 			info.Mode = StartupElevated
 		} else {
 			info.Mode = StartupNormal
 		}
+		
+		// Validation
+		exe, _ := os.Executable()
+		if info.Path != exe || !strings.Contains(info.Arguments, "--startup") {
+			info.Enabled = false
+			info.LastError = "path mismatch or missing --startup"
+		}
+		
 		if !info.Enabled {
 			info.Mode = StartupDisabled
 		}

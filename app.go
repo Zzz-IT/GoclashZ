@@ -369,6 +369,44 @@ func (a *App) SaveThemePreference(isDark bool) {
 
 // --- System Tools ---
 
+func (a *App) SetupElevatedStartup() error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return err
+	}
+
+	if !sys.CheckAdmin() {
+		return sys.RequestAdminWithArgs("--setup-elevated-startup")
+	}
+
+	return sys.CreateElevatedStartupTask(exePath)
+}
+
+func (a *App) RelaunchAsAdmin(args []string) error {
+	argStr := strings.Join(args, " ")
+	return sys.RequestAdminWithArgs(argStr)
+}
+
+func (a *App) GetStartupTaskInfo() (sys.StartupTaskInfo, error) {
+	return sys.CheckStartupTask()
+}
+
+func (a *App) RepairStartupTask() error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	
+	behavior := a.core.Behavior.Get()
+	if behavior.StartupMode == "elevated" {
+		if !sys.CheckAdmin() {
+			return sys.RequestAdminWithArgs("--setup-elevated-startup")
+		}
+		return sys.CreateElevatedStartupTask(exePath)
+	}
+	
+	return sys.CreateStartupTask(exePath)
+}
 
 func (a *App) CheckTunEnv() map[string]bool {
 	return map[string]bool{

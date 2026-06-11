@@ -72,6 +72,8 @@ export function GetProxyDelay(arg1:string,arg2:string):Promise<number>;
 
 export function GetRecentLogs():Promise<Array<logger.LogEntry>>;
 
+export function GetStartupTaskInfo():Promise<sys.StartupTaskInfo>;
+
 export function GetTunConfig():Promise<clash.TunConfig>;
 
 export function GetUwpApps():Promise<Array<sys.UwpApp>>;
@@ -86,9 +88,13 @@ export function IsConfigEditable(arg1:string):Promise<boolean>;
 
 export function ReadConfigText(arg1:string):Promise<clash.ConfigTextResult>;
 
+export function RelaunchAsAdmin(arg1:Array<string>):Promise<void>;
+
 export function RemoveUpdateTask(arg1:string):Promise<void>;
 
 export function RenameConfig(arg1:string,arg2:string):Promise<void>;
+
+export function RepairStartupTask():Promise<void>;
 
 export function ResetComponentSettings(arg1:string):Promise<void>;
 
@@ -121,6 +127,8 @@ export function SelectLocalConfig(arg1:string):Promise<void>;
 export function SelectLocalFile():Promise<main.FileInfo>;
 
 export function SelectProxy(arg1:string,arg2:string):Promise<void>;
+
+export function SetupElevatedStartup():Promise<void>;
 
 export function ShowMainWindow():Promise<void>;
 

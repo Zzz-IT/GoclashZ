@@ -636,7 +636,7 @@
                       { label: '管理员权限自启 (推荐)', value: 'elevated' },
                       { label: '普通自启', value: 'normal' }
                     ]" 
-                    @change="saveBehavior"
+                    @change="handleStartupModeChange"
                   />
                 </div>
                 
@@ -1759,9 +1759,27 @@ const saveBehavior = async () => {
   }
 };
 
-const handleStartupWithOSChange = () => {
+const handleStartupWithOSChange = async () => {
   if (!behavior.value.startupWithOS) {
     behavior.value.restoreOnStartup = false;
+  } else if (behavior.value.startupMode === 'elevated') {
+    try {
+      await (API as any).SetupElevatedStartup();
+    } catch (e) {
+      console.error('提权注册自启失败', e);
+      // Fallback
+    }
+  }
+  saveBehavior();
+};
+
+const handleStartupModeChange = async () => {
+  if (behavior.value.startupWithOS && behavior.value.startupMode === 'elevated') {
+    try {
+      await (API as any).SetupElevatedStartup();
+    } catch (e) {
+      console.error('提权注册自启失败', e);
+    }
   }
   saveBehavior();
 };

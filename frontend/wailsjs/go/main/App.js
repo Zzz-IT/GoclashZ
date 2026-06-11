@@ -134,6 +134,10 @@ export function GetRecentLogs() {
   return window['go']['main']['App']['GetRecentLogs']();
 }
 
+export function GetStartupTaskInfo() {
+  return window['go']['main']['App']['GetStartupTaskInfo']();
+}
+
 export function GetTunConfig() {
   return window['go']['main']['App']['GetTunConfig']();
 }
@@ -162,12 +166,20 @@ export function ReadConfigText(arg1) {
   return window['go']['main']['App']['ReadConfigText'](arg1);
 }
 
+export function RelaunchAsAdmin(arg1) {
+  return window['go']['main']['App']['RelaunchAsAdmin'](arg1);
+}
+
 export function RemoveUpdateTask(arg1) {
   return window['go']['main']['App']['RemoveUpdateTask'](arg1);
 }
 
 export function RenameConfig(arg1, arg2) {
   return window['go']['main']['App']['RenameConfig'](arg1, arg2);
+}
+
+export function RepairStartupTask() {
+  return window['go']['main']['App']['RepairStartupTask']();
 }
 
 export function ResetComponentSettings(arg1) {
@@ -232,6 +244,10 @@ export function SelectLocalFile() {
 
 export function SelectProxy(arg1, arg2) {
   return window['go']['main']['App']['SelectProxy'](arg1, arg2);
+}
+
+export function SetupElevatedStartup() {
+  return window['go']['main']['App']['SetupElevatedStartup']();
 }
 
 export function ShowMainWindow() {

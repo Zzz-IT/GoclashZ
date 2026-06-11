@@ -92,6 +92,10 @@ func (c *Controller) SelectLocalConfig(ctx context.Context, id string) error {
 		return err
 	}
 
+	desired := c.Desired.Get()
+	desired.ActiveConfig = id
+	c.Desired.SetAndSave(desired)
+
 	if state.IsRunning {
 		return c.RestartCoreWithReason(ctx, "config-switch")
 	}

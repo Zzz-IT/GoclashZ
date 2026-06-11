@@ -207,16 +207,16 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 
 	c.Supervisor.Start(ctx)
 
-	if opts.IsStartupLaunch && c.Behavior.Get().RestoreOnStartup {
-		c.Supervisor.ReconcileAsync("startup")
-	} else {
+	// 普通启动，或者开机自启但不希望恢复状态时，重置代理和内核状态
+	if !opts.IsStartupLaunch || !c.Behavior.Get().RestoreOnStartup {
 		desired := c.Desired.Get()
 		desired.SystemProxy = false
 		desired.Tun = false
 		desired.CoreRunning = false
 		c.Desired.SetAndSave(desired)
-		c.Supervisor.ReconcileAsync("startup")
 	}
+
+	c.Supervisor.ReconcileAsync("startup")
 
 	c.RefreshAutoDelayTest(AutoDelayRefreshOptions{
 		Immediate: true,
@@ -236,7 +236,13 @@ func (c *Controller) syncStartupTaskStateSafe() {
 
 	// 只有明确检测到任务不存在/禁用，才更新为 false，避免错误覆盖
 	behavior.StartupWithOS = info.Exists && info.Enabled
-	behavior.StartupMode = string(info.Mode)
+	
+	// 如果检测到了任务的模式，才更新；否则保留用户之前的预期（或者是默认的 elevated）
+	if string(info.Mode) != "" && string(info.Mode) != "disabled" {
+		behavior.StartupMode = string(info.Mode)
+	} else if behavior.StartupMode == "" {
+		behavior.StartupMode = "elevated"
+	}
 
 	_ = c.Behavior.SetAndSave(behavior)
 }
@@ -248,6 +254,7 @@ func (c *Controller) GetEvents() EventSink {
 // AppState 定义全局状态同步结构
 type AppState struct {
 	IsRunning bool   `json:"isRunning"`
+	IsAdmin   bool   `json:"isAdmin"`
 	Mode      string `json:"mode"`
 	Theme     string `json:"theme"`
 	HideLogs  bool   `json:"hideLogs"`
@@ -288,6 +295,7 @@ func (c *Controller) GetAppState() AppState {
 
 	state := AppState{
 		IsRunning:          logicalIsRunning,
+		IsAdmin:            sys.CheckAdmin(),
 		Mode:               behavior.ActiveMode,
 		SystemProxy:        sysProxy,
 		Tun:                tunActive,
@@ -339,7 +347,7 @@ func (c *Controller) SyncState() {
 
 // --- 内部方法 (需要提前持有 coreLifecycleMu) ---
 
-func (c *Controller) ensureCoreRunningWithDesiredState(desired DesiredState) error {
+func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desired DesiredState) error {
 	if clash.IsRunning() {
 		return nil
 	}
@@ -409,7 +417,7 @@ func (c *Controller) ensureCoreRunningWithDesiredState(desired DesiredState) err
 	c.coreStartedAt = time.Now()
 	c.mu.Unlock()
 
-	c.applyStoredProxySelections(c.ctx, desired.ActiveConfig)
+	c.applyStoredProxySelections(ctx, desired.ActiveConfig)
 	c.SyncProxyStateOnce()
 
 	return nil
@@ -479,7 +487,7 @@ func (c *Controller) EnsureCoreRunning(ctx context.Context) error {
 		desired.ActiveConfig = behavior.ActiveConfig
 		desired.Mode = behavior.ActiveMode
 	}
-	return c.ensureCoreRunningWithDesiredState(desired)
+	return c.ensureCoreRunningWithDesiredState(ctx, desired)
 }
 
 // StopCoreService 停止内核并清理所有运行时状态（通常用于程序退出）
@@ -797,8 +805,8 @@ func (c *Controller) NeedsDelayWarmup() bool {
 // StartCoreOnly 严格执行“只启内核，不改状态”
 func (c *Controller) StartCoreOnly(ctx context.Context, id string) error {
 	behavior := c.Behavior.Get()
-	// 仅构建运行时 YAML 并启动进程，不触碰系统代理、TUN 和 userCoreRunning 逻辑
-	if err := clash.BuildRuntimeConfig(id, behavior.ActiveMode, behavior.LogLevel, c.Desired.Get().Tun); err != nil {
+	// 仅构建运行时 YAML 并启动进程，强制禁用 TUN 以避免影响真实代理状态
+	if err := clash.BuildRuntimeConfig(id, behavior.ActiveMode, behavior.LogLevel, false); err != nil {
 		return err
 	}
 	return clash.Start(ctx)
@@ -823,7 +831,7 @@ func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
 	}
 
 	c.Desired.SetAndSave(desired)
-	c.Supervisor.Reconcile("system-proxy-toggle")
+	c.Supervisor.ReconcileAsync("system-proxy-toggle")
 	return nil
 }
 
@@ -848,7 +856,7 @@ func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
 	}
 
 	c.Desired.SetAndSave(desired)
-	c.Supervisor.Reconcile("tun-toggle")
+	c.Supervisor.ReconcileAsync("tun-toggle")
 	return nil
 }
 
@@ -874,7 +882,7 @@ func (c *Controller) RestartCoreWithReason(ctx context.Context, reason string) e
 	needCore := desired.CoreRunning || desired.SystemProxy || desired.Tun
 
 	// 无论是否开启代理，都强行启动内核一次以验证配置正确性
-	if err := c.ensureCoreRunningWithDesiredState(desired); err != nil {
+	if err := c.ensureCoreRunningWithDesiredState(ctx, desired); err != nil {
 		c.SyncState()
 		return err
 	}
@@ -911,6 +919,10 @@ func (c *Controller) UpdateClashMode(ctx context.Context, mode string) error {
 	if err := c.Behavior.SetAndSave(behavior); err != nil {
 		c.events.Emit("notify-error", "模式持久化保存失败: "+err.Error())
 	}
+
+	desired := c.Desired.Get()
+	desired.Mode = mode
+	c.Desired.SetAndSave(desired)
 
 	// 2. 如果内核正在运行，尝试通过 API 热切换
 	if clash.IsRunning() {

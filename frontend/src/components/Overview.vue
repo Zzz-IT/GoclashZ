@@ -162,11 +162,7 @@ const runSysProxyWorker = async (target: boolean) => {
     globalState.systemProxy = !target;
     console.error("系统代理失败: ", err);
   } finally {
-    // 🚀 核心：无论成功与否，以实际拉取到的后端最新状态为准！
-    const state = await API.GetAppState().catch(() => null);
-    if (state) {
-      updateStateFromBackend(state);
-    }
+
 
     // 4. 关键点：活干完了，看看这段时间里，用户有没有又狂点了按钮？
     if (pendingSysProxyTarget !== null && pendingSysProxyTarget !== target) {
@@ -205,10 +201,7 @@ const runTunWorker = async (target: boolean) => {
     globalState.tun = !target;
     console.error("虚拟网卡失败: ", err);
   } finally {
-    const state = await API.GetAppState().catch(() => null);
-    if (state) {
-      updateStateFromBackend(state);
-    }
+
 
     if (pendingTunTarget !== null && pendingTunTarget !== target) {
       const nextTarget = pendingTunTarget;
@@ -290,10 +283,7 @@ const runModeWorker = async (targetMode: string) => {
     console.error("模式切换失败: ", err);
     await showAlert("模式切换失败: " + err, '错误');
   } finally {
-    const state = await API.GetAppState().catch(() => null);
-    if (state) {
-      updateStateFromBackend(state);
-    }
+
 
     if (pendingModeTarget !== null && pendingModeTarget !== targetMode) {
       const nextMode = pendingModeTarget;

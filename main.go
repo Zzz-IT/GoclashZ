@@ -77,7 +77,7 @@ func main() {
 	// 只有当启动模式是 elevated，且当前并非由于已提权重启、且非管理员状态时才提权
 	if !sys.CheckAdmin() && !hasFlag("--elevated") {
 		behavior := appcore.NewBehaviorStore().Get()
-		if behavior.StartupMode == "elevated" {
+		if behavior.StartupMode == "elevated" && hasFlag("--startup") {
 			err := sys.RequestAdmin()
 			if err != nil {
 				fmt.Printf("根据设置请求管理员权限失败: %v\n", err)

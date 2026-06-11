@@ -105,7 +105,7 @@ const startTask = async () => {
   if (key === 'core-update') {
     await (API as any).UpdateCoreComponentAsync();
   } else if (key === 'driver-install') {
-    await (API as any).InstallTunDriverAsync();
+    await (API as any).InstallTunDriverAsync(true);
   } else {
     await (API as any).UpdateGeoDatabaseAsync(key);
   }

@@ -59,3 +59,30 @@ func RequestAdmin() error {
 	os.Exit(0)
 	return nil
 }
+
+
+// RequestAdminWithArgs 以指定的参数和管理员身份重新启动当前程序
+func RequestAdminWithArgs(extraArgs string) error {
+	if CheckAdmin() {
+		return nil // 已经是管理员，无需再次提权
+	}
+
+	verb := "runas"
+	exe, _ := os.Executable()
+	cwd, _ := os.Getwd()
+	
+	verbPtr, _ := syscall.UTF16PtrFromString(verb)
+	exePtr, _ := syscall.UTF16PtrFromString(exe)
+	cwdPtr, _ := syscall.UTF16PtrFromString(cwd)
+	argPtr, _ := syscall.UTF16PtrFromString(extraArgs)
+
+	var showCmd int32 = 1 // SW_NORMAL
+
+	err := windows.ShellExecute(0, verbPtr, exePtr, argPtr, cwdPtr, showCmd)
+	if err != nil {
+		return err
+	}
+
+	os.Exit(0)
+	return nil
+}

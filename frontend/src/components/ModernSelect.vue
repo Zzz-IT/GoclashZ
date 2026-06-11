@@ -25,7 +25,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 
 const props = defineProps<{
   modelValue: string | number;
@@ -35,12 +35,21 @@ const props = defineProps<{
 
 const emit = defineEmits(['update:modelValue', 'change']);
 
+// 自动修正非法值
+watch(() => props.modelValue, (newVal) => {
+  const match = props.options.find(o => o.value === newVal);
+  if (!match && props.options.length > 0) {
+    emit('update:modelValue', props.options[0].value);
+    emit('change', props.options[0].value);
+  }
+}, { immediate: true });
+
 const isOpen = ref(false);
 const selectRef = ref<HTMLElement | null>(null);
 
 const selectedLabel = computed(() => {
   const match = props.options.find(o => o.value === props.modelValue);
-  return match ? match.label : '请选择';
+  return match ? match.label : props.options[0]?.label || '';
 });
 
 const toggle = () => {

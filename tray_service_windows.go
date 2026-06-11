@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"goclashz/core/appcore"
+	"sync/atomic"
+	"time"
 
 	"github.com/energye/systray"
 	"sync"
@@ -28,7 +30,9 @@ type TrayService struct {
 	mModeDirect *systray.MenuItem
 	mRestart    *systray.MenuItem
 	
-	trayReady   bool
+	trayReady   atomic.Bool
+	watchdogMu  sync.Mutex
+	isRestarting bool
 }
 
 func NewTrayService(app *App) *TrayService {
@@ -47,11 +51,56 @@ func (t *TrayService) Start(ctx context.Context) {
 	t.ctx, t.cancel = context.WithCancel(ctx)
 	t.mu.Unlock()
 
-	go func() {
-		systray.Run(t.onReady, t.onExit)
-	}()
-
+	go t.runSystray()
 	go t.loop()
+	go t.Watchdog()
+}
+
+func (t *TrayService) runSystray() {
+	systray.Run(t.onReady, t.onExit)
+}
+
+func (t *TrayService) Restart() {
+	t.watchdogMu.Lock()
+	if t.isRestarting {
+		t.watchdogMu.Unlock()
+		return
+	}
+	t.isRestarting = true
+	t.watchdogMu.Unlock()
+
+	t.trayReady.Store(false)
+	systray.Quit()
+	
+	// Wait a bit before restarting
+	time.Sleep(2 * time.Second)
+	
+	go t.runSystray()
+	
+	t.watchdogMu.Lock()
+	t.isRestarting = false
+	t.watchdogMu.Unlock()
+}
+
+func (t *TrayService) Watchdog() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-t.ctx.Done():
+			return
+		case <-ticker.C:
+			t.watchdogMu.Lock()
+			restarting := t.isRestarting
+			t.watchdogMu.Unlock()
+			
+			// 如果托盘长期未就绪，则尝试自愈重启
+			if !restarting && !t.trayReady.Load() {
+				t.Restart()
+			}
+		}
+	}
 }
 
 func (t *TrayService) Stop() {
@@ -61,6 +110,7 @@ func (t *TrayService) Stop() {
 		t.cancel()
 		t.cancel = nil
 	}
+	t.trayReady.Store(false)
 	systray.Quit()
 }
 
@@ -107,7 +157,7 @@ func (t *TrayService) onReady() {
 
 	systray.SetDClickTimeMinInterval(500)
 	systray.SetOnDClick(func(menu systray.IMenu) {
-		t.app.safeToggleMainWindow()
+		t.app.safeShowMainWindow() // 改为只显示，避免多次点击导致闪烁
 	})
 
 	mShow := systray.AddMenuItem("显示界面", "显示主窗口")
@@ -126,7 +176,7 @@ func (t *TrayService) onReady() {
 	t.mRestart = systray.AddMenuItem("重启内核", "重启 Clash 内核")
 	mQuit := systray.AddMenuItem("退出程序", "彻底退出 GoclashZ")
 
-	t.trayReady = true
+	t.trayReady.Store(true)
 
 	mShow.Click(func() {
 		t.app.safeShowMainWindow()
@@ -178,11 +228,11 @@ func (t *TrayService) onReady() {
 }
 
 func (t *TrayService) onExit() {
-	t.trayReady = false
+	t.trayReady.Store(false)
 }
 
 func (t *TrayService) render() {
-	if !t.trayReady {
+	if !t.trayReady.Load() {
 		return
 	}
 	

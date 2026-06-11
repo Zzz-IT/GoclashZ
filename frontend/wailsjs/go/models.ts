@@ -60,6 +60,7 @@ export namespace appcore {
 	}
 	export class AppState {
 	    isRunning: boolean;
+	    isAdmin: boolean;
 	    mode: string;
 	    theme: string;
 	    hideLogs: boolean;
@@ -84,6 +85,7 @@ export namespace appcore {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.isRunning = source["isRunning"];
+	        this.isAdmin = source["isAdmin"];
 	        this.mode = source["mode"];
 	        this.theme = source["theme"];
 	        this.hideLogs = source["hideLogs"];
@@ -462,6 +464,30 @@ export namespace main {
 
 export namespace sys {
 	
+	export class StartupTaskInfo {
+	    exists: boolean;
+	    enabled: boolean;
+	    mode: string;
+	    path: string;
+	    arguments: string;
+	    runLevel: number;
+	    lastError: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StartupTaskInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.exists = source["exists"];
+	        this.enabled = source["enabled"];
+	        this.mode = source["mode"];
+	        this.path = source["path"];
+	        this.arguments = source["arguments"];
+	        this.runLevel = source["runLevel"];
+	        this.lastError = source["lastError"];
+	    }
+	}
 	export class UwpApp {
 	    displayName: string;
 	    packageFamilyName: string;
