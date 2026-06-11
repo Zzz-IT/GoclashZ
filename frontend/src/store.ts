@@ -274,7 +274,7 @@ export async function refreshOutboundIP(options?: { force?: boolean }) {
   globalState.ipDetecting = true;
 
   const attemptFetch = async () => {
-    return await API.GetOutboundIP(); // Optionally pass force if supported by backend
+    return await (API as any).GetOutboundIP(!!options?.force);
   };
 
   try {

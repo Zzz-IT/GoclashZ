@@ -26,7 +26,7 @@
       <div class="progress-stats" v-if="task.status === 'running' || task.status === 'cancelled'">
         <span>{{ formatBytes(task.bytesDone) }} / {{ formatBytes(task.bytesTotal) }}</span>
         <span v-if="task.status === 'running'">{{ formatSpeed(task.speedBps) }}</span>
-        <span v-if="task.status === 'running'">ETA: {{ formatTime(task.etaSeconds) }}</span>
+        <span v-if="task.status === 'running'">ETA: {{ formatEtaTime(task.etaSeconds) }}</span>
       </div>
     </div>
     
@@ -40,7 +40,7 @@
 import { computed } from 'vue';
 import type { UpdateTaskState } from '../store';
 import { ICONS } from '../utils/icons';
-import { formatBytes, formatSpeed, formatTime } from '../utils/format';
+import { formatBytes, formatSpeed, formatEtaTime } from '../utils/format';
 import * as API from '../../wailsjs/go/main/App';
 
 const props = defineProps<{

@@ -58,33 +58,66 @@ var ipv4DirectEndpoints = []string{
 	"https://api.ipify.org",
 }
 
-type outboundIPCache struct {
-	mu        sync.Mutex
-	value     OutboundIPResult
+type cachedOutboundIP struct {
+	result    OutboundIPResult
 	expiresAt time.Time
 }
 
+type outboundIPCache struct {
+	mu    sync.Mutex
+	value map[string]cachedOutboundIP
+}
+
 var (
-	ipCache         outboundIPCache
+	ipCache         = outboundIPCache{value: make(map[string]cachedOutboundIP)}
 	outboundIPGroup singleflight.Group
 )
 
-// GetOutboundIP 检测出站 IP
-func (c *Controller) GetOutboundIP() (OutboundIPResult, error) {
-	ipCache.mu.Lock()
-	if time.Now().Before(ipCache.expiresAt) && ipCache.value.Preferred != "" {
-		cached := ipCache.value
-		ipCache.mu.Unlock()
-		return cached, nil
-	}
-	ipCache.mu.Unlock()
+func (c *Controller) outboundIPCacheKey() string {
+	state := c.GetAppState()
+	proxyActive := state.SystemProxy || state.Tun
 
-	v, err, _ := outboundIPGroup.Do("outbound-ip", func() (any, error) {
+	if proxyActive && !clash.IsRunning() {
+		proxyActive = false
+	}
+
+	mode := "direct"
+	if proxyActive {
+		mode = "proxy"
+	}
+
+	return fmt.Sprintf(
+		"%s|proxy=%t|tun=%t|sys=%t|config=%s",
+		mode,
+		proxyActive,
+		state.Tun,
+		state.SystemProxy,
+		state.ActiveConfig,
+	)
+}
+
+// GetOutboundIP 检测出站 IP
+func (c *Controller) GetOutboundIP(force ...bool) (OutboundIPResult, error) {
+	isForce := len(force) > 0 && force[0]
+	key := c.outboundIPCacheKey()
+
+	if !isForce {
+		ipCache.mu.Lock()
+		if cached, ok := ipCache.value[key]; ok && time.Now().Before(cached.expiresAt) && cached.result.Preferred != "" {
+			ipCache.mu.Unlock()
+			return cached.result, nil
+		}
+		ipCache.mu.Unlock()
+	}
+
+	v, err, _ := outboundIPGroup.Do(key, func() (any, error) {
 		res, err := c.getOutboundIPInternal()
 		if err == nil && res.Preferred != "" {
 			ipCache.mu.Lock()
-			ipCache.value = res
-			ipCache.expiresAt = time.Now().Add(10 * time.Second)
+			ipCache.value[key] = cachedOutboundIP{
+				result:    res,
+				expiresAt: time.Now().Add(10 * time.Second),
+			}
 			ipCache.mu.Unlock()
 		}
 		return res, err

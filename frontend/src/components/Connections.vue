@@ -203,12 +203,21 @@ const stopMonitor = () => {
 // 配合 KeepAlive 的生命周期控制
 const titleTargetReady = ref(false);
 
-onMounted(() => { 
+const refreshTitleTarget = async () => {
+  await nextTick();
+  titleTargetReady.value = !!document.querySelector('#title-extra-target');
+};
+
+onMounted(() => {
   startMonitor(); 
   resetConnSlider(); 
-  titleTargetReady.value = !!document.querySelector('#title-extra-target');
+  refreshTitleTarget();
 });
-onActivated(() => { startMonitor(); resetConnSlider(); });       // 再次切回连接页时恢复更新
+onActivated(() => { 
+  startMonitor(); 
+  resetConnSlider(); 
+  refreshTitleTarget();
+});       // 再次切回连接页时恢复更新
 onDeactivated(() => stopMonitor());      // 切到别的页面时暂停后台请求，节省性能
 onUnmounted(() => {
   stopMonitor();

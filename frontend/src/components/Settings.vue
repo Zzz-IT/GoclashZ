@@ -837,7 +837,7 @@
                   <template v-else>
                     <span class="speed">{{ formatSpeed(globalState.appUpdateProgress.speedBps) }}</span>
                     <span class="divider-dot">·</span>
-                    <span class="eta">剩余 {{ formatTime(globalState.appUpdateProgress.etaSec) }}</span>
+                    <span class="eta">剩余 {{ formatEtaTime(globalState.appUpdateProgress.etaSec) }}</span>
                   </template>
                 </div>
                 <div class="progress-bar-wrap">
@@ -1169,7 +1169,7 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { BrowserOpenURL, EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 import { showAlert, showConfirm, globalState } from '../store';
-import { formatBytes, formatSpeed, formatTime, formatRelativeTime } from '../utils/format';
+import { formatBytes, formatSpeed, formatEtaTime, formatRelativeTime } from '../utils/format';
 import { normalizeStartupTaskInfo } from '../utils/normalize';
 import { ICONS } from '../utils/icons';
 import appLogo from '../assets/logo.ico';

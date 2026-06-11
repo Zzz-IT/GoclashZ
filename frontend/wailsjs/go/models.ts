@@ -66,6 +66,7 @@ export namespace appcore {
 	    mode: string;
 	    theme: string;
 	    hideLogs: boolean;
+	    appLogLevel: string;
 	    systemProxy: boolean;
 	    tun: boolean;
 	    version: string;
@@ -91,6 +92,7 @@ export namespace appcore {
 	        this.mode = source["mode"];
 	        this.theme = source["theme"];
 	        this.hideLogs = source["hideLogs"];
+	        this.appLogLevel = source["appLogLevel"];
 	        this.systemProxy = source["systemProxy"];
 	        this.tun = source["tun"];
 	        this.version = source["version"];

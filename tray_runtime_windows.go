@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -278,9 +279,7 @@ func (t *TrayRuntime) runWin32TrayLoop() {
 	t.loadIcon()
 
 	// Add tray icon
-	if err := t.addTrayIcon(); err != nil {
-		fmt.Printf("[Tray] Failed to add tray icon: %v\n", err)
-	}
+	t.tryAddTrayIconWithRetry()
 
 	t.ready.Store(true)
 
@@ -412,7 +411,11 @@ func (t *TrayRuntime) addTrayIcon() error {
 		HIcon:            t.hIcon,
 	}
 
+	state := t.snapshot()
 	tip := "GoclashZ - 未选择配置"
+	if state.ActiveConfigName != "" {
+		tip = "GoclashZ - " + state.ActiveConfigName
+	}
 	copy(nid.SzTip[:], windows.StringToUTF16(tip))
 
 	err := shellNotifyIcon(NIM_ADD, &nid)
@@ -420,6 +423,18 @@ func (t *TrayRuntime) addTrayIcon() error {
 		t.iconAdded.Store(true)
 	}
 	return err
+}
+
+// tryAddTrayIconWithRetry attempts to add the tray icon with finite retries
+func (t *TrayRuntime) tryAddTrayIconWithRetry() {
+	for i := 0; i < 3; i++ {
+		if err := t.addTrayIcon(); err == nil {
+			return
+		} else {
+			logger.Warnf("[Tray] add tray icon failed, retry=%d: %v", i+1, err)
+		}
+		time.Sleep(time.Duration(i+1) * time.Second)
+	}
 }
 
 // deleteTrayIcon removes the tray icon
@@ -470,9 +485,7 @@ func (t *TrayRuntime) wndProc(hwnd windows.HWND, msg uint32, wparam uintptr, lpa
 	// Handle TaskbarCreated message (Explorer restart)
 	if msg == t.taskbarCreatedMsg && t.taskbarCreatedMsg != 0 {
 		logger.Infof("[Tray] Explorer restarted, re-adding tray icon")
-		if err := t.addTrayIcon(); err != nil {
-			logger.Errorf("[Tray] Re-add tray icon failed: %v", err)
-		}
+		t.tryAddTrayIconWithRetry()
 		t.renderOnTrayThread(t.snapshot())
 		return 0
 	}
