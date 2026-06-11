@@ -472,6 +472,10 @@ export namespace sys {
 	    arguments: string;
 	    runLevel: number;
 	    lastError: string;
+	    expectedPath: string;
+	    actualPath: string;
+	    actualArgs: string;
+	    isHealthy: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new StartupTaskInfo(source);
@@ -486,6 +490,10 @@ export namespace sys {
 	        this.arguments = source["arguments"];
 	        this.runLevel = source["runLevel"];
 	        this.lastError = source["lastError"];
+	        this.expectedPath = source["expectedPath"];
+	        this.actualPath = source["actualPath"];
+	        this.actualArgs = source["actualArgs"];
+	        this.isHealthy = source["isHealthy"];
 	    }
 	}
 	export class UwpApp {

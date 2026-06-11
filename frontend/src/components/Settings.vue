@@ -653,34 +653,12 @@
                   </label>
                 </div>
 
-                <div class="divider"></div>
-                
-                <div class="setting-item col-item" style="align-items: flex-start;">
+                <div class="setting-item">
                   <div class="info">
                     <h4>自启任务诊断</h4>
-                    <p>检测当前系统中的自启任务状态是否正常。</p>
+                    <p>检测当前系统中的自启任务配置是否健康。</p>
                   </div>
-                  
-                  <div class="diagnostic-panel" style="margin-top: 12px; width: 100%; background: var(--bg-secondary); padding: 12px; border-radius: 8px; font-size: 0.85rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                      <span style="font-weight: 600;">状态诊断</span>
-                      <button class="action-btn mini-btn primary-btn accent-btn" @click="handleRepairStartupTask" :disabled="repairingTask">{{ repairingTask ? '修复中...' : '修复自启任务' }}</button>
-                    </div>
-                    
-                    <div v-if="loadingTaskInfo" style="color: var(--text-muted);">正在加载任务信息...</div>
-                    <div v-else-if="startupTaskInfo">
-                      <div :style="{ color: startupTaskInfo.IsHealthy ? 'var(--green-text)' : 'var(--red-text)', fontWeight: '600', marginBottom: '8px' }">
-                        {{ startupTaskInfo.IsHealthy ? '健康：自启任务配置正确' : '异常：自启任务存在问题，请点击修复' }}
-                      </div>
-                      <div v-if="!startupTaskInfo.IsHealthy && startupTaskInfo.LastError" style="color: var(--red-text); margin-bottom: 4px;">错误: {{ startupTaskInfo.LastError }}</div>
-                      <div>期望路径: {{ startupTaskInfo.ExpectedPath }}</div>
-                      <div>实际路径: {{ startupTaskInfo.ActualPath || '未配置' }}</div>
-                      <div>期望模式: {{ behavior.startupMode === 'elevated' ? '最高权限' : '普通权限' }}</div>
-                      <div>实际模式: {{ startupTaskInfo.RunLevel === 1 ? '最高权限' : (startupTaskInfo.RunLevel === 0 ? '普通权限' : '未知') }}</div>
-                      <div>参数: {{ startupTaskInfo.ActualArgs || '无' }}</div>
-                    </div>
-                    <div v-else style="color: var(--red-text);">无法获取任务信息</div>
-                  </div>
+                  <button class="action-btn" @click="openStartupDiagnosticModal">检查诊断</button>
                 </div>
 
               </div>
@@ -1111,6 +1089,60 @@
             <div class="modal-footer">
               <button class="action-btn flex-1" @click="showRestoreModal = false">取消</button>
               <button class="primary-btn accent-btn flex-1" :disabled="!selectedPath" @click="confirmRestore">执行还原</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <Transition name="pop">
+      <div v-if="showStartupDiagnosticModal" class="modal-overlay" @click.self="showStartupDiagnosticModal = false">
+        <div class="custom-modal-card" @click.stop style="max-width: 500px;">
+          <div class="modal-header">
+            <h3>自启任务诊断</h3>
+          </div>
+          <div class="modal-body" style="font-size: 0.9rem; line-height: 1.6;">
+            <div v-if="loadingTaskInfo" style="color: var(--text-muted); text-align: center; padding: 20px 0;">正在加载任务信息...</div>
+            <div v-else-if="startupTaskInfo">
+              <div :style="{ color: startupTaskInfo.IsHealthy ? 'var(--green-text)' : 'var(--red-text)', fontWeight: '600', marginBottom: '12px', fontSize: '1rem', textAlign: 'center' }">
+                <span v-if="startupTaskInfo.IsHealthy" v-html="ICONS.check"></span>
+                <span v-else v-html="ICONS.alert"></span>
+                {{ startupTaskInfo.IsHealthy ? ' 健康：自启任务配置正确' : ' 异常：自启任务存在问题' }}
+              </div>
+              <div v-if="!startupTaskInfo.IsHealthy && startupTaskInfo.LastError" style="color: var(--red-text); margin-bottom: 12px; padding: 8px; background: rgba(255, 59, 48, 0.1); border-radius: 6px;">
+                <strong>错误：</strong>{{ startupTaskInfo.LastError }}
+              </div>
+              
+              <div style="background: var(--bg-secondary); padding: 12px; border-radius: 8px;">
+                <div style="display: flex; margin-bottom: 4px;">
+                  <span style="color: var(--text-muted); width: 80px;">期望路径:</span>
+                  <span style="word-break: break-all; flex: 1;">{{ startupTaskInfo.ExpectedPath }}</span>
+                </div>
+                <div style="display: flex; margin-bottom: 4px;">
+                  <span style="color: var(--text-muted); width: 80px;">实际路径:</span>
+                  <span style="word-break: break-all; flex: 1;" :style="{ color: startupTaskInfo.ActualPath ? 'inherit' : 'var(--red-text)' }">{{ startupTaskInfo.ActualPath || '未配置' }}</span>
+                </div>
+                <div style="display: flex; margin-bottom: 4px;">
+                  <span style="color: var(--text-muted); width: 80px;">期望模式:</span>
+                  <span>{{ behavior.startupMode === 'elevated' ? '最高权限' : '普通权限' }}</span>
+                </div>
+                <div style="display: flex; margin-bottom: 4px;">
+                  <span style="color: var(--text-muted); width: 80px;">实际模式:</span>
+                  <span>{{ startupTaskInfo.RunLevel === 1 ? '最高权限' : (startupTaskInfo.RunLevel === 0 ? '普通权限' : '未知') }}</span>
+                </div>
+                <div style="display: flex;">
+                  <span style="color: var(--text-muted); width: 80px;">参数:</span>
+                  <span style="word-break: break-all; flex: 1;">{{ startupTaskInfo.ActualArgs || '无' }}</span>
+                </div>
+              </div>
+            </div>
+            <div v-else style="color: var(--red-text); text-align: center; padding: 20px 0;">无法获取任务信息</div>
+
+            <div class="modal-footer" style="margin-top: 20px;">
+              <button class="action-btn flex-1" @click="showStartupDiagnosticModal = false">关闭</button>
+              <button class="primary-btn accent-btn flex-1" @click="handleRepairStartupTask" :disabled="repairingTask">
+                {{ repairingTask ? '修复中...' : '尝试修复任务' }}
+              </button>
             </div>
           </div>
         </div>
@@ -1835,6 +1867,13 @@ const handleStartupModeChange = async () => {
 const startupTaskInfo = ref<any>(null);
 const loadingTaskInfo = ref(false);
 const repairingTask = ref(false);
+
+const showStartupDiagnosticModal = ref(false);
+
+const openStartupDiagnosticModal = async () => {
+  showStartupDiagnosticModal.value = true;
+  await loadStartupTaskInfo();
+};
 
 const loadStartupTaskInfo = async () => {
   if (!behavior.value.startupWithOS) return;

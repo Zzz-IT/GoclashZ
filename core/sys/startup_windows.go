@@ -30,18 +30,35 @@ const (
 )
 
 type StartupTaskInfo struct {
-	Exists    bool        `json:"exists"`
-	Enabled   bool        `json:"enabled"`
-	Mode      StartupMode `json:"mode"`
-	Path      string      `json:"path"`
-	Arguments string      `json:"arguments"`
-	RunLevel  int         `json:"runLevel"`
-	LastError string      `json:"lastError"`
+	Exists       bool        `json:"exists"`
+	Enabled      bool        `json:"enabled"`
+	Mode         StartupMode `json:"mode"`
+	Path         string      `json:"path"`
+	Arguments    string      `json:"arguments"`
+	RunLevel     int         `json:"runLevel"`
+	LastError    string      `json:"lastError"`
+	ExpectedPath string      `json:"expectedPath"`
+	ActualPath   string      `json:"actualPath"`
+	ActualArgs   string      `json:"actualArgs"`
+	IsHealthy    bool        `json:"isHealthy"`
 }
 
 // initCOM initializes COM and returns a cleanup function.
 func initCOM() (func(), error) {
-	if err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED); err != nil {
+	err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED)
+	if err != nil {
+		if oleErr, ok := err.(*ole.OleError); ok {
+			code := oleErr.Code()
+			// 1 (S_FALSE) 表示已作为相同模式初始化
+			// 0x80010106 (RPC_E_CHANGED_MODE) 表示已作为不同模式初始化 (Wails 主线程)
+			if code == 1 || code == 0x80010106 {
+				return func() {}, nil
+			}
+		}
+		errStr := err.Error()
+		if strings.Contains(errStr, "函数不正确") || strings.Contains(errStr, "Incorrect function") {
+			return func() {}, nil
+		}
 		return nil, fmt.Errorf("COM 初始化失败: %w", err)
 	}
 	return ole.CoUninitialize, nil
@@ -100,10 +117,10 @@ func variantString(v any) string {
 	return ""
 }
 
-// CheckStartupTask returns true if the GoclashZ startup task exists and is enabled.
-// It also returns detailed task info.
 func CheckStartupTask() (StartupTaskInfo, error) {
-	info := StartupTaskInfo{Mode: StartupDisabled}
+	exe, _ := os.Executable()
+	expected, _ := filepath.Abs(exe)
+	info := StartupTaskInfo{Mode: StartupDisabled, ExpectedPath: expected}
 
 	cleanup, err := initCOM()
 	if err != nil {
@@ -192,10 +209,13 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 		}
 		
 		// Validation
-		exe, _ := os.Executable()
-		expected, _ := filepath.Abs(exe)
-		actual, _ := filepath.Abs(info.Path)
+		actualPath := strings.Trim(info.Path, "\"")
+		actualPath = strings.TrimSpace(actualPath)
+		actual, _ := filepath.Abs(actualPath)
 		
+		info.ActualPath = actualPath
+		info.ActualArgs = info.Arguments
+
 		hasStartup := strings.Contains(info.Arguments, "--startup")
 		hasSilent := strings.Contains(info.Arguments, "--silent")
 		hasElevated := strings.Contains(info.Arguments, "--elevated")
@@ -212,6 +232,8 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 			info.Mode = StartupDisabled
 		}
 	}
+
+	info.IsHealthy = info.Exists && info.Enabled && info.LastError == ""
 
 	return info, nil
 }

@@ -3,7 +3,9 @@
 package sys
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"syscall"
 
@@ -13,6 +15,7 @@ import (
 // CheckAdmin 检查当前进程是否拥有 Windows 管理员权限
 // 原理：普通用户无法打开 PHYSICALDRIVE0 物理磁盘句柄
 func CheckAdmin() bool {
+
 	_, err := os.Open("\\\\.\\PHYSICALDRIVE0")
 	if err != nil {
 		return false
@@ -84,5 +87,27 @@ func RequestAdminWithArgs(extraArgs string) error {
 	}
 
 	os.Exit(0)
+	return nil
+}
+
+// RunElevatedWithArgsWait 以管理员身份运行指定参数的自身进程，并等待其执行完毕，不会退出当前进程
+func RunElevatedWithArgsWait(extraArgs string) error {
+	if CheckAdmin() {
+		return nil // 已经是管理员，无需提权
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+
+	// 使用 PowerShell Start-Process -Wait 实现提权并等待
+	psCmd := fmt.Sprintf("Start-Process -FilePath '%s' -ArgumentList '%s' -Verb RunAs -Wait -WindowStyle Hidden", exe, extraArgs)
+	cmd := exec.Command("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", psCmd)
+	
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("提权执行失败: %v", err)
+	}
+
 	return nil
 }

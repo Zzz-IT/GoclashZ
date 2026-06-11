@@ -386,9 +386,9 @@ func (a *App) SetupElevatedStartupAndSaveBehavior(config AppBehavior) error {
 	// 同步一下状态
 	a.SyncState()
 
-	// 2. 如果非管理员，调用 RequestAdminWithArgs，这会导致当前进程退出。
+	// 2. 如果非管理员，调用 RunElevatedWithArgsWait 等待子进程创建任务，不会退出当前进程
 	if !sys.CheckAdmin() {
-		if err := sys.RequestAdminWithArgs("--setup-elevated-startup"); err != nil {
+		if err := sys.RunElevatedWithArgsWait("--setup-elevated-startup"); err != nil {
 			_ = a.core.Behavior.SetAndSave(oldConfig)
 			a.SyncState()
 			return err
@@ -418,7 +418,7 @@ func (a *App) RepairStartupTask() error {
 	behavior := a.core.Behavior.Get()
 	if behavior.StartupMode == "elevated" {
 		if !sys.CheckAdmin() {
-			return sys.RequestAdminWithArgs("--setup-elevated-startup")
+			return sys.RunElevatedWithArgsWait("--setup-elevated-startup")
 		}
 		return sys.CreateElevatedStartupTask(exePath)
 	}
