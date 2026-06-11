@@ -18,15 +18,15 @@ import (
 
 // Win32 constants
 const (
-	WM_USER         = 0x0400
-	WM_TRAYICON     = WM_USER + 1
-	WM_TRAYRENDER   = WM_USER + 2
-	WM_TRAYQUIT     = WM_USER + 3
-	WM_NULL         = 0x0000
-	WM_COMMAND      = 0x0111
-	WM_RBUTTONUP    = 0x0205
+	WM_USER          = 0x0400
+	WM_TRAYICON      = WM_USER + 1
+	WM_TRAYRENDER    = WM_USER + 2
+	WM_TRAYQUIT      = WM_USER + 3
+	WM_NULL          = 0x0000
+	WM_COMMAND       = 0x0111
+	WM_RBUTTONUP     = 0x0205
 	WM_LBUTTONDBLCLK = 0x0203
-	WM_DESTROY      = 0x0002
+	WM_DESTROY       = 0x0002
 
 	NIM_ADD    = 0x00000000
 	NIM_MODIFY = 0x00000001
@@ -168,9 +168,10 @@ type TrayRuntime struct {
 	latest   appcore.AppState
 
 	// Win32 state
-	hwnd             windows.HWND
-	hIcon            uintptr
-	ownsIcon         bool
+	hwnd              windows.HWND
+	hIcon             uintptr
+	ownsIcon          bool
+	iconAdded         atomic.Bool
 	taskbarCreatedMsg uint32
 
 	// State coalescing
@@ -214,7 +215,7 @@ func (t *TrayRuntime) UpdateState(state appcore.AppState) {
 	t.latest = state
 	t.latestMu.Unlock()
 
-	if !t.ready.Load() || t.hwnd == 0 {
+	if !t.ready.Load() || !t.iconAdded.Load() || t.hwnd == 0 {
 		return
 	}
 
@@ -247,6 +248,12 @@ func (t *TrayRuntime) snapshot() appcore.AppState {
 func (t *TrayRuntime) runWin32TrayLoop() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+
+	defer func() {
+		t.ready.Store(false)
+		t.started.Store(false)
+		t.hwnd = 0
+	}()
 
 	// Register TaskbarCreated message for Explorer restart recovery
 	taskbarCreatedPtr, _ := windows.UTF16PtrFromString("TaskbarCreated")
@@ -397,7 +404,11 @@ func (t *TrayRuntime) addTrayIcon() error {
 	tip := "GoclashZ - 未选择配置"
 	copy(nid.SzTip[:], windows.StringToUTF16(tip))
 
-	return shellNotifyIcon(NIM_ADD, &nid)
+	err := shellNotifyIcon(NIM_ADD, &nid)
+	if err == nil {
+		t.iconAdded.Store(true)
+	}
+	return err
 }
 
 // deleteTrayIcon removes the tray icon
@@ -412,12 +423,15 @@ func (t *TrayRuntime) deleteTrayIcon() {
 		UID:    1,
 	}
 
-	shellNotifyIcon(NIM_DELETE, &nid)
+	if err := shellNotifyIcon(NIM_DELETE, &nid); err != nil {
+		fmt.Printf("[Tray] deleteTrayIcon failed: %v\n", err)
+	}
+	t.iconAdded.Store(false)
 }
 
 // updateTrayTooltip updates the tray icon tooltip
 func (t *TrayRuntime) updateTrayTooltip(tooltip string) {
-	if t.hwnd == 0 {
+	if t.hwnd == 0 || !t.iconAdded.Load() {
 		return
 	}
 
@@ -489,7 +503,7 @@ func (t *TrayRuntime) wndProc(hwnd windows.HWND, msg uint32, wparam uintptr, lpa
 
 // renderOnTrayThread updates the tray state (must be called from tray thread)
 func (t *TrayRuntime) renderOnTrayThread(state appcore.AppState) {
-	if !t.ready.Load() {
+	if !t.ready.Load() || !t.iconAdded.Load() {
 		return
 	}
 
@@ -603,11 +617,20 @@ func (t *TrayRuntime) commandLoop() {
 	}
 }
 
+// reportTrayError reports tray command errors to the UI
+func (t *TrayRuntime) reportTrayError(action string, err error) {
+	if err == nil {
+		return
+	}
+	fmt.Printf("[Tray] %s failed: %v\n", action, err)
+	t.app.core.GetEvents().Emit("notify-error", fmt.Sprintf("%s失败: %v", action, err))
+}
+
 // handleCommand executes a tray command
 func (t *TrayRuntime) handleCommand(cmd TrayCommand) {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("[Tray] Command error: %v\n", r)
+			fmt.Printf("[Tray] Command panic: %v\n", r)
 		}
 	}()
 
@@ -617,23 +640,29 @@ func (t *TrayRuntime) handleCommand(cmd TrayCommand) {
 
 	case TrayCmdToggleSystemProxy:
 		state := t.snapshot()
-		_ = t.app.core.ToggleSystemProxy(t.ctx, !state.SystemProxy)
+		err := t.app.core.ToggleSystemProxy(t.ctx, !state.SystemProxy)
+		t.reportTrayError("切换系统代理", err)
 
 	case TrayCmdToggleTun:
 		state := t.snapshot()
-		_ = t.app.core.ToggleTunMode(t.ctx, !state.Tun)
+		err := t.app.core.ToggleTunMode(t.ctx, !state.Tun)
+		t.reportTrayError("切换 TUN", err)
 
 	case TrayCmdModeRule:
-		_ = t.app.core.UpdateClashMode(t.ctx, "rule")
+		err := t.app.core.UpdateClashMode(t.ctx, "rule")
+		t.reportTrayError("切换模式", err)
 
 	case TrayCmdModeGlobal:
-		_ = t.app.core.UpdateClashMode(t.ctx, "global")
+		err := t.app.core.UpdateClashMode(t.ctx, "global")
+		t.reportTrayError("切换模式", err)
 
 	case TrayCmdModeDirect:
-		_ = t.app.core.UpdateClashMode(t.ctx, "direct")
+		err := t.app.core.UpdateClashMode(t.ctx, "direct")
+		t.reportTrayError("切换模式", err)
 
 	case TrayCmdRestartCore:
-		_ = t.app.core.RestartCoreWithReason(t.ctx, "manual")
+		err := t.app.core.RestartCoreWithReason(t.ctx, "manual")
+		t.reportTrayError("重启内核", err)
 
 	case TrayCmdQuitApp:
 		t.app.safeQuit()
