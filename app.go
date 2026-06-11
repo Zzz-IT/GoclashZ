@@ -40,7 +40,7 @@ type App struct {
 	// 全局热键线程 ID (Ctrl+Alt+Q 退出)
 	hotkeyTID atomic.Uint32
 
-	tray *TrayService
+	tray *TrayRuntime
 	core *appcore.Controller
 }
 
@@ -95,7 +95,7 @@ func NewApp() *App {
 		Version:       version.AppVersion,
 		OnStateChange: app.syncTrayState,
 	})
-	app.tray = NewTrayService(app)
+	app.tray = NewTrayRuntime(app)
 	return app
 }
 
