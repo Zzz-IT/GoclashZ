@@ -207,16 +207,19 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 
 	c.Supervisor.Start(ctx)
 
-	// 普通启动，或者开机自启但不希望恢复状态时，重置代理和内核状态
-	if !opts.IsStartupLaunch || !c.Behavior.Get().RestoreOnStartup {
+	// 只有自启且配置了恢复状态时，才执行全量恢复操作
+	if opts.IsStartupLaunch && c.Behavior.Get().RestoreOnStartup {
+		c.Supervisor.ReconcileAsync("startup")
+	} else {
+		// 普通双击启动，或者关闭了恢复状态的自启：清空期望状态，回归一张白纸，确保清爽无拦截
 		desired := c.Desired.Get()
 		desired.SystemProxy = false
 		desired.Tun = false
 		desired.CoreRunning = false
 		c.Desired.SetAndSave(desired)
+		
+		c.SyncState()
 	}
-
-	c.Supervisor.ReconcileAsync("startup")
 
 	c.RefreshAutoDelayTest(AutoDelayRefreshOptions{
 		Immediate: true,
@@ -363,7 +366,7 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 		return err
 	}
 
-	if err := clash.Start(c.ctx); err != nil {
+	if err := clash.Start(ctx); err != nil {
 		return err
 	}
 
@@ -371,17 +374,17 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 	var lastProbeErr error
 	for i := 0; i < 20; i++ {
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			clash.Stop()
 			c.mu.Lock()
 			c.userCoreRunning = false
 			c.coreStartedAt = time.Time{}
 			c.mu.Unlock()
-			return c.ctx.Err()
+			return ctx.Err()
 		default:
 		}
 
-		if _, err := clash.GetInitialDataWithContext(c.ctx); err == nil {
+		if _, err := clash.GetInitialDataWithContext(ctx); err == nil {
 			apiReady = true
 			break
 		} else {
@@ -390,14 +393,14 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 
 		timer := time.NewTimer(100 * time.Millisecond)
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			timer.Stop()
 			clash.Stop()
 			c.mu.Lock()
 			c.userCoreRunning = false
 			c.coreStartedAt = time.Time{}
 			c.mu.Unlock()
-			return c.ctx.Err()
+			return ctx.Err()
 		case <-timer.C:
 		}
 	}

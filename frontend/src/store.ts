@@ -38,6 +38,7 @@ export const globalState = reactive({
   tun: false,
   version: '',
   appVersion: '', // 👈 新增
+  isAdmin: false,
   tunStatus: { hasWintun: false, isAdmin: false },
   delayRetention: true,
   delayRetentionTime: 'long',
@@ -153,6 +154,9 @@ export function updateStateFromBackend(rawData: any) {
 
   if (rawData.appVersion !== undefined) globalState.appVersion = rawData.appVersion;
   else if (rawData.AppVersion !== undefined) globalState.appVersion = rawData.AppVersion;
+
+  if (rawData.isAdmin !== undefined) globalState.isAdmin = rawData.isAdmin;
+  else if (rawData.IsAdmin !== undefined) globalState.isAdmin = rawData.IsAdmin;
 
   if (rawData.activeConfig !== undefined) {
     globalState.activeConfigId = rawData.activeConfig;

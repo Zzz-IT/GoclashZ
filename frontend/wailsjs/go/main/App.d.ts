@@ -130,6 +130,8 @@ export function SelectProxy(arg1:string,arg2:string):Promise<void>;
 
 export function SetupElevatedStartup():Promise<void>;
 
+export function SetupElevatedStartupAndSaveBehavior(arg1:appcore.AppBehavior):Promise<void>;
+
 export function ShowMainWindow():Promise<void>;
 
 export function StartClash(arg1:string):Promise<void>;

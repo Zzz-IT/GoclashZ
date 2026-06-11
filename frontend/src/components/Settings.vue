@@ -1764,10 +1764,11 @@ const handleStartupWithOSChange = async () => {
     behavior.value.restoreOnStartup = false;
   } else if (behavior.value.startupMode === 'elevated') {
     try {
-      await (API as any).SetupElevatedStartup();
+      await (API as any).SetupElevatedStartupAndSaveBehavior(behavior.value);
+      return; // 内部已落盘保存，无需再次 saveBehavior
     } catch (e) {
       console.error('提权注册自启失败', e);
-      // Fallback
+      // Fallback 继续往下走普通的 saveBehavior()
     }
   }
   saveBehavior();
@@ -1776,7 +1777,8 @@ const handleStartupWithOSChange = async () => {
 const handleStartupModeChange = async () => {
   if (behavior.value.startupWithOS && behavior.value.startupMode === 'elevated') {
     try {
-      await (API as any).SetupElevatedStartup();
+      await (API as any).SetupElevatedStartupAndSaveBehavior(behavior.value);
+      return; // 内部已落盘保存，无需再次 saveBehavior
     } catch (e) {
       console.error('提权注册自启失败', e);
     }

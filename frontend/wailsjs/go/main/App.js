@@ -250,6 +250,10 @@ export function SetupElevatedStartup() {
   return window['go']['main']['App']['SetupElevatedStartup']();
 }
 
+export function SetupElevatedStartupAndSaveBehavior(arg1) {
+  return window['go']['main']['App']['SetupElevatedStartupAndSaveBehavior'](arg1);
+}
+
 export function ShowMainWindow() {
   return window['go']['main']['App']['ShowMainWindow']();
 }

@@ -382,6 +382,31 @@ func (a *App) SetupElevatedStartup() error {
 	return sys.CreateElevatedStartupTask(exePath)
 }
 
+func (a *App) SetupElevatedStartupAndSaveBehavior(config AppBehavior) error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return err
+	}
+
+	// 1. 先保存预期的开机自启配置
+	config.StartupWithOS = true
+	config.StartupMode = "elevated"
+	if err := a.core.Behavior.SetAndSave(config); err != nil {
+		fmt.Printf("保存 elevated 启动配置失败: %v\n", err)
+	}
+	// 同步一下状态
+	a.SyncState()
+
+	// 2. 如果非管理员，调用 RequestAdminWithArgs，这会导致当前进程退出。
+	// 但由于配置已经保存，退出也没关系。
+	if !sys.CheckAdmin() {
+		return sys.RequestAdminWithArgs("--setup-elevated-startup")
+	}
+
+	// 3. 如果已经是管理员，直接创建任务
+	return sys.CreateElevatedStartupTask(exePath)
+}
+
 func (a *App) RelaunchAsAdmin(args []string) error {
 	argStr := strings.Join(args, " ")
 	return sys.RequestAdminWithArgs(argStr)
