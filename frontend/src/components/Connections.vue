@@ -2,7 +2,7 @@
   <div class="connections-view">
     <Transition name="slide-fade" mode="out-in">
       <div v-if="!selectedConn" class="connections-list-wrapper">
-        <Teleport to="#title-extra-target">
+        <Teleport v-if="titleTargetReady" to="#title-extra-target">
           <span v-if="connections.length > 0" class="conn-title-count">活跃连接: {{ connections.length }}</span>
         </Teleport>
         <div class="action-bar card-panel page-sticky-mask">
@@ -201,10 +201,19 @@ const stopMonitor = () => {
 };
 
 // 配合 KeepAlive 的生命周期控制
-onMounted(() => { startMonitor(); resetConnSlider(); });
+const titleTargetReady = ref(false);
+
+onMounted(() => { 
+  startMonitor(); 
+  resetConnSlider(); 
+  titleTargetReady.value = !!document.querySelector('#title-extra-target');
+});
 onActivated(() => { startMonitor(); resetConnSlider(); });       // 再次切回连接页时恢复更新
 onDeactivated(() => stopMonitor());      // 切到别的页面时暂停后台请求，节省性能
-onUnmounted(() => stopMonitor());
+onUnmounted(() => {
+  stopMonitor();
+  selectedConn.value = null;
+});
 
 const isDirect = (conn: any) => {
   const chains = conn.chains || [];

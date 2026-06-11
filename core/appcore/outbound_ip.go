@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // OutboundIPResult 出站 IP 检测结果
@@ -56,8 +58,45 @@ var ipv4DirectEndpoints = []string{
 	"https://api.ipify.org",
 }
 
+type outboundIPCache struct {
+	mu        sync.Mutex
+	value     OutboundIPResult
+	expiresAt time.Time
+}
+
+var (
+	ipCache         outboundIPCache
+	outboundIPGroup singleflight.Group
+)
+
 // GetOutboundIP 检测出站 IP
 func (c *Controller) GetOutboundIP() (OutboundIPResult, error) {
+	ipCache.mu.Lock()
+	if time.Now().Before(ipCache.expiresAt) && ipCache.value.Preferred != "" {
+		cached := ipCache.value
+		ipCache.mu.Unlock()
+		return cached, nil
+	}
+	ipCache.mu.Unlock()
+
+	v, err, _ := outboundIPGroup.Do("outbound-ip", func() (any, error) {
+		res, err := c.getOutboundIPInternal()
+		if err == nil && res.Preferred != "" {
+			ipCache.mu.Lock()
+			ipCache.value = res
+			ipCache.expiresAt = time.Now().Add(10 * time.Second)
+			ipCache.mu.Unlock()
+		}
+		return res, err
+	})
+
+	if err != nil {
+		return OutboundIPResult{}, err
+	}
+	return v.(OutboundIPResult), nil
+}
+
+func (c *Controller) getOutboundIPInternal() (OutboundIPResult, error) {
 	state := c.GetAppState()
 	proxyActive := state.SystemProxy || state.Tun
 

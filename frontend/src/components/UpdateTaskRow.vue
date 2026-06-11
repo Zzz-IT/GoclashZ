@@ -40,6 +40,7 @@
 import { computed } from 'vue';
 import type { UpdateTaskState } from '../store';
 import { ICONS } from '../utils/icons';
+import { formatBytes, formatSpeed, formatTime } from '../utils/format';
 import * as API from '../../wailsjs/go/main/App';
 
 const props = defineProps<{
@@ -62,24 +63,6 @@ const statusText = computed(() => {
   }
 });
 
-const formatBytes = (bytes: number) => {
-  if (!bytes) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
-
-const formatSpeed = (bps: number) => {
-  if (!bps) return '0 B/s';
-  return formatBytes(bps) + '/s';
-};
-
-const formatTime = (seconds: number) => {
-  if (!seconds || seconds < 0) return '--';
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-};
 
 const handleTogglePause = async () => {
   if (props.task.status === 'running') {

@@ -138,7 +138,7 @@
                     {{ behavior[db.behaviorKey] || '未配置下载链接' }}
                   </p>
                   <p v-if="dbFileInfo[db.key]?.exists" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">
-                    大小: {{ formatSize(dbFileInfo[db.key].size) }} | 更新于: {{ formatRelativeTime(dbFileInfo[db.key].modTime) }}
+                    大小: {{ formatBytes(dbFileInfo[db.key].size) }} | 更新于: {{ formatRelativeTime(dbFileInfo[db.key].modTime) }}
                   </p>
                   <p v-else style="font-size: 0.75rem; color: var(--red-text); margin-top: 2px;">文件不存在，请点击更新同步</p>
                 </div>
@@ -1169,6 +1169,8 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { BrowserOpenURL, EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 import { showAlert, showConfirm, globalState } from '../store';
+import { formatBytes, formatSpeed, formatTime, formatRelativeTime } from '../utils/format';
+import { normalizeStartupTaskInfo } from '../utils/normalize';
 import { ICONS } from '../utils/icons';
 import appLogo from '../assets/logo.ico';
 import UpdateTaskPanel from './UpdateTaskPanel.vue';
@@ -1327,26 +1329,6 @@ const refreshComponentInfo = async () => {
 const isUpdatingAnyDb = computed(() => {
   return ["geoip", "geosite", "mmdb", "asn"].some(isUpdatingDb);
 });
-
-const formatSize = (bytes: number) => {
-  if (!bytes) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
-
-const formatRelativeTime = (timestamp: number) => {
-  if (!timestamp) return '未知';
-  const now = Math.floor(Date.now() / 1000);
-  const diff = now - timestamp;
-
-  if (diff < 60) return '刚刚';
-  if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
-  if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
-  if (diff < 2592000) return Math.floor(diff / 86400) + ' 天前';
-  return new Date(timestamp * 1000).toLocaleDateString();
-};
 
 const formatUpdateError = (err: any) => {
   let msg = String(err || '');
@@ -1798,24 +1780,6 @@ const appUpdatePercent = computed(() => {
   return Math.min(100, Math.floor((p.bytesDone / p.totalBytes) * 100));
 });
 
-const formatBytes = (bytes: number) => {
-  if (!bytes) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
-
-const formatSpeed = (bps: number) => {
-  if (!bps) return '0 B/s';
-  return formatBytes(bps) + '/s';
-};
-
-const formatTime = (seconds: number) => {
-  if (!seconds || seconds < 0) return '--';
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-};
 
 const updateTunDnsHijack = (e: Event) => {
   const val = (e.target as HTMLInputElement).value;
@@ -1838,6 +1802,9 @@ const saveNet = async () => {
 const saveBehavior = async () => {
   try {
     await API.SaveAppBehavior(behavior.value);
+    if (behavior.value.appLogLevel) {
+      globalState.appLogLevel = behavior.value.appLogLevel;
+    }
   } catch (e) {
     console.error('应用行为保存失败', e);
   }
@@ -1898,9 +1865,9 @@ const loadStartupTaskInfo = async () => {
   loadingTaskInfo.value = true;
   try {
     const info = await (API as any).GetStartupTaskInfo();
-    startupTaskInfo.value = info;
-  } catch (e) {
-    console.error('获取自启任务诊断信息失败', e);
+    startupTaskInfo.value = normalizeStartupTaskInfo(info);
+  } catch (err) {
+    console.error('获取自启任务诊断信息失败', err);
     startupTaskInfo.value = null;
   } finally {
     loadingTaskInfo.value = false;
@@ -1912,6 +1879,12 @@ const handleRepairStartupTask = async () => {
   try {
     await (API as any).RepairStartupTask();
     await loadStartupTaskInfo();
+
+    if (startupTaskInfo.value?.isHealthy) {
+      await showAlert("自启任务修复成功", "完成");
+    } else {
+      await showAlert("已执行修复，但任务仍异常，请查看诊断详情。", "提示", true);
+    }
   } catch (e) {
     console.error('修复自启任务失败', e);
     await showAlert("修复自启任务失败: " + String(e), "错误", true);

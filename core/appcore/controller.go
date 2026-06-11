@@ -260,7 +260,8 @@ type AppState struct {
 	IsAdmin   bool   `json:"isAdmin"`
 	Mode      string `json:"mode"`
 	Theme     string `json:"theme"`
-	HideLogs  bool   `json:"hideLogs"`
+	HideLogs    bool   `json:"hideLogs"`
+	AppLogLevel string `json:"appLogLevel"`
 	// 👇 新增以下字段，统一接管 UI
 	SystemProxy bool   `json:"systemProxy"`
 	Tun         bool   `json:"tun"`
@@ -309,6 +310,7 @@ func (c *Controller) GetAppState() AppState {
 		DelayRetention:     behavior.DelayRetention,
 		DelayRetentionTime: behavior.DelayRetentionTime,
 		HideLogs:           behavior.HideLogs,
+		AppLogLevel:        behavior.AppLogLevel,
 		UpdateReady:        c.updateReady,
 		NewAppVersion:      c.newAppVersion,
 		UpdateDownloaded:   c.downloadedUpdatePath != "",

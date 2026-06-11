@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -253,7 +254,11 @@ func (t *TrayRuntime) runWin32TrayLoop() {
 	defer func() {
 		t.ready.Store(false)
 		t.started.Store(false)
+		t.renderQueued.Store(false)
+		t.iconAdded.Store(false)
 		t.hwnd = 0
+		t.hIcon = 0
+		t.ownsIcon = false
 	}()
 
 	// Register TaskbarCreated message for Explorer restart recovery
@@ -323,7 +328,12 @@ func (t *TrayRuntime) createHiddenWindow() windows.HWND {
 
 	r, _, err := procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
 	if r == 0 {
-		logger.Errorf("[Tray] RegisterClassExW failed: %v", err)
+		if errno, ok := err.(syscall.Errno); ok && errno == windows.ERROR_CLASS_ALREADY_EXISTS {
+			logger.Debugf("[Tray] window class already exists")
+		} else {
+			logger.Errorf("[Tray] RegisterClassExW failed: %v", err)
+			return 0
+		}
 	}
 
 	hwnd, _, err := procCreateWindowExW.Call(
@@ -414,7 +424,7 @@ func (t *TrayRuntime) addTrayIcon() error {
 
 // deleteTrayIcon removes the tray icon
 func (t *TrayRuntime) deleteTrayIcon() {
-	if t.hwnd == 0 {
+	if t.hwnd == 0 || !t.iconAdded.Load() {
 		return
 	}
 
@@ -446,7 +456,12 @@ func (t *TrayRuntime) updateTrayTooltip(tooltip string) {
 	copy(nid.SzTip[:], windows.StringToUTF16(tooltip))
 
 	if err := shellNotifyIcon(NIM_MODIFY, &nid); err != nil {
-		logger.Errorf("[Tray] updateTrayTooltip failed: %v", err)
+		logger.Warnf("[Tray] updateTrayTooltip failed: %v", err)
+
+		// 轻量自愈：NIM_MODIFY 失败时尝试重新添加一次
+		if err := t.addTrayIcon(); err != nil {
+			logger.Errorf("[Tray] re-add tray icon after modify failure failed: %v", err)
+		}
 	}
 }
 

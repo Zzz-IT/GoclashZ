@@ -179,12 +179,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, onActivated, nextTick } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { ICONS } from '../utils/icons';
-import { showAlert, globalState } from '../store';
 import { clash } from '../../wailsjs/go/models';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { EventsOn, EventsOff, BrowserOpenURL } from '../../wailsjs/runtime/runtime';
+import { showAlert, showConfirm, globalState } from '../store';
+import { formatBytes } from '../utils/format';
+import { ICONS } from '../utils/icons';
 
 const emit = defineEmits<{
   'edit-config': [id: string, name: string];
@@ -208,13 +209,7 @@ const pendingImportPath = ref('');
 const configNameInput = ref('');
 const isImportingRemote = ref(false);
 
-const formatBytes = (bytes: number) => {
-  if (!bytes || bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
+
 
 const formatDate = (timestamp: number) => {
   if (!timestamp) return '';

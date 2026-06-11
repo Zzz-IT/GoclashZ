@@ -119,7 +119,7 @@ const (
 )
 
 // RunElevatedWithArgsWait 以管理员身份运行指定参数的自身进程，并等待其执行完毕，不会退出当前进程
-func RunElevatedWithArgsWait(extraArgs string) error {
+func RunElevatedWithArgsWait(args ...string) error {
 	if CheckAdmin() {
 		return nil // 已经是管理员，无需提权
 	}
@@ -129,9 +129,15 @@ func RunElevatedWithArgsWait(extraArgs string) error {
 		return err
 	}
 
+	escaped := make([]string, 0, len(args))
+	for _, arg := range args {
+		escaped = append(escaped, syscall.EscapeArg(arg))
+	}
+	param := strings.Join(escaped, " ")
+
 	verbPtr, _ := syscall.UTF16PtrFromString("runas")
 	exePtr, _ := syscall.UTF16PtrFromString(exe)
-	argPtr, _ := syscall.UTF16PtrFromString(extraArgs)
+	argPtr, _ := syscall.UTF16PtrFromString(param)
 
 	var sei ShellExecuteInfo
 	sei.CbSize = uint32(unsafe.Sizeof(sei))
@@ -147,6 +153,9 @@ func RunElevatedWithArgsWait(extraArgs string) error {
 			return fmt.Errorf("请求管理员权限失败或被取消: %w", err)
 		}
 		return fmt.Errorf("请求管理员权限失败或被取消")
+	}
+	if sei.HProcess == 0 {
+		return fmt.Errorf("管理员子进程句柄为空")
 	}
 	defer windows.CloseHandle(sei.HProcess)
 

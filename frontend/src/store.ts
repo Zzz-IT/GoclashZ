@@ -124,8 +124,12 @@ export function updateStateFromBackend(rawData: any) {
   const newHideLogs = rawData.hideLogs ?? rawData.HideLogs;
   if (newHideLogs !== undefined) {
     globalState.hideLogs = newHideLogs;
-    globalState.appLogLevel = rawData.appLogLevel || rawData.AppLogLevel || 'info';
     localStorage.setItem('goclashz_hideLogs', String(newHideLogs)); // 存入缓存
+  }
+
+  const newAppLogLevel = rawData.appLogLevel ?? rawData.AppLogLevel;
+  if (newAppLogLevel !== undefined) {
+    globalState.appLogLevel = newAppLogLevel || 'info';
   }
 
   // 👇 新增这三个字段的清洗逻辑
