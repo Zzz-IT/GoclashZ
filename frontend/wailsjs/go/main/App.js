@@ -166,10 +166,6 @@ export function ReadConfigText(arg1) {
   return window['go']['main']['App']['ReadConfigText'](arg1);
 }
 
-export function RelaunchAsAdmin(arg1) {
-  return window['go']['main']['App']['RelaunchAsAdmin'](arg1);
-}
-
 export function RemoveUpdateTask(arg1) {
   return window['go']['main']['App']['RemoveUpdateTask'](arg1);
 }
@@ -244,10 +240,6 @@ export function SelectLocalFile() {
 
 export function SelectProxy(arg1, arg2) {
   return window['go']['main']['App']['SelectProxy'](arg1, arg2);
-}
-
-export function SetupElevatedStartup() {
-  return window['go']['main']['App']['SetupElevatedStartup']();
 }
 
 export function SetupElevatedStartupAndSaveBehavior(arg1) {

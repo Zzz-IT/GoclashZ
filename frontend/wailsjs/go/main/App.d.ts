@@ -88,8 +88,6 @@ export function IsConfigEditable(arg1:string):Promise<boolean>;
 
 export function ReadConfigText(arg1:string):Promise<clash.ConfigTextResult>;
 
-export function RelaunchAsAdmin(arg1:Array<string>):Promise<void>;
-
 export function RemoveUpdateTask(arg1:string):Promise<void>;
 
 export function RenameConfig(arg1:string,arg2:string):Promise<void>;
@@ -127,8 +125,6 @@ export function SelectLocalConfig(arg1:string):Promise<void>;
 export function SelectLocalFile():Promise<main.FileInfo>;
 
 export function SelectProxy(arg1:string,arg2:string):Promise<void>;
-
-export function SetupElevatedStartup():Promise<void>;
 
 export function SetupElevatedStartupAndSaveBehavior(arg1:appcore.AppBehavior):Promise<void>;
 

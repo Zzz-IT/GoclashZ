@@ -31,6 +31,7 @@ type TrayService struct {
 	mRestart    *systray.MenuItem
 	
 	trayReady   atomic.Bool
+	started     atomic.Bool
 	watchdogMu  sync.Mutex
 	isRestarting bool
 }
@@ -44,6 +45,9 @@ func NewTrayService(app *App) *TrayService {
 }
 
 func (t *TrayService) Start(ctx context.Context) {
+	if !t.started.CompareAndSwap(false, true) {
+		return
+	}
 	t.mu.Lock()
 	if t.cancel != nil {
 		t.cancel()
@@ -75,6 +79,15 @@ func (t *TrayService) Restart() {
 	// Wait a bit before restarting
 	time.Sleep(2 * time.Second)
 	
+	select {
+	case <-t.ctx.Done():
+		t.watchdogMu.Lock()
+		t.isRestarting = false
+		t.watchdogMu.Unlock()
+		return
+	default:
+	}
+
 	go t.runSystray()
 	
 	t.watchdogMu.Lock()

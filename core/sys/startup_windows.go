@@ -68,6 +68,38 @@ func newTaskScheduler() (*ole.IDispatch, error) {
 	return disp, nil
 }
 
+func variantInt(v any) int {
+	if v == nil {
+		return 0
+	}
+	switch x := v.(type) {
+	case int:
+		return x
+	case int32:
+		return int(x)
+	case int16:
+		return int(x)
+	case int64:
+		return int(x)
+	case uint32:
+		return int(x)
+	case float64:
+		return int(x)
+	default:
+		return 0
+	}
+}
+
+func variantString(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
 // CheckStartupTask returns true if the GoclashZ startup task exists and is enabled.
 // It also returns detailed task info.
 func CheckStartupTask() (StartupTaskInfo, error) {
@@ -108,7 +140,9 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 	// Check if enabled
 	enabledV, err := task.GetProperty("Enabled")
 	if err == nil {
-		info.Enabled = enabledV.Value().(bool)
+		if b, ok := enabledV.Value().(bool); ok {
+			info.Enabled = b
+		}
 	}
 
 	// Check definition
@@ -123,14 +157,7 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 			prin := prinV.ToIDispatch()
 			runLevelV, err := prin.GetProperty("RunLevel")
 			if err == nil {
-				switch v := runLevelV.Value().(type) {
-				case int32:
-					info.RunLevel = int(v)
-				case int16:
-					info.RunLevel = int(v)
-				case int:
-					info.RunLevel = v
-				}
+				info.RunLevel = variantInt(runLevelV.Value())
 			}
 			prin.Release()
 		}
@@ -140,17 +167,17 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 		if err == nil {
 			actions := actionsV.ToIDispatch()
 			actionCountV, err := actions.GetProperty("Count")
-			if err == nil && actionCountV.Value().(int32) > 0 {
+			if err == nil && variantInt(actionCountV.Value()) > 0 {
 				actionV, err := actions.GetProperty("Item", 1) // 1-indexed in COM collections
 				if err == nil {
 					action := actionV.ToIDispatch()
 					pathV, err := action.GetProperty("Path")
-					if err == nil && pathV.Value() != nil {
-						info.Path = pathV.Value().(string)
+					if err == nil {
+						info.Path = variantString(pathV.Value())
 					}
 					argsV, err := action.GetProperty("Arguments")
-					if err == nil && argsV.Value() != nil {
-						info.Arguments = argsV.Value().(string)
+					if err == nil {
+						info.Arguments = variantString(argsV.Value())
 					}
 					action.Release()
 				}
@@ -166,9 +193,19 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 		
 		// Validation
 		exe, _ := os.Executable()
-		if info.Path != exe || !strings.Contains(info.Arguments, "--startup") {
+		expected, _ := filepath.Abs(exe)
+		actual, _ := filepath.Abs(info.Path)
+		
+		hasStartup := strings.Contains(info.Arguments, "--startup")
+		hasSilent := strings.Contains(info.Arguments, "--silent")
+		hasElevated := strings.Contains(info.Arguments, "--elevated")
+
+		pathMismatch := !strings.EqualFold(filepath.Clean(actual), filepath.Clean(expected))
+		argsMismatch := !hasStartup || !hasSilent || (info.Mode == StartupElevated && !hasElevated)
+
+		if pathMismatch || argsMismatch {
 			info.Enabled = false
-			info.LastError = "path mismatch or missing --startup"
+			info.LastError = "path mismatch or incomplete arguments"
 		}
 		
 		if !info.Enabled {

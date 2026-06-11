@@ -94,6 +94,7 @@ func (c *Controller) SelectLocalConfig(ctx context.Context, id string) error {
 
 	desired := c.Desired.Get()
 	desired.ActiveConfig = id
+	c.fillDesiredTarget(&desired)
 	c.Desired.SetAndSave(desired)
 
 	if state.IsRunning {

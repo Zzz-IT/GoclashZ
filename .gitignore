@@ -11,6 +11,7 @@ node_modules/
 !/data/core/bin/
 !/data/core/bin/*
 data/core/bin/*.tmp
+data/core/bin/*.db
 data/core/bin/*.zip
 data/core/bin/*.meta.json
 

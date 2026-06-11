@@ -822,6 +822,12 @@ func (c *Controller) StopCoreProcess() {
 	c.stopCoreProcessLocked()
 }
 
+func (c *Controller) fillDesiredTarget(d *DesiredState) {
+	b := c.Behavior.Get()
+	d.ActiveConfig = b.ActiveConfig
+	d.Mode = b.ActiveMode
+}
+
 // ToggleSystemProxy 开关：系统代理
 func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
 	desired := c.Desired.Get()
@@ -832,6 +838,8 @@ func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
 	} else if !desired.Tun {
 		desired.CoreRunning = false
 	}
+
+	c.fillDesiredTarget(&desired)
 
 	c.Desired.SetAndSave(desired)
 	c.Supervisor.ReconcileAsync("system-proxy-toggle")
@@ -857,6 +865,8 @@ func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
 	} else if !desired.SystemProxy {
 		desired.CoreRunning = false
 	}
+
+	c.fillDesiredTarget(&desired)
 
 	c.Desired.SetAndSave(desired)
 	c.Supervisor.ReconcileAsync("tun-toggle")
@@ -925,6 +935,7 @@ func (c *Controller) UpdateClashMode(ctx context.Context, mode string) error {
 
 	desired := c.Desired.Get()
 	desired.Mode = mode
+	c.fillDesiredTarget(&desired)
 	c.Desired.SetAndSave(desired)
 
 	// 2. 如果内核正在运行，尝试通过 API 热切换

@@ -1768,7 +1768,10 @@ const handleStartupWithOSChange = async () => {
       return; // 内部已落盘保存，无需再次 saveBehavior
     } catch (e) {
       console.error('提权注册自启失败', e);
-      // Fallback 继续往下走普通的 saveBehavior()
+      behavior.value.startupWithOS = false;
+      behavior.value.restoreOnStartup = false;
+      await showAlert("管理员自启注册失败：" + e, "错误", true);
+      return;
     }
   }
   saveBehavior();
@@ -1781,6 +1784,10 @@ const handleStartupModeChange = async () => {
       return; // 内部已落盘保存，无需再次 saveBehavior
     } catch (e) {
       console.error('提权注册自启失败', e);
+      behavior.value.startupWithOS = false;
+      behavior.value.restoreOnStartup = false;
+      await showAlert("管理员自启注册失败：" + e, "错误", true);
+      return;
     }
   }
   saveBehavior();
