@@ -20,7 +20,7 @@
           </button>
           <button v-if="connections.length > 0" class="primary-btn accent-btn" @click="closeAll">
             <span class="btn-icon" style="color: #ff5a5a;" v-html="ICONS.xCircle"></span>
-            断开全部连接
+            断开全部
           </button>
         </div>
       </div>

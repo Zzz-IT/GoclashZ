@@ -116,12 +116,11 @@ const handleRestartCore = async () => {
   isRestarting.value = true;
   try {
     await (API as any).RestartCore();
-    // 💡 重点：不需要手动 refreshData()，因为 RestartCore 成功后，后端会主动触发 SyncState，store.ts 会自动更新 UI！
+    isRestarting.value = false;
     await showAlert("内核服务已成功重启", '成功');
   } catch (e) {
-    await showAlert("重启失败: " + e, '错误');
-  } finally {
     isRestarting.value = false;
+    await showAlert("重启失败: " + e, '错误');
   }
 };
 

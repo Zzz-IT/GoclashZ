@@ -170,7 +170,7 @@
             <div class="setting-item">
               <div class="info"><h4>开启 TUN 模式</h4></div>
               <label class="modern-switch">
-                <input type="checkbox" v-model="tunConfig.enable" @change="handleTunToggle">
+                <input type="checkbox" :checked="globalState.tun" @change="handleTunToggle">
                 <span class="slider"></span>
               </label>
             </div>
@@ -611,13 +611,49 @@
             <div class="setting-item">
               <div class="info">
                 <h4>开机自启</h4>
-                <p>登录 Windows 时自动启动 GoclashZ，使用计划任务实现，无需管理员权限。</p>
+                <p>登录 Windows 时自动启动 GoclashZ。</p>
               </div>
               <label class="modern-switch">
-                <input type="checkbox" v-model="behavior.startupWithOS" @change="saveBehavior">
+                <input type="checkbox" v-model="behavior.startupWithOS" @change="handleStartupWithOSChange">
                 <span class="slider"></span>
               </label>
             </div>
+            
+            <!-- 👇 新增：自启模式（当开机自启开启时才显示，附带动画） -->
+            <Transition name="dropdown">
+              <div v-if="behavior.startupWithOS" class="delay-retention-sub-items">
+                <div class="divider"></div>
+                <div class="setting-item" style="align-items: flex-start;">
+                  <div class="info">
+                    <h4>启动模式</h4>
+                    <p v-if="behavior.startupMode === 'elevated'" class="status-msg" style="margin-top: 6px; line-height: 1.6; font-size: 0.8rem; font-weight: normal;">
+                      以最高权限在登录后启动，首次启用需确认 UAC 授权。
+                    </p>
+                  </div>
+                  <ModernSelect 
+                    v-model="behavior.startupMode" 
+                    :options="[
+                      { label: '管理员权限自启 (推荐)', value: 'elevated' },
+                      { label: '普通自启', value: 'normal' }
+                    ]" 
+                    @change="saveBehavior"
+                  />
+                </div>
+                
+                <div class="divider"></div>
+                
+                <div class="setting-item">
+                  <div class="info">
+                    <h4>启动后恢复代理状态</h4>
+                    <p>开机自启后，自动恢复退出前启用的系统代理或 TUN 模式。</p>
+                  </div>
+                  <label class="modern-switch">
+                    <input type="checkbox" v-model="behavior.restoreOnStartup" @change="saveBehavior">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </Transition>
             <div class="divider"></div>
 
             <div class="setting-item">
@@ -770,17 +806,24 @@
               </div>
 
               <!-- 新增：右侧空间显示后台静默下载进度 -->
-              <div v-if="globalState.appUpdateProgress" class="app-update-progress-container">
+              <!-- 新增：右侧空间显示后台静默下载进度 -->
+              <div v-if="globalState.appUpdateProgress" class="app-update-progress-container"
+                   :class="{ 'clickable-progress': globalState.appUpdateProgress.isDownloaded }"
+                   @click="globalState.appUpdateProgress.isDownloaded ? promptInstallApp(globalState.appUpdateProgress) : null">
                 <div class="progress-info">
-                  <span class="speed">{{ formatSpeed(globalState.appUpdateProgress.speedBps) }}</span>
-                  <span class="divider-dot">·</span>
-                  <span class="eta">剩余 {{ formatTime(globalState.appUpdateProgress.etaSec) }}</span>
+                  <span v-if="globalState.appUpdateProgress.isDownloaded" class="speed" style="color: var(--accent); font-weight: 600;">新版本已就绪，点击安装</span>
+                  <template v-else>
+                    <span class="speed">{{ formatSpeed(globalState.appUpdateProgress.speedBps) }}</span>
+                    <span class="divider-dot">·</span>
+                    <span class="eta">剩余 {{ formatTime(globalState.appUpdateProgress.etaSec) }}</span>
+                  </template>
                 </div>
                 <div class="progress-bar-wrap">
-                  <div class="progress-bar-fill" :style="{ width: appUpdatePercent + '%' }"></div>
+                  <div class="progress-bar-fill" :style="{ width: appUpdatePercent + '%', backgroundColor: globalState.appUpdateProgress.isDownloaded ? 'var(--accent)' : '' }"></div>
                 </div>
                 <div class="progress-size">
-                  {{ formatBytes(globalState.appUpdateProgress.bytesDone) }} / {{ formatBytes(globalState.appUpdateProgress.totalBytes) }}
+                  <span v-if="globalState.appUpdateProgress.isDownloaded">{{ globalState.appUpdateProgress.version }} 下载完成</span>
+                  <span v-else>{{ formatBytes(globalState.appUpdateProgress.bytesDone) }} / {{ formatBytes(globalState.appUpdateProgress.totalBytes) }}</span>
                 </div>
               </div>
             </div>
@@ -966,7 +1009,7 @@
     </Transition>
     
     <Transition name="pop">
-      <div v-if="showCoreUpdateConfirm" class="modal-overlay" @click="showCoreUpdateConfirm = false">
+      <div v-if="showCoreUpdateConfirm" class="modal-overlay" @click="cancelCoreUpdateConfirm">
         <div class="custom-modal-card" @click.stop>
           <div class="modal-header">
             <h3>发现新版本</h3>
@@ -977,7 +1020,7 @@
               更新内核将会短暂断开代理连接。是否立即更新？
             </p>
             <div class="modal-footer">
-              <button class="action-btn flex-1" @click="showCoreUpdateConfirm = false">取消</button>
+              <button class="action-btn flex-1" @click="cancelCoreUpdateConfirm">取消</button>
               <button class="primary-btn accent-btn flex-1" @click="executeCoreUpdate">立即更新</button>
             </div>
           </div>
@@ -1293,6 +1336,31 @@ const handleCheckUpdate = async () => {
   }
 };
 
+const promptInstallApp = async (progress: any) => {
+  const version = progress.version || "";
+  const fullPath = progress.path || "";
+
+  const ok = await showConfirm(
+      `GoclashZ ${version} 已下载完成。\n\n` +
+      `是否现在关闭程序并启动安装程序？\n\n` +
+      `安装完成后会自动清理临时安装包。`,
+      "新版本已下载完成",
+      false
+  );
+  
+  if (ok) {
+      if (!fullPath) {
+        await showAlert("安装包路径为空，请重新下载更新。", "错误", true);
+        return;
+      }
+      try {
+        await (API as any).ApplyAppUpdate(fullPath);
+      } catch (e: any) {
+        await showAlert(String(e?.message || e || "未知错误"), "启动安装程序失败", true);
+      }
+  }
+};
+
 // 导出备份
 const handleExportBackup = async () => {
   try {
@@ -1360,6 +1428,12 @@ const handleUpdateCore = async () => {
   (API as any).CheckCoreUpdateAsync();
 };
 
+const cancelCoreUpdateConfirm = () => {
+  showCoreUpdateConfirm.value = false;
+  globalState.componentUpdate.pendingCoreUpdate = false;
+  globalState.componentUpdate.checkingCoreUpdate = false;
+};
+
 const executeCoreUpdate = () => {
   showCoreUpdateConfirm.value = false;
   if (globalState.componentUpdate.updatingCore) return;
@@ -1369,7 +1443,7 @@ const executeCoreUpdate = () => {
 const tunStatus = ref<Record<string, boolean>>({ hasWintun: false, isAdmin: false });
 
 const tunConfig = ref({
-  enable: false, stack: 'gvisor', device: '', autoRoute: true, autoDetect: true,
+  stack: 'gvisor', device: '', autoRoute: true, autoDetect: true,
   dnsHijack: ['any:53'], strictRoute: true, mtu: 1500
 });
 
@@ -1414,6 +1488,8 @@ const behavior = ref<any>({
   silentStart: false,
   closeToTray: true,
   startupWithOS: false,
+  startupMode: 'elevated',
+  restoreOnStartup: false,
   // 👇 新增：显色彩色延迟数字
   colorDelay: false,
   delayRetention: false,          // 👇 移到了这里
@@ -1433,6 +1509,8 @@ const behavior = ref<any>({
   updateMethod: 'startup',
   updateInterval: 3,
 });
+
+
 
 
 const uwpApps = ref<any[]>([]);
@@ -1490,8 +1568,6 @@ const loadData = async () => {
     const tunConf = await API.GetTunConfig();
     if (tunConf) tunConfig.value = tunConf;
 
-    tunConfig.value.enable = globalState.tun;
-
     const dnsConf = await (API.GetDNSConfig as any)();
     if (dnsConf) dnsConfig.value = dnsConf;
 
@@ -1528,12 +1604,14 @@ onMounted(() => {
     void showAlert("当前已是最新版本，无需更新。", "检查更新");
   });
 
-  EventsOn("core-update-available", () => {
-    showCoreUpdateConfirm.value = true;
-  });
-
   EventsOn("wintun-version-updated", (payload: any) => {
     wintunVersion.value = payload?.version || wintunVersion.value;
+  });
+
+  watch(() => globalState.componentUpdate.pendingCoreUpdate, (newVal) => {
+    if (newVal) {
+      showCoreUpdateConfirm.value = true;
+    }
   });
   EventsOn("app-update-busy", () => {
     globalState.appUpdateChecking = false;
@@ -1571,20 +1649,24 @@ onUnmounted(() => {
 });
 
 const handleTunToggle = async (e: Event) => {
-  if (tunConfig.value.enable && !tunStatus.value.hasWintun) {
+  const target = e.target as HTMLInputElement;
+  const newState = target.checked;
+
+  if (newState && !tunStatus.value.hasWintun) {
     e.preventDefault();
-    tunConfig.value.enable = false;
+    target.checked = false;
     await showAlert('无法开启 TUN 模式：\n请先点击下方的“安装驱动”按钮下载并配置 wintun.dll。', '缺少依赖');
     return;
   }
   
-  const originalValue = !tunConfig.value.enable;
+  // 🚀 乐观 UI：先斩后奏
+  globalState.tun = newState;
   
   try {
-    await API.ToggleTunMode(tunConfig.value.enable);
-    await saveTun();
+    await API.ToggleTunMode(newState);
   } catch (err) {
-    tunConfig.value.enable = originalValue; 
+    globalState.tun = !newState;
+    target.checked = !newState;
     await showAlert("操作内核 TUN 失败: " + err, '错误');
   }
 };
@@ -1677,6 +1759,13 @@ const saveBehavior = async () => {
   }
 };
 
+const handleStartupWithOSChange = () => {
+  if (!behavior.value.startupWithOS) {
+    behavior.value.restoreOnStartup = false;
+  }
+  saveBehavior();
+};
+
 const openDbEditModal = (type: string, currentLink: string) => {
   editingDb.value = { type, link: currentLink };
   showDbModal.value = true;
@@ -1761,6 +1850,19 @@ const updateNameserverPolicy = (e: Event) => {
   min-height: 100%;
   overflow: visible;
   position: relative; 
+}
+
+.clickable-progress {
+  cursor: pointer;
+  padding: 10px 14px;
+  border-radius: 12px;
+  transition: background 0.2s;
+  margin-right: -14px;
+  margin-top: -10px;
+  margin-bottom: -10px;
+}
+.clickable-progress:hover {
+  background: var(--surface-hover);
 }
 
 .settings-view-wrapper {

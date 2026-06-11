@@ -5,9 +5,10 @@ import {clash} from '../models';
 import {logger} from '../models';
 import {sys} from '../models';
 import {main} from '../models';
-import {context} from '../models';
 
 export function ApplyAppUpdate(arg1:string):Promise<void>;
+
+export function CancelUpdateTask(arg1:string):Promise<void>;
 
 export function CheckAndDownloadAppUpdateAsync():Promise<void>;
 
@@ -18,6 +19,8 @@ export function CheckTunEnv():Promise<Record<string, boolean>>;
 export function ClearFinishedUpdateTasks():Promise<void>;
 
 export function ClearLogs():Promise<void>;
+
+export function ClearUpdateCache(arg1:string):Promise<void>;
 
 export function CloseAllConnections():Promise<void>;
 
@@ -83,6 +86,8 @@ export function IsConfigEditable(arg1:string):Promise<boolean>;
 
 export function ReadConfigText(arg1:string):Promise<clash.ConfigTextResult>;
 
+export function RemoveUpdateTask(arg1:string):Promise<void>;
+
 export function RenameConfig(arg1:string,arg2:string):Promise<void>;
 
 export function ResetComponentSettings(arg1:string):Promise<void>;
@@ -117,8 +122,6 @@ export function SelectLocalFile():Promise<main.FileInfo>;
 
 export function SelectProxy(arg1:string,arg2:string):Promise<void>;
 
-export function SetupSystray():Promise<void>;
-
 export function ShowMainWindow():Promise<void>;
 
 export function StartClash(arg1:string):Promise<void>;
@@ -127,17 +130,11 @@ export function StartConnectionMonitor():Promise<void>;
 
 export function StartStreamingLogs():Promise<void>;
 
-export function StartTray(arg1:context.Context):Promise<void>;
-
 export function StopConnectionMonitor():Promise<void>;
-
-export function StopTray():Promise<void>;
 
 export function SyncRules(arg1:string):Promise<void>;
 
 export function SyncState():Promise<void>;
-
-export function SyncTrayState():Promise<void>;
 
 export function TestAllProxies(arg1:Array<string>):Promise<void>;
 

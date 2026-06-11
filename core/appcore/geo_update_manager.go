@@ -4,6 +4,7 @@ package appcore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"goclashz/core/downloader"
 	"strings"
@@ -20,6 +21,7 @@ type GeoResult struct {
 
 type geoJob struct {
 	waiters []chan GeoResult
+	cancel  context.CancelFunc
 }
 
 type GeoUpdateManager struct {
@@ -64,7 +66,10 @@ func (m *GeoUpdateManager) beginOrJoin(key string) (wait <-chan GeoResult, owner
 		return ch, false
 	}
 
-	m.active[key] = &geoJob{}
+	m.active[key] = &geoJob{
+		waiters: make([]chan GeoResult, 0),
+		cancel:  nil, // populated later
+	}
 	return nil, true
 }
 
@@ -111,16 +116,25 @@ func (m *GeoUpdateManager) emitActiveSnapshot() {
 	m.emit.Emit("geo-update-active-sync", active)
 }
 
+func (m *GeoUpdateManager) Cancel(key string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if job, ok := m.active[key]; ok && job.cancel != nil {
+		job.cancel()
+	}
+}
+
 func (m *GeoUpdateManager) runKey(ctx context.Context, key string) GeoResult {
-	m.tasks.Set(key, UpdateTaskState{
-		Key:       key,
-		Title:     "更新 " + strings.ToUpper(key),
-		Status:    "running",
-		Stage:     "downloading",
-		StartedAt: time.Now().Unix(),
-	})
-	
-	startedAt := time.Now().Unix()
+	state, _ := m.tasks.Get(key)
+	state.Key = key
+	state.Title = "更新 " + strings.ToUpper(key)
+	state.Status = "running"
+	state.Stage = "downloading"
+	if state.StartedAt == 0 {
+		state.StartedAt = time.Now().Unix()
+	}
+	state.Error = ""
+	m.tasks.Set(key, state)
 	m.emit.Emit("geo-update-" + key + "-start")
 
 	select {
@@ -140,17 +154,14 @@ func (m *GeoUpdateManager) runKey(ctx context.Context, key string) GeoResult {
 	}
 
 	err := m.updateOne(ctx, key, func(bytesDone, totalBytes, speedBps int64, etaSec int64) {
-		m.tasks.Set(key, UpdateTaskState{
-			Key:        key,
-			Title:      "更新 " + strings.ToUpper(key),
-			Status:     "running",
-			Stage:      "downloading",
-			BytesDone:  bytesDone,
-			BytesTotal: totalBytes,
-			SpeedBps:   speedBps,
-			ETASeconds: etaSec,
-			StartedAt:  startedAt,
-		})
+		state, _ := m.tasks.Get(key)
+		state.Status = "running"
+		state.Stage = "downloading"
+		state.BytesDone = bytesDone
+		state.BytesTotal = totalBytes
+		state.SpeedBps = speedBps
+		state.ETASeconds = etaSec
+		m.tasks.Set(key, state)
 	})
 	if err != nil {
 		err = downloader.SanitizeDownloadError(err)
@@ -158,14 +169,33 @@ func (m *GeoUpdateManager) runKey(ctx context.Context, key string) GeoResult {
 	result := GeoResult{Key: key, Err: err}
 
 	if err != nil {
-		m.tasks.Set(key, UpdateTaskState{
-			Key:        key,
-			Title:      "更新 " + strings.ToUpper(key),
-			Status:     "error",
-			Error:      err.Error(),
-			FinishedAt: time.Now().Unix(),
-		})
-		m.emit.Emit("geo-update-"+key+"-error", err.Error())
+		isCanceled := errors.Is(err, context.Canceled) ||
+			strings.Contains(strings.ToLower(err.Error()), "canceled") ||
+			strings.Contains(strings.ToLower(err.Error()), "cancelled")
+
+		state, ok := m.tasks.Get(key)
+		if !ok {
+			state = UpdateTaskState{
+				Key:   key,
+				Title: "更新 " + strings.ToUpper(key),
+			}
+		}
+
+		if isCanceled {
+			state.Status = "cancelled"
+			state.Error = "已暂停"
+		} else {
+			state.Status = "error"
+			state.Error = err.Error()
+		}
+		state.FinishedAt = time.Now().Unix()
+		m.tasks.Set(key, state)
+		
+		if isCanceled {
+			m.emit.Emit("geo-update-"+key+"-cancelled")
+		} else {
+			m.emit.Emit("geo-update-"+key+"-error", err.Error())
+		}
 	} else {
 		m.tasks.Set(key, UpdateTaskState{
 			Key:        key,
@@ -205,8 +235,16 @@ func (m *GeoUpdateManager) UpdateOneAsync(ctx context.Context, key string) {
 		return
 	}
 
+	taskCtx, cancel := context.WithCancel(ctx)
+	m.mu.Lock()
+	if job, ok := m.active[key]; ok {
+		job.cancel = cancel
+	}
+	m.mu.Unlock()
+
 	go func() {
-		result := m.runKey(ctx, key)
+		defer cancel()
+		result := m.runKey(taskCtx, key)
 		m.finish(key, result)
 	}()
 }
@@ -253,13 +291,22 @@ func (m *GeoUpdateManager) UpdateAllAsync(ctx context.Context) {
 			}
 
 			wg.Add(1)
+			
+			taskCtx, cancel := context.WithCancel(ctx)
+			m.mu.Lock()
+			if job, ok := m.active[key]; ok {
+				job.cancel = cancel
+			}
+			m.mu.Unlock()
+			
 			go func() {
 				defer wg.Done()
+				defer cancel()
 
-				result := m.runKey(ctx, key)
+				result := m.runKey(taskCtx, key)
 				m.finish(key, result)
 
-				if result.Err != nil {
+				if result.Err != nil && result.Err != context.Canceled {
 					mu.Lock()
 					failed = append(failed, fmt.Sprintf("%s: %v", key, result.Err))
 					mu.Unlock()

@@ -40,7 +40,9 @@ type AppBehavior struct {
 	ProxyTrafficOnly bool `json:"proxyTrafficOnly"`
 
 	// 👇 新增：开机自启 (Task Scheduler)
-	StartupWithOS bool `json:"startupWithOS"`
+	StartupWithOS    bool   `json:"startupWithOS"`
+	StartupMode      string `json:"startupMode"`
+	RestoreOnStartup bool   `json:"restoreOnStartup"`
 }
 
 type BehaviorStore struct {
@@ -139,6 +141,10 @@ func normalizeBehavior(b AppBehavior) AppBehavior {
 		b.SubUA = "clash-verge"
 	}
 
+	if b.StartupMode == "" {
+		b.StartupMode = "elevated"
+	}
+
 	if b.UpdateMethod == "" {
 		b.UpdateMethod = "startup"
 	}
@@ -192,5 +198,9 @@ func (s *BehaviorStore) Default() AppBehavior {
 		GeoSiteLink: "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
 		MmdbLink:    "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
 		AsnLink:     "https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
+
+		StartupWithOS:    false,
+		StartupMode:      "elevated",
+		RestoreOnStartup: false,
 	}
 }

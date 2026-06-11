@@ -23,6 +23,8 @@ export namespace appcore {
 	    autoDelayTestInterval: number;
 	    proxyTrafficOnly: boolean;
 	    startupWithOS: boolean;
+	    startupMode: string;
+	    restoreOnStartup: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppBehavior(source);
@@ -52,6 +54,8 @@ export namespace appcore {
 	        this.autoDelayTestInterval = source["autoDelayTestInterval"];
 	        this.proxyTrafficOnly = source["proxyTrafficOnly"];
 	        this.startupWithOS = source["startupWithOS"];
+	        this.startupMode = source["startupMode"];
+	        this.restoreOnStartup = source["restoreOnStartup"];
 	    }
 	}
 	export class AppState {
@@ -390,7 +394,6 @@ export namespace clash {
 	    }
 	}
 	export class TunConfig {
-	    enable: boolean;
 	    stack: string;
 	    device: string;
 	    autoRoute: boolean;
@@ -405,7 +408,6 @@ export namespace clash {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.enable = source["enable"];
 	        this.stack = source["stack"];
 	        this.device = source["device"];
 	        this.autoRoute = source["autoRoute"];

@@ -4,6 +4,7 @@ package downloader
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,15 +26,12 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 	defer unlock()
 
 	tmpPath := opt.DestPath + ".tmp"
-	_ = os.Remove(tmpPath)
-	_ = os.Remove(tmpPath + ".meta.json")
 
 	downloadSuccess := false
 	defer func() {
-		if !downloadSuccess {
-			_ = os.Remove(tmpPath)
+		if downloadSuccess {
+			_ = os.Remove(tmpPath + ".meta.json")
 		}
-		_ = os.Remove(tmpPath + ".meta.json")
 	}()
 
 	var lastErr error
@@ -70,6 +68,18 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 
 			for _, rawURL := range opt.URLs {
 				release := acquireHostLimiter(rawURL)
+
+				if metaData, err := os.ReadFile(tmpPath + ".meta.json"); err == nil {
+					var meta struct {
+						URL string `json:"URL"`
+					}
+					if err := json.Unmarshal(metaData, &meta); err == nil {
+						if meta.URL != rawURL {
+							_ = os.Remove(tmpPath)
+							_ = os.Remove(tmpPath + ".meta.json")
+						}
+					}
+				}
 
 				req, err := grab.NewRequest(tmpPath, rawURL)
 				if err != nil {

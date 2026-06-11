@@ -10,6 +10,7 @@ import (
 	"goclashz/core/utils"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func (c *Controller) updateGeoDatabase(ctx context.Context, key string, onProgress func(bytesDone, totalBytes, speedBps, etaSec int64)) error {
@@ -49,7 +50,7 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 		Name:        "Mihomo 内核更新",
 		StopCore:    true,
 		RestartCore: true,
-		Prepare: func(ctx context.Context) (map[string]string, error) {
+		Prepare: func(ctx context.Context, onProgress func(int64, int64, int64, int64)) (map[string]string, error) {
 			assetURL := ""
 			// 优先使用前端检查更新时缓存的下载地址
 			c.mu.RLock()
@@ -66,7 +67,7 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 				assetURL = discoveredURL
 			}
 
-			return clash.PrepareCoreUpdate(ctx, assetURL, c.getDynamicStrategy)
+			return clash.PrepareCoreUpdate(ctx, assetURL, c.getDynamicStrategy, onProgress)
 		},
 		Commit: func(ctx context.Context, prepared map[string]string) (map[string]string, error) {
 			version, err := clash.CommitCoreUpdate(ctx, prepared)
@@ -97,9 +98,12 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 
 func (c *Controller) CheckCoreUpdateAsync(ctx context.Context) {
 	c.Tasks.Run(ctx, "core-update-check", true, func(ctx context.Context) error {
-		local := clash.GetLocalCoreVersion(ctx)
+		timeoutCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
 
-		remote, assetURL, releaseURL, err := clash.CheckLatestCore(ctx, c.getDynamicStrategy)
+		local := clash.GetLocalCoreVersion(timeoutCtx)
+
+		remote, assetURL, releaseURL, err := clash.CheckLatestCore(timeoutCtx, c.getDynamicStrategy)
 		if err != nil {
 			return err
 		}
@@ -143,8 +147,8 @@ func (c *Controller) InstallTunDriverAsync(ctx context.Context) {
 		Name:        "Wintun 重装",
 		StopCore:    true,
 		RestartCore: true,
-		Prepare: func(ctx context.Context) (map[string]string, error) {
-			return clash.PrepareWintunRuntime(ctx, c.getDynamicStrategy)
+		Prepare: func(ctx context.Context, onProgress func(int64, int64, int64, int64)) (map[string]string, error) {
+			return clash.PrepareWintunRuntime(ctx, c.getDynamicStrategy, onProgress)
 		},
 		Commit: func(ctx context.Context, prepared map[string]string) (map[string]string, error) {
 			version, err := clash.CommitWintunRuntime(ctx, prepared)
@@ -176,7 +180,10 @@ func (c *Controller) CheckAppUpdateAsync(ctx context.Context, currentVersion str
 			c.events.Emit("app-update-check-start")
 		}
 
-		info, err := downloader.CheckAppUpdate(ctx, currentVersion, c.getDynamicStrategy)
+		timeoutCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+
+		info, err := downloader.CheckAppUpdate(timeoutCtx, currentVersion, c.getDynamicStrategy)
 		if err != nil {
 			if manual {
 				c.events.Emit("app-update-error", "检查软件更新失败: "+err.Error())

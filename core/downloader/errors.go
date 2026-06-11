@@ -3,6 +3,8 @@
 package downloader
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -11,6 +13,10 @@ import (
 func SanitizeDownloadError(err error) error {
 	if err == nil {
 		return nil
+	}
+
+	if errors.Is(err, context.Canceled) {
+		return err
 	}
 
 	msg := err.Error()

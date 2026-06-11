@@ -20,7 +20,7 @@ const wintunURL = "https://www.wintun.net/builds/wintun-0.14.1.zip"
 
 var wintunBinaryMu sync.Mutex
 
-func PrepareWintunRuntime(ctx context.Context, strategy func() downloader.DownloadStrategy) (map[string]string, error) {
+func PrepareWintunRuntime(ctx context.Context, strategy func() downloader.DownloadStrategy, onProgress func(int64, int64, int64, int64)) (map[string]string, error) {
 	wintunBinaryMu.Lock()
 	defer wintunBinaryMu.Unlock()
 
@@ -42,6 +42,7 @@ func PrepareWintunRuntime(ctx context.Context, strategy func() downloader.Downlo
 		Validator: func(tmpPath string) error {
 			return validateWintunZip(tmpPath)
 		},
+		OnProgress: onProgress,
 	}); err != nil {
 		return nil, err
 	}

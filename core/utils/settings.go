@@ -21,11 +21,14 @@ func LoadSetting[T any](fileName string, defaultData T) (*T, error) {
 	userPath := filepath.Join(dir, "user_"+fileName+".json")
 	defaultPath := filepath.Join(dir, "default_"+fileName+".json")
 
-	var result T
+	result := defaultData
 
 	// 1. 尝试读取用户的自定义修改
 	if data, err := os.ReadFile(userPath); err == nil {
 		if json.Unmarshal(data, &result) == nil {
+			// 自动修补：将合并了默认值的完整结构重新写回硬盘，补齐缺失字段
+			patchedBytes, _ := json.MarshalIndent(result, "", "  ")
+			_ = WriteFileAtomic(userPath, patchedBytes, 0644)
 			return &result, nil
 		}
 	}
@@ -33,6 +36,9 @@ func LoadSetting[T any](fileName string, defaultData T) (*T, error) {
 	// 2. 尝试读取默认配置
 	if data, err := os.ReadFile(defaultPath); err == nil {
 		if json.Unmarshal(data, &result) == nil {
+			// 自动修补默认配置文件
+			patchedBytes, _ := json.MarshalIndent(result, "", "  ")
+			_ = WriteFileAtomic(defaultPath, patchedBytes, 0644)
 			return &result, nil
 		}
 	}

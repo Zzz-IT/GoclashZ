@@ -19,7 +19,6 @@ import (
 	"goclashz/core/version"
 	"sync/atomic"
 
-	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"gopkg.in/yaml.v3"
 )
@@ -38,29 +37,10 @@ type App struct {
 	windowMu      sync.Mutex
 	windowVisible bool
 
-	mSysProxy   *systray.MenuItem
-	mTun        *systray.MenuItem
-	mModeRule   *systray.MenuItem
-	mModeGlobal *systray.MenuItem
-	mModeDirect *systray.MenuItem
-	mRestart    *systray.MenuItem
-
-	// 托盘生命周期
-	trayMu       sync.RWMutex
-	trayOnce     sync.Once
-	trayReady    atomic.Bool
-	trayBusy     atomic.Bool
-	trayStopping atomic.Bool
-
 	// 全局热键线程 ID (Ctrl+Alt+Q 退出)
 	hotkeyTID atomic.Uint32
 
-	// 托盘 worker
-	trayCancel    context.CancelFunc
-	trayActions   chan trayAction
-	trayRenderReq chan appcore.AppState
-	trayUIOps     chan trayUIOp
-
+	tray *TrayService
 	core *appcore.Controller
 }
 
@@ -109,17 +89,14 @@ func (a *App) ToggleMainWindow() {
 }
 
 func NewApp() *App {
-	a := &App{}
-
-	sink := &WailsEventSink{}
-	core := appcore.NewController(appcore.Options{
-		Events:        sink,
+	app := &App{}
+	app.core = appcore.NewController(appcore.Options{
+		Events:        &WailsEventSink{},
 		Version:       version.AppVersion,
-		OnStateChange: a.SyncTrayState,
+		OnStateChange: app.syncTrayState,
 	})
-	a.core = core
-
-	return a
+	app.tray = NewTrayService(app)
+	return app
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -131,10 +108,17 @@ func (a *App) startup(ctx context.Context) {
 	}
 	// 必须先加载订阅索引，再启动 appcore 的自动任务。
 	clash.LoadIndex()
-	a.core.Startup(ctx)
 
 	config := a.core.Behavior.Get()
-	if !config.SilentStart {
+	isSilent := hasFlag("--silent") || config.SilentStart
+
+	a.core.Bootstrap(ctx, appcore.BootstrapOptions{
+		IsStartupLaunch: hasFlag("--startup"),
+		Silent:          isSilent,
+		Elevated:        sys.CheckAdmin(),
+	})
+
+	if !isSilent {
 		runtime.WindowShow(ctx)
 		a.setWindowVisible(true)
 	} else {
@@ -144,11 +128,14 @@ func (a *App) startup(ctx context.Context) {
 
 	a.SyncState()
 
-	a.StartTray(ctx)
+	go a.startHotkeyWorker(ctx)
+	a.tray.Start(ctx)
 }
 
 func (a *App) shutdown(ctx context.Context) {
-	a.StopTray()
+	if a.tray != nil {
+		a.tray.Stop()
+	}
 	a.core.StopCoreService()
 	a.core.StopTrafficStream()
 }
@@ -165,6 +152,14 @@ func (a *App) GetAppState() AppState {
 func (a *App) SyncState() {
 	// 内部会发送 app-state-sync、自动启停 traffic stream，以及通过 OnStateChange 同步托盘
 	a.core.SyncState()
+}
+
+func (a *App) syncTrayState() {
+	if a.ctx == nil || a.tray == nil {
+		return
+	}
+	state := a.core.GetAppState()
+	a.tray.UpdateState(state)
 }
 
 func (a *App) GetInitialData() (map[string]interface{}, error) {
@@ -596,6 +591,20 @@ func (a *App) ClearFinishedUpdateTasks() {
 	}
 }
 
+func (a *App) CancelUpdateTask(key string) {
+	a.core.CancelUpdateTask(key)
+}
+
+func (a *App) RemoveUpdateTask(key string) {
+	a.core.RemoveUpdateTask(key)
+}
+
+func (a *App) ClearUpdateCache(key string) {
+	if a.core != nil {
+		a.core.ClearUpdateCache(key)
+	}
+}
+
 func (a *App) DownloadPendingAppUpdateAsync() {
 	a.core.DownloadPendingAppUpdateAsync(a.ctx)
 }
@@ -619,7 +628,9 @@ func (a *App) ApplyAppUpdate(path string) error {
 	}
 
 	// 停止托盘，避免安装期间继续触发操作
-	a.StopTray()
+	if a.tray != nil {
+		a.tray.Stop()
+	}
 
 	// 停止内核与流量流
 	if a.core != nil {
@@ -726,4 +737,36 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 	}
 	a.SyncState()
 	return "SUCCESS", nil
+}
+
+func (a *App) safeShowMainWindow() {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("显示主窗口异常: %v\n", r)
+		}
+	}()
+
+	a.ShowMainWindow()
+}
+
+func (a *App) safeToggleMainWindow() {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("切换主窗口异常: %v\n", r)
+		}
+	}()
+
+	a.ToggleMainWindow()
+}
+
+func (a *App) safeQuit() {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("退出程序异常: %v\n", r)
+		}
+	}()
+
+	if a.ctx != nil {
+		runtime.Quit(a.ctx)
+	}
 }

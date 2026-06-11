@@ -13,6 +13,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
+	"goclashz/core/appcore"
 	"goclashz/core/sys"
 	"goclashz/core/utils"
 	syswin "golang.org/x/sys/windows"
@@ -22,6 +23,16 @@ import (
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+func hasFlag(flag string) bool {
+	for _, a := range os.Args {
+		if a == flag {
+			return true
+		}
+	}
+	return false
+}
+
 
 func main() {
 	// 🚀 新增：恐慌恢复逻辑，确保程序因未知 Bug 崩溃时，能最后尝试清理一次代理
@@ -41,6 +52,40 @@ func main() {
 		isDebugMode = true
 		fmt.Println("👉 Wails 开发模式，跳过单实例检查")
 	}
+
+	// 处理设置管理员自启的特殊参数
+	if hasFlag("--setup-elevated-startup") {
+		if !sys.CheckAdmin() {
+			err := sys.RequestAdmin()
+			if err != nil {
+				fmt.Printf("请求管理员权限失败: %v\n", err)
+			}
+			os.Exit(0)
+		}
+
+		err := sys.CreateElevatedStartupTask(exePath)
+		if err != nil {
+			fmt.Printf("创建最高权限自启任务失败: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("✅ 成功创建最高权限开机自启任务")
+		os.Exit(0)
+	}
+
+	// 提前读取配置以决定是否需要提权启动
+	// 只有当启动模式是 elevated，且当前并非由于已提权重启、且非管理员状态时才提权
+	if !sys.CheckAdmin() && !hasFlag("--elevated") {
+		behavior := appcore.NewBehaviorStore().Get()
+		if behavior.StartupMode == "elevated" {
+			err := sys.RequestAdmin()
+			if err != nil {
+				fmt.Printf("根据设置请求管理员权限失败: %v\n", err)
+			}
+			os.Exit(0)
+		}
+	}
+
 
 	// 2. 单实例锁逻辑
 	if !isDebugMode {
@@ -70,9 +115,8 @@ func main() {
 			defer syswin.CloseHandle(mutexHandle)
 		}
 
-		// 🚀 核心自愈：只有确认自己是唯一的“主实例”后，才执行启动清理
-		// 清理上一次由于强制关机、断电或崩溃导致的系统代理残留
-		sys.ClearOwnedSystemProxy()
+		// 🚀 核心自愈：我们不再无条件清理代理，而是交由 Supervisor 恢复机制
+		// sys.ClearOwnedSystemProxy() // 移除此行
 
 		// 🚀 核心保护：注册操作系统信号监听
 		installEmergencyProxyCleanup()

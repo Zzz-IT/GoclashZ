@@ -43,6 +43,13 @@ func (s *ComponentUpdateTaskStore) Set(key string, state UpdateTaskState) {
 	}
 }
 
+func (s *ComponentUpdateTaskStore) Get(key string) (UpdateTaskState, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	state, ok := s.tasks[key]
+	return state, ok
+}
+
 func (s *ComponentUpdateTaskStore) Snapshot() []UpdateTaskState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -61,7 +68,7 @@ func (s *ComponentUpdateTaskStore) ClearFinished() {
 	s.mu.Lock()
 	changed := false
 	for k, v := range s.tasks {
-		if v.Status == "success" || v.Status == "error" || v.Status == "cancelled" {
+		if v.Status == "success" {
 			delete(s.tasks, k)
 			changed = true
 		}
@@ -73,6 +80,23 @@ func (s *ComponentUpdateTaskStore) ClearFinished() {
 	s.mu.Unlock()
 
 	if changed && s.events != nil {
+		s.events.Emit("component-update-tasks-sync", list)
+	}
+}
+
+func (s *ComponentUpdateTaskStore) Remove(key string) {
+	s.mu.Lock()
+	_, exists := s.tasks[key]
+	if exists {
+		delete(s.tasks, key)
+	}
+	var list []UpdateTaskState
+	if exists {
+		list = s.snapshotLocked()
+	}
+	s.mu.Unlock()
+
+	if exists && s.events != nil {
 		s.events.Emit("component-update-tasks-sync", list)
 	}
 }

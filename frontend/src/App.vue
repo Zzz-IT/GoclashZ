@@ -69,13 +69,19 @@
               <Connections />
             </div>
 
-            <div v-else-if="currentTab === 'logs'" key="logs" class="view-transition-wrapper view-logs">
-              <div class="terminal-box" ref="logBox">
+            <div v-else-if="currentTab === 'logs'" key="logs" class="view-transition-wrapper view-logs" style="display: flex; flex-direction: column; gap: 12px; height: 100%;">
+              <div class="terminal-box" ref="logBox" style="flex: 1; height: auto;">
                 <div v-for="(log, i) in logLines" :key="i" :class="['log-line', log.type]">
                   <span class="l-time">{{ log.time }}</span>
                   <span class="l-type">[{{ log.type.toUpperCase() }}]</span>
                   <span class="l-msg">{{ log.payload }}</span>
                 </div>
+              </div>
+              <div class="logs-footer" style="display: flex; justify-content: flex-end;">
+                <button class="action-btn" title="清空日志" @click="handleClearLogs">
+                  <span class="btn-icon" v-html="ICONS.trash"></span>
+                  清空日志
+                </button>
               </div>
             </div>
 
@@ -465,6 +471,11 @@ onMounted(async () => {
     };
   });
 });
+
+const handleClearLogs = async () => {
+  logLines.value = [];
+  await (API as any).ClearLogs();
+};
 
 onUnmounted(() => {
   if (scrollTimer) {

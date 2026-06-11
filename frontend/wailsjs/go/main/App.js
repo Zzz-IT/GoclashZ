@@ -6,6 +6,10 @@ export function ApplyAppUpdate(arg1) {
   return window['go']['main']['App']['ApplyAppUpdate'](arg1);
 }
 
+export function CancelUpdateTask(arg1) {
+  return window['go']['main']['App']['CancelUpdateTask'](arg1);
+}
+
 export function CheckAndDownloadAppUpdateAsync() {
   return window['go']['main']['App']['CheckAndDownloadAppUpdateAsync']();
 }
@@ -24,6 +28,10 @@ export function ClearFinishedUpdateTasks() {
 
 export function ClearLogs() {
   return window['go']['main']['App']['ClearLogs']();
+}
+
+export function ClearUpdateCache(arg1) {
+  return window['go']['main']['App']['ClearUpdateCache'](arg1);
 }
 
 export function CloseAllConnections() {
@@ -154,6 +162,10 @@ export function ReadConfigText(arg1) {
   return window['go']['main']['App']['ReadConfigText'](arg1);
 }
 
+export function RemoveUpdateTask(arg1) {
+  return window['go']['main']['App']['RemoveUpdateTask'](arg1);
+}
+
 export function RenameConfig(arg1, arg2) {
   return window['go']['main']['App']['RenameConfig'](arg1, arg2);
 }
@@ -222,10 +234,6 @@ export function SelectProxy(arg1, arg2) {
   return window['go']['main']['App']['SelectProxy'](arg1, arg2);
 }
 
-export function SetupSystray() {
-  return window['go']['main']['App']['SetupSystray']();
-}
-
 export function ShowMainWindow() {
   return window['go']['main']['App']['ShowMainWindow']();
 }
@@ -242,16 +250,8 @@ export function StartStreamingLogs() {
   return window['go']['main']['App']['StartStreamingLogs']();
 }
 
-export function StartTray(arg1) {
-  return window['go']['main']['App']['StartTray'](arg1);
-}
-
 export function StopConnectionMonitor() {
   return window['go']['main']['App']['StopConnectionMonitor']();
-}
-
-export function StopTray() {
-  return window['go']['main']['App']['StopTray']();
 }
 
 export function SyncRules(arg1) {
@@ -260,10 +260,6 @@ export function SyncRules(arg1) {
 
 export function SyncState() {
   return window['go']['main']['App']['SyncState']();
-}
-
-export function SyncTrayState() {
-  return window['go']['main']['App']['SyncTrayState']();
 }
 
 export function TestAllProxies(arg1) {

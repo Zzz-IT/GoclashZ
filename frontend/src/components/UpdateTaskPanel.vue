@@ -27,7 +27,7 @@ const tasks = computed(() => {
 });
 
 const hasFinishedTasks = computed(() => {
-  return tasks.value.some(t => ['success', 'error', 'cancelled'].includes(t.status));
+  return tasks.value.some(t => t.status === 'success');
 });
 
 const clearFinishedTasks = async () => {
@@ -37,7 +37,7 @@ const clearFinishedTasks = async () => {
 import { watch } from 'vue';
 
 watch(tasks, (newTasks) => {
-  const hasFinished = newTasks.some(t => ['success', 'error', 'cancelled'].includes(t.status));
+  const hasFinished = newTasks.some(t => t.status === 'success');
   if (hasFinished) {
     setTimeout(() => {
       clearFinishedTasks();
@@ -104,10 +104,6 @@ watch(tasks, (newTasks) => {
   transform: translateX(30px);
 }
 /* Simply fade and slide out in place. Absolute positioning breaks flex gaps and width. */
-.task-fade-leave-active {
-  /* No absolute positioning to prevent jumping */
-}
-
 /* Panel fade for when the last item is removed and the entire panel unmounts */
 .panel-fade-enter-active,
 .panel-fade-leave-active {

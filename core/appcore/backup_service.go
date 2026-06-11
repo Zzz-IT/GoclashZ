@@ -50,9 +50,7 @@ func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode st
 	if err := backup.RestoreTransactional(ctx, utils.GetDataDir(), selected, mode); err != nil {
 		// 还原失败：如果原先在运行，尝试恢复运行状态
 		if shouldRestart {
-			c.coreLifecycleMu.Lock()
-			_ = c.ensureCoreRunningLocked(ctx)
-			c.coreLifecycleMu.Unlock()
+			_ = c.EnsureCoreRunning(ctx)
 		}
 		c.SyncState()
 		return err
@@ -70,10 +68,7 @@ func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode st
 
 	// 5. 恢复运行态或重载配置
 	if shouldRestart {
-		c.coreLifecycleMu.Lock()
-		err := c.ensureCoreRunningLocked(ctx)
-		c.coreLifecycleMu.Unlock()
-
+		err := c.EnsureCoreRunning(ctx)
 		if err != nil {
 			c.SyncState()
 			return fmt.Errorf("还原成功但启动内核失败: %v", err)
@@ -82,10 +77,12 @@ func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode st
 		// 未运行时，仅静默更新一次 runtime config 以确保下一次启动使用的是新配置
 		state := c.GetAppState()
 		if state.ActiveConfig != "" {
+			// 仅生成运行时配置，不启动代理和 TUN
 			_ = clash.BuildRuntimeConfig(
-				state.ActiveConfig,
-				state.Mode,
+				c.Behavior.Get().ActiveConfig,
+				c.Behavior.Get().ActiveMode,
 				c.Behavior.Get().LogLevel,
+				c.Desired.Get().Tun,
 			)
 		}
 	}

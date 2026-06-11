@@ -61,10 +61,13 @@ export const globalState = reactive({
   outboundIP: initialOutboundIP as OutboundIPResult | null,
   ipDetecting: false,
   appUpdateProgress: null as {
-    bytesDone: number;
     totalBytes: number;
+    bytesDone: number;
     speedBps: number;
     etaSec: number;
+    isDownloaded?: boolean;
+    version?: string;
+    path?: string;
   } | null,
 
   componentUpdate: {
@@ -357,8 +360,23 @@ export async function initStore() {
   EventsOn("app-update-progress", (progress: any) => {
     globalState.appUpdateProgress = progress;
   });
-  EventsOn("app-update-downloaded", () => {
-    globalState.appUpdateProgress = null;
+  EventsOn("app-update-downloaded", (payload: any) => {
+    if (globalState.appUpdateProgress) {
+      globalState.appUpdateProgress.isDownloaded = true;
+      globalState.appUpdateProgress.bytesDone = globalState.appUpdateProgress.totalBytes;
+      globalState.appUpdateProgress.version = payload?.version;
+      globalState.appUpdateProgress.path = payload?.path;
+    } else {
+      globalState.appUpdateProgress = {
+        totalBytes: 100,
+        bytesDone: 100,
+        speedBps: 0,
+        etaSec: 0,
+        isDownloaded: true,
+        version: payload?.version,
+        path: payload?.path
+      };
+    }
   });
   EventsOn("app-update-error", () => {
     globalState.appUpdateProgress = null;

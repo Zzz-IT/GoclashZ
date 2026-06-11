@@ -138,7 +138,7 @@ func GetOfflineData(id string) (map[string]interface{}, error) {
 
 // TunConfig 映射 yaml 中的 tun 配置块
 type TunConfig struct {
-	Enable              bool     `yaml:"enable" json:"enable"`
+	Enable              bool     `yaml:"enable" json:"-"` // Not persisted to user_tun.json anymore
 	Stack               string   `yaml:"stack" json:"stack"`
 	Device              string   `yaml:"device,omitempty" json:"device"`
 	AutoRoute           bool     `yaml:"auto-route" json:"autoRoute"`
@@ -283,7 +283,7 @@ func UpdateNetworkConfig(newCfg *NetworkConfig) error {
 // ==========================================
 
 // BuildRuntimeConfig 核心流水线：基础配置 + 用户设置 = 最终运行配置
-func BuildRuntimeConfig(id string, mode string, logLevel string) error {
+func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool) error {
 	configMu.Lock()         // ✅ 加锁
 	defer configMu.Unlock() // ✅ 保证最终释放
 
@@ -346,7 +346,9 @@ func BuildRuntimeConfig(id string, mode string, logLevel string) error {
 
 	// 注入 TUN 配置
 	if userTun != nil {
-		root["tun"] = userTun
+		tunRuntime := *userTun
+		tunRuntime.Enable = tunEnabled
+		root["tun"] = tunRuntime
 	}
 
 	// 注入 DNS 配置

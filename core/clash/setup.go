@@ -30,7 +30,7 @@ func PrepareEnv(ctx context.Context) error {
 	if _, err := os.Stat(filepath.Join(binDir, "clash.exe")); os.IsNotExist(err) {
 		// 优先触发一次下载（或者由前端引导）
 		// 初始化时如果不通代理，PrepareCoreUpdate 内部逻辑会处理
-		prepared, err := PrepareCoreUpdate(ctx, "https://github.com/MetaCubeX/mihomo/releases/download/v1.18.1/mihomo-windows-amd64-v1.18.1.zip", nil)
+		prepared, err := PrepareCoreUpdate(ctx, "https://github.com/MetaCubeX/mihomo/releases/download/v1.18.1/mihomo-windows-amd64-v1.18.1.zip", nil, nil)
 		if err == nil {
 			_, _ = CommitCoreUpdate(ctx, prepared)
 		} else {
@@ -216,7 +216,7 @@ func extractKernelToFile(zipPath, targetExe string) error {
 
 var coreBinaryMu sync.Mutex
 
-func PrepareCoreUpdate(ctx context.Context, assetURL string, strategy func() downloader.DownloadStrategy) (map[string]string, error) {
+func PrepareCoreUpdate(ctx context.Context, assetURL string, strategy func() downloader.DownloadStrategy, onProgress func(int64, int64, int64, int64)) (map[string]string, error) {
 	coreBinaryMu.Lock()
 	defer coreBinaryMu.Unlock()
 
@@ -243,6 +243,7 @@ func PrepareCoreUpdate(ctx context.Context, assetURL string, strategy func() dow
 		Validator: func(tmpPath string) error {
 			return validateKernelZip(tmpPath)
 		},
+		OnProgress: onProgress,
 	}); err != nil {
 		return nil, err
 	}

@@ -20,6 +20,24 @@ var clsidTaskScheduler = ole.NewGUID("{0F87369F-A4E5-4CFC-BD3E-73E6154572DD}")
 
 const tsTaskName = "GoclashZ Startup"
 
+type StartupMode string
+
+const (
+	StartupDisabled StartupMode = "disabled"
+	StartupNormal   StartupMode = "normal"
+	StartupElevated StartupMode = "elevated"
+)
+
+type StartupTaskInfo struct {
+	Exists    bool        `json:"exists"`
+	Enabled   bool        `json:"enabled"`
+	Mode      StartupMode `json:"mode"`
+	Path      string      `json:"path"`
+	Arguments string      `json:"arguments"`
+	RunLevel  int         `json:"runLevel"`
+	LastError string      `json:"lastError"`
+}
+
 // initCOM initializes COM and returns a cleanup function.
 func initCOM() (func(), error) {
 	if err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED); err != nil {
@@ -49,38 +67,95 @@ func newTaskScheduler() (*ole.IDispatch, error) {
 	return disp, nil
 }
 
-// CheckStartupTask returns true if the GoclashZ startup task exists.
-func CheckStartupTask() bool {
+// CheckStartupTask returns true if the GoclashZ startup task exists and is enabled.
+// It also returns detailed task info.
+func CheckStartupTask() (StartupTaskInfo, error) {
+	info := StartupTaskInfo{Mode: StartupDisabled}
+
 	cleanup, err := initCOM()
 	if err != nil {
-		return false
+		info.LastError = "COM init failed"
+		return info, err
 	}
 	defer cleanup()
 
 	sched, err := newTaskScheduler()
 	if err != nil {
-		return false
+		info.LastError = "TaskScheduler connect failed"
+		return info, err
 	}
 	defer sched.Release()
 
 	rootV, err := sched.CallMethod("GetFolder", `\`)
 	if err != nil {
-		return false
+		info.LastError = "GetFolder failed"
+		return info, err
 	}
 	root := rootV.ToIDispatch()
 	defer root.Release()
 
 	taskV, err := root.CallMethod("GetTask", tsTaskName)
 	if err != nil {
-		return false
+		// Task doesn't exist
+		info.Exists = false
+		return info, nil
 	}
-	taskV.ToIDispatch().Release()
-	return true
+	info.Exists = true
+	task := taskV.ToIDispatch()
+	defer task.Release()
+
+	// Check if enabled
+	enabledV, err := task.GetProperty("Enabled")
+	if err == nil {
+		info.Enabled = enabledV.Value().(bool)
+	}
+
+	// Check definition
+	defV, err := task.GetProperty("Definition")
+	if err == nil {
+		def := defV.ToIDispatch()
+		defer def.Release()
+
+		// Get Principal for RunLevel
+		prinV, err := def.GetProperty("Principal")
+		if err == nil {
+			prin := prinV.ToIDispatch()
+			runLevelV, err := prin.GetProperty("RunLevel")
+			if err == nil {
+				switch v := runLevelV.Value().(type) {
+				case int32:
+					info.RunLevel = int(v)
+				case int16:
+					info.RunLevel = int(v)
+				case int:
+					info.RunLevel = v
+				}
+			}
+			prin.Release()
+		}
+
+		if info.RunLevel == 1 {
+			info.Mode = StartupElevated
+		} else {
+			info.Mode = StartupNormal
+		}
+		if !info.Enabled {
+			info.Mode = StartupDisabled
+		}
+	}
+
+	return info, nil
 }
 
-// CreateStartupTask registers a Task Scheduler task that launches exePath at user logon
-// with limited (non-elevated) privileges.
 func CreateStartupTask(exePath string) error {
+	return createStartupTaskInternal(exePath, false)
+}
+
+func CreateElevatedStartupTask(exePath string) error {
+	return createStartupTaskInternal(exePath, true)
+}
+
+func createStartupTaskInternal(exePath string, elevated bool) error {
 	absPath, err := filepath.Abs(exePath)
 	if err != nil {
 		return fmt.Errorf("无法获取绝对路径: %w", err)
@@ -102,7 +177,6 @@ func CreateStartupTask(exePath string) error {
 	}
 	defer sched.Release()
 
-	// NewTask(0) → blank ITaskDefinition
 	defV, err := sched.CallMethod("NewTask", 0)
 	if err != nil {
 		return fmt.Errorf("创建任务定义失败: %w", err)
@@ -110,7 +184,6 @@ func CreateStartupTask(exePath string) error {
 	def := defV.ToIDispatch()
 	defer def.Release()
 
-	// --- Settings ---
 	settingsV, err := def.GetProperty("Settings")
 	if err != nil {
 		return fmt.Errorf("获取 Settings 失败: %w", err)
@@ -120,9 +193,15 @@ func CreateStartupTask(exePath string) error {
 	settings.PutProperty("StopIfGoingOnBatteries", false)
 	settings.PutProperty("AllowStartIfOnBatteries", true)
 	settings.PutProperty("ExecutionTimeLimit", "PT0S")
+	
+	if elevated {
+		settings.PutProperty("MultipleInstances", 1) // IgnoreNew (1)
+		settings.PutProperty("StartWhenAvailable", true)
+		settings.PutProperty("RestartCount", 3)
+		settings.PutProperty("RestartInterval", "PT1M")
+	}
 	settings.Release()
 
-	// --- Action: Exec ---
 	actionsV, err := def.GetProperty("Actions")
 	if err != nil {
 		return fmt.Errorf("获取 Actions 失败: %w", err)
@@ -135,10 +214,14 @@ func CreateStartupTask(exePath string) error {
 	}
 	action := actionV.ToIDispatch()
 	action.PutProperty("Path", absPath)
+	args := "--startup --silent"
+	if elevated {
+		args += " --elevated"
+	}
+	action.PutProperty("Arguments", args)
 	action.PutProperty("WorkingDirectory", workDir)
 	action.Release()
 
-	// --- Trigger: Logon ---
 	triggersV, err := def.GetProperty("Triggers")
 	if err != nil {
 		return fmt.Errorf("获取 Triggers 失败: %w", err)
@@ -151,23 +234,31 @@ func CreateStartupTask(exePath string) error {
 	}
 	trigger := triggerV.ToIDispatch()
 	trigger.PutProperty("Enabled", true)
+	// 统一延迟 15 秒以避开系统启动高峰，防止 explorer.exe 未加载完成导致托盘图标空白
+	trigger.PutProperty("Delay", "PT15S")
 	trigger.Release()
 
-	// --- Principal: current user, non-elevated ---
 	principalV, err := def.GetProperty("Principal")
 	if err != nil {
 		return fmt.Errorf("获取 Principal 失败: %w", err)
 	}
 	principal := principalV.ToIDispatch()
-	principal.PutProperty("LogonType", 3) // TASK_LOGON_TOKEN
-	principal.PutProperty("RunLevel", 0)  // TASK_RUNLEVEL_LUA
+	if elevated {
+		principal.PutProperty("LogonType", 3) // TASK_LOGON_INTERACTIVE_TOKEN
+		principal.PutProperty("RunLevel", 1)  // TASK_RUNLEVEL_HIGHEST (Elevated)
+	} else {
+		principal.PutProperty("LogonType", 3) // TASK_LOGON_TOKEN
+		principal.PutProperty("RunLevel", 0)  // TASK_RUNLEVEL_LUA
+	}
 	principal.Release()
 
-	// --- Display metadata ---
 	def.PutProperty("DisplayName", tsTaskName)
-	def.PutProperty("Description", "开机自启 GoclashZ 代理客户端")
+	if elevated {
+		def.PutProperty("Description", "开机自启 GoclashZ 代理客户端 (管理员权限)")
+	} else {
+		def.PutProperty("Description", "开机自启 GoclashZ 代理客户端")
+	}
 
-	// --- Register ---
 	rootV, err := sched.CallMethod("GetFolder", `\`)
 	if err != nil {
 		return fmt.Errorf("获取根文件夹失败: %w", err)
@@ -175,15 +266,23 @@ func CreateStartupTask(exePath string) error {
 	root := rootV.ToIDispatch()
 	defer root.Release()
 
+	logonType := int32(3) // TASK_LOGON_TOKEN
+	if elevated {
+		logonType = 3 // TASK_LOGON_INTERACTIVE_TOKEN -> it's the same enum value, 3.
+	}
+
 	_, err = root.CallMethod("RegisterTaskDefinition",
 		tsTaskName,
 		def,
 		tsCreateOrUpdate,
 		"",  // userId: current user
 		nil, // password
-		3,   // logonType: TASK_LOGON_TOKEN
+		logonType,
 	)
 	if err != nil {
+		if elevated {
+			return fmt.Errorf("注册管理员计划任务失败: %w", err)
+		}
 		return fmt.Errorf("注册计划任务失败: %w", err)
 	}
 
