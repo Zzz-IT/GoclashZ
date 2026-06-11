@@ -25,6 +25,7 @@ const (
 	WM_TRAYICON      = WM_USER + 1
 	WM_TRAYRENDER    = WM_USER + 2
 	WM_TRAYQUIT      = WM_USER + 3
+	WM_TRAY_ADD_RETRY= WM_USER + 4
 	WM_NULL          = 0x0000
 	WM_COMMAND       = 0x0111
 	WM_RBUTTONUP     = 0x0205
@@ -179,6 +180,8 @@ type TrayRuntime struct {
 
 	// State coalescing
 	renderQueued atomic.Bool
+
+	retryAddCount atomic.Int32
 }
 
 // NewTrayRuntime creates a new Win32 tray runtime
@@ -218,17 +221,20 @@ func (t *TrayRuntime) UpdateState(state appcore.AppState) {
 	t.latest = state
 	t.latestMu.Unlock()
 
-	if !t.ready.Load() || !t.iconAdded.Load() || t.hwnd == 0 {
+	if !t.ready.Load() || t.hwnd == 0 {
 		return
 	}
 
-	if !t.renderQueued.CompareAndSwap(false, true) {
+	if !t.iconAdded.Load() {
+		procPostMessageW.Call(uintptr(t.hwnd), WM_TRAY_ADD_RETRY, 0, 0)
 		return
 	}
 
-	r, _, _ := procPostMessageW.Call(uintptr(t.hwnd), WM_TRAYRENDER, 0, 0)
-	if r == 0 {
-		t.renderQueued.Store(false)
+	if t.renderQueued.CompareAndSwap(false, true) {
+		r, _, _ := procPostMessageW.Call(uintptr(t.hwnd), WM_TRAYRENDER, 0, 0)
+		if r == 0 {
+			t.renderQueued.Store(false)
+		}
 	}
 }
 
@@ -278,8 +284,10 @@ func (t *TrayRuntime) runWin32TrayLoop() {
 	// Load icon
 	t.loadIcon()
 
-	// Add tray icon
-	t.tryAddTrayIconWithRetry()
+	// Initial add tray icon attempt, if fails, schedule async retry
+	if err := t.addTrayIcon(); err != nil {
+		t.scheduleTrayAddRetry()
+	}
 
 	t.ready.Store(true)
 
@@ -425,16 +433,16 @@ func (t *TrayRuntime) addTrayIcon() error {
 	return err
 }
 
-// tryAddTrayIconWithRetry attempts to add the tray icon with finite retries
-func (t *TrayRuntime) tryAddTrayIconWithRetry() {
-	for i := 0; i < 3; i++ {
-		if err := t.addTrayIcon(); err == nil {
-			return
-		} else {
-			logger.Warnf("[Tray] add tray icon failed, retry=%d: %v", i+1, err)
-		}
-		time.Sleep(time.Duration(i+1) * time.Second)
+// scheduleTrayAddRetry schedules a retry for adding the tray icon
+func (t *TrayRuntime) scheduleTrayAddRetry() {
+	count := t.retryAddCount.Add(1)
+	if count > 3 {
+		return
 	}
+	go func(retryNum int32) {
+		time.Sleep(time.Duration(retryNum) * time.Second)
+		procPostMessageW.Call(uintptr(t.hwnd), WM_TRAY_ADD_RETRY, 0, 0)
+	}(count)
 }
 
 // deleteTrayIcon removes the tray icon
@@ -485,12 +493,25 @@ func (t *TrayRuntime) wndProc(hwnd windows.HWND, msg uint32, wparam uintptr, lpa
 	// Handle TaskbarCreated message (Explorer restart)
 	if msg == t.taskbarCreatedMsg && t.taskbarCreatedMsg != 0 {
 		logger.Infof("[Tray] Explorer restarted, re-adding tray icon")
-		t.tryAddTrayIconWithRetry()
-		t.renderOnTrayThread(t.snapshot())
+		t.retryAddCount.Store(0)
+		if err := t.addTrayIcon(); err != nil {
+			t.scheduleTrayAddRetry()
+		} else {
+			t.renderOnTrayThread(t.snapshot())
+		}
 		return 0
 	}
 
 	switch msg {
+	case WM_TRAY_ADD_RETRY:
+		if err := t.addTrayIcon(); err != nil {
+			logger.Warnf("[Tray] async add tray icon failed: %v", err)
+			t.scheduleTrayAddRetry()
+		} else {
+			t.retryAddCount.Store(0)
+			t.renderOnTrayThread(t.snapshot())
+		}
+		return 0
 	case WM_TRAYICON:
 		switch lparam {
 		case WM_RBUTTONUP:

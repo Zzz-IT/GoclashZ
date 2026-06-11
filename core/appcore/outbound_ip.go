@@ -68,6 +68,14 @@ type outboundIPCache struct {
 	value map[string]cachedOutboundIP
 }
 
+func (c *outboundIPCache) cleanupLocked(now time.Time) {
+	for k, v := range c.value {
+		if now.After(v.expiresAt) {
+			delete(c.value, k)
+		}
+	}
+}
+
 var (
 	ipCache         = outboundIPCache{value: make(map[string]cachedOutboundIP)}
 	outboundIPGroup singleflight.Group
@@ -97,13 +105,15 @@ func (c *Controller) outboundIPCacheKey() string {
 }
 
 // GetOutboundIP 检测出站 IP
-func (c *Controller) GetOutboundIP(force ...bool) (OutboundIPResult, error) {
-	isForce := len(force) > 0 && force[0]
+func (c *Controller) GetOutboundIP(force bool) (OutboundIPResult, error) {
+	isForce := force
 	key := c.outboundIPCacheKey()
 
 	if !isForce {
 		ipCache.mu.Lock()
-		if cached, ok := ipCache.value[key]; ok && time.Now().Before(cached.expiresAt) && cached.result.Preferred != "" {
+		now := time.Now()
+		ipCache.cleanupLocked(now)
+		if cached, ok := ipCache.value[key]; ok && now.Before(cached.expiresAt) && cached.result.Preferred != "" {
 			ipCache.mu.Unlock()
 			return cached.result, nil
 		}

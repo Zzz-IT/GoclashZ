@@ -66,7 +66,7 @@ export function GetLocalConfigs():Promise<Array<clash.SubIndexItem>>;
 
 export function GetNetworkConfig():Promise<clash.NetworkConfig>;
 
-export function GetOutboundIP():Promise<appcore.OutboundIPResult>;
+export function GetOutboundIP(arg1:boolean):Promise<appcore.OutboundIPResult>;
 
 export function GetProxyDelay(arg1:string,arg2:string):Promise<number>;
 

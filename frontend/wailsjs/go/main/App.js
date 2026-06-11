@@ -122,8 +122,8 @@ export function GetNetworkConfig() {
   return window['go']['main']['App']['GetNetworkConfig']();
 }
 
-export function GetOutboundIP() {
-  return window['go']['main']['App']['GetOutboundIP']();
+export function GetOutboundIP(arg1) {
+  return window['go']['main']['App']['GetOutboundIP'](arg1);
 }
 
 export function GetProxyDelay(arg1, arg2) {
