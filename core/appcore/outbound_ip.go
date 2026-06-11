@@ -27,15 +27,19 @@ type OutboundIPResult struct {
 }
 
 var ipv6ProxyEndpoints = []string{
+	"https://6.ipw.cn",
 	"https://api6.ipify.org",
+	"https://ipv6.ddnspod.com",
+	"https://api-ipv6.ip.sb/ip",
 	"https://ipv6.icanhazip.com",
-	"https://ipv6.seeip.org",
 }
 
 var ipv4ProxyEndpoints = []string{
+	"https://4.ipw.cn",
 	"https://api.ipify.org",
+	"https://api.ip.sb/ip",
+	"http://ip.3322.net",
 	"https://ipv4.icanhazip.com",
-	"https://ipv4.seeip.org",
 }
 
 var ipv6DirectEndpoints = []string{
@@ -80,7 +84,7 @@ func (c *Controller) GetOutboundIP() (OutboundIPResult, error) {
 		mode = "proxy"
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 
 	type ipResult struct {
@@ -168,7 +172,7 @@ func detectIP(ctx context.Context, endpoints []string, network string, useProxy 
 				defer wg.Done()
 				
 				// 给单个请求一个合理的超时，避免无限期挂起
-				fetchCtx, fetchCancel := context.WithTimeout(reqCtx, 2500*time.Millisecond)
+				fetchCtx, fetchCancel := context.WithTimeout(reqCtx, 4500*time.Millisecond)
 				defer fetchCancel()
 
 				ip, err := fetchIPFromEndpoint(fetchCtx, endpoint, network, useProxy)
@@ -232,7 +236,7 @@ func fetchIPFromEndpoint(ctx context.Context, endpoint string, network string, u
 			Proxy: http.ProxyURL(proxyURL),
 		}
 	} else {
-		dialer := &net.Dialer{Timeout: 2500 * time.Millisecond}
+		dialer := &net.Dialer{Timeout: 4500 * time.Millisecond}
 		transport = &http.Transport{
 			Proxy: nil,
 			DialContext: func(ctx context.Context, n, addr string) (net.Conn, error) {
@@ -243,7 +247,7 @@ func fetchIPFromEndpoint(ctx context.Context, endpoint string, network string, u
 
 	client := &http.Client{
 		Transport: transport,
-		Timeout:   2500 * time.Millisecond,
+		Timeout:   4500 * time.Millisecond,
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)

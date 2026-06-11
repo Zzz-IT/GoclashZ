@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"goclashz/core/appcore"
 	"goclashz/core/clash"
+	"goclashz/core/logger"
 	"goclashz/core/sys"
 	"goclashz/core/utils"
 	"os"
@@ -683,7 +684,7 @@ func (a *App) ApplyAppUpdate(path string) error {
 
 	// 标记：下次启动后清理这个安装包
 	if err := markAppliedUpdateForCleanup(path); err != nil {
-		fmt.Printf("写入更新清理标记失败: %v\n", err)
+		logger.Errorf("写入更新清理标记失败: %v", err)
 	}
 
 	// 停止托盘，避免安装期间继续触发操作
@@ -801,7 +802,7 @@ func (a *App) ExecuteRestore(selected string, mode string) (string, error) {
 func (a *App) safeShowMainWindow() {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("显示主窗口异常: %v\n", r)
+			logger.Errorf("显示主窗口异常: %v", r)
 		}
 	}()
 
@@ -811,7 +812,7 @@ func (a *App) safeShowMainWindow() {
 func (a *App) safeToggleMainWindow() {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("切换主窗口异常: %v\n", r)
+			logger.Errorf("切换主窗口异常: %v", r)
 		}
 	}()
 
@@ -821,7 +822,7 @@ func (a *App) safeToggleMainWindow() {
 func (a *App) safeQuit() {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("退出程序异常: %v\n", r)
+			logger.Errorf("退出程序异常: %v", r)
 		}
 	}()
 

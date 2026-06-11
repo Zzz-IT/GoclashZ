@@ -198,7 +198,6 @@ const isUpdating = ref(false);
 const isImporting = ref(false);
 const isRenaming = ref(false);
 const isDeleting = ref(false);
-const selecting = ref<string | null>(null);
 
 const localConfigs = ref<clash.SubIndexItem[]>([]);
 const activeMenu = ref<string | null>(null);
@@ -261,11 +260,21 @@ const fetchConfigs = async () => {
   }
 };
 
+let currentSelectionNonce = 0;
+
 const handleSelectConfig = async (config: clash.SubIndexItem) => {
-  if (isCurrentConfig(config.id) || selecting.value) return;
-  selecting.value = config.id;
+  if (isCurrentConfig(config.id)) return;
+  
+  // 乐观 UI 更新：不阻塞连续点击，直接放行
+  currentSelectionNonce++;
+  const thisNonce = currentSelectionNonce;
+  
+  const previousConfigId = globalState.activeConfigId;
+  globalState.activeConfigId = config.id;
+  
   const maxAttempts = 2;
   let lastError: any = null;
+  
   for (let i = 0; i < maxAttempts; i++) {
     try {
       await API.SelectLocalConfig(config.id);
@@ -273,13 +282,17 @@ const handleSelectConfig = async (config: clash.SubIndexItem) => {
       break;
     } catch (error) {
       lastError = error;
+      // 如果发生重试，检查期间是否有新的点击，如果有直接中断当前重试
+      if (currentSelectionNonce !== thisNonce) return;
       if (i < maxAttempts - 1) await new Promise(r => setTimeout(r, 500));
     }
   }
-  if (lastError) {
+  
+  // 仅当当前请求仍是最新的（没有被新点击覆盖）且失败时，才进行回滚和报错
+  if (lastError && currentSelectionNonce === thisNonce) {
+    globalState.activeConfigId = previousConfigId;
     await showAlert("切换订阅失败: " + lastError, "错误");
   }
-  selecting.value = null;
 };
 
 const handleUpdateAll = async () => {

@@ -7,6 +7,7 @@ export namespace appcore {
 	    delayRetention: boolean;
 	    delayRetentionTime: string;
 	    logLevel: string;
+	    appLogLevel: string;
 	    hideLogs: boolean;
 	    subUA: string;
 	    activeConfig: string;
@@ -38,6 +39,7 @@ export namespace appcore {
 	        this.delayRetention = source["delayRetention"];
 	        this.delayRetentionTime = source["delayRetentionTime"];
 	        this.logLevel = source["logLevel"];
+	        this.appLogLevel = source["appLogLevel"];
 	        this.hideLogs = source["hideLogs"];
 	        this.subUA = source["subUA"];
 	        this.activeConfig = source["activeConfig"];

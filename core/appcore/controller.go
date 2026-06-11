@@ -1333,7 +1333,7 @@ func (c *Controller) syncGlobalSelectionOnModeEnter(ctx context.Context, profile
 
 	// 执行同步
 	if err := c.selectGlobalProxyIfValid(ctx, targetNode); err != nil {
-		fmt.Printf("进入全局模式同步失败: %v\n", err)
+		logger.Errorf("进入全局模式同步失败: %v", err)
 	}
 }
 
@@ -1390,7 +1390,7 @@ func (c *Controller) applyStoredProxySelections(ctx context.Context, profileID s
 
 	data, err := clash.GetInitialDataWithContext(ctx)
 	if err != nil {
-		fmt.Printf("读取内核代理组失败，跳过节点选择回放: %v\n", err)
+		logger.Errorf("读取内核代理组失败，跳过节点选择回放: %v", err)
 		return
 	}
 
@@ -1432,7 +1432,7 @@ func (c *Controller) applyStoredProxySelections(ctx context.Context, profileID s
 	if behavior.ActiveMode == "global" {
 		if globalNode, ok := selected["GLOBAL"]; ok && globalNode != "" {
 			if err := c.selectGlobalProxyIfValid(ctx, globalNode); err != nil {
-				fmt.Printf("回放 GLOBAL 出口失败: %v\n", err)
+				logger.Errorf("回放 GLOBAL 出口失败: %v", err)
 			}
 		}
 	}

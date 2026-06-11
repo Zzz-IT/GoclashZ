@@ -1,10 +1,11 @@
 <template>
   <div class="connections-view">
-    <template v-if="!selectedConn">
-      <Teleport to="#title-extra-target">
-        <span v-if="connections.length > 0" class="conn-title-count">活跃连接: {{ connections.length }}</span>
-      </Teleport>
-      <div class="action-bar card-panel page-sticky-mask">
+    <Transition name="slide-fade" mode="out-in">
+      <div v-if="!selectedConn" class="connections-list-wrapper">
+        <Teleport to="#title-extra-target">
+          <span v-if="connections.length > 0" class="conn-title-count">活跃连接: {{ connections.length }}</span>
+        </Teleport>
+        <div class="action-bar card-panel page-sticky-mask">
         <div class="conn-tabs-viewport">
           <div class="conn-tabs-track" ref="tabsTrackRef">
             <button :ref="(el) => { if (filterMode === 'all') connTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: filterMode === 'all' }]" @click="filterMode = 'all'">全部</button>
@@ -70,10 +71,9 @@
           <p v-else>当前没有流量经过</p>
         </div>
       </div>
-    </template>
+      </div>
 
-    <template v-else>
-      <div class="detail-page card-panel">
+      <div v-else class="detail-page card-panel">
         <div class="detail-header">
           <h3>连接详情</h3>
           <button class="action-btn back-btn" @click="closeDetail">
@@ -97,7 +97,7 @@
           <button class="action-btn red-text-btn" @click="closeSingleConnection(selectedConn.id)">强行断开此连接</button>
         </div>
       </div>
-    </template>
+    </Transition>
   </div>
 </template>
 
@@ -263,6 +263,30 @@ const closeSingleConnection = async (id: string) => {
   flex-direction: column; 
   min-height: 100%; 
   overflow: visible; 
+}
+
+.connections-list-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.slide-fade-enter-active,
+.slide-fade-leave-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  width: 100%;
+}
+
+.slide-fade-enter-from {
+  opacity: 0;
+  transform: translateX(12px); 
+}
+
+.slide-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-12px); 
 }
 
 .action-bar { 

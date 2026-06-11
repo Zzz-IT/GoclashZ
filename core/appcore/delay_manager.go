@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"goclashz/core/clash"
+	"goclashz/core/logger"
 	"strings"
 	"sync"
 	"time"
@@ -582,7 +583,7 @@ func (m *DelayTestManager) runBatch(
 	// 🚀 核心保护：如果正在下载更新，且 80% 以上节点超时，大概率是下载干扰，不覆盖旧结果
 	if opts.Source != DelaySourceManual && m.ctrl.isAppUpdateDownloading() && total > 0 {
 		if timeoutCount*100/total >= 80 {
-			fmt.Printf("检测到下载干扰导致大面积测速超时 (%d/%d)，放弃更新本次自动测速结果\n", timeoutCount, total)
+			logger.Warnf("检测到下载干扰导致大面积测速超时 (%d/%d)，放弃更新本次自动测速结果", timeoutCount, total)
 			return
 		}
 	}

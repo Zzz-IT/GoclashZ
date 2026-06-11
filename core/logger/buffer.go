@@ -96,3 +96,19 @@ func Errorf(format string, args ...any) {
 		Time:    time.Now().Format("15:04:05"),
 	})
 }
+
+func Warnf(format string, args ...any) {
+	AppLogs.Add(LogEntry{
+		Type:    "warn",
+		Payload: fmt.Sprintf(format, args...),
+		Time:    time.Now().Format("15:04:05"),
+	})
+}
+
+func Debugf(format string, args ...any) {
+	AppLogs.Add(LogEntry{
+		Type:    "debug",
+		Payload: fmt.Sprintf(format, args...),
+		Time:    time.Now().Format("15:04:05"),
+	})
+}

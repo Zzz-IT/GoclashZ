@@ -16,6 +16,7 @@ type AppBehavior struct {
 	DelayRetention     bool   `json:"delayRetention"`
 	DelayRetentionTime string `json:"delayRetentionTime"`
 	LogLevel           string `json:"logLevel"` // 日志等级
+	AppLogLevel        string `json:"appLogLevel"` // 软件日志等级
 	HideLogs           bool   `json:"hideLogs"`
 	SubUA              string `json:"subUA"` // 订阅更新 User-Agent
 
@@ -129,6 +130,10 @@ func normalizeBehavior(b AppBehavior) AppBehavior {
 		b.LogLevel = "error"
 	}
 
+	if b.AppLogLevel == "" {
+		b.AppLogLevel = "info"
+	}
+
 	if b.DelayRetentionTime == "" {
 		b.DelayRetentionTime = "long"
 	}
@@ -181,6 +186,7 @@ func (s *BehaviorStore) Default() AppBehavior {
 		DelayRetention:     true,
 		DelayRetentionTime: "long",
 		LogLevel:           "error",
+		AppLogLevel:        "info",
 		HideLogs:           false,
 		SubUA:              "clash-verge",
 		ActiveMode:         "rule",

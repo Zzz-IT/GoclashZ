@@ -757,6 +757,19 @@
 
             <div class="setting-item">
               <div class="info">
+                <h4>软件日志等级</h4>
+                <p>调整主程序本身的日志输出等级。此设置即时生效，对实时日志页面起过滤作用。</p>
+              </div>
+              <ModernSelect 
+                v-model="behavior.appLogLevel" 
+                :options="appLogLevelOptions" 
+                @change="saveBehavior" 
+              />
+            </div>
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
                 <h4>隐藏日志入口</h4>
                 <p>隐藏侧边栏中的日志页面入口；后台仍会保留最近日志用于故障诊断。</p>
               </div>
@@ -1104,23 +1117,23 @@
           <div class="modal-body" style="font-size: 0.9rem; line-height: 1.6;">
             <div v-if="loadingTaskInfo" style="color: var(--text-muted); text-align: center; padding: 20px 0;">正在加载任务信息...</div>
             <div v-else-if="startupTaskInfo">
-              <div :style="{ color: startupTaskInfo.IsHealthy ? 'var(--green-text)' : 'var(--red-text)', fontWeight: '600', marginBottom: '12px', fontSize: '1rem', textAlign: 'center' }">
-                <span v-if="startupTaskInfo.IsHealthy" v-html="ICONS.check"></span>
+              <div :style="{ color: startupTaskInfo.isHealthy ? 'var(--green-text)' : 'var(--red-text)', fontWeight: '600', marginBottom: '12px', fontSize: '1rem', textAlign: 'center' }">
+                <span v-if="startupTaskInfo.isHealthy" v-html="ICONS.check"></span>
                 <span v-else v-html="ICONS.alert"></span>
-                {{ startupTaskInfo.IsHealthy ? ' 健康：自启任务配置正确' : ' 异常：自启任务存在问题' }}
+                {{ startupTaskInfo.isHealthy ? ' 健康：自启任务配置正确' : ' 异常：自启任务存在问题' }}
               </div>
-              <div v-if="!startupTaskInfo.IsHealthy && startupTaskInfo.LastError" style="color: var(--red-text); margin-bottom: 12px; padding: 8px; background: rgba(255, 59, 48, 0.1); border-radius: 6px;">
-                <strong>错误：</strong>{{ startupTaskInfo.LastError }}
+              <div v-if="!startupTaskInfo.isHealthy && startupTaskInfo.lastError" style="color: var(--red-text); margin-bottom: 12px; padding: 8px; background: rgba(255, 59, 48, 0.1); border-radius: 6px;">
+                <strong>错误：</strong>{{ startupTaskInfo.lastError }}
               </div>
               
               <div style="background: var(--bg-secondary); padding: 12px; border-radius: 8px;">
                 <div style="display: flex; margin-bottom: 4px;">
                   <span style="color: var(--text-muted); width: 80px;">期望路径:</span>
-                  <span style="word-break: break-all; flex: 1;">{{ startupTaskInfo.ExpectedPath }}</span>
+                  <span style="word-break: break-all; flex: 1;">{{ startupTaskInfo.expectedPath }}</span>
                 </div>
                 <div style="display: flex; margin-bottom: 4px;">
                   <span style="color: var(--text-muted); width: 80px;">实际路径:</span>
-                  <span style="word-break: break-all; flex: 1;" :style="{ color: startupTaskInfo.ActualPath ? 'inherit' : 'var(--red-text)' }">{{ startupTaskInfo.ActualPath || '未配置' }}</span>
+                  <span style="word-break: break-all; flex: 1;" :style="{ color: startupTaskInfo.actualPath ? 'inherit' : 'var(--red-text)' }">{{ startupTaskInfo.actualPath || '未配置' }}</span>
                 </div>
                 <div style="display: flex; margin-bottom: 4px;">
                   <span style="color: var(--text-muted); width: 80px;">期望模式:</span>
@@ -1128,11 +1141,11 @@
                 </div>
                 <div style="display: flex; margin-bottom: 4px;">
                   <span style="color: var(--text-muted); width: 80px;">实际模式:</span>
-                  <span>{{ startupTaskInfo.RunLevel === 1 ? '最高权限' : (startupTaskInfo.RunLevel === 0 ? '普通权限' : '未知') }}</span>
+                  <span>{{ startupTaskInfo.runLevel === 1 ? '最高权限' : (startupTaskInfo.runLevel === 0 ? '普通权限' : '未知') }}</span>
                 </div>
                 <div style="display: flex;">
                   <span style="color: var(--text-muted); width: 80px;">参数:</span>
-                  <span style="word-break: break-all; flex: 1;">{{ startupTaskInfo.ActualArgs || '无' }}</span>
+                  <span style="word-break: break-all; flex: 1;">{{ startupTaskInfo.actualArgs || '无' }}</span>
                 </div>
               </div>
             </div>
@@ -1171,41 +1184,7 @@ const openLink = (url: string) => {
 const showResetConfirm = ref(false);
 const resetModule = ref('');
 const resetModuleName = ref('');
-const hostsError = ref('');
-
 const showCoreUpdateConfirm = ref(false);
-
-// 👇 新增：校验 Hosts 是否符合 YAML 字典基础格式
-const validateHosts = (val: string) => {
-  if (!val || val.trim() === '') {
-    hostsError.value = ''; // 为空是合法的（代表不配置）
-    return true;
-  }
-
-  const lines = val.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    
-    // 跳过空行和以 # 开头的注释行
-    if (line === '' || line.startsWith('#')) continue;
-
-    // 正则解析：必须是 "键: 值" 的形式 (至少包含一个冒号，且冒号后面要有内容)
-    if (!/^[^:]+:\s*.+$/.test(line)) {
-      hostsError.value = `第 ${i + 1} 行格式错误：请使用 "域名: IP" 的格式 (注意冒号为英文且要有值)`;
-      return false;
-    }
-  }
-  
-  hostsError.value = ''; // 校验通过，清空错误
-  return true;
-};
-
-// 👇 实时监听用户的输入
-watch(() => netConfig.value.hosts, (newVal) => {
-  validateHosts(newVal || '');
-});
-
-
 // --- 备份与还原状态 ---
 const showRestoreModal = ref(false);
 const selectedPath = ref("");
@@ -1306,6 +1285,13 @@ const logLevelOptions = [
   { label: '警告', value: 'warning' },
   { label: '错误', value: 'error' },
   { label: '静默', value: 'silent' }
+];
+
+const appLogLevelOptions = [
+  { label: '调试', value: 'debug' },
+  { label: '信息', value: 'info' },
+  { label: '警告', value: 'warn' },
+  { label: '错误', value: 'error' }
 ];
 
 const showDbModal = ref(false);
@@ -1545,6 +1531,38 @@ const netConfig = ref({
   tcpKeepAliveInterval: 15,
   testUrl: 'http://www.gstatic.com/generate_204',
   hosts: ''
+});
+
+const hostsError = ref('');
+
+// 👇 新增：校验 Hosts 是否符合 YAML 字典基础格式
+const validateHosts = (val: string) => {
+  if (!val || val.trim() === '') {
+    hostsError.value = ''; // 为空是合法的（代表不配置）
+    return true;
+  }
+
+  const lines = val.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // 跳过空行和以 # 开头的注释行
+    if (line === '' || line.startsWith('#')) continue;
+
+    // 正则解析：必须是 "键: 值" 的形式 (至少包含一个冒号，且冒号后面要有内容)
+    if (!/^[^:]+:\s*.+$/.test(line)) {
+      hostsError.value = `第 ${i + 1} 行格式错误：请使用 "域名: IP" 的格式 (注意冒号为英文且要有值)`;
+      return false;
+    }
+  }
+  
+  hostsError.value = ''; // 校验通过，清空错误
+  return true;
+};
+
+// 👇 实时监听用户的输入
+watch(() => netConfig.value.hosts, (newVal) => {
+  validateHosts(newVal || '');
 });
 
 const behavior = ref<any>({

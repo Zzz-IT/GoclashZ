@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"goclashz/core/logger"
 	"net/http"
 	"strings"
 	"time"
@@ -39,7 +40,7 @@ func StartLogStream(ctx context.Context, onLog LogCallback) {
 
 	conn, _, err := dialer.Dial(wsURL, nil)
 	if err != nil {
-		fmt.Println("日志连接失败:", err)
+		logger.Errorf("日志连接失败: %v", err)
 		return
 	}
 	defer conn.Close()

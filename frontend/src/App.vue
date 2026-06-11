@@ -71,7 +71,7 @@
 
             <div v-else-if="currentTab === 'logs'" key="logs" class="view-transition-wrapper view-logs" style="display: flex; flex-direction: column; gap: 12px; height: 100%;">
               <div class="terminal-box" ref="logBox" style="flex: 1; height: auto;">
-                <div v-for="(log, i) in logLines" :key="i" :class="['log-line', log.type]">
+                <div v-for="(log, i) in filteredLogLines" :key="i" :class="['log-line', log.type]">
                   <span class="l-time">{{ log.time }}</span>
                   <span class="l-type">[{{ log.type.toUpperCase() }}]</span>
                   <span class="l-msg">{{ log.payload }}</span>
@@ -176,6 +176,16 @@ const traffic = ref({
   downloadTotalRaw: 0
 });
 const logLines = ref<any[]>([]);
+
+const logLevels = { debug: 0, info: 1, warn: 2, warning: 2, error: 3 };
+const filteredLogLines = computed(() => {
+  const minLevel = logLevels[globalState.appLogLevel as keyof typeof logLevels] || 0;
+  return logLines.value.filter(log => {
+    const typeStr = (log.type || 'info').toLowerCase();
+    const level = logLevels[typeStr as keyof typeof logLevels] ?? 1;
+    return level >= minLevel;
+  });
+});
 const logBox = ref<HTMLElement | null>(null);
 
 let scrollTimer: ReturnType<typeof setTimeout> | null = null;

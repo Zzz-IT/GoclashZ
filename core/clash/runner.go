@@ -5,6 +5,7 @@ package clash
 import (
 	"context"
 	"fmt"
+	"goclashz/core/logger"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -174,7 +175,7 @@ func Stop() error {
 
 	if proc != nil {
 		if err := proc.Kill(); err != nil {
-			fmt.Printf("停止内核进程失败: %v\n", err)
+			logger.Errorf("停止内核进程失败: %v", err)
 			if pid > 0 {
 				killProcessIfClash(pid, targetExeName)
 			}

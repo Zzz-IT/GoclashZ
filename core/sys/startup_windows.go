@@ -148,6 +148,9 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 	if err != nil {
 		// Task doesn't exist
 		info.Exists = false
+		info.Enabled = false
+		info.IsHealthy = false
+		info.LastError = "startup task not found"
 		return info, nil
 	}
 	info.Exists = true

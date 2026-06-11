@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"goclashz/core/clash"
 	"goclashz/core/downloader"
+	"goclashz/core/logger"
 	"goclashz/core/utils"
 	"path/filepath"
 	"strings"
@@ -279,7 +280,7 @@ func (c *Controller) downloadAppUpdateWithInfo(ctx context.Context, info *downlo
 	// 🚀 这里只调用一次，底层的 DownloadLargeAssetAtomic 会通过 Strategy() 回调动态感知代理切换并自动进行内部无感断点续传！
 	path, err := downloader.DownloadAppUpdate(ctx, info, destDir, onProgress, c.getDynamicStrategy)
 	if err != nil {
-		fmt.Printf("软件更新下载失败: %v\n", err)
+		logger.Errorf("软件更新下载失败: %v", err)
 		c.events.Emit("app-update-error", userFacingAppUpdateDownloadError(err))
 		return err
 	}

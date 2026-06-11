@@ -4,7 +4,6 @@ package main
 
 import (
 	"embed"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	"goclashz/core/appcore"
+	"goclashz/core/logger"
 	"goclashz/core/sys"
 	"goclashz/core/utils"
 	syswin "golang.org/x/sys/windows"
@@ -38,7 +38,7 @@ func main() {
 	// 🚀 新增：恐慌恢复逻辑，确保程序因未知 Bug 崩溃时，能最后尝试清理一次代理
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("检测到程序 Panic: %v\n正在紧急清理系统代理...\n", r)
+			logger.Errorf("检测到程序 Panic: %v\n正在紧急清理系统代理...", r)
 			sys.ClearOwnedSystemProxy()
 			panic(r) // 继续抛出 Panic 以供日志记录
 		}
@@ -50,7 +50,7 @@ func main() {
 	isDebugMode := false
 	if filepath.Base(exePath) == "GoclashZ-dev.exe" || len(os.Getenv("WAILS_DEV_SERVER")) > 0 {
 		isDebugMode = true
-		fmt.Println("👉 Wails 开发模式，跳过单实例检查")
+		logger.Infof("👉 Wails 开发模式，跳过单实例检查")
 	}
 
 	// 处理设置管理员自启的特殊参数
@@ -58,7 +58,7 @@ func main() {
 		if !sys.CheckAdmin() {
 			err := sys.RequestAdmin()
 			if err != nil {
-				fmt.Printf("请求管理员权限失败: %v\n", err)
+				logger.Errorf("请求管理员权限失败: %v", err)
 			}
 			os.Exit(0)
 		}
@@ -71,7 +71,7 @@ func main() {
 			b.StartupMode = "normal"
 			_ = store.SetAndSave(b)
 
-			fmt.Printf("创建最高权限自启任务失败: %v\n", err)
+			logger.Errorf("创建最高权限自启任务失败: %v", err)
 			os.Exit(1)
 		}
 
@@ -81,7 +81,7 @@ func main() {
 		b.StartupMode = "elevated"
 		_ = store.SetAndSave(b)
 
-		fmt.Println("✅ 成功创建最高权限开机自启任务")
+		logger.Infof("✅ 成功创建最高权限开机自启任务")
 		os.Exit(0)
 	}
 
@@ -92,7 +92,7 @@ func main() {
 		if behavior.StartupMode == "elevated" && hasFlag("--startup") {
 			err := sys.RequestAdmin()
 			if err != nil {
-				fmt.Printf("根据设置请求管理员权限失败: %v\n", err)
+				logger.Errorf("根据设置请求管理员权限失败: %v", err)
 			}
 			os.Exit(0)
 		}
@@ -107,7 +107,7 @@ func main() {
 		// ✅ 核心修复：直接通过系统调用返回的 err 判断，切勿使用 GetLastError()
 		if err != nil {
 			if err == syswin.ERROR_ALREADY_EXISTS {
-				fmt.Println("⚠️ GoclashZ 已经在后台运行，正在唤醒已有窗口...")
+				logger.Infof("⚠️ GoclashZ 已经在后台运行，正在唤醒已有窗口...")
 				
 				// 🚀 核心重构：调用统一的唤醒与闪烁函数 (由 core/sys 提供)
 				sys.FocusMainWindowAndFlashTwiceWin32Only()
@@ -118,7 +118,7 @@ func main() {
 				}
 				os.Exit(0)
 			} else {
-				fmt.Printf("创建互斥锁发生异常: %v\n", err)
+				logger.Errorf("创建互斥锁发生异常: %v", err)
 			}
 		}
 
@@ -184,7 +184,7 @@ func main() {
 	})
 
 	if err != nil {
-		println("Error:", err.Error())
+		logger.Errorf("Error: %v", err)
 	}
 }
 
@@ -195,7 +195,7 @@ func installEmergencyProxyCleanup() {
 
 	go func() {
 		<-sigCh
-		fmt.Println("检测到退出信号，正在清理 GoclashZ 设置的系统代理...")
+		logger.Infof("检测到退出信号，正在清理 GoclashZ 设置的系统代理...")
 		sys.ClearOwnedSystemProxy()
 		os.Exit(0)
 	}()

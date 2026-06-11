@@ -1,6 +1,7 @@
 // 文件路径: frontend/src/store.ts
 import { reactive } from 'vue';
 import { EventsOn } from '../wailsjs/runtime/runtime';
+import * as API from '../wailsjs/go/main/App';
 
 export type UpdateTaskState = {
   key: string;
@@ -38,6 +39,7 @@ export const globalState = reactive({
   tun: false,
   version: '',
   appVersion: '', // 👈 新增
+  appLogLevel: 'info', // 👈 新增：软件日志等级
   isAdmin: false,
   tunStatus: { hasWintun: false, isAdmin: false },
   delayRetention: true,
@@ -122,6 +124,7 @@ export function updateStateFromBackend(rawData: any) {
   const newHideLogs = rawData.hideLogs ?? rawData.HideLogs;
   if (newHideLogs !== undefined) {
     globalState.hideLogs = newHideLogs;
+    globalState.appLogLevel = rawData.appLogLevel || rawData.AppLogLevel || 'info';
     localStorage.setItem('goclashz_hideLogs', String(newHideLogs)); // 存入缓存
   }
 
@@ -267,8 +270,7 @@ export async function refreshOutboundIP(options?: { force?: boolean }) {
   globalState.ipDetecting = true;
 
   const attemptFetch = async () => {
-    const { GetOutboundIP } = await import('../wailsjs/go/main/App');
-    return await GetOutboundIP(); // Optionally pass force if supported by backend
+    return await API.GetOutboundIP(); // Optionally pass force if supported by backend
   };
 
   try {
@@ -305,8 +307,7 @@ export async function initStore() {
   storeInited = true;
   // 1. 初始化时进行一次真理同步，获取后端当前所有真实状态
   try {
-    const { GetAppState } = await import('../wailsjs/go/main/App');
-    const initialState = await GetAppState();
+    const initialState = await API.GetAppState();
     updateStateFromBackend(initialState);
   } catch (err) {
     console.error("初始化应用状态失败:", err);
