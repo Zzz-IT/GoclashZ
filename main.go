@@ -65,9 +65,21 @@ func main() {
 
 		err := sys.CreateElevatedStartupTask(exePath)
 		if err != nil {
+			store := appcore.NewBehaviorStore()
+			b := store.Get()
+			b.StartupWithOS = false
+			b.StartupMode = "normal"
+			_ = store.SetAndSave(b)
+
 			fmt.Printf("创建最高权限自启任务失败: %v\n", err)
 			os.Exit(1)
 		}
+
+		store := appcore.NewBehaviorStore()
+		b := store.Get()
+		b.StartupWithOS = true
+		b.StartupMode = "elevated"
+		_ = store.SetAndSave(b)
 
 		fmt.Println("✅ 成功创建最高权限开机自启任务")
 		os.Exit(0)

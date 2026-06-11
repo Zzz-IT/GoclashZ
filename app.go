@@ -522,10 +522,13 @@ func (a *App) DoLocalImport(srcPath, name string) (string, error) {
 }
 
 func (a *App) StartClash(id string) error {
-	if err := a.core.Behavior.SetActiveConfig(id); err != nil {
+	if err := a.core.SelectLocalConfig(a.ctx, id); err != nil {
 		return err
 	}
-	return a.core.RestartCoreWithReason(a.ctx, "config-switch")
+	if !a.core.GetAppState().IsRunning {
+		return a.core.RestartCoreWithReason(a.ctx, "config-switch")
+	}
+	return nil
 }
 
 // --- Extra Utilities ---

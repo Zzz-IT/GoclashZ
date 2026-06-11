@@ -21,6 +21,7 @@ type TrayService struct {
 	actionCh    chan func()
 	mu          sync.Mutex
 	lastState   appcore.AppState
+	renderedState appcore.AppState
 	
 	// Menu items
 	mSysProxy   *systray.MenuItem
@@ -251,33 +252,43 @@ func (t *TrayService) render() {
 	
 	state := t.lastState
 	
-	if state.SystemProxy {
-		t.mSysProxy.Check()
-	} else {
-		t.mSysProxy.Uncheck()
+	if state.SystemProxy != t.renderedState.SystemProxy {
+		if state.SystemProxy {
+			t.mSysProxy.Check()
+		} else {
+			t.mSysProxy.Uncheck()
+		}
 	}
 
-	if state.Tun {
-		t.mTun.Check()
-	} else {
-		t.mTun.Uncheck()
+	if state.Tun != t.renderedState.Tun {
+		if state.Tun {
+			t.mTun.Check()
+		} else {
+			t.mTun.Uncheck()
+		}
 	}
 
-	t.mModeRule.Uncheck()
-	t.mModeGlobal.Uncheck()
-	t.mModeDirect.Uncheck()
-	switch state.Mode {
-	case "rule":
-		t.mModeRule.Check()
-	case "global":
-		t.mModeGlobal.Check()
-	case "direct":
-		t.mModeDirect.Check()
+	if state.Mode != t.renderedState.Mode {
+		t.mModeRule.Uncheck()
+		t.mModeGlobal.Uncheck()
+		t.mModeDirect.Uncheck()
+		switch state.Mode {
+		case "rule":
+			t.mModeRule.Check()
+		case "global":
+			t.mModeGlobal.Check()
+		case "direct":
+			t.mModeDirect.Check()
+		}
 	}
 
-	if state.ActiveConfigName != "" {
-		systray.SetTooltip(fmt.Sprintf("GoclashZ - %s", state.ActiveConfigName))
-	} else {
-		systray.SetTooltip("GoclashZ - 未选择配置")
+	if state.ActiveConfigName != t.renderedState.ActiveConfigName {
+		if state.ActiveConfigName != "" {
+			systray.SetTooltip(fmt.Sprintf("GoclashZ - %s", state.ActiveConfigName))
+		} else {
+			systray.SetTooltip("GoclashZ")
+		}
 	}
+	
+	t.renderedState = state
 }

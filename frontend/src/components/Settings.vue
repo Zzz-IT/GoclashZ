@@ -652,6 +652,37 @@
                     <span class="slider"></span>
                   </label>
                 </div>
+
+                <div class="divider"></div>
+                
+                <div class="setting-item col-item" style="align-items: flex-start;">
+                  <div class="info">
+                    <h4>自启任务诊断</h4>
+                    <p>检测当前系统中的自启任务状态是否正常。</p>
+                  </div>
+                  
+                  <div class="diagnostic-panel" style="margin-top: 12px; width: 100%; background: var(--bg-secondary); padding: 12px; border-radius: 8px; font-size: 0.85rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                      <span style="font-weight: 600;">状态诊断</span>
+                      <button class="action-btn mini-btn primary-btn accent-btn" @click="handleRepairStartupTask" :disabled="repairingTask">{{ repairingTask ? '修复中...' : '修复自启任务' }}</button>
+                    </div>
+                    
+                    <div v-if="loadingTaskInfo" style="color: var(--text-muted);">正在加载任务信息...</div>
+                    <div v-else-if="startupTaskInfo">
+                      <div :style="{ color: startupTaskInfo.IsHealthy ? 'var(--green-text)' : 'var(--red-text)', fontWeight: '600', marginBottom: '8px' }">
+                        {{ startupTaskInfo.IsHealthy ? '健康：自启任务配置正确' : '异常：自启任务存在问题，请点击修复' }}
+                      </div>
+                      <div v-if="!startupTaskInfo.IsHealthy && startupTaskInfo.LastError" style="color: var(--red-text); margin-bottom: 4px;">错误: {{ startupTaskInfo.LastError }}</div>
+                      <div>期望路径: {{ startupTaskInfo.ExpectedPath }}</div>
+                      <div>实际路径: {{ startupTaskInfo.ActualPath || '未配置' }}</div>
+                      <div>期望模式: {{ behavior.startupMode === 'elevated' ? '最高权限' : '普通权限' }}</div>
+                      <div>实际模式: {{ startupTaskInfo.RunLevel === 1 ? '最高权限' : (startupTaskInfo.RunLevel === 0 ? '普通权限' : '未知') }}</div>
+                      <div>参数: {{ startupTaskInfo.ActualArgs || '无' }}</div>
+                    </div>
+                    <div v-else style="color: var(--red-text);">无法获取任务信息</div>
+                  </div>
+                </div>
+
               </div>
             </Transition>
             <div class="divider"></div>
@@ -1575,7 +1606,10 @@ const loadData = async () => {
     if (netConf) netConfig.value = netConf;
 
     const behaviorConf = await (API.GetAppBehavior as any)();
-    if (behaviorConf) behavior.value = behaviorConf;
+    if (behaviorConf) {
+      behavior.value = behaviorConf;
+      loadStartupTaskInfo();
+    }
 
     const info = await (API as any).GetComponentFileInfo();
     if (info) {
@@ -1765,6 +1799,7 @@ const handleStartupWithOSChange = async () => {
   } else if (behavior.value.startupMode === 'elevated') {
     try {
       await (API as any).SetupElevatedStartupAndSaveBehavior(behavior.value);
+      loadStartupTaskInfo();
       return; // 内部已落盘保存，无需再次 saveBehavior
     } catch (e) {
       console.error('提权注册自启失败', e);
@@ -1775,22 +1810,57 @@ const handleStartupWithOSChange = async () => {
     }
   }
   saveBehavior();
+  loadStartupTaskInfo();
 };
 
 const handleStartupModeChange = async () => {
   if (behavior.value.startupWithOS && behavior.value.startupMode === 'elevated') {
     try {
       await (API as any).SetupElevatedStartupAndSaveBehavior(behavior.value);
+      loadStartupTaskInfo();
       return; // 内部已落盘保存，无需再次 saveBehavior
     } catch (e) {
       console.error('提权注册自启失败', e);
       behavior.value.startupWithOS = false;
       behavior.value.restoreOnStartup = false;
       await showAlert("管理员自启注册失败：" + e, "错误", true);
+      loadStartupTaskInfo();
       return;
     }
   }
   saveBehavior();
+  loadStartupTaskInfo();
+};
+
+const startupTaskInfo = ref<any>(null);
+const loadingTaskInfo = ref(false);
+const repairingTask = ref(false);
+
+const loadStartupTaskInfo = async () => {
+  if (!behavior.value.startupWithOS) return;
+  loadingTaskInfo.value = true;
+  try {
+    const info = await (API as any).GetStartupTaskInfo();
+    startupTaskInfo.value = info;
+  } catch (e) {
+    console.error('获取自启任务诊断信息失败', e);
+    startupTaskInfo.value = null;
+  } finally {
+    loadingTaskInfo.value = false;
+  }
+};
+
+const handleRepairStartupTask = async () => {
+  repairingTask.value = true;
+  try {
+    await (API as any).RepairStartupTask();
+    await loadStartupTaskInfo();
+  } catch (e) {
+    console.error('修复自启任务失败', e);
+    await showAlert("修复自启任务失败: " + String(e), "错误", true);
+  } finally {
+    repairingTask.value = false;
+  }
 };
 
 const openDbEditModal = (type: string, currentLink: string) => {

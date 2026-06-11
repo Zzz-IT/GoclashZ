@@ -931,6 +931,8 @@ func (c *Controller) UpdateClashMode(ctx context.Context, mode string) error {
 	behavior.ActiveMode = mode
 	if err := c.Behavior.SetAndSave(behavior); err != nil {
 		c.events.Emit("notify-error", "模式持久化保存失败: "+err.Error())
+		c.SyncState()
+		return err
 	}
 
 	desired := c.Desired.Get()

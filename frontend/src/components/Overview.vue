@@ -301,6 +301,10 @@ const runModeWorker = async (targetMode: string) => {
       pendingModeTarget = null;
       modeWorkerActive = false;
       setTimeout(() => refreshOutboundIP(), 1500);
+      setTimeout(async () => {
+        const state = await (API as any).GetAppState().catch(() => null);
+        if (state) updateStateFromBackend(state);
+      }, 800);
     }
   }
 };
