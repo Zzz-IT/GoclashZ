@@ -633,7 +633,7 @@
                   <ModernSelect 
                     v-model="behavior.startupMode" 
                     :options="[
-                      { label: '管理员权限自启 (推荐)', value: 'elevated' },
+                      { label: '管理员模式 (推荐)', value: 'elevated' },
                       { label: '普通自启', value: 'normal' }
                     ]" 
                     @change="handleStartupModeChange"
