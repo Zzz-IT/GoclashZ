@@ -46,6 +46,10 @@ func SaveConfigText(id string, content string) error {
 		return err
 	}
 
+	if err := ValidateClashReferencesBytes([]byte(content)); err != nil {
+		return fmt.Errorf("引用完整性校验失败: %w", err)
+	}
+
 	if err := utils.WriteFileAtomic(configPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("保存配置文件失败: %w", err)
 	}
@@ -58,6 +62,9 @@ func ValidateConfigText(content string) error {
 	var node yaml.Node
 	if err := yaml.Unmarshal([]byte(content), &node); err != nil {
 		return fmt.Errorf("YAML 语法错误: %w", err)
+	}
+	if err := ValidateClashReferencesBytes([]byte(content)); err != nil {
+		return fmt.Errorf("引用完整性错误: %w", err)
 	}
 	return nil
 }

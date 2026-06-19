@@ -371,6 +371,28 @@ export namespace clash {
 	        this.hosts = source["hosts"];
 	    }
 	}
+	export class RulePageData {
+	    configType: string;
+	    subscriptionRules: string[];
+	    localRules: string[];
+	    addRules: string[];
+	    deleteRules: string[];
+	    effectiveRules: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RulePageData(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.configType = source["configType"];
+	        this.subscriptionRules = source["subscriptionRules"];
+	        this.localRules = source["localRules"];
+	        this.addRules = source["addRules"];
+	        this.deleteRules = source["deleteRules"];
+	        this.effectiveRules = source["effectiveRules"];
+	    }
+	}
 	export class SubIndexItem {
 	    id: string;
 	    name: string;

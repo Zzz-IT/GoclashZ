@@ -29,6 +29,10 @@
 
     <div class="editor-body" ref="editorContainer"></div>
 
+    <div v-if="globalState.activeConfigType === 'remote'" class="remote-warning">
+      <span>当前为远程订阅配置。建议通过【规则页】的附加规则修改。在此修改将在下次订阅更新时被覆盖。</span>
+    </div>
+
     <div class="editor-summary-bar">
       <span>共 {{ totalLines }} 行</span>
       <span>{{ totalChars }} 字符</span>
@@ -46,6 +50,7 @@ import { indentWithTab } from '@codemirror/commands';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import * as API from '../../wailsjs/go/main/App';
+import { globalState } from '../store';
 
 const props = defineProps<{
   configId: string;
@@ -517,5 +522,17 @@ onUnmounted(() => {
   font-size: 0.8rem;
   color: var(--text-sub);
   font-family: var(--font-mono);
+}
+
+.remote-warning {
+  background: rgba(255, 170, 0, 0.1);
+  color: #d97706;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  border: 1px solid rgba(255, 170, 0, 0.2);
 }
 </style>

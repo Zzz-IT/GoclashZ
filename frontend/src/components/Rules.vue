@@ -5,24 +5,25 @@
     </div>
     <template v-else>
       <div class="rules-header page-sticky-mask">
-        <div class="search-bar">
+        <div v-if="isRemote" class="rules-tabs-viewport">
+          <div class="rules-tabs-track" ref="tabsTrackRef">
+            <button :ref="(el) => { if (ruleTab === 'subscription') connTabEl = el as HTMLElement | null }" class="rules-tab-btn" :class="{ active: ruleTab === 'subscription' }" @click="ruleTab = 'subscription'">订阅规则</button>
+            <button :ref="(el) => { if (ruleTab === 'add') connTabEl = el as HTMLElement | null }" class="rules-tab-btn" :class="{ active: ruleTab === 'add' }" @click="ruleTab = 'add'">附加规则</button>
+            <button :ref="(el) => { if (ruleTab === 'delete') connTabEl = el as HTMLElement | null }" class="rules-tab-btn" :class="{ active: ruleTab === 'delete' }" @click="ruleTab = 'delete'">附加删除</button>
+            <div class="rules-tab-slider" :class="{ animated: connSliderReady }" v-show="connSliderVisible" :style="connSliderStyle"></div>
+          </div>
+        </div>
+
+        <div v-if="isRemote" class="rules-header-spacer"></div>
+
+        <div class="search-bar" :class="{ compact: isRemote }">
           <span v-html="ICONS.search"></span>
-          <input v-model="searchQuery" placeholder="搜索我的规则..." />
+          <input v-model="searchQuery" placeholder="搜索规则..." />
         </div>
-        <div class="header-actions">
-          <button 
-            v-if="globalState.activeConfigType === 'remote'" 
-            class="primary-btn accent-btn" 
-            @click="handleSync" 
-            :disabled="loading"
-            title="从机场订阅文件重新提取原始规则，将覆盖现有规则修改"
-          >
-            <span class="btn-icon" v-html="ICONS.refresh"></span> 同步
-          </button>
-          <button class="primary-btn header-action-btn" @click="showAddModal = true">
-            <span class="btn-icon" v-html="ICONS.plus"></span> 添加规则
-          </button>
-        </div>
+
+        <button class="primary-btn header-action-btn" @click="showAddModal = true" :disabled="loading">
+          <span class="btn-icon" v-html="ICONS.plus"></span> 添加规则
+        </button>
       </div>
 
       <div class="rules-grid">
@@ -33,14 +34,14 @@
           </div>
           <div class="rule-footer">
             <div class="rule-policy">{{ rule.policy }}</div>
-            <button class="delete-btn" @click="handleDelete(rule.originalIndex)" title="删除规则">
+            <button v-if="canDeleteRule" class="delete-btn" @click="handleDelete(rule.originalIndex)" :title="deleteBtnTitle">
               <span v-html="ICONS.trash"></span>
             </button>
           </div>
         </div>
         
         <div v-if="!loading && !hasFilteredRules" class="loading-state">
-          {{ searchQuery ? '没有找到匹配的规则' : '暂无规则，点击上方按钮添加' }}
+          {{ searchQuery ? '没有找到匹配的规则' : '暂无规则' }}
         </div>
       </div>
 
@@ -48,25 +49,9 @@
         <span class="page-info">共 {{ totalFilteredCount }} 条</span>
         
         <div class="pagination-controls">
-          <button 
-            class="page-btn" 
-            @click="currentPage--" 
-            :disabled="currentPage <= 1"
-          >
-            &lt; 上一页
-          </button>
-          
-          <span class="page-status">
-            {{ currentPage }} / {{ totalPages }}
-          </span>
-          
-          <button 
-            class="page-btn" 
-            @click="currentPage++" 
-            :disabled="currentPage >= totalPages"
-          >
-            下一页 &gt;
-          </button>
+          <button class="page-btn" @click="currentPage--" :disabled="currentPage <= 1">&lt; 上一页</button>
+          <span class="page-status">{{ currentPage }} / {{ totalPages }}</span>
+          <button class="page-btn" @click="currentPage++" :disabled="currentPage >= totalPages">下一页 &gt;</button>
         </div>
 
         <div class="tip-text">新规则自动置于首位</div>
@@ -77,7 +62,7 @@
       <div v-if="showAddModal" class="modal-overlay" @click.self="showAddModal = false">
         <div class="custom-modal-card" @click.stop>
           <div class="modal-header">
-            <h3>新增分流规则</h3>
+            <h3>{{ modalTitle }}</h3>
           </div>
           <div class="modal-body">
             <p class="global-modal-msg">格式: 类型,目标,策略</p>
@@ -94,15 +79,47 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, onMounted, onUnmounted, computed, watch } from 'vue';
+import { ref, shallowRef, onMounted, onUnmounted, onActivated, computed, watch, nextTick } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { showAlert, showConfirm, globalState } from '../store';
 import { ICONS } from '../utils/icons';
 
-// 🚀 性能极化：使用 shallowRef 存储几万条规则，避免 Vue 深度代理导致的内存溢出和初始化卡顿
-const userRules = shallowRef<string[]>([]);
+const rulePageData = shallowRef<any>(null);
+const ruleTab = ref<'subscription' | 'add' | 'delete'>(
+  (localStorage.getItem('goclashz_ruleTab') as 'subscription' | 'add' | 'delete') || 'subscription'
+);
+
+const tabsTrackRef = ref<HTMLElement | null>(null);
+const connTabEl = ref<HTMLElement | null>(null);
+const connSliderStyle = ref({ left: '0px', width: '0px' });
+const connSliderReady = ref(false);
+const connSliderVisible = ref(false);
+
+const updateConnSlider = () => {
+  const track = tabsTrackRef.value;
+  const btn = connTabEl.value;
+  if (track && btn) {
+    connSliderStyle.value = {
+      left: `${btn.offsetLeft}px`,
+      width: `${btn.offsetWidth}px`,
+    };
+  }
+};
+
+const resetConnSlider = () => {
+  connSliderReady.value = false;
+  connSliderVisible.value = false;
+  nextTick(() => {
+    updateConnSlider();
+    nextTick(() => {
+      connSliderVisible.value = true;
+      connSliderReady.value = true;
+    });
+  });
+};
+
 const searchQuery = ref('');
-const debouncedQuery = ref(''); // 实际用于过滤的搜索词
+const debouncedQuery = ref('');
 let searchTimer: ReturnType<typeof setTimeout>;
 
 const showAddModal = ref(false);
@@ -112,17 +129,50 @@ const loading = ref(false);
 const currentPage = ref(1);
 const pageSize = ref(42); 
 
-// 新增：组件卸载清理
+const isRemote = computed(() => globalState.activeConfigType === 'remote');
+const isLocal = computed(() => globalState.activeConfigType === 'local' || !globalState.activeConfigType);
+
+const canDeleteRule = computed(() => {
+  return true; // We allow deleting on all tabs (meaning is different though)
+});
+
+const deleteBtnTitle = computed(() => {
+  if (isLocal.value) return '删除规则';
+  if (ruleTab.value === 'subscription') return '屏蔽此订阅规则';
+  if (ruleTab.value === 'add') return '删除附加规则';
+  if (ruleTab.value === 'delete') return '取消屏蔽 (恢复)';
+  return '删除';
+});
+
+const modalTitle = computed(() => {
+  if (isLocal.value) return '新增本地规则';
+  if (ruleTab.value === 'add') return '新增附加规则';
+  if (ruleTab.value === 'delete') return '新增要屏蔽的规则';
+  return '新增规则';
+});
+
+const currentRulesList = computed(() => {
+  if (!rulePageData.value) return [];
+  if (isLocal.value) {
+    return rulePageData.value.localRules || [];
+  }
+  switch (ruleTab.value) {
+    case 'subscription': return rulePageData.value.subscriptionRules || [];
+    case 'add': return rulePageData.value.addRules || [];
+    case 'delete': return rulePageData.value.deleteRules || [];
+  }
+  return [];
+});
+
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer);
 });
 
-// 监听搜索词变化并加入防抖，防止高频触发过滤计算
 watch(searchQuery, (newVal) => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
     debouncedQuery.value = newVal.toLowerCase().trim();
-    currentPage.value = 1; // 搜索词确认改变后，重置页码
+    currentPage.value = 1;
   }, 300);
 });
 
@@ -130,8 +180,8 @@ const loadRules = async () => {
   if (!globalState.activeConfigId) return;
   loading.value = true;
   try {
-    const rules = await API.GetCustomRules(globalState.activeConfigId);
-    userRules.value = rules || [];
+    const data = await API.GetRulePageData(globalState.activeConfigId);
+    rulePageData.value = data;
   } catch (e) {
     console.error("加载规则失败", e);
   } finally {
@@ -139,33 +189,48 @@ const loadRules = async () => {
   }
 };
 
-// 监听配置切换
-watch(() => globalState.activeConfigId, (newId) => {
+watch(() => globalState.activeConfigId, (newId, oldId) => {
   if (newId) {
     searchQuery.value = '';
     debouncedQuery.value = '';
     currentPage.value = 1;
+    // 只有在切换到不同的配置文件时，才重置规则分类，否则保持用户记忆
+    if (newId !== oldId && !oldId) {
+       // First load
+    }
     loadRules();
   } else {
-    userRules.value = [];
+    rulePageData.value = null;
   }
 }, { immediate: true });
 
-// 🚀 新增：静态缓存全小写规则，生命周期内只在 userRules 变动时执行 1 次！
-// 彻底杜绝搜索过程中的瞬时大量小写字符串分配，消除 GC 抖动
-const lowerCaseRulesCache = computed(() => {
-  return userRules.value.map(r => r.toLowerCase());
+watch(isRemote, (newVal) => {
+  if (newVal) {
+    nextTick(() => {
+      resetConnSlider();
+    });
+  }
+}, { immediate: true });
+
+watch(ruleTab, (newVal) => {
+  localStorage.setItem('goclashz_ruleTab', newVal);
+  searchQuery.value = '';
+  debouncedQuery.value = '';
+  currentPage.value = 1;
+  nextTick(updateConnSlider);
 });
 
-// 🚀 核心优化：只过滤索引，不生成临时对象 (O(1)级开销)
+const lowerCaseRulesCache = computed(() => {
+  return currentRulesList.value.map((r: string) => r.toLowerCase());
+});
+
 const filteredIndices = computed(() => {
   const query = debouncedQuery.value;
   const indices: number[] = [];
-  const rules = userRules.value;
-  const lowerCache = lowerCaseRulesCache.value; // 借用预计算的小写缓存
+  const rules = currentRulesList.value;
+  const lowerCache = lowerCaseRulesCache.value;
   
   for (let i = 0; i < rules.length; i++) {
-    // 零瞬时内存分配：直接在已存在的缓存小写字符串上比对
     if (!query || lowerCache[i].includes(query)) {
       indices.push(i);
     }
@@ -173,31 +238,27 @@ const filteredIndices = computed(() => {
   return indices;
 });
 
-// 新增：状态标志供模板使用
 const totalFilteredCount = computed(() => filteredIndices.value.length);
 const hasFilteredRules = computed(() => totalFilteredCount.value > 0);
 const totalPages = computed(() => Math.ceil(totalFilteredCount.value / pageSize.value) || 1);
 
-// 越界保护：当删除数据导致总页数缩减时，自动修正当前页码
 watch(totalPages, (newTotal) => {
   if (currentPage.value > newTotal) {
     currentPage.value = newTotal;
   }
 });
 
-// 🚀 核心优化：仅将当前页的数据实例化为 Object，极致节省内存
 const paginatedRules = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value;
   const end = start + pageSize.value;
   return filteredIndices.value.slice(start, end).map(index => {
-    const text = userRules.value[index];
+    const text = currentRulesList.value[index];
     const parts = text.split(',');
     
     const ruleType = parts[0]?.trim().toUpperCase() || 'UNKNOWN';
     let payloadStr = '';
     let policyStr = '';
 
-    // 🛡️ 修复：MATCH 规则没有 Payload，第二段直接就是 Policy
     if (ruleType === 'MATCH') {
       policyStr = parts.slice(1).join(', ').trim();
     } else {
@@ -220,60 +281,51 @@ const handleAdd = async () => {
 
   loading.value = true;
   try {
-    // 1. 直接将原始字符串扔给后端，由 Go 进行绝对校验和清洗
-    const newList = [ruleStr, ...userRules.value];
-    await API.SaveCustomRules(globalState.activeConfigId, newList);
-    
-    // 2. 只有后端没有抛出错误（校验通过并落盘成功），才更新前端视图
-    userRules.value = newList;
+    let targetSection = 'local';
+    if (isRemote.value) {
+      targetSection = ruleTab.value === 'delete' ? 'delete' : 'add';
+    }
+
+    await API.AddRule(globalState.activeConfigId, targetSection, ruleStr);
+    await loadRules();
+
+    if (isRemote.value && ruleTab.value === 'subscription') {
+      ruleTab.value = 'add';
+    }
+
     newRuleStr.value = '';
     showAddModal.value = false;
-    
     searchQuery.value = '';
     currentPage.value = 1;
-    await showAlert("规则已添加并保存", "提示");
+    await showAlert("规则已添加", "提示");
   } catch (e) {
-    // 3. 拦截后端的 fmt.Errorf 并直接展示给用户
-    await showAlert(String(e), '格式校验失败');
+    await showAlert(String(e), '添加失败');
   } finally {
     loading.value = false;
   }
 };
 
 const handleDelete = async (idx: number) => {
-  const ok = await showConfirm('确定要永久删除这条规则吗？此操作不可撤销。', '删除规则', true);
+  let promptMsg = '确定要删除这条规则吗？';
+  if (isRemote.value && ruleTab.value === 'subscription') {
+    promptMsg = '屏蔽这条订阅规则？（屏蔽后可到"附加删除"中恢复）';
+  } else if (isRemote.value && ruleTab.value === 'delete') {
+    promptMsg = '取消屏蔽这条规则吗？';
+  }
+
+  const ok = await showConfirm(promptMsg, '操作确认', true);
   if (ok && globalState.activeConfigId) {
     loading.value = true;
     try {
-      const newList = [...userRules.value];
-      newList.splice(idx, 1);
-      await API.SaveCustomRules(globalState.activeConfigId, newList);
-      userRules.value = newList;
-    } catch (e) {
-      await showAlert("删除失败: " + e, '错误');
-    } finally {
-      loading.value = false;
-    }
-  }
-};
-
-const handleSync = async () => {
-  if (!globalState.activeConfigId) return;
-  const ok = await showConfirm(
-    "确定要从机场订阅源重新同步规则吗？\n这将会彻底覆盖您当前对该配置的所有规则修改！",
-    "同步规则警告",
-    true
-  );
-  if (ok) {
-    loading.value = true;
-    try {
-      await API.SyncRules(globalState.activeConfigId);
+      let targetSection = 'local';
+      if (isRemote.value) {
+        targetSection = ruleTab.value;
+      }
+      
+      await API.DeleteRule(globalState.activeConfigId, targetSection, idx);
       await loadRules();
-      currentPage.value = 1;
-      searchQuery.value = '';
-      await showAlert("规则已同步至机场最新状态", "同步成功");
     } catch (e) {
-      await showAlert("同步失败: " + e, "错误");
+      await showAlert("操作失败: " + e, '错误');
     } finally {
       loading.value = false;
     }
@@ -282,6 +334,12 @@ const handleSync = async () => {
 
 onMounted(() => {
   loadRules();
+});
+
+onActivated(() => {
+  if (isRemote.value) {
+    resetConnSlider();
+  }
 });
 </script>
 
@@ -297,22 +355,94 @@ onMounted(() => {
 .rules-header { 
   display: flex; 
   align-items: center; 
-  gap: 16px; 
+  gap: 12px; 
   margin-bottom: 16px; 
   width: 100%; 
   padding: 4px 0 12px 0;
   background: transparent;
 }
+
+/* 选项卡样式 */
+.rules-tabs-viewport {
+  flex: 0 0 auto;
+  min-width: 0;
+  border-radius: 8px;
+}
+
+.rules-tabs-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-hover);
+  padding: 6px;
+  border-radius: 12px;
+  user-select: none;
+  -webkit-user-select: none;
+  position: relative;
+}
+
+.rules-tab-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-sub);
+  font-size: 0.95rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+  transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.rules-tab-btn:hover {
+  color: var(--text-main);
+}
+
+.rules-tab-btn.active {
+  color: var(--accent-fg);
+  font-weight: 800;
+}
+
+.rules-tab-slider {
+  position: absolute;
+  top: 6px;
+  height: 36px;
+  background: var(--accent);
+  border-radius: 8px;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.rules-tab-slider.animated {
+  transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.rules-header-spacer {
+  flex: 1;
+}
+
+.search-bar.compact {
+  flex: 0 0 280px;
+  width: 280px;
+}
+
 .header-action-btn {
   padding: 0 14px !important;
 }
+
 .rules-header.page-sticky-mask {
   --sticky-mask-bleed: 2px;
 }
-.header-actions { display: flex; gap: 12px; }
+
 .search-bar { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--surface-hover); border-radius: 8px; padding: 8px 12px; flex: 1; }
 .search-bar input { border: none; background: transparent; color: var(--text-main); outline: none; margin-left: 8px; width: 100%; }
-
 
 .rules-grid { 
   flex: 1; 
@@ -326,7 +456,6 @@ onMounted(() => {
   padding-bottom: 20px; 
 }
 
-
 .rule-card { 
   background: var(--surface); 
   border: none; 
@@ -336,19 +465,19 @@ onMounted(() => {
   flex-direction: column; 
   gap: 10px; 
   transition: background 0.2s; 
-  height: 110px; /* 🚀 增加高度，彻底解决文字“腰斩”问题 */
+  height: 110px; 
   box-sizing: border-box;
   justify-content: space-between;
 }
 .rule-card:hover { background: var(--surface-hover); }
-.rule-main { display: flex; flex-direction: column; gap: 8px; } /* 🚀 增加内容间距 */
+.rule-main { display: flex; flex-direction: column; gap: 8px; } 
 .rule-type { font-size: 0.7rem; font-weight: 700; padding: 4px 8px; border-radius: 6px; width: fit-content; border: none; flex-shrink: 0; }
 .tag-primary { background: var(--text-main); color: var(--surface); } 
 .rule-payload { 
   font-size: 1rem; 
   color: var(--text-main); 
   font-weight: 600; 
-  line-height: 1.4; /* 🚀 优化行高 */
+  line-height: 1.4; 
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -389,7 +518,7 @@ onMounted(() => {
 
 .page-btn {
   background: var(--surface);
-  border: none; /* 彻底去除轮廓线 */
+  border: none;
   color: var(--text-main);
   padding: 0 18px;
   height: 36px;
@@ -401,7 +530,6 @@ onMounted(() => {
   outline: none;
 }
 
-/* 悬停与点击采用反色方案，但移除位移与缩放 */
 .page-btn:hover:not(:disabled) {
   background: var(--text-main);
   color: var(--surface);

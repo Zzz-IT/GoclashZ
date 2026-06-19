@@ -109,6 +109,9 @@ func (a *App) startup(ctx context.Context) {
 	}
 	// 必须先加载订阅索引，再启动 appcore 的自动任务。
 	clash.LoadIndex()
+	
+	// 执行规则存储从 V1 (_rules.json) 到 V2 (yaml/overlay) 的全量迁移
+	_ = clash.MigrateRuleStorageV2()
 
 	config := a.core.Behavior.Get()
 	isSilent := hasFlag("--silent") || config.SilentStart
@@ -542,16 +545,199 @@ func (a *App) GetProxyDelay(proxyName, testUrl string) (int, error) {
 	return clash.GetProxyDelay(a.ctx, proxyName, testUrl, 8000)
 }
 
+// Deprecated: use new AddRule/DeleteRule/SaveRuleSection
 func (a *App) GetCustomRules(id string) ([]string, error) {
 	return clash.GetCustomRules(id)
 }
 
+// Deprecated: use new AddRule/DeleteRule/SaveRuleSection
 func (a *App) SaveCustomRules(id string, rules []string) error {
 	return clash.SaveCustomRules(id, rules)
 }
 
+// Deprecated: no longer needed in V2 rule engine
 func (a *App) SyncRules(id string) error {
 	return clash.SyncRulesFromYaml(id)
+}
+
+// --- Rule V2 API ---
+
+func (a *App) GetRulePageData(id string) (clash.RulePageData, error) {
+	// Trigger a fallback migration just in case
+	_ = clash.EnsureRuleStorageMigrated(id)
+
+	var res clash.RulePageData
+	
+	clash.IndexLock.RLock()
+	for _, item := range clash.SubIndex {
+		if item.ID == id {
+			res.ConfigType = item.Type
+			break
+		}
+	}
+	clash.IndexLock.RUnlock()
+
+	workingPath, _ := clash.WorkingConfigPath(id)
+	workingRoot, err := clash.ReadYamlRoot(workingPath)
+	if err != nil {
+		return res, fmt.Errorf("read working yaml failed: %v", err)
+	}
+
+	if res.ConfigType == "local" || res.ConfigType == "" {
+		res.ConfigType = "local"
+		res.LocalRules = clash.ExtractRulesFromRootPublic(workingRoot)
+		res.EffectiveRules = res.LocalRules
+		return res, nil
+	}
+
+	// Remote
+	originPath, _ := clash.OriginConfigPath(id)
+	originRoot, err := clash.ReadYamlRoot(originPath)
+	if err != nil {
+		// Fallback if origin not found
+		res.SubscriptionRules = clash.ExtractRulesFromRootPublic(workingRoot)
+	} else {
+		res.SubscriptionRules = clash.ExtractRulesFromRootPublic(originRoot)
+	}
+
+	overlay, err := clash.LoadRuleOverlay(id)
+	if err == nil {
+		res.AddRules = overlay.Add
+		res.DeleteRules = overlay.Delete
+	} else {
+		res.AddRules = []string{}
+		res.DeleteRules = []string{}
+	}
+
+	eff, _ := clash.BuildRuntimeRules(id, workingRoot)
+	res.EffectiveRules = eff
+
+	return res, nil
+}
+
+func (a *App) AddRule(id string, section string, ruleStr string) error {
+	_ = clash.EnsureRuleStorageMigrated(id)
+	
+	// Ensure formatted correctly
+	ruleStr = clash.NormalizeRule(ruleStr)
+
+	if section == "local" {
+		workingPath, _ := clash.WorkingConfigPath(id)
+		root, err := clash.ReadYamlRoot(workingPath)
+		if err != nil {
+			return err
+		}
+		
+		rules := clash.ExtractRulesFromRootPublic(root)
+		// prepend
+		rules = append([]string{ruleStr}, rules...)
+		root["rules"] = rules
+		
+		out, _ := yaml.Marshal(root)
+		return utils.WriteFileAtomic(workingPath, out, 0644)
+	}
+
+	if section == "add" || section == "delete" {
+		overlay, err := clash.LoadRuleOverlay(id)
+		if err != nil {
+			return err
+		}
+		if section == "add" {
+			overlay.Add = append([]string{ruleStr}, overlay.Add...)
+		} else {
+			overlay.Delete = append([]string{ruleStr}, overlay.Delete...)
+		}
+		return clash.SaveRuleOverlay(id, overlay)
+	}
+
+	return fmt.Errorf("invalid section for adding: %s", section)
+}
+
+func (a *App) DeleteRule(id string, section string, index int) error {
+	_ = clash.EnsureRuleStorageMigrated(id)
+
+	if section == "local" {
+		workingPath, _ := clash.WorkingConfigPath(id)
+		root, err := clash.ReadYamlRoot(workingPath)
+		if err != nil {
+			return err
+		}
+		
+		rules := clash.ExtractRulesFromRootPublic(root)
+		if index >= 0 && index < len(rules) {
+			rules = append(rules[:index], rules[index+1:]...)
+			root["rules"] = rules
+			out, _ := yaml.Marshal(root)
+			return utils.WriteFileAtomic(workingPath, out, 0644)
+		}
+		return nil
+	}
+
+	if section == "subscription" {
+		// Moving from subscription to overlay.delete
+		originPath, _ := clash.OriginConfigPath(id)
+		originRoot, err := clash.ReadYamlRoot(originPath)
+		if err != nil {
+			return err
+		}
+		rules := clash.ExtractRulesFromRootPublic(originRoot)
+		if index >= 0 && index < len(rules) {
+			ruleToDel := rules[index]
+			overlay, _ := clash.LoadRuleOverlay(id)
+			overlay.Delete = append([]string{ruleToDel}, overlay.Delete...)
+			return clash.SaveRuleOverlay(id, overlay)
+		}
+		return nil
+	}
+
+	if section == "add" || section == "delete" {
+		overlay, err := clash.LoadRuleOverlay(id)
+		if err != nil {
+			return err
+		}
+		if section == "add" {
+			if index >= 0 && index < len(overlay.Add) {
+				overlay.Add = append(overlay.Add[:index], overlay.Add[index+1:]...)
+			}
+		} else {
+			if index >= 0 && index < len(overlay.Delete) {
+				overlay.Delete = append(overlay.Delete[:index], overlay.Delete[index+1:]...)
+			}
+		}
+		return clash.SaveRuleOverlay(id, overlay)
+	}
+
+	return nil
+}
+
+func (a *App) SaveRuleSection(id string, section string, rules []string) error {
+	_ = clash.EnsureRuleStorageMigrated(id)
+
+	if section == "local" {
+		workingPath, _ := clash.WorkingConfigPath(id)
+		root, err := clash.ReadYamlRoot(workingPath)
+		if err != nil {
+			return err
+		}
+		root["rules"] = rules
+		out, _ := yaml.Marshal(root)
+		return utils.WriteFileAtomic(workingPath, out, 0644)
+	}
+
+	if section == "add" || section == "delete" {
+		overlay, err := clash.LoadRuleOverlay(id)
+		if err != nil {
+			return err
+		}
+		if section == "add" {
+			overlay.Add = rules
+		} else {
+			overlay.Delete = rules
+		}
+		return clash.SaveRuleOverlay(id, overlay)
+	}
+
+	return fmt.Errorf("invalid section to save: %s", section)
 }
 
 func (a *App) ExportConfig(id string, useCustomRules bool) error {

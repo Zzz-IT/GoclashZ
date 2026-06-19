@@ -417,9 +417,12 @@ func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool
 	// 同步更新 Go API Client 的基准地址
 	UpdateAPIBaseURL(controller)
 
-	// 👇 核心注入：规则接管 (真理只在 JSON 中)
-	customRules, _ := GetCustomRules(id)
-	root["rules"] = customRules
+	// 👇 核心注入：规则接管 (根据本地或远程模式，从 origin + overlay 生成)
+	runtimeRules, err := BuildRuntimeRules(id, root)
+	if err != nil {
+		return fmt.Errorf("构建运行时规则失败: %w", err)
+	}
+	root["rules"] = runtimeRules
 
 	// 👇 核心新增：动态读取并注入我们设置的日志等级
 	if logLevel != "" {
@@ -428,7 +431,12 @@ func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool
 		root["log-level"] = "info"
 	}
 
-	// 4. 序列化并生成最终的 config.yaml
+	// 4. 执行最终严格的引用校验，确保没有悬空引用导致 mihomo 启动崩溃
+	if err := ValidateClashReferences(root); err != nil {
+		return fmt.Errorf("配置引用完整性校验失败: %w", err)
+	}
+
+	// 5. 序列化并生成最终的 config.yaml
 	out, err := yaml.Marshal(root)
 	if err != nil {
 		return err

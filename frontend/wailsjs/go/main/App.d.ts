@@ -6,6 +6,8 @@ import {logger} from '../models';
 import {sys} from '../models';
 import {main} from '../models';
 
+export function AddRule(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function ApplyAppUpdate(arg1:string):Promise<void>;
 
 export function CancelUpdateTask(arg1:string):Promise<void>;
@@ -27,6 +29,8 @@ export function CloseAllConnections():Promise<void>;
 export function CloseConnection(arg1:string):Promise<void>;
 
 export function DeleteConfig(arg1:string):Promise<void>;
+
+export function DeleteRule(arg1:string,arg2:string,arg3:number):Promise<void>;
 
 export function DoLocalImport(arg1:string,arg2:string):Promise<string>;
 
@@ -72,6 +76,8 @@ export function GetProxyDelay(arg1:string,arg2:string):Promise<number>;
 
 export function GetRecentLogs():Promise<Array<logger.LogEntry>>;
 
+export function GetRulePageData(arg1:string):Promise<clash.RulePageData>;
+
 export function GetStartupTaskInfo():Promise<sys.StartupTaskInfo>;
 
 export function GetTunConfig():Promise<clash.TunConfig>;
@@ -109,6 +115,8 @@ export function SaveCustomRules(arg1:string,arg2:Array<string>):Promise<void>;
 export function SaveDNSConfig(arg1:clash.DNSConfig):Promise<void>;
 
 export function SaveNetworkConfig(arg1:clash.NetworkConfig):Promise<void>;
+
+export function SaveRuleSection(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
 
 export function SaveThemePreference(arg1:boolean):Promise<void>;
 
