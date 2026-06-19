@@ -7,10 +7,10 @@
       <div class="rules-header page-sticky-mask">
         <div v-if="isRemote" class="rules-tabs-viewport">
           <div class="rules-tabs-track" ref="tabsTrackRef">
-            <button :ref="(el) => { if (ruleTab === 'subscription') connTabEl = el as HTMLElement | null }" class="rules-tab-btn" :class="{ active: ruleTab === 'subscription' }" @click="ruleTab = 'subscription'">订阅规则</button>
-            <button :ref="(el) => { if (ruleTab === 'add') connTabEl = el as HTMLElement | null }" class="rules-tab-btn" :class="{ active: ruleTab === 'add' }" @click="ruleTab = 'add'">附加规则</button>
-            <button :ref="(el) => { if (ruleTab === 'delete') connTabEl = el as HTMLElement | null }" class="rules-tab-btn" :class="{ active: ruleTab === 'delete' }" @click="ruleTab = 'delete'">附加删除</button>
-            <div class="rules-tab-slider" :class="{ animated: connSliderReady }" v-show="connSliderVisible" :style="connSliderStyle"></div>
+            <button :ref="(el) => { if (ruleTab === 'subscription') ruleTabEl = el as HTMLElement | null }" class="rules-tab-btn" :class="{ active: ruleTab === 'subscription' }" @click="ruleTab = 'subscription'" title="显示当前工作配置中的规则；如果你直接编辑配置文件 rules，这里会同步变化。">当前规则</button>
+            <button :ref="(el) => { if (ruleTab === 'add') ruleTabEl = el as HTMLElement | null }" class="rules-tab-btn" :class="{ active: ruleTab === 'add' }" @click="ruleTab = 'add'">附加规则</button>
+            <button :ref="(el) => { if (ruleTab === 'delete') ruleTabEl = el as HTMLElement | null }" class="rules-tab-btn" :class="{ active: ruleTab === 'delete' }" @click="ruleTab = 'delete'">附加删除</button>
+            <div class="rules-tab-slider" :class="{ animated: ruleSliderReady }" v-show="ruleSliderVisible" :style="ruleSliderStyle"></div>
           </div>
         </div>
 
@@ -90,30 +90,30 @@ const ruleTab = ref<'subscription' | 'add' | 'delete'>(
 );
 
 const tabsTrackRef = ref<HTMLElement | null>(null);
-const connTabEl = ref<HTMLElement | null>(null);
-const connSliderStyle = ref({ left: '0px', width: '0px' });
-const connSliderReady = ref(false);
-const connSliderVisible = ref(false);
+const ruleTabEl = ref<HTMLElement | null>(null);
+const ruleSliderStyle = ref({ left: '0px', width: '0px' });
+const ruleSliderReady = ref(false);
+const ruleSliderVisible = ref(false);
 
-const updateConnSlider = () => {
+const updateRuleSlider = () => {
   const track = tabsTrackRef.value;
-  const btn = connTabEl.value;
+  const btn = ruleTabEl.value;
   if (track && btn) {
-    connSliderStyle.value = {
+    ruleSliderStyle.value = {
       left: `${btn.offsetLeft}px`,
       width: `${btn.offsetWidth}px`,
     };
   }
 };
 
-const resetConnSlider = () => {
-  connSliderReady.value = false;
-  connSliderVisible.value = false;
+const resetRuleSlider = () => {
+  ruleSliderReady.value = false;
+  ruleSliderVisible.value = false;
   nextTick(() => {
-    updateConnSlider();
+    updateRuleSlider();
     nextTick(() => {
-      connSliderVisible.value = true;
-      connSliderReady.value = true;
+      ruleSliderVisible.value = true;
+      ruleSliderReady.value = true;
     });
   });
 };
@@ -138,7 +138,7 @@ const canDeleteRule = computed(() => {
 
 const deleteBtnTitle = computed(() => {
   if (isLocal.value) return '删除规则';
-  if (ruleTab.value === 'subscription') return '屏蔽此订阅规则';
+  if (ruleTab.value === 'subscription') return '屏蔽此规则';
   if (ruleTab.value === 'add') return '删除附加规则';
   if (ruleTab.value === 'delete') return '取消屏蔽 (恢复)';
   return '删除';
@@ -207,7 +207,7 @@ watch(() => globalState.activeConfigId, (newId, oldId) => {
 watch(isRemote, (newVal) => {
   if (newVal) {
     nextTick(() => {
-      resetConnSlider();
+      resetRuleSlider();
     });
   }
 }, { immediate: true });
@@ -217,7 +217,7 @@ watch(ruleTab, (newVal) => {
   searchQuery.value = '';
   debouncedQuery.value = '';
   currentPage.value = 1;
-  nextTick(updateConnSlider);
+  nextTick(updateRuleSlider);
 });
 
 const lowerCaseRulesCache = computed(() => {
@@ -283,15 +283,11 @@ const handleAdd = async () => {
   try {
     let targetSection = 'local';
     if (isRemote.value) {
-      targetSection = ruleTab.value === 'delete' ? 'delete' : 'add';
+      targetSection = ruleTab.value; // 'subscription', 'add', or 'delete'
     }
 
     await API.AddRule(globalState.activeConfigId, targetSection, ruleStr);
     await loadRules();
-
-    if (isRemote.value && ruleTab.value === 'subscription') {
-      ruleTab.value = 'add';
-    }
 
     newRuleStr.value = '';
     showAddModal.value = false;
@@ -308,7 +304,7 @@ const handleAdd = async () => {
 const handleDelete = async (idx: number) => {
   let promptMsg = '确定要删除这条规则吗？';
   if (isRemote.value && ruleTab.value === 'subscription') {
-    promptMsg = '屏蔽这条订阅规则？（屏蔽后可到"附加删除"中恢复）';
+    promptMsg = '屏蔽这条规则？（屏蔽后可到"附加删除"中恢复）';
   } else if (isRemote.value && ruleTab.value === 'delete') {
     promptMsg = '取消屏蔽这条规则吗？';
   }
@@ -338,7 +334,7 @@ onMounted(() => {
 
 onActivated(() => {
   if (isRemote.value) {
-    resetConnSlider();
+    resetRuleSlider();
   }
 });
 </script>

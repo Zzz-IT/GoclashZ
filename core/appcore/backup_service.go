@@ -60,6 +60,11 @@ func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode st
 	// 显式重新加载订阅索引 (从磁盘到内存)
 	_ = clash.LoadIndex()
 
+	if err := clash.MigrateRuleStorageV2(); err != nil {
+		c.SyncState()
+		return fmt.Errorf("备份已恢复，但规则存储迁移失败: %w", err)
+	}
+
 	// 热重载应用行为配置
 	if err := c.Behavior.Load(); err != nil {
 		c.SyncState()

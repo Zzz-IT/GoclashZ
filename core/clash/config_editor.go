@@ -41,29 +41,58 @@ func ReadConfigText(id string) (ConfigTextResult, error) {
 
 // SaveConfigText 保存配置文件文本内容
 func SaveConfigText(id string, content string) error {
-	_, configPath, err := ProfilePathByIDOrMain(id)
-	if err != nil {
-		return err
-	}
+	return WithRuleStorageLock(func() error {
+		item, _ := FindSubIndexByID(id)
 
-	if err := ValidateClashReferencesBytes([]byte(content)); err != nil {
-		return fmt.Errorf("引用完整性校验失败: %w", err)
-	}
+		var root map[string]interface{}
+		if err := yaml.Unmarshal([]byte(content), &root); err != nil {
+			return fmt.Errorf("YAML 语法错误: %w", err)
+		}
 
-	if err := utils.WriteFileAtomic(configPath, []byte(content), 0644); err != nil {
-		return fmt.Errorf("保存配置文件失败: %w", err)
-	}
+		if item.Type == "remote" {
+			overlay, err := LoadRuleOverlay(id)
+			if err != nil {
+				return err
+			}
 
-	return nil
+			baseRules := ExtractRulesFromRootPublic(root)
+			runtimeRules := ApplyRuleOverlay(baseRules, overlay)
+
+			rootForValidation := make(map[string]interface{})
+			for k, v := range root {
+				rootForValidation[k] = v
+			}
+			rootForValidation["rules"] = runtimeRules
+
+			if err := ValidateClashReferences(rootForValidation); err != nil {
+				return fmt.Errorf("远程配置运行时引用完整性错误: %w", err)
+			}
+		} else {
+			if err := ValidateClashReferences(root); err != nil {
+				return fmt.Errorf("引用完整性错误: %w", err)
+			}
+		}
+
+		_, configPath, err := ProfilePathByIDOrMain(id)
+		if err != nil {
+			return err
+		}
+
+		if err := utils.WriteFileAtomic(configPath, []byte(content), 0644); err != nil {
+			return fmt.Errorf("保存配置文件失败: %w", err)
+		}
+
+		return nil
+	})
 }
 
 // ValidateConfigText 校验 YAML 语法
 func ValidateConfigText(content string) error {
-	var node yaml.Node
-	if err := yaml.Unmarshal([]byte(content), &node); err != nil {
+	var root map[string]interface{}
+	if err := yaml.Unmarshal([]byte(content), &root); err != nil {
 		return fmt.Errorf("YAML 语法错误: %w", err)
 	}
-	if err := ValidateClashReferencesBytes([]byte(content)); err != nil {
+	if err := ValidateClashReferences(root); err != nil {
 		return fmt.Errorf("引用完整性错误: %w", err)
 	}
 	return nil

@@ -114,10 +114,11 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 			}
 
 			// 原子复制到 working (如果这是一个全新的订阅，我们直接用 origin 覆盖 working)
-			// 如果是更新订阅，这里也是用新内容覆盖 working
+			// 如果是更新订阅，这里也会用新内容直接覆盖 working，丢弃用户的本地 rules 修改
 			if err := utils.WriteFileAtomic(workingPath, data, 0644); err != nil {
 				return err
 			}
+
 			return nil
 		},
 	})

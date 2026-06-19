@@ -20,21 +20,26 @@ func ValidateClashReferencesBytes(data []byte) error {
 
 // ValidateClashReferences 校验 clash 配置引用的合法性，确保删除代理或策略组后能够捕获错误
 func ValidateClashReferences(root map[string]interface{}) error {
-	// 提取所有的 proxies
-	validTargets := map[string]bool{
-		"DIRECT": true,
-		"REJECT": true,
-		"GLOBAL": true,
-		"COMPAT": true,
-		"PASS":   true,
+	builtinPolicies := map[string]bool{
+		"DIRECT":      true,
+		"REJECT":      true,
+		"REJECT-DROP": true,
+		"PASS":        true,
+		"GLOBAL":      true,
+		"COMPAT":      true,
 	}
+
+	proxyNames := map[string]bool{}
+	groupNames := map[string]bool{}
+	proxyProviderNames := map[string]bool{}
+	ruleProviderNames := map[string]bool{}
 
 	// 1. 记录所有的代理节点名字
 	if proxiesNode, ok := root["proxies"].([]interface{}); ok {
 		for _, p := range proxiesNode {
 			if proxy, isMap := p.(map[string]interface{}); isMap {
 				if name, _ := proxy["name"].(string); name != "" {
-					validTargets[name] = true
+					proxyNames[name] = true
 				}
 			}
 		}
@@ -45,7 +50,7 @@ func ValidateClashReferences(root map[string]interface{}) error {
 		for _, g := range groupsNode {
 			if group, isMap := g.(map[string]interface{}); isMap {
 				if name, _ := group["name"].(string); name != "" {
-					validTargets[name] = true
+					groupNames[name] = true
 				}
 			}
 		}
@@ -54,16 +59,19 @@ func ValidateClashReferences(root map[string]interface{}) error {
 	// 3. 记录所有的 proxy-providers 名字
 	if providersNode, ok := root["proxy-providers"].(map[string]interface{}); ok {
 		for name := range providersNode {
-			validTargets[name] = true
+			proxyProviderNames[name] = true
 		}
 	}
 
 	// 4. 记录所有的 rule-providers 名字
-	validRuleProviders := map[string]bool{}
 	if ruleProvidersNode, ok := root["rule-providers"].(map[string]interface{}); ok {
 		for name := range ruleProvidersNode {
-			validRuleProviders[name] = true
+			ruleProviderNames[name] = true
 		}
+	}
+
+	isValidPolicyTarget := func(name string) bool {
+		return builtinPolicies[name] || proxyNames[name] || groupNames[name]
 	}
 
 	// 5. 校验所有的 proxy-groups 引用
@@ -76,7 +84,7 @@ func ValidateClashReferences(root map[string]interface{}) error {
 				if useNode, ok := group["use"].([]interface{}); ok {
 					for _, u := range useNode {
 						if providerName, ok := u.(string); ok {
-							if !validTargets[providerName] {
+							if !proxyProviderNames[providerName] {
 								return fmt.Errorf("策略组 [%s] 的 use 引用了不存在的 provider: %s", groupName, providerName)
 							}
 						}
@@ -87,7 +95,7 @@ func ValidateClashReferences(root map[string]interface{}) error {
 				if pList, ok := group["proxies"].([]interface{}); ok {
 					for _, p := range pList {
 						if proxyName, ok := p.(string); ok {
-							if !validTargets[proxyName] {
+							if !isValidPolicyTarget(proxyName) {
 								return fmt.Errorf("策略组 [%s] 引用了不存在的节点/策略组: %s", groupName, proxyName)
 							}
 						}
@@ -105,33 +113,32 @@ func ValidateClashReferences(root map[string]interface{}) error {
 				for i := range parts {
 					parts[i] = strings.TrimSpace(parts[i])
 				}
-				
+
 				if len(parts) >= 2 {
 					ruleType := strings.ToUpper(parts[0])
-					
-					// MATCH 规则目标
+
 					if ruleType == "MATCH" {
 						target := parts[1]
-						if !validTargets[target] {
+						if !isValidPolicyTarget(target) {
 							return fmt.Errorf("规则 [%s] 引用了不存在的策略组/节点: %s", ruleStr, target)
 						}
 					} else if ruleType == "RULE-SET" {
-						// RULE-SET 引用校验
 						if len(parts) >= 3 {
 							provider := parts[1]
 							target := parts[2]
-							if !validRuleProviders[provider] {
+							if !ruleProviderNames[provider] {
 								return fmt.Errorf("规则 [%s] 引用了不存在的 rule-provider: %s", ruleStr, provider)
 							}
-							if !validTargets[target] {
+							if !isValidPolicyTarget(target) {
 								return fmt.Errorf("规则 [%s] 引用了不存在的策略组/节点: %s", ruleStr, target)
 							}
 						}
+					} else if ruleType == "AND" || ruleType == "OR" || ruleType == "NOT" || ruleType == "SUB-RULE" {
+						// 复杂规则跳过深度校验
+						continue
 					} else if len(parts) >= 3 {
-						// 其他规则目标 (第三段)
 						target := parts[2]
-						// 有些规则可能有 no-resolve 等附加参数，但第三个总是策略
-						if !validTargets[target] {
+						if !isValidPolicyTarget(target) {
 							return fmt.Errorf("规则 [%s] 引用了不存在的策略组/节点: %s", ruleStr, target)
 						}
 					}
@@ -141,4 +148,30 @@ func ValidateClashReferences(root map[string]interface{}) error {
 	}
 
 	return nil
+}
+
+// SanitizeRuleLine 规范化和校验单条规则
+func SanitizeRuleLine(rule string) (string, error) {
+	rule = NormalizeRule(rule)
+	if rule == "" {
+		return "", fmt.Errorf("规则不可为空")
+	}
+	parts := strings.Split(rule, ",")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("规则格式无效，至少需要两段: %s", rule)
+	}
+	return rule, nil
+}
+
+// SanitizeRuleList 规范化和校验多条规则
+func SanitizeRuleList(rules []string) ([]string, error) {
+	var valid []string
+	for _, r := range rules {
+		cleaned, err := SanitizeRuleLine(r)
+		if err != nil {
+			return nil, err
+		}
+		valid = append(valid, cleaned)
+	}
+	return valid, nil
 }

@@ -4,14 +4,25 @@ package clash
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"goclashz/core/utils"
 
 	"gopkg.in/yaml.v3"
 )
+
+var ruleStorageMu sync.Mutex
+
+// WithRuleStorageLock 安全执行需要锁定规则存储库的操作
+func WithRuleStorageLock(fn func() error) error {
+	ruleStorageMu.Lock()
+	defer ruleStorageMu.Unlock()
+	return fn()
+}
 
 type RuleOverlay struct {
 	Add    []string `json:"add"`    // 附加规则，运行时插到最前面
@@ -142,6 +153,40 @@ func ReadYamlRoot(path string) (map[string]interface{}, error) {
 	return root, nil
 }
 
+// ReadWorkingRootWithRecovery 读取 working yaml，如果损坏尝试从 origin 恢复
+func ReadWorkingRootWithRecovery(id string) (map[string]interface{}, error) {
+	workingPath, err := WorkingConfigPath(id)
+	if err != nil {
+		return nil, err
+	}
+
+	root, err := ReadYamlRoot(workingPath)
+	if err == nil {
+		return root, nil
+	}
+
+	originPath, originErr := OriginConfigPath(id)
+	if originErr != nil {
+		return nil, err
+	}
+
+	originRoot, originReadErr := ReadYamlRoot(originPath)
+	if originReadErr != nil {
+		return nil, fmt.Errorf("工作配置损坏且 origin 无法恢复: working=%v origin=%v", err, originReadErr)
+	}
+
+	originData, readErr := os.ReadFile(originPath)
+	if readErr != nil {
+		return nil, readErr
+	}
+
+	if writeErr := utils.WriteFileAtomic(workingPath, originData, 0644); writeErr != nil {
+		return nil, fmt.Errorf("从 origin 恢复 working 失败: %w", writeErr)
+	}
+
+	return originRoot, nil
+}
+
 // readYamlRootFromOrigin 从 origin 备份读取
 func readYamlRootFromOrigin(id string) (map[string]interface{}, error) {
 	path, err := OriginConfigPath(id)
@@ -164,55 +209,57 @@ func NormalizeRule(rule string) string {
 }
 
 // ApplyRuleOverlay 将 overlay 中的增删应用到 origin rules
-func ApplyRuleOverlay(originRules []string, overlay RuleOverlay) []string {
+func ApplyRuleOverlay(baseRules []string, overlay RuleOverlay) []string {
 	deleteSet := map[string]bool{}
 	for _, r := range overlay.Delete {
 		deleteSet[NormalizeRule(r)] = true
 	}
 
-	kept := make([]string, 0, len(originRules))
-	for _, r := range originRules {
+	finalRules := make([]string, 0, len(overlay.Add)+len(baseRules))
+	finalRules = append(finalRules, overlay.Add...)
+
+	for _, r := range baseRules {
+		if !deleteSet[NormalizeRule(r)] {
+			finalRules = append(finalRules, r)
+		}
+	}
+	return finalRules
+}
+
+// ApplyDeleteOnly 仅对规则列表应用删除操作
+func ApplyDeleteOnly(baseRules []string, deleteRules []string) []string {
+	deleteSet := map[string]bool{}
+	for _, r := range deleteRules {
+		deleteSet[NormalizeRule(r)] = true
+	}
+
+	kept := make([]string, 0, len(baseRules))
+	for _, r := range baseRules {
 		if !deleteSet[NormalizeRule(r)] {
 			kept = append(kept, r)
 		}
 	}
-
-	result := make([]string, 0, len(overlay.Add)+len(kept))
-	result = append(result, overlay.Add...)
-	result = append(result, kept...)
-	return result
+	return kept
 }
 
-// BuildRuntimeRules 运行时核心规则生成
+// BuildRuntimeRules 根据订阅类型合并生成最终运行时规则
+// 本地：working.rules
+// 远程：overlay.add + (working.rules - overlay.delete)
 func BuildRuntimeRules(id string, workingRoot map[string]interface{}) ([]string, error) {
-	IndexLock.RLock()
-	var itemType string
-	for _, item := range SubIndex {
-		if item.ID == id {
-			itemType = item.Type
-			break
-		}
-	}
-	IndexLock.RUnlock()
+	item, _ := FindSubIndexByID(id)
 
-	// local config directly uses rules from its YAML
-	if itemType == "local" || itemType == "" {
-		return ExtractRulesFromRootPublic(workingRoot), nil
+	baseRules := ExtractRulesFromRootPublic(workingRoot)
+
+	// 如果是 local 配置，直接返回 working 中的 rules
+	if item.Type != "remote" {
+		return baseRules, nil
 	}
 
-	// remote config uses origin + overlay
-	originRoot, err := readYamlRootFromOrigin(id)
-	if err != nil {
-		// if origin is missing or corrupted, fallback to current working root rules
-		return ExtractRulesFromRootPublic(workingRoot), nil
-	}
-
-	originRules := ExtractRulesFromRootPublic(originRoot)
-
+	// 远程配置读取 overlay，并在 working baseRules 上应用
 	overlay, err := LoadRuleOverlay(id)
 	if err != nil {
 		return nil, err
 	}
 
-	return ApplyRuleOverlay(originRules, overlay), nil
+	return ApplyRuleOverlay(baseRules, overlay), nil
 }

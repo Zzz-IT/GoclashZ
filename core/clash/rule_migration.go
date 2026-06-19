@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"goclashz/core/logger"
 	"goclashz/core/utils"
 
 	"gopkg.in/yaml.v3"
@@ -50,6 +51,9 @@ func MigrateRuleStorageV2() error {
 		if err := EnsureRuleStorageMigrated(id); err != nil && firstErr == nil {
 			firstErr = err
 		}
+	}
+	if firstErr != nil {
+		logger.Errorf("规则存储迁移失败: %v", firstErr)
 	}
 	return firstErr
 }
