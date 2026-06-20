@@ -6,6 +6,10 @@ export function AddRule(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddRule'](arg1, arg2, arg3);
 }
 
+export function AddRuleFromForm(arg1, arg2, arg3) {
+  return window['go']['main']['App']['AddRuleFromForm'](arg1, arg2, arg3);
+}
+
 export function ApplyAppUpdate(arg1) {
   return window['go']['main']['App']['ApplyAppUpdate'](arg1);
 }
@@ -140,6 +144,10 @@ export function GetProxyDelay(arg1, arg2) {
 
 export function GetRecentLogs() {
   return window['go']['main']['App']['GetRecentLogs']();
+}
+
+export function GetRuleFormOptions(arg1) {
+  return window['go']['main']['App']['GetRuleFormOptions'](arg1);
 }
 
 export function GetRulePageData(arg1) {

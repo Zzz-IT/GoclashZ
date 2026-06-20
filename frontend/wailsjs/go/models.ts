@@ -240,6 +240,22 @@ export namespace appcore {
 
 export namespace clash {
 	
+	export class BuildRuleRequest {
+	    type: string;
+	    payload: string;
+	    policy: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BuildRuleRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.payload = source["payload"];
+	        this.policy = source["policy"];
+	    }
+	}
 	export class ConfigTextResult {
 	    id: string;
 	    name: string;
@@ -371,6 +387,78 @@ export namespace clash {
 	        this.hosts = source["hosts"];
 	    }
 	}
+	export class PolicyOption {
+	    value: string;
+	    label: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PolicyOption(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.value = source["value"];
+	        this.label = source["label"];
+	    }
+	}
+	export class RuleTypeOption {
+	    value: string;
+	    label: string;
+	    count: number;
+	    needPayload: boolean;
+	    needPolicy: boolean;
+	    payloadLabel: string;
+	    payloadHint: string;
+	    example: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RuleTypeOption(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.value = source["value"];
+	        this.label = source["label"];
+	        this.count = source["count"];
+	        this.needPayload = source["needPayload"];
+	        this.needPolicy = source["needPolicy"];
+	        this.payloadLabel = source["payloadLabel"];
+	        this.payloadHint = source["payloadHint"];
+	        this.example = source["example"];
+	    }
+	}
+	export class RuleFormOptions {
+	    types: RuleTypeOption[];
+	    policies: PolicyOption[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RuleFormOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.types = this.convertValues(source["types"], RuleTypeOption);
+	        this.policies = this.convertValues(source["policies"], PolicyOption);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class RulePageData {
 	    configType: string;
 	    subscriptionRules: string[];
@@ -393,6 +481,7 @@ export namespace clash {
 	        this.effectiveRules = source["effectiveRules"];
 	    }
 	}
+	
 	export class SubIndexItem {
 	    id: string;
 	    name: string;

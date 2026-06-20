@@ -85,8 +85,9 @@ func LoadRuleOverlay(id string) (RuleOverlay, error) {
 
 	var overlay RuleOverlay
 	if err := json.Unmarshal(data, &overlay); err != nil {
-		// If corrupted, return empty overlay
-		return RuleOverlay{Add: []string{}, Delete: []string{}}, nil
+		// If corrupted, backup and return error
+		_ = utils.WriteFileAtomic(path+".corrupt.bak", data, 0644)
+		return RuleOverlay{}, fmt.Errorf("规则附加配置损坏，已备份为 %s.corrupt.bak: %w", path, err)
 	}
 
 	if overlay.Add == nil {

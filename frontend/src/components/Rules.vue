@@ -21,7 +21,7 @@
           <input v-model="searchQuery" placeholder="搜索规则..." />
         </div>
 
-        <button class="primary-btn header-action-btn" @click="showAddModal = true" :disabled="loading">
+        <button class="primary-btn header-action-btn" @click="openAddModal" :disabled="loading">
           <span class="btn-icon" v-html="ICONS.plus"></span> 添加规则
         </button>
       </div>
@@ -60,16 +60,47 @@
 
     <Transition name="pop">
       <div v-if="showAddModal" class="modal-overlay" @click.self="showAddModal = false">
-        <div class="custom-modal-card" @click.stop>
+        <div class="custom-modal-card" style="overflow: visible;" @click.stop>
           <div class="modal-header">
             <h3>{{ modalTitle }}</h3>
           </div>
-          <div class="modal-body">
-            <p class="global-modal-msg">格式: 类型,目标,策略</p>
-            <input v-model="newRuleStr" class="modal-input" placeholder="DOMAIN,example.com,DIRECT" @keyup.enter="handleAdd" />
+          <div class="modal-body rule-form-body">
+            <div class="rule-form-row">
+              <label>类型</label>
+              <ModernSelect
+                v-model="selectedRuleType"
+                :options="ruleTypeOptions"
+                class="w-full"
+              />
+            </div>
+
+            <div v-if="needPayload" class="rule-form-row">
+              <label>{{ currentRuleTypeMeta?.payloadLabel || '内容' }}</label>
+              <input
+                v-model="rulePayload"
+                class="modal-input compact-rule-input"
+                :placeholder="currentRuleTypeMeta?.payloadHint || 'example.com'"
+                @keyup.enter="handleAddFromForm"
+              />
+            </div>
+
+            <div v-if="needPolicy" class="rule-form-row">
+              <label>策略</label>
+              <ModernSelect
+                v-model="selectedPolicy"
+                :options="rulePolicyOptions"
+                class="w-full"
+              />
+            </div>
+
+            <div class="rule-preview">
+              <span class="preview-label">预览</span>
+              <code>{{ rulePreview }}</code>
+            </div>
+
             <div class="modal-footer">
               <button class="action-btn flex-1" @click="showAddModal = false">取消</button>
-              <button class="primary-btn accent-btn flex-1" @click="handleAdd" :disabled="!newRuleStr || loading">确定添加</button>
+              <button class="primary-btn accent-btn flex-1" @click="handleAddFromForm" :disabled="!canSubmitRule || loading">确定添加</button>
             </div>
           </div>
         </div>
@@ -83,6 +114,7 @@ import { ref, shallowRef, onMounted, onUnmounted, onActivated, computed, watch, 
 import * as API from '../../wailsjs/go/main/App';
 import { showAlert, showConfirm, globalState } from '../store';
 import { ICONS } from '../utils/icons';
+import ModernSelect from './ModernSelect.vue';
 
 const rulePageData = shallowRef<any>(null);
 const ruleTab = ref<'subscription' | 'add' | 'delete'>(
@@ -123,8 +155,79 @@ const debouncedQuery = ref('');
 let searchTimer: ReturnType<typeof setTimeout>;
 
 const showAddModal = ref(false);
-const newRuleStr = ref('');
 const loading = ref(false);
+
+const ruleFormOptions = shallowRef<any>(null);
+const selectedRuleType = ref('');
+const rulePayload = ref('');
+const selectedPolicy = ref('');
+
+const ruleTypeOptions = computed(() => {
+  return (ruleFormOptions.value?.types || []).map((t: any) => ({
+    label: t.count ? `${t.label} (${t.count})` : t.label,
+    value: t.value
+  }));
+});
+
+const rulePolicyOptions = computed(() => {
+  return ruleFormOptions.value?.policies || [];
+});
+
+const currentRuleTypeMeta = computed(() => {
+  return ruleFormOptions.value?.types?.find((x: any) => x.value === selectedRuleType.value);
+});
+
+const needPayload = computed(() => currentRuleTypeMeta.value?.needPayload !== false);
+const needPolicy = computed(() => currentRuleTypeMeta.value?.needPolicy !== false);
+
+const rulePreview = computed(() => {
+  const meta = currentRuleTypeMeta.value;
+  if (!meta) return '';
+
+  const parts = [selectedRuleType.value];
+
+  if (meta.needPayload) {
+    parts.push(rulePayload.value.trim() || `<${meta.payloadLabel || '内容'}>`);
+  }
+
+  if (meta.needPolicy) {
+    parts.push(selectedPolicy.value || '<策略>');
+  }
+
+  return parts.join(',');
+});
+
+const canSubmitRule = computed(() => {
+  const meta = currentRuleTypeMeta.value;
+  if (!meta) return false;
+  if (meta.needPayload && !rulePayload.value.trim()) return false;
+  if (meta.needPolicy && !selectedPolicy.value) return false;
+  return true;
+});
+
+const openAddModal = async () => {
+  if (!globalState.activeConfigId) return;
+
+  loading.value = true;
+  try {
+    // @ts-ignore - Ignore type error if bindings are not yet generated
+    const options = await API.GetRuleFormOptions(globalState.activeConfigId);
+    ruleFormOptions.value = options;
+
+    selectedRuleType.value = options.types?.[0]?.value || 'DOMAIN-SUFFIX';
+    selectedPolicy.value =
+      options.policies?.find((p: any) => p.value === 'DIRECT')?.value ||
+      options.policies?.[0]?.value ||
+      'DIRECT';
+
+    rulePayload.value = '';
+    showAddModal.value = true;
+  } catch (e) {
+    await showAlert(String(e), '加载规则选项失败');
+  } finally {
+    loading.value = false;
+  }
+};
 
 const currentPage = ref(1);
 const pageSize = ref(42); 
@@ -275,9 +378,8 @@ const paginatedRules = computed(() => {
   });
 });
 
-const handleAdd = async () => {
-  const ruleStr = newRuleStr.value.trim();
-  if (!ruleStr || !globalState.activeConfigId) return;
+const handleAddFromForm = async () => {
+  if (!globalState.activeConfigId || !canSubmitRule.value) return;
 
   loading.value = true;
   try {
@@ -286,10 +388,16 @@ const handleAdd = async () => {
       targetSection = ruleTab.value; // 'subscription', 'add', or 'delete'
     }
 
-    await API.AddRule(globalState.activeConfigId, targetSection, ruleStr);
+    // @ts-ignore - Ignore type error if bindings are not yet generated
+    await API.AddRuleFromForm(globalState.activeConfigId, targetSection, {
+      type: selectedRuleType.value,
+      payload: rulePayload.value.trim(),
+      policy: selectedPolicy.value,
+    });
+    
     await loadRules();
 
-    newRuleStr.value = '';
+    rulePayload.value = '';
     showAddModal.value = false;
     searchQuery.value = '';
     currentPage.value = 1;
@@ -550,4 +658,59 @@ onActivated(() => {
 }
 
 .flex-1 { flex: 1; }
+
+.rule-form-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rule-form-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.rule-form-row label {
+  font-size: 0.85rem;
+  color: var(--text-sub);
+  font-weight: 700;
+}
+
+.modal-select {
+  height: 38px;
+  border: 1px solid var(--surface-hover);
+  background: var(--surface);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 0 10px;
+  outline: none;
+}
+
+.compact-rule-input {
+  height: 38px;
+}
+
+.rule-preview {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.preview-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.rule-preview code {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-main);
+  word-break: break-all;
+}
 </style>

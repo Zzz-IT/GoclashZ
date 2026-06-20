@@ -15,7 +15,11 @@ import (
 
 // EnsureRuleStorageMigrated 为单个配置进行迁移兜底检查
 func EnsureRuleStorageMigrated(id string) error {
-	rulesPath := filepath.Join(SubscriptionsDir(), id+"_rules.json")
+	safeId, err := utils.SanitizeFilename(id)
+	if err != nil {
+		return err
+	}
+	rulesPath := filepath.Join(SubscriptionsDir(), safeId+"_rules.json")
 	if _, err := os.Stat(rulesPath); os.IsNotExist(err) {
 		return nil // 已经不存在，或者已经迁移并删除了
 	}

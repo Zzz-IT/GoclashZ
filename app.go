@@ -572,42 +572,44 @@ func (a *App) SyncRules(id string) error {
 
 func (a *App) GetRulePageData(id string) (clash.RulePageData, error) {
 	var res clash.RulePageData
+	err := clash.WithRuleStorageLock(func() error {
+		if err := clash.EnsureRuleStorageMigrated(id); err != nil {
+			return fmt.Errorf("规则存储迁移失败: %w", err)
+		}
+		
+		workingRoot, err := clash.ReadWorkingRootWithRecovery(id)
+		if err != nil {
+			return err
+		}
 
-	if err := clash.EnsureRuleStorageMigrated(id); err != nil {
-		return res, fmt.Errorf("规则存储迁移失败: %w", err)
-	}
-	
-	workingRoot, err := clash.ReadWorkingRootWithRecovery(id)
-	if err != nil {
-		return res, err
-	}
+		item, _ := clash.FindSubIndexByID(id)
 
-	item, _ := clash.FindSubIndexByID(id)
+		if item.Type != "remote" {
+			res.ConfigType = "local"
+			res.LocalRules = clash.ExtractRulesFromRootPublic(workingRoot)
+			res.EffectiveRules = res.LocalRules
+			return nil
+		}
 
-	if item.Type != "remote" {
-		res.ConfigType = "local"
-		res.LocalRules = clash.ExtractRulesFromRootPublic(workingRoot)
-		res.EffectiveRules = res.LocalRules
-		return res, nil
-	}
+		// Remote
+		overlay, err := clash.LoadRuleOverlay(id)
+		if err != nil {
+			return err
+		}
 
-	// Remote
-	overlay, err := clash.LoadRuleOverlay(id)
-	if err != nil {
-		return res, err
-	}
+		workingRules := clash.ExtractRulesFromRootPublic(workingRoot)
+		visibleBaseRules := clash.ApplyDeleteOnly(workingRules, overlay.Delete)
+		effectiveRules := clash.ApplyRuleOverlay(workingRules, overlay)
 
-	workingRules := clash.ExtractRulesFromRootPublic(workingRoot)
-	visibleBaseRules := clash.ApplyDeleteOnly(workingRules, overlay.Delete)
-	effectiveRules := clash.ApplyRuleOverlay(workingRules, overlay)
+		res.ConfigType = "remote"
+		res.SubscriptionRules = visibleBaseRules
+		res.AddRules = overlay.Add
+		res.DeleteRules = overlay.Delete
+		res.EffectiveRules = effectiveRules
 
-	res.ConfigType = "remote"
-	res.SubscriptionRules = visibleBaseRules
-	res.AddRules = overlay.Add
-	res.DeleteRules = overlay.Delete
-	res.EffectiveRules = effectiveRules
-
-	return res, nil
+		return nil
+	})
+	return res, err
 }
 
 func (a *App) AddRule(id string, section string, ruleStr string) error {
@@ -652,6 +654,27 @@ func (a *App) AddRule(id string, section string, ruleStr string) error {
 
 		return fmt.Errorf("invalid section for adding: %s", section)
 	})
+}
+
+func (a *App) GetRuleFormOptions(id string) (clash.RuleFormOptions, error) {
+	var opts clash.RuleFormOptions
+	err := clash.WithRuleStorageLock(func() error {
+		if err := clash.EnsureRuleStorageMigrated(id); err != nil {
+			return fmt.Errorf("规则存储迁移失败: %w", err)
+		}
+		var innerErr error
+		opts, innerErr = clash.GetRuleFormOptionsData(id)
+		return innerErr
+	})
+	return opts, err
+}
+
+func (a *App) AddRuleFromForm(id string, section string, req clash.BuildRuleRequest) error {
+	rule, err := clash.BuildRuleFromForm(req)
+	if err != nil {
+		return err
+	}
+	return a.AddRule(id, section, rule)
 }
 
 func (a *App) DeleteRule(id string, section string, index int) error {

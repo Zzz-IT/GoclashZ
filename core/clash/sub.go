@@ -70,6 +70,12 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 
 	var upload, download, total, expire int64
 
+	// 在更新之前，先备份原有的 origin 文件（如果存在）
+	if _, statErr := os.Stat(originPath); statErr == nil {
+		originData, _ := os.ReadFile(originPath)
+		_ = utils.WriteFileAtomic(originPath+".bak", originData, 0644)
+	}
+
 	err = downloader.FetchSmallFileAtomic(ctx, downloader.Options{
 		URLs:               []string{url},
 		DestPath:           originPath,
@@ -106,25 +112,32 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 			if err := ValidateClashReferencesBytes(data); err != nil {
 				return fmt.Errorf("订阅配置引用校验失败: %v", err)
 			}
-			
-			// 在更新之前，先备份原有的 origin 文件（如果存在）
-			if _, statErr := os.Stat(originPath); statErr == nil {
-				originData, _ := os.ReadFile(originPath)
-				_ = utils.WriteFileAtomic(originPath+".bak", originData, 0644)
-			}
-
-			// 原子复制到 working (如果这是一个全新的订阅，我们直接用 origin 覆盖 working)
-			// 如果是更新订阅，这里也会用新内容直接覆盖 working，丢弃用户的本地 rules 修改
-			if err := utils.WriteFileAtomic(workingPath, data, 0644); err != nil {
-				return err
-			}
-
 			return nil
 		},
 	})
 
 	if err != nil {
-		// 如果过程中失败，尝试从 bak 恢复 origin
+		// 如果过程中失败，尝试从 bak 恢复 origin (虽然现在 FetchSmallFileAtomic 不会自动帮我们备份了，所以 bak 可能不存在，我们在外面备份)
+		if _, statErr := os.Stat(originPath + ".bak"); statErr == nil {
+			_ = os.Rename(originPath+".bak", originPath)
+		}
+		return safeId, err
+	}
+
+	// 此时 originPath 已经是新下载的内容。现在将它复制到 workingPath
+	err = WithRuleStorageLock(func() error {
+		originData, readErr := os.ReadFile(originPath)
+		if readErr != nil {
+			return readErr
+		}
+		if writeErr := utils.WriteFileAtomic(workingPath, originData, 0644); writeErr != nil {
+			return fmt.Errorf("覆盖工作文件失败: %w", writeErr)
+		}
+		return nil
+	})
+
+	if err != nil {
+		// 如果复制失败，尝试恢复 origin
 		if _, statErr := os.Stat(originPath + ".bak"); statErr == nil {
 			_ = os.Rename(originPath+".bak", originPath)
 		}
@@ -135,7 +148,9 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 	_ = os.Remove(originPath + ".bak")
 
 	// 4. 确保 overlay 存在 (如果是新订阅，创建空 overlay；如果是更新，保留用户配置)
-	if err := EnsureEmptyOverlay(safeId); err != nil {
+	if err := WithRuleStorageLock(func() error {
+		return EnsureEmptyOverlay(safeId)
+	}); err != nil {
 		return safeId, fmt.Errorf("初始化规则配置失败: %w", err)
 	}
 
@@ -199,13 +214,21 @@ func DeleteConfig(id string) error {
 	overlayPath := filepath.Join(dir, safeId+"_overlay.json")
 
 	// 1. 🚀 核心修复：先尝试删除物理文件（或者校验文件锁）
-	if err := os.Remove(yamlPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("无法删除配置文件，可能正被内核占用，请停止代理后重试: %v", err)
+	var removeErr error
+	WithRuleStorageLock(func() error {
+		if err := os.Remove(yamlPath); err != nil && !os.IsNotExist(err) {
+			removeErr = fmt.Errorf("无法删除配置文件，可能正被内核占用，请停止代理后重试: %v", err)
+			return nil
+		}
+		// 清理伴生文件
+		_ = os.Remove(rulesPath)
+		_ = os.Remove(originPath)
+		_ = os.Remove(overlayPath)
+		return nil
+	})
+	if removeErr != nil {
+		return removeErr
 	}
-	// 清理伴生文件
-	_ = os.Remove(rulesPath)
-	_ = os.Remove(originPath)
-	_ = os.Remove(overlayPath)
 
 	// 2. 物理文件删除成功后，再安全地更新内存与磁盘索引（事务提交）
 	IndexLock.Lock()
@@ -325,11 +348,15 @@ func ImportLocalConfig(srcPath, name string) (string, error) {
 
 	os.MkdirAll(filepath.Dir(originPath), 0755)
 
-	if err := utils.WriteFileAtomic(originPath, data, 0644); err != nil {
-		return "", err
-	}
-
-	if err := utils.WriteFileAtomic(workingPath, data, 0644); err != nil {
+	if err := WithRuleStorageLock(func() error {
+		if err := utils.WriteFileAtomic(originPath, data, 0644); err != nil {
+			return err
+		}
+		if err := utils.WriteFileAtomic(workingPath, data, 0644); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
 		return "", err
 	}
 
