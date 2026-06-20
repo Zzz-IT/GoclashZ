@@ -34,7 +34,7 @@
           </div>
           <div class="rule-footer">
             <div class="rule-policy">{{ rule.policy }}</div>
-            <button v-if="canDeleteRule" class="delete-btn" @click="handleDelete(rule.originalIndex)" :title="deleteBtnTitle">
+            <button class="delete-btn" @click="handleDelete(rule.originalIndex)" :title="deleteBtnTitle">
               <span v-html="ICONS.trash"></span>
             </button>
           </div>
@@ -210,7 +210,6 @@ const openAddModal = async () => {
 
   loading.value = true;
   try {
-    // @ts-ignore - Ignore type error if bindings are not yet generated
     const options = await API.GetRuleFormOptions(globalState.activeConfigId);
     ruleFormOptions.value = options;
 
@@ -234,10 +233,6 @@ const pageSize = ref(42);
 
 const isRemote = computed(() => globalState.activeConfigType === 'remote');
 const isLocal = computed(() => globalState.activeConfigType === 'local' || !globalState.activeConfigType);
-
-const canDeleteRule = computed(() => {
-  return true; // We allow deleting on all tabs (meaning is different though)
-});
 
 const deleteBtnTitle = computed(() => {
   if (isLocal.value) return '删除规则';
@@ -388,7 +383,6 @@ const handleAddFromForm = async () => {
       targetSection = ruleTab.value; // 'subscription', 'add', or 'delete'
     }
 
-    // @ts-ignore - Ignore type error if bindings are not yet generated
     await API.AddRuleFromForm(globalState.activeConfigId, targetSection, {
       type: selectedRuleType.value,
       payload: rulePayload.value.trim(),
@@ -678,15 +672,7 @@ onActivated(() => {
   font-weight: 700;
 }
 
-.modal-select {
-  height: 38px;
-  border: 1px solid var(--surface-hover);
-  background: var(--surface);
-  color: var(--text-main);
-  border-radius: 8px;
-  padding: 0 10px;
-  outline: none;
-}
+
 
 .compact-rule-input {
   height: 38px;

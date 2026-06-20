@@ -307,6 +307,8 @@ func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool
 
 	// 2. 读取选中的订阅文件作为 "Base Config" (只读模板)
 	var root map[string]interface{}
+	var runtimeRules []string
+
 	if id != "" && id != "config.yaml" {
 		if err := WithRuleStorageLock(func() error {
 			recoveredRoot, innerErr := ReadWorkingRootWithRecovery(id)
@@ -314,6 +316,12 @@ func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool
 				return fmt.Errorf("读取或恢复配置失败: %w", innerErr)
 			}
 			root = recoveredRoot
+
+			rules, err := BuildRuntimeRules(id, root)
+			if err != nil {
+				return err
+			}
+			runtimeRules = rules
 			return nil
 		}); err != nil {
 			return err
@@ -332,6 +340,12 @@ func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool
 		if err := yaml.Unmarshal(baseData, &root); err != nil {
 			return fmt.Errorf("解析基础配置失败: %v", err)
 		}
+
+		rules, err := BuildRuntimeRules(id, root)
+		if err != nil {
+			return fmt.Errorf("构建运行时规则失败: %w", err)
+		}
+		runtimeRules = rules
 	}
 
 	// 3. 运行时参数强制注入 (Injector)
@@ -431,17 +445,6 @@ func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool
 	UpdateAPIBaseURL(controller)
 
 	// 👇 核心注入：规则接管 (根据本地或远程模式，从 origin + overlay 生成)
-	var runtimeRules []string
-	if err := WithRuleStorageLock(func() error {
-		rules, err := BuildRuntimeRules(id, root)
-		if err != nil {
-			return err
-		}
-		runtimeRules = rules
-		return nil
-	}); err != nil {
-		return fmt.Errorf("构建运行时规则失败: %w", err)
-	}
 	root["rules"] = runtimeRules
 
 	// 👇 核心新增：动态读取并注入我们设置的日志等级

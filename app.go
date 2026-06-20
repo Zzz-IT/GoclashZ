@@ -573,7 +573,7 @@ func (a *App) SyncRules(id string) error {
 func (a *App) GetRulePageData(id string) (clash.RulePageData, error) {
 	var res clash.RulePageData
 	err := clash.WithRuleStorageLock(func() error {
-		if err := clash.EnsureRuleStorageMigrated(id); err != nil {
+		if err := clash.EnsureRuleStorageMigratedLocked(id); err != nil {
 			return fmt.Errorf("规则存储迁移失败: %w", err)
 		}
 		
@@ -614,7 +614,7 @@ func (a *App) GetRulePageData(id string) (clash.RulePageData, error) {
 
 func (a *App) AddRule(id string, section string, ruleStr string) error {
 	return clash.WithRuleStorageLock(func() error {
-		_ = clash.EnsureRuleStorageMigrated(id)
+		_ = clash.EnsureRuleStorageMigratedLocked(id)
 		
 		ruleStr, err := clash.SanitizeRuleLine(ruleStr)
 		if err != nil {
@@ -659,7 +659,7 @@ func (a *App) AddRule(id string, section string, ruleStr string) error {
 func (a *App) GetRuleFormOptions(id string) (clash.RuleFormOptions, error) {
 	var opts clash.RuleFormOptions
 	err := clash.WithRuleStorageLock(func() error {
-		if err := clash.EnsureRuleStorageMigrated(id); err != nil {
+		if err := clash.EnsureRuleStorageMigratedLocked(id); err != nil {
 			return fmt.Errorf("规则存储迁移失败: %w", err)
 		}
 		var innerErr error
@@ -679,7 +679,7 @@ func (a *App) AddRuleFromForm(id string, section string, req clash.BuildRuleRequ
 
 func (a *App) DeleteRule(id string, section string, index int) error {
 	return clash.WithRuleStorageLock(func() error {
-		_ = clash.EnsureRuleStorageMigrated(id)
+		_ = clash.EnsureRuleStorageMigratedLocked(id)
 
 		if section == "local" {
 			workingPath, _ := clash.WorkingConfigPath(id)
@@ -744,7 +744,7 @@ func (a *App) DeleteRule(id string, section string, index int) error {
 
 func (a *App) SaveRuleSection(id string, section string, rules []string) error {
 	return clash.WithRuleStorageLock(func() error {
-		_ = clash.EnsureRuleStorageMigrated(id)
+		_ = clash.EnsureRuleStorageMigratedLocked(id)
 
 		sanitizedRules, err := clash.SanitizeRuleList(rules)
 		if err != nil {

@@ -273,18 +273,28 @@ func ExtractPolicyOptions(root map[string]interface{}) []PolicyOption {
 	add("REJECT")
 	add("REJECT-DROP")
 	add("PASS")
+	add("GLOBAL")
+	add("COMPAT")
 
 	if groups, ok := root["proxy-groups"].([]interface{}); ok {
 		for _, g := range groups {
-			group, ok := g.(map[string]interface{})
-			if !ok {
-				continue
+			if group, ok := g.(map[string]interface{}); ok {
+				if name, ok := group["name"].(string); ok {
+					add(name)
+				}
 			}
-			name, _ := group["name"].(string)
-			add(name)
 		}
 	}
 
+	if proxies, ok := root["proxies"].([]interface{}); ok {
+		for _, p := range proxies {
+			if proxy, ok := p.(map[string]interface{}); ok {
+				if name, ok := proxy["name"].(string); ok {
+					add(name)
+				}
+			}
+		}
+	}
 	return result
 }
 
@@ -295,7 +305,11 @@ func BuildRuleFromForm(req BuildRuleRequest) (string, error) {
 
 	meta, ok := ruleTypeMeta[ruleType]
 	if !ok {
-		return "", fmt.Errorf("不支持的规则类型: %s", ruleType)
+		meta = RuleTypeOption{
+			NeedPayload:  true,
+			NeedPolicy:   true,
+			PayloadLabel: "内容",
+		}
 	}
 
 	var parts []string

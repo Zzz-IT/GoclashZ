@@ -13,8 +13,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// EnsureRuleStorageMigrated 为单个配置进行迁移兜底检查
-func EnsureRuleStorageMigrated(id string) error {
+// EnsureRuleStorageMigratedLocked 为单个配置进行迁移兜底检查（调用前必须持有 ruleStorageMu）
+func EnsureRuleStorageMigratedLocked(id string) error {
 	safeId, err := utils.SanitizeFilename(id)
 	if err != nil {
 		return err
@@ -52,7 +52,10 @@ func MigrateRuleStorageV2() error {
 
 	var firstErr error
 	for _, id := range ids {
-		if err := EnsureRuleStorageMigrated(id); err != nil && firstErr == nil {
+		err := WithRuleStorageLock(func() error {
+			return EnsureRuleStorageMigratedLocked(id)
+		})
+		if err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}

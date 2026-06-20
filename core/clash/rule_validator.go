@@ -156,11 +156,36 @@ func SanitizeRuleLine(rule string) (string, error) {
 	if rule == "" {
 		return "", fmt.Errorf("规则不可为空")
 	}
-	parts := strings.Split(rule, ",")
-	if len(parts) < 2 {
-		return "", fmt.Errorf("规则格式无效，至少需要两段: %s", rule)
+
+	rawParts := strings.Split(rule, ",")
+	parts := make([]string, 0, len(rawParts))
+	for _, p := range rawParts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return "", fmt.Errorf("规则格式无效，存在空段: %s", rule)
+		}
+		parts = append(parts, p)
 	}
-	return rule, nil
+
+	ruleType := strings.ToUpper(parts[0])
+	parts[0] = ruleType
+
+	switch ruleType {
+	case "MATCH":
+		if len(parts) != 2 {
+			return "", fmt.Errorf("MATCH 规则格式应为 MATCH,策略")
+		}
+	case "AND", "OR", "NOT", "SUB-RULE":
+		if len(parts) < 2 {
+			return "", fmt.Errorf("%s 规则结构不完整", ruleType)
+		}
+	default:
+		if len(parts) < 3 {
+			return "", fmt.Errorf("%s 规则格式应至少为 类型,内容,策略", ruleType)
+		}
+	}
+
+	return strings.Join(parts, ","), nil
 }
 
 // SanitizeRuleList 规范化和校验多条规则

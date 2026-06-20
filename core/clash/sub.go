@@ -124,7 +124,7 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 		return safeId, err
 	}
 
-	// 此时 originPath 已经是新下载的内容。现在将它复制到 workingPath
+	// 此时 originPath 已经是新下载的内容。现在将它复制到 workingPath 并初始化 overlay
 	err = WithRuleStorageLock(func() error {
 		originData, readErr := os.ReadFile(originPath)
 		if readErr != nil {
@@ -133,6 +133,12 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 		if writeErr := utils.WriteFileAtomic(workingPath, originData, 0644); writeErr != nil {
 			return fmt.Errorf("覆盖工作文件失败: %w", writeErr)
 		}
+		
+		// 4. 确保 overlay 存在 (如果是新订阅，创建空 overlay；如果是更新，保留用户配置)
+		if err := EnsureEmptyOverlay(safeId); err != nil {
+			return fmt.Errorf("初始化规则配置失败: %w", err)
+		}
+		
 		return nil
 	})
 
@@ -146,13 +152,6 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 
 	// 确认更新成功后删除 bak 文件
 	_ = os.Remove(originPath + ".bak")
-
-	// 4. 确保 overlay 存在 (如果是新订阅，创建空 overlay；如果是更新，保留用户配置)
-	if err := WithRuleStorageLock(func() error {
-		return EnsureEmptyOverlay(safeId)
-	}); err != nil {
-		return safeId, fmt.Errorf("初始化规则配置失败: %w", err)
-	}
 
 	// 5. 更新全局索引
 	IndexLock.Lock()
