@@ -1,37 +1,37 @@
-; =========================================================
-; GoclashZ - 智能适配安装脚本 (适配 paths.go 逻辑)
+﻿; =========================================================
+; GoclashZ - 鏅鸿兘閫傞厤瀹夎鑴氭湰 (閫傞厤 paths.go 閫昏緫)
 ; =========================================================
 
 #define MyAppName "GoclashZ"
-#define MyAppVersion "1.1.10"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "Zzz"
 #define MyAppExeName "GoclashZ.exe"
 
 [Setup]
 WizardStyle=modern dynamic includetitlebar
-VersionInfoVersion=1.1.10.0
+VersionInfoVersion=1.2.0.0
 VersionInfoCompany=Zzz
 VersionInfoDescription=GoclashZ Installer
 VersionInfoCopyright=Copyright (C) 2026 Zzz
-; 基础信息
+; 鍩虹淇℃伅
 AppName={#MyAppName}
 AppVerName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 
-; --- 🎯 核心修改 1：采用现代“当前用户”安装模式 ---
-; 默认安装到 C:\Users\用户名\AppData\Local\Programs\GoclashZ
-; 这样做目录永远拥有写入权限，paths.go 会完美启用 {app}\data 便携模式！
+; --- 馃幆 鏍稿績淇敼 1锛氶噰鐢ㄧ幇浠ｂ€滃綋鍓嶇敤鎴封€濆畨瑁呮ā寮?---
+; 榛樿瀹夎鍒?C:\Users\鐢ㄦ埛鍚峔AppData\Local\Programs\GoclashZ
+; 杩欐牱鍋氱洰褰曟案杩滄嫢鏈夊啓鍏ユ潈闄愶紝paths.go 浼氬畬缇庡惎鐢?{app}\data 渚挎惡妯″紡锛?
 DefaultDirName={localappdata}\Programs\{#MyAppName}
 AlwaysShowDirOnReadyPage=yes
 DisableDirPage=no
 
-; --- 🎯 核心修改 2：降级权限要求 ---
-; 软件安装和日常运行不需要管理员权限。
-; (开启 TUN 虚拟网卡时，你代码里的 sys.CheckAdmin 会自动弹出 UAC 提权，体验更好)
+; --- 馃幆 鏍稿績淇敼 2锛氶檷绾ф潈闄愯姹?---
+; 杞欢瀹夎鍜屾棩甯歌繍琛屼笉闇€瑕佺鐞嗗憳鏉冮檺銆?
+; (寮€鍚?TUN 铏氭嫙缃戝崱鏃讹紝浣犱唬鐮侀噷鐨?sys.CheckAdmin 浼氳嚜鍔ㄥ脊鍑?UAC 鎻愭潈锛屼綋楠屾洿濂?
 PrivilegesRequired=lowest
 
-; 输出设置
+; 杈撳嚭璁剧疆
 OutputDir=.\build\installer
 OutputBaseFilename=GoclashZ_win_amd64_Setup
 SetupIconFile=.\build\windows\icon.ico
@@ -45,12 +45,12 @@ Name: "chinesesimp"; MessagesFile: "ChineseSimplified.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-; 1. 打包主程序
+; 1. 鎵撳寘涓荤▼搴?
 Source: ".\build\bin\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
-; 2. --- 🎯 核心修改 3：修正打包源路径 ---
-; 源码中内核存放在 .\data\core\bin，打包时我们把它塞进安装目录的 {app}\data\core\bin 下
-; 排除在开发运行时产生的临时下载文件和内核缓存数据库 (如 cache.db, geoip.metadb)
+; 2. --- 馃幆 鏍稿績淇敼 3锛氫慨姝ｆ墦鍖呮簮璺緞 ---
+; 婧愮爜涓唴鏍稿瓨鏀惧湪 .\data\core\bin锛屾墦鍖呮椂鎴戜滑鎶婂畠濉炶繘瀹夎鐩綍鐨?{app}\data\core\bin 涓?
+; 鎺掗櫎鍦ㄥ紑鍙戣繍琛屾椂浜х敓鐨勪复鏃朵笅杞芥枃浠跺拰鍐呮牳缂撳瓨鏁版嵁搴?(濡?cache.db, geoip.metadb)
 Source: ".\data\core\bin\*"; DestDir: "{app}\data\core\bin"; Excludes: "*.tmp,*.zip,*.old,*.txt,*.json,*.db,*.metadb"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]

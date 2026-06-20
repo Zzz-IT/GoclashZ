@@ -1,20 +1,20 @@
-{
-  "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "GoclashZ",
-  "outputfilename": "GoclashZ",
-  "frontend:install": "npm install",
-  "frontend:build": "npm run build",
-  "frontend:dev:watcher": "npm run dev",
-  "frontend:dev:serverUrl": "auto",
-  "author": {
-    "name": "Zzz",
-    "email": "zzx685690@gmail.com"
-  },
-  "info": {
-    "productVersion": "1.1.10",
-    "companyName": "ZzzDREAM",
-    "productName": "GoclashZ",
-    "copyright": "Copyright © 2026",
-    "comments": "A modern Clash client"
-  }
+﻿{
+    "$schema":  "https://wails.io/schemas/config.v2.json",
+    "name":  "GoclashZ",
+    "outputfilename":  "GoclashZ",
+    "frontend:install":  "npm install",
+    "frontend:build":  "npm run build",
+    "frontend:dev:watcher":  "npm run dev",
+    "frontend:dev:serverUrl":  "auto",
+    "author":  {
+                   "name":  "Zzz",
+                   "email":  "zzx685690@gmail.com"
+               },
+    "info":  {
+                 "productVersion":  "1.2.0",
+                 "companyName":  "ZzzDREAM",
+                 "productName":  "GoclashZ",
+                 "copyright":  "Copyright 漏 2026",
+                 "comments":  "A modern Clash client"
+             }
 }
