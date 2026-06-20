@@ -708,7 +708,10 @@ func (a *App) DeleteRule(id string, section string, index int) error {
 			}
 			
 			workingRules := clash.ExtractRulesFromRootPublic(root)
-			overlay, _ := clash.LoadRuleOverlay(id)
+			overlay, err := clash.LoadRuleOverlay(id)
+			if err != nil {
+				return err
+			}
 			
 			// Get visible base rules
 			visibleRules := clash.ApplyDeleteOnly(workingRules, overlay.Delete)

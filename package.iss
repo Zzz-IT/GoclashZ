@@ -33,7 +33,7 @@ PrivilegesRequired=lowest
 
 ; 输出设置
 OutputDir=.\build\installer
-OutputBaseFilename=GoclashZ_Setup
+OutputBaseFilename=GoclashZ_win_amd64_Setup
 SetupIconFile=.\build\windows\icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes

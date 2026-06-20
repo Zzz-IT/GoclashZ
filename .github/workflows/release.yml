@@ -1,0 +1,169 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    env:
+      APP_TAG: ""
+      APP_VERSION: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        shell: pwsh
+        run: |
+          $tag = "${env:GITHUB_REF_NAME}"
+          $version = $tag.TrimStart("v")
+          echo "APP_TAG=$tag" >> $env:GITHUB_ENV
+          echo "APP_VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Install Inno Setup and 7-Zip
+        shell: pwsh
+        run: |
+          choco install innosetup 7zip -y
+          echo "C:\Program Files (x86)\Inno Setup 6" >> $env:GITHUB_PATH
+          echo "C:\Program Files\7-Zip" >> $env:GITHUB_PATH
+
+      - name: Patch version files
+        shell: pwsh
+        run: |
+          $version = "${env:APP_VERSION}"
+          ./scripts/set_version.ps1 -Version $version
+
+      - name: Validate core files
+        shell: pwsh
+        run: |
+          if (!(Test-Path "data/core/bin")) {
+            throw "Missing data/core/bin"
+          }
+
+          $files = Get-ChildItem "data/core/bin" -File -Recurse -ErrorAction SilentlyContinue
+          if ($files.Count -eq 0) {
+            throw "data/core/bin is empty"
+          }
+
+      - name: Build Wails app
+        shell: pwsh
+        run: |
+          wails build -clean -platform windows/amd64
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          ISCC.exe package.iss
+
+      - name: Prepare portable directory
+        shell: pwsh
+        run: |
+          $root = "build/portable/GoclashZ"
+          New-Item -ItemType Directory -Force "$root/core/bin" | Out-Null
+
+          Copy-Item "build/bin/GoclashZ.exe" "$root/GoclashZ.exe" -Force
+          Copy-Item "data/core/bin/*" "$root/core/bin" -Recurse -Force `
+            -Exclude *.tmp,*.zip,*.old,*.txt,*.json,*.db,*.metadb,*.meta.json
+
+      - name: Pack portable zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "build/portable/GoclashZ" -DestinationPath "build/GoclashZ_Portable.zip" -Force
+
+      - name: Pack portable 7z
+        shell: pwsh
+        run: |
+          7z a -t7z "build/GoclashZ_Portable.7z" "build/portable/GoclashZ\*" -mx=9
+
+      - name: Move installer
+        shell: pwsh
+        run: |
+          $src = "build/installer/GoclashZ_win_amd64_Setup.exe"
+          $dst = "build/GoclashZ_win_amd64_Setup.exe"
+
+          if (!(Test-Path $src)) {
+            throw "Installer not found: $src"
+          }
+
+          Copy-Item $src $dst -Force
+
+      - name: Generate release notes
+        shell: pwsh
+        run: |
+          $tag = "${env:APP_TAG}"
+
+          if (!(Test-Path "CHANGELOG.md")) {
+            throw "CHANGELOG.md not found"
+          }
+
+          $content = Get-Content "CHANGELOG.md" -Raw
+          $pattern = "(?ms)^##\s+$tag\s*(.*?)(?=^##\s+v|\z)"
+          $match = [regex]::Match($content, $pattern)
+
+          if (!$match.Success) {
+            throw "No changelog section found for $tag"
+          }
+
+          $changes = $match.Groups[1].Value.Trim()
+          if ([string]::IsNullOrWhiteSpace($changes)) {
+            $changes = "1. "
+          }
+
+          $notes = @"
+          # 正式版 $tag
+
+          GoclashZ $tag 登场。
+
+          ## 更新内容
+
+          $tag 更新说明：
+
+          $changes
+
+          ## 安装与运行须知
+          1. 从 Releases 页面下载最新版本的 GoclashZ 安装包。
+          2. 常规模式双击即可运行；若需开启虚拟网卡（TUN）模式或使用 UWP 修复工具，请务必右键选择以管理员身份运行。
+          3. 便携包，解压即用，点击主程序即可使用。
+          4. 如果有缺失运行环境，请前往 [Microsoft Edge WebView2 下载页面](https://developer.microsoft.com/en-us/microsoft-edge/webview2?form=MA13LH)
+
+          GoclashZ - 追求极致性能与极简体验。
+          "@
+
+          $notes = $notes -replace "(?m)^[ \t]+", ""
+          Set-Content "build/release_notes.md" $notes -Encoding UTF8
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: GoclashZ ${{ env.APP_TAG }}
+          tag_name: ${{ env.APP_TAG }}
+          body_path: build/release_notes.md
+          files: |
+            build/GoclashZ_win_amd64_Setup.exe
+            build/GoclashZ_Portable.zip
+            build/GoclashZ_Portable.7z

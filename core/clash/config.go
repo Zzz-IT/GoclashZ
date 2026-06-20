@@ -444,7 +444,7 @@ func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool
 	// 同步更新 Go API Client 的基准地址
 	UpdateAPIBaseURL(controller)
 
-	// 👇 核心注入：规则接管 (根据本地或远程模式，从 origin + overlay 生成)
+	// 👇 核心注入：规则接管：local 使用 working.rules；remote 使用 overlay.add + (working.rules - overlay.delete)
 	root["rules"] = runtimeRules
 
 	// 👇 核心新增：动态读取并注入我们设置的日志等级
