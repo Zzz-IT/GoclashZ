@@ -328,19 +328,15 @@ func copyDir(src, dst string, skipFunc func(string) bool) error {
 }
 
 func copyFile(src, dst string, info os.FileInfo) error {
-	// If target exists, override for configs.
-	if _, err := os.Stat(dst); err == nil {
-		// Just override
-	}
-
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
 
-	// Ensure parent dir exists
-	_ = os.MkdirAll(filepath.Dir(dst), 0755)
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
 
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode())
 	if err != nil {
