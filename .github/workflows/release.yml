@@ -11,10 +11,6 @@ permissions:
 jobs:
   release-windows:
     runs-on: windows-latest
-    env:
-      APP_TAG: ""
-      APP_VERSION: ""
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,6 +20,11 @@ jobs:
         run: |
           $tag = "${env:GITHUB_REF_NAME}"
           $version = $tag.TrimStart("v")
+
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Invalid release tag: $tag. Expected vX.Y.Z"
+          }
+
           echo "APP_TAG=$tag" >> $env:GITHUB_ENV
           echo "APP_VERSION=$version" >> $env:GITHUB_ENV
 
@@ -93,7 +94,7 @@ jobs:
       - name: Pack portable zip
         shell: pwsh
         run: |
-          Compress-Archive -Path "build/portable/GoclashZ" -DestinationPath "build/GoclashZ_Portable.zip" -Force
+          Compress-Archive -Path "build/portable/GoclashZ/*" -DestinationPath "build/GoclashZ_Portable.zip" -Force
 
       - name: Pack portable 7z
         shell: pwsh
