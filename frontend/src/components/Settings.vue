@@ -1153,6 +1153,14 @@
                   <span style="color: var(--text-muted); width: 80px;">实际模式:</span>
                   <span>{{ startupTaskInfo.runLevel === 1 ? '最高权限' : (startupTaskInfo.runLevel === 0 ? '普通权限' : '未知') }}</span>
                 </div>
+                <div style="display: flex; margin-bottom: 4px;">
+                  <span style="color: var(--text-muted); width: 80px;">期望数据:</span>
+                  <span style="word-break: break-all; flex: 1;">{{ startupTaskInfo.expectedDataDir }}</span>
+                </div>
+                <div style="display: flex; margin-bottom: 4px;">
+                  <span style="color: var(--text-muted); width: 80px;">实际数据:</span>
+                  <span style="word-break: break-all; flex: 1;" :style="{ color: startupTaskInfo.actualDataDir ? (startupTaskInfo.actualDataDir.toLowerCase() === startupTaskInfo.expectedDataDir?.toLowerCase() ? 'inherit' : 'var(--red-text)') : 'var(--red-text)' }">{{ startupTaskInfo.actualDataDir || '未配置' }}</span>
+                </div>
                 <div style="display: flex;">
                   <span style="color: var(--text-muted); width: 80px;">参数:</span>
                   <span style="word-break: break-all; flex: 1;">{{ startupTaskInfo.actualArgs || '无' }}</span>

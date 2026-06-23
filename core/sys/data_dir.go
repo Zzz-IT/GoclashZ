@@ -46,5 +46,15 @@ func GetDataDirInfo() DataDirInfo {
 		}
 	}
 
+	errPath := filepath.Join(info.DataDir, ".migration_error.json")
+	if data, err := os.ReadFile(errPath); err == nil {
+		var errMeta struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(data, &errMeta) == nil && errMeta.Error != "" {
+			info.LastError = "迁移失败: " + errMeta.Error
+		}
+	}
+
 	return info
 }

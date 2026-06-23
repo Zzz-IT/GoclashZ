@@ -435,7 +435,7 @@ func (a *App) GetDataDirInfo() sys.DataDirInfo {
 }
 
 func (a *App) RepairDataDirMigration() error {
-	return utils.MigrateLegacyAppDataToInstallData()
+	return utils.ForceMigrateLegacyAppDataToInstallData()
 }
 
 func (a *App) RepairDataDirPermission() error {

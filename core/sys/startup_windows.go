@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/go-ole/go-ole"
@@ -31,17 +32,19 @@ const (
 )
 
 type StartupTaskInfo struct {
-	Exists       bool        `json:"exists"`
-	Enabled      bool        `json:"enabled"`
-	Mode         StartupMode `json:"mode"`
-	Path         string      `json:"path"`
-	Arguments    string      `json:"arguments"`
-	RunLevel     int         `json:"runLevel"`
-	LastError    string      `json:"lastError"`
-	ExpectedPath string      `json:"expectedPath"`
-	ActualPath   string      `json:"actualPath"`
-	ActualArgs   string      `json:"actualArgs"`
-	IsHealthy    bool        `json:"isHealthy"`
+	Exists          bool        `json:"exists"`
+	Enabled         bool        `json:"enabled"`
+	Mode            StartupMode `json:"mode"`
+	Path            string      `json:"path"`
+	Arguments       string      `json:"arguments"`
+	RunLevel        int         `json:"runLevel"`
+	LastError       string      `json:"lastError"`
+	ExpectedPath    string      `json:"expectedPath"`
+	ActualPath      string      `json:"actualPath"`
+	ActualArgs      string      `json:"actualArgs"`
+	ExpectedDataDir string      `json:"expectedDataDir"`
+	ActualDataDir   string      `json:"actualDataDir"`
+	IsHealthy       bool        `json:"isHealthy"`
 }
 
 // initCOM initializes COM and returns a cleanup function.
@@ -114,6 +117,31 @@ func variantString(v any) string {
 	}
 	if s, ok := v.(string); ok {
 		return s
+	}
+	return ""
+}
+
+func splitCommandLine(args string) []string {
+	re := regexp.MustCompile(`"[^"]*"|\S+`)
+	matches := re.FindAllString(args, -1)
+	var res []string
+	for _, m := range matches {
+		res = append(res, strings.Trim(m, `"`))
+	}
+	return res
+}
+
+func extractArgValue(args string, key string) string {
+	fields := splitCommandLine(args)
+	prefix := key + "="
+
+	for i := 0; i < len(fields); i++ {
+		if fields[i] == key && i+1 < len(fields) {
+			return fields[i+1]
+		}
+		if strings.HasPrefix(fields[i], prefix) {
+			return strings.TrimPrefix(fields[i], prefix)
+		}
 	}
 	return ""
 }
@@ -220,13 +248,20 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 		info.ActualPath = actualPath
 		info.ActualArgs = info.Arguments
 
+		expectedDataDir := filepath.Clean(utils.GetDataDir())
+		actualDataDir := filepath.Clean(extractArgValue(info.Arguments, "--data-dir"))
+
 		hasStartup := strings.Contains(info.Arguments, "--startup")
 		hasSilent := strings.Contains(info.Arguments, "--silent")
 		hasElevated := strings.Contains(info.Arguments, "--elevated")
-		hasDataDir := strings.Contains(info.Arguments, "--data-dir")
+		hasDataDir := actualDataDir != ""
+		dataDirMismatch := !strings.EqualFold(actualDataDir, expectedDataDir)
+
+		info.ExpectedDataDir = expectedDataDir
+		info.ActualDataDir = actualDataDir
 
 		pathMismatch := !strings.EqualFold(filepath.Clean(actual), filepath.Clean(expected))
-		argsMismatch := !hasStartup || !hasSilent || (info.Mode == StartupElevated && !hasElevated) || !hasDataDir
+		argsMismatch := !hasStartup || !hasSilent || (info.Mode == StartupElevated && !hasElevated) || !hasDataDir || dataDirMismatch
 
 		if pathMismatch || argsMismatch {
 			info.Enabled = false

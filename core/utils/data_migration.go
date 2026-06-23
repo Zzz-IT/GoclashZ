@@ -24,9 +24,23 @@ type MigrationMeta struct {
 	DeleteError   string `json:"deleteError,omitempty"`
 }
 
-// MigrateLegacyAppDataToInstallData is the main entry point to migrate data
-// from the legacy AppData directory to the new stable installation DataDir.
+type MigrationErrorMeta struct {
+	From        string `json:"from"`
+	To          string `json:"to"`
+	At          int64  `json:"at"`
+	Error       string `json:"error"`
+	Recoverable bool   `json:"recoverable"`
+}
+
 func MigrateLegacyAppDataToInstallData() error {
+	return migrateLegacyAppDataToInstallData(false)
+}
+
+func ForceMigrateLegacyAppDataToInstallData() error {
+	return migrateLegacyAppDataToInstallData(true)
+}
+
+func migrateLegacyAppDataToInstallData(force bool) error {
 	legacy := GetLegacyDataDir()
 	target := GetDataDir()
 
@@ -38,12 +52,14 @@ func MigrateLegacyAppDataToInstallData() error {
 		return nil
 	}
 
-	// Only automatically migrate if it's an installed version (marker exists)
-	appDir := GetAppDir()
-	markerPath := filepath.Join(appDir, ".installed")
-	if _, err := os.Stat(markerPath); os.IsNotExist(err) {
-		// Not an installed version, avoid migrating portable usages
-		return nil
+	if !force {
+		// Only automatically migrate if it's an installed version (marker exists)
+		appDir := GetAppDir()
+		markerPath := filepath.Join(appDir, ".installed")
+		if _, err := os.Stat(markerPath); os.IsNotExist(err) {
+			// Not an installed version, avoid migrating portable usages
+			return nil
+		}
 	}
 
 	if !hasMeaningfulData(legacy) {
@@ -65,28 +81,30 @@ func MigrateLegacyAppDataToInstallData() error {
 
 	// Check if already migrated
 	metaPath := filepath.Join(target, ".migration.json")
-	if _, err := os.Stat(metaPath); err == nil {
-		// Already migrated. Do not migrate again.
-		// However, we should try to delete the legacy dir if it was not deleted successfully.
+	if _, err := os.Stat(metaPath); err == nil && !force {
+		// Already migrated. Do not migrate again unless forced.
 		tryDeleteLegacyDir(legacy, target)
 		return nil
 	}
 
 	// Backup existing target data if any
 	if hasMeaningfulData(target) {
-		backupDir := filepath.Join(target, "_migration_backup", time.Now().Format("20060102_150405"))
-		if err := copyDir(target, backupDir, nil); err != nil {
+		backupDir := migrationBackupDir(target)
+		if err := copyDir(target, backupDir, shouldSkipMigrationFile); err != nil {
+			writeMigrationError(target, legacy, fmt.Sprintf("备份目标数据目录失败: %v", err))
 			return fmt.Errorf("备份目标数据目录失败: %w", err)
 		}
 	}
 
 	// Copy data
 	if err := copyDir(legacy, target, shouldSkipMigrationFile); err != nil {
+		writeMigrationError(target, legacy, fmt.Sprintf("复制旧 AppData 数据失败: %v", err))
 		return fmt.Errorf("复制旧 AppData 数据失败: %w", err)
 	}
 
 	// Verify copied data
 	if err := verifyCopied(legacy, target, shouldSkipMigrationFile); err != nil {
+		writeMigrationError(target, legacy, fmt.Sprintf("迁移校验失败: %v", err))
 		return fmt.Errorf("迁移校验失败: %w", err)
 	}
 
@@ -103,6 +121,9 @@ func MigrateLegacyAppDataToInstallData() error {
 		return err
 	}
 
+	// Clean any previous error since we succeeded
+	_ = os.Remove(filepath.Join(target, ".migration_error.json"))
+
 	// Attempt to delete source
 	if err := os.RemoveAll(legacy); err != nil {
 		renamed := legacy + ".migrated_delete_me"
@@ -117,6 +138,26 @@ func MigrateLegacyAppDataToInstallData() error {
 
 	meta.SourceDeleted = true
 	return saveMigrationMeta(target, meta)
+}
+
+func migrationBackupDir(target string) string {
+	base := filepath.Join(filepath.Dir(target), "GoclashZ_data_migration_backup")
+	return filepath.Join(base, time.Now().Format("20060102_150405"))
+}
+
+func writeMigrationError(target, from, errMsg string) {
+	errFile := filepath.Join(target, ".migration_error.json")
+	meta := MigrationErrorMeta{
+		From:        from,
+		To:          target,
+		At:          time.Now().Unix(),
+		Error:       errMsg,
+		Recoverable: true,
+	}
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err == nil {
+		_ = os.WriteFile(errFile, data, 0644)
+	}
 }
 
 func tryDeleteLegacyDir(legacy, target string) {
@@ -142,46 +183,117 @@ func tryDeleteLegacyDir(legacy, target string) {
 }
 
 func hasMeaningfulData(dir string) bool {
-	candidates := []string{
-		filepath.Join(dir, "Settings"),
-		filepath.Join(dir, "Subscriptions"),
-		filepath.Join(dir, "profiles"),
-		filepath.Join(dir, "config.yaml"),
-		filepath.Join(dir, "desired_state.json"),
+	if dir == "" {
+		return false
 	}
 
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
+	meaningfulFiles := []string{
+		filepath.Join(dir, "config.yaml"),
+		filepath.Join(dir, "desired_state.json"),
+		filepath.Join(dir, "theme_setting.txt"),
+		filepath.Join(dir, ".migration.json"),
+	}
+
+	for _, p := range meaningfulFiles {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Size() > 0 {
 			return true
 		}
 	}
+
+	meaningfulDirs := []string{
+		filepath.Join(dir, "Settings"),
+		filepath.Join(dir, "Subscriptions"),
+		filepath.Join(dir, "profiles"),
+	}
+
+	for _, p := range meaningfulDirs {
+		if hasAnyMeaningfulFile(p) {
+			return true
+		}
+	}
+
 	return false
+}
+
+func hasAnyMeaningfulFile(dir string) bool {
+	found := false
+
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil {
+			return nil
+		}
+
+		if info.IsDir() {
+			base := strings.ToLower(info.Name())
+			if base == "_migration_backup" || base == "logs" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if info.Size() <= 0 {
+			return nil
+		}
+
+		if shouldSkipMigrationFile(path) {
+			return nil
+		}
+
+		found = true
+		return filepath.SkipDir
+	})
+
+	return found
 }
 
 func acquireMigrationLock(dataDir string) (*os.File, error) {
 	lockPath := filepath.Join(dataDir, ".migration.lock")
-	return os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+
+	if st, err := os.Stat(lockPath); err == nil {
+		if time.Since(st.ModTime()) > 10*time.Minute {
+			_ = os.Remove(lockPath)
+		}
+	}
+
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return nil, err
+	}
+
+	_, _ = f.WriteString(fmt.Sprintf("%d\n", os.Getpid()))
+	return f, nil
 }
 
 func shouldSkipMigrationFile(path string) bool {
-	lower := strings.ToLower(path)
+	clean := strings.ToLower(filepath.Clean(path))
+	sep := string(filepath.Separator)
 
-	skipSuffixes := []string{
-		".tmp", ".old", ".zip", ".db", ".metadb", ".meta.json",
+	skipFragments := []string{
+		sep + "logs" + sep,
+		sep + "_migration_backup" + sep,
+		sep + "core" + sep + "bin" + sep,
 	}
-	for _, s := range skipSuffixes {
-		if strings.HasSuffix(lower, s) {
+
+	for _, frag := range skipFragments {
+		if strings.Contains(clean, frag) {
 			return true
 		}
 	}
 
-	if strings.Contains(lower, string(filepath.Separator)+"logs"+string(filepath.Separator)) {
-		return true
+	skipSuffixes := []string{
+		".tmp",
+		".old",
+		".zip",
+		".db",
+		".metadb",
+		".meta.json",
+		".lock",
 	}
 
-	// Skip backup dirs
-	if strings.Contains(lower, string(filepath.Separator)+"_migration_backup"+string(filepath.Separator)) {
-		return true
+	for _, s := range skipSuffixes {
+		if strings.HasSuffix(clean, s) {
+			return true
+		}
 	}
 
 	return false
@@ -216,12 +328,9 @@ func copyDir(src, dst string, skipFunc func(string) bool) error {
 }
 
 func copyFile(src, dst string, info os.FileInfo) error {
-	// If target exists and is a core component, we might skip based on timestamp.
-	// But generally, for migration, we want to copy user configurations.
+	// If target exists, override for configs.
 	if _, err := os.Stat(dst); err == nil {
-		// Existing file. For settings/subscriptions, override.
-		// For core/bin, could check modify time, but let's just override for simplicity,
-		// or skip if we want newer. We override everything from AppData since it's the "truth".
+		// Just override
 	}
 
 	in, err := os.Open(src)
@@ -287,24 +396,15 @@ func saveMigrationMeta(target string, meta MigrationMeta) error {
 }
 
 // RepairDataDirPermission is a utility function to be called with admin rights to repair directory ACLs.
-// Normally the installer handles this, but if the user installed to Program Files and then runs as a normal user,
-// they might not have permissions.
 func RepairDataDirPermission() error {
-	// Simple implementation: this requires admin. 
-	// The frontend will invoke this via RequestAdmin / sys.RunElevatedWithArgsWait if not admin.
-	// We can use icacls to grant Users modify permissions.
 	appDir := GetAppDir()
 	dataDir := filepath.Join(appDir, "data")
 	
 	_ = os.MkdirAll(dataDir, 0755)
 	
-	// Example of granting modify rights to BUILTIN\Users using icacls
-	// Note: in a real implementation, you might want to use syscalls or proper sid handling.
-	// For simplicity, granting 'Users' (or 'BUILTIN\Users') (M) rights.
 	cmd := "icacls"
-	args := []string{dataDir, "/grant", "Users:(OI)(CI)M", "/T", "/C", "/Q"}
+	args := []string{dataDir, "/grant", "*S-1-5-32-545:(OI)(CI)M", "/T", "/C", "/Q"}
 	
-	// Exec the command
 	out, err := exec.Command(cmd, args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("icacls failed: %v, output: %s", err, string(out))
