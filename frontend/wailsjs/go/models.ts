@@ -612,6 +612,8 @@ export namespace sys {
 	    expectedPath: string;
 	    actualPath: string;
 	    actualArgs: string;
+	    expectedDataDir: string;
+	    actualDataDir: string;
 	    isHealthy: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -630,6 +632,8 @@ export namespace sys {
 	        this.expectedPath = source["expectedPath"];
 	        this.actualPath = source["actualPath"];
 	        this.actualArgs = source["actualArgs"];
+	        this.expectedDataDir = source["expectedDataDir"];
+	        this.actualDataDir = source["actualDataDir"];
 	        this.isHealthy = source["isHealthy"];
 	    }
 	}
