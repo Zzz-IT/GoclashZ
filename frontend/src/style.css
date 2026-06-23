@@ -90,7 +90,9 @@ body {
 input,
 textarea,
 .modern-input,
-[contenteditable="true"] {
+[contenteditable="true"],
+.cm-editor,
+.cm-editor * {
     user-select: text;
     -webkit-user-select: text;
 }

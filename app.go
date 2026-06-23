@@ -430,6 +430,21 @@ func (a *App) RepairStartupTask() error {
 	return sys.CreateStartupTask(exePath)
 }
 
+func (a *App) GetDataDirInfo() sys.DataDirInfo {
+	return sys.GetDataDirInfo()
+}
+
+func (a *App) RepairDataDirMigration() error {
+	return utils.MigrateLegacyAppDataToInstallData()
+}
+
+func (a *App) RepairDataDirPermission() error {
+	if !sys.CheckAdmin() {
+		return sys.RunElevatedWithArgsWait("--repair-permissions")
+	}
+	return utils.RepairDataDirPermission()
+}
+
 func (a *App) CheckTunEnv() map[string]bool {
 	return map[string]bool{
 		"isAdmin":   sys.CheckAdmin(),

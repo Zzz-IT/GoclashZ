@@ -118,6 +118,10 @@ export function GetDNSConfig() {
   return window['go']['main']['App']['GetDNSConfig']();
 }
 
+export function GetDataDirInfo() {
+  return window['go']['main']['App']['GetDataDirInfo']();
+}
+
 export function GetEditableConfigs() {
   return window['go']['main']['App']['GetEditableConfigs']();
 }
@@ -192,6 +196,14 @@ export function RemoveUpdateTask(arg1) {
 
 export function RenameConfig(arg1, arg2) {
   return window['go']['main']['App']['RenameConfig'](arg1, arg2);
+}
+
+export function RepairDataDirMigration() {
+  return window['go']['main']['App']['RepairDataDirMigration']();
+}
+
+export function RepairDataDirPermission() {
+  return window['go']['main']['App']['RepairDataDirPermission']();
 }
 
 export function RepairStartupTask() {

@@ -27,8 +27,8 @@ jobs:
           echo "APP_TAG=$tag" >> $env:GITHUB_ENV
           echo "APP_VERSION=$version" >> $env:GITHUB_ENV
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - name: Install Go
+        uses: actions/setup-go@v4
         with:
           go-version-file: go.mod
           cache: true
@@ -157,8 +157,8 @@ jobs:
           $notes = $notes -replace "(?m)^[ \t]+", ""
           Set-Content "build/release_notes.md" $notes -Encoding UTF8
 
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
         with:
           name: GoclashZ ${{ env.APP_TAG }}
           tag_name: ${{ env.APP_TAG }}

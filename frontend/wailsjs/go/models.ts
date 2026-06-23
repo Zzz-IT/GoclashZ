@@ -579,6 +579,28 @@ export namespace main {
 
 export namespace sys {
 	
+	export class DataDirInfo {
+	    appDir: string;
+	    dataDir: string;
+	    legacyDataDir: string;
+	    legacyExists: boolean;
+	    migrated: boolean;
+	    lastError: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DataDirInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.appDir = source["appDir"];
+	        this.dataDir = source["dataDir"];
+	        this.legacyDataDir = source["legacyDataDir"];
+	        this.legacyExists = source["legacyExists"];
+	        this.migrated = source["migrated"];
+	        this.lastError = source["lastError"];
+	    }
+	}
 	export class StartupTaskInfo {
 	    exists: boolean;
 	    enabled: boolean;

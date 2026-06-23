@@ -934,6 +934,16 @@
 
             <div class="setting-item">
               <div class="info">
+                <h4>数据目录诊断</h4>
+                <p>查看并修复应用数据存储路径问题</p>
+              </div>
+              <button class="action-btn accent-btn" @click="openDataDirDiagnosticModal">检查状态</button>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
                 <h4>GitHub 仓库</h4>
                 <a href="javascript:void(0)" @click="openLink('https://github.com/Zzz-IT/GoclashZ')" class="link-item">https://github.com/Zzz-IT/GoclashZ</a>
               </div>
@@ -1156,6 +1166,54 @@
               <button class="primary-btn accent-btn flex-1" @click="handleRepairStartupTask" :disabled="repairingTask">
                 {{ repairingTask ? '修复中...' : '尝试修复任务' }}
               </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <Transition name="pop">
+      <div v-if="showDataDirDiagnosticModal" class="modal-overlay" @click.self="showDataDirDiagnosticModal = false">
+        <div class="custom-modal-card" @click.stop style="max-width: 500px;">
+          <div class="modal-header">
+            <h3>数据目录诊断</h3>
+          </div>
+          <div class="modal-body">
+            <div v-if="dataDirInfo" class="diagnostic-results" style="max-height: 400px; overflow-y: auto;">
+              <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
+                <div class="info">
+                  <h4>程序目录 (AppDir)</h4>
+                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.appDir }}</p>
+                </div>
+              </div>
+              <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
+                <div class="info">
+                  <h4>当前数据目录 (DataDir)</h4>
+                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.dataDir }}</p>
+                </div>
+              </div>
+              <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
+                <div class="info">
+                  <h4>旧 AppData 目录 (Legacy)</h4>
+                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.legacyDataDir }}</p>
+                  <p v-if="dataDirInfo.legacyExists" style="color: var(--accent); font-size: 0.8rem; margin-top: 4px;">状态: 仍存在未删除</p>
+                  <p v-else style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">状态: 不存在或已清理</p>
+                </div>
+              </div>
+              <div class="setting-item" style="padding: 6px 0; align-items: flex-start; border-bottom: none;">
+                <div class="info">
+                  <h4>迁移状态</h4>
+                  <p v-if="dataDirInfo.migrated" style="color: var(--green-text); font-weight: 600;">已完成迁移</p>
+                  <p v-else>未触发迁移或无旧数据</p>
+                  <p v-if="dataDirInfo.lastError" class="red-text" style="font-size: 0.8rem; margin-top: 4px;">错误: {{ dataDirInfo.lastError }}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div class="modal-footer" style="margin-top: 16px;">
+              <button class="action-btn flex-1" @click="showDataDirDiagnosticModal = false">关闭</button>
+              <button class="action-btn flex-1" @click="handleRepairDataDirMigration">尝试修复迁移</button>
+              <button class="primary-btn accent-btn flex-1" @click="handleRepairDataDirPermission">修复目录权限</button>
             </div>
           </div>
         </div>
@@ -1854,6 +1912,37 @@ const loadingTaskInfo = ref(false);
 const repairingTask = ref(false);
 
 const showStartupDiagnosticModal = ref(false);
+
+const showDataDirDiagnosticModal = ref(false);
+const dataDirInfo = ref<any>(null);
+
+const openDataDirDiagnosticModal = async () => {
+  try {
+    dataDirInfo.value = await API.GetDataDirInfo();
+    showDataDirDiagnosticModal.value = true;
+  } catch (error) {
+    showAlert('获取数据目录信息失败: ' + error);
+  }
+};
+
+const handleRepairDataDirMigration = async () => {
+  try {
+    await API.RepairDataDirMigration();
+    showAlert('迁移修复已执行，正在重新检查状态...');
+    dataDirInfo.value = await API.GetDataDirInfo();
+  } catch (error) {
+    showAlert('迁移修复失败: ' + error);
+  }
+};
+
+const handleRepairDataDirPermission = async () => {
+  try {
+    await API.RepairDataDirPermission();
+    showAlert('权限修复请求已发送（可能需要通过 UAC 确认）。修复完成后请手动刷新状态。');
+  } catch (error) {
+    showAlert('权限修复失败: ' + error);
+  }
+};
 
 const openStartupDiagnosticModal = async () => {
   showStartupDiagnosticModal.value = true;

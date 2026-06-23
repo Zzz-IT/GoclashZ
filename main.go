@@ -53,6 +53,30 @@ func main() {
 		logger.Infof("👉 Wails 开发模式，跳过单实例检查")
 	}
 
+	// 🚨 核心逻辑：数据目录稳定化及迁移
+	// 必须在加载任何行为/期望状态/核心之前执行。
+	if err := utils.MigrateLegacyAppDataToInstallData(); err != nil {
+		logger.Errorf("旧数据迁移失败: %v", err)
+	}
+
+	if hasFlag("--repair-permissions") {
+		if !sys.CheckAdmin() {
+			err := sys.RequestAdmin()
+			if err != nil {
+				logger.Errorf("请求管理员权限失败: %v", err)
+			}
+			os.Exit(0)
+		}
+
+		err := utils.RepairDataDirPermission()
+		if err != nil {
+			logger.Errorf("修复数据目录权限失败: %v", err)
+			os.Exit(1)
+		}
+		logger.Infof("✅ 成功修复数据目录权限")
+		os.Exit(0)
+	}
+
 	// 处理设置管理员自启的特殊参数
 	if hasFlag("--setup-elevated-startup") {
 		if !sys.CheckAdmin() {

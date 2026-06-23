@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-ole/go-ole"
+	"goclashz/core/utils"
 )
 
 const (
@@ -222,9 +223,10 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 		hasStartup := strings.Contains(info.Arguments, "--startup")
 		hasSilent := strings.Contains(info.Arguments, "--silent")
 		hasElevated := strings.Contains(info.Arguments, "--elevated")
+		hasDataDir := strings.Contains(info.Arguments, "--data-dir")
 
 		pathMismatch := !strings.EqualFold(filepath.Clean(actual), filepath.Clean(expected))
-		argsMismatch := !hasStartup || !hasSilent || (info.Mode == StartupElevated && !hasElevated)
+		argsMismatch := !hasStartup || !hasSilent || (info.Mode == StartupElevated && !hasElevated) || !hasDataDir
 
 		if pathMismatch || argsMismatch {
 			info.Enabled = false
@@ -308,7 +310,7 @@ func createStartupTaskInternal(exePath string, elevated bool) error {
 	}
 	action := actionV.ToIDispatch()
 	action.PutProperty("Path", absPath)
-	args := "--startup --silent"
+	args := fmt.Sprintf("--startup --silent --data-dir \"%s\"", utils.GetDataDir())
 	if elevated {
 		args += " --elevated"
 	}

@@ -10,8 +10,9 @@ import (
 )
 
 var (
-	appDir  string
-	dataDir string
+	appDir        string
+	dataDir       string
+	legacyDataDir string
 )
 
 func init() {
@@ -19,67 +20,77 @@ func init() {
 }
 
 func initDirs() {
-	// 1. 初始化程序目录 (AppDir)
+	appDir = resolveAppDir()
+
+	legacyDataDir = resolveLegacyAppDataDir()
+	dataDir = resolveStableDataDir(appDir)
+
+	_ = os.MkdirAll(dataDir, 0755)
+	_ = os.MkdirAll(filepath.Join(dataDir, "profiles"), 0755)      // 存放 index.json
+	_ = os.MkdirAll(filepath.Join(dataDir, "Subscriptions"), 0755) // 🎯 新增：存放 YAML 和 Rules
+	_ = os.MkdirAll(filepath.Join(dataDir, "Settings"), 0755)      // 🎯 新增：存放独立设置文件
+	_ = os.MkdirAll(filepath.Join(dataDir, "core", "bin"), 0755)   // 提前建好内核目录
+}
+
+func resolveAppDir() string {
 	exePath, err := os.Executable()
+	var dir string
 	if err != nil {
-		appDir = "."
+		dir = "."
 	} else {
-		appDir = filepath.Dir(exePath)
+		dir = filepath.Dir(exePath)
 	}
 
 	// 兼容 Wails Dev 模式与 Go 临时目录
 	if strings.Contains(exePath, "go-build") ||
-		strings.Contains(os.TempDir(), appDir) ||
+		strings.Contains(os.TempDir(), dir) ||
 		strings.Contains(exePath, "wails-dev") {
 		wd, err := os.Getwd()
 		if err == nil {
-			appDir = wd
+			dir = wd
 		}
 	}
 
 	// 兼容 build/bin 本地直接运行测试
-	if filepath.Base(appDir) == "bin" && filepath.Base(filepath.Dir(appDir)) == "build" {
-		appDir = filepath.Dir(filepath.Dir(appDir))
+	if filepath.Base(dir) == "bin" && filepath.Base(filepath.Dir(dir)) == "build" {
+		dir = filepath.Dir(filepath.Dir(dir))
 	}
 
-	// ---------------------------------------------------------
-	// 2. 🎯 智能嗅探：决定数据目录 (DataDir)
-	// ---------------------------------------------------------
-
-	// 预期在安装目录下建立一个专属的 data 文件夹（自定义模式）
-	customModeDataDir := filepath.Join(appDir, "data")
-
-	// 动态检测：当前安装目录是否允许写入？
-	if isDirWritable(appDir) {
-		// ✅ 允许写入（如 D:\GoclashZ）：触发【自定义模式】
-		dataDir = customModeDataDir
-	} else {
-		// ❌ 拒绝访问（如 C:\Program Files）：降级到【系统安全模式】(AppData)
-		configDir, err := os.UserConfigDir()
-		if err != nil {
-			configDir = appDir // 极端兜底
-		}
-		dataDir = filepath.Join(configDir, "GoclashZ")
-	}
-
-	// 确保基础目录存在
-	os.MkdirAll(dataDir, 0755)
-	os.MkdirAll(filepath.Join(dataDir, "profiles"), 0755)      // 存放 index.json
-	os.MkdirAll(filepath.Join(dataDir, "Subscriptions"), 0755) // 🎯 新增：存放 YAML 和 Rules
-	os.MkdirAll(filepath.Join(dataDir, "Settings"), 0755)      // 🎯 新增：存放独立设置文件
-	os.MkdirAll(filepath.Join(dataDir, "core", "bin"), 0755)   // 提前建好内核目录
+	return dir
 }
 
-// isDirWritable 测试目标目录是否可写 (通过静默创建和删除测试文件)
-func isDirWritable(dir string) bool {
-	testFile := filepath.Join(dir, ".write_test_goclashz")
-	f, err := os.OpenFile(testFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
-	if err != nil {
-		return false // 没权限或受 UAC 保护
+func resolveStableDataDir(appDir string) string {
+	if dir := parseDataDirArg(); dir != "" {
+		return filepath.Clean(dir)
 	}
-	f.Close()
-	_ = os.Remove(testFile)
-	return true
+
+	if dir := strings.TrimSpace(os.Getenv("GOCLASHZ_DATA_DIR")); dir != "" {
+		return filepath.Clean(dir)
+	}
+
+	return filepath.Join(appDir, "data")
+}
+
+func resolveLegacyAppDataDir() string {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(configDir, "GoclashZ")
+}
+
+func parseDataDirArg() string {
+	args := os.Args
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--data-dir" && i+1 < len(args) {
+			return strings.TrimSpace(args[i+1])
+		}
+
+		if strings.HasPrefix(args[i], "--data-dir=") {
+			return strings.TrimSpace(strings.TrimPrefix(args[i], "--data-dir="))
+		}
+	}
+	return ""
 }
 
 // GetAppDir 返回程序所在目录 (只读)
@@ -88,7 +99,6 @@ func GetAppDir() string {
 }
 
 // GetCoreBinDir 返回 clash.exe 所在目录 (只读)
-// 🎯 核心修复：内核存放目录转移到 DataDir
 func GetCoreBinDir() string {
 	return filepath.Join(dataDir, "core", "bin")
 }
@@ -96,6 +106,11 @@ func GetCoreBinDir() string {
 // GetDataDir 返回全局用户数据目录 (动态决定)
 func GetDataDir() string {
 	return dataDir
+}
+
+// GetLegacyDataDir 返回旧的 AppData 目录 (只读，仅用于迁移或诊断)
+func GetLegacyDataDir() string {
+	return legacyDataDir
 }
 
 // GetProfilesDir 返回存放 index.json 的目录
