@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
+	"unsafe"
 
 	"github.com/go-ole/go-ole"
 	"goclashz/core/utils"
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -122,13 +123,29 @@ func variantString(v any) string {
 }
 
 func splitCommandLine(args string) []string {
-	re := regexp.MustCompile(`"[^"]*"|\S+`)
-	matches := re.FindAllString(args, -1)
-	var res []string
-	for _, m := range matches {
-		res = append(res, strings.Trim(m, `"`))
+	if strings.TrimSpace(args) == "" {
+		return nil
 	}
-	return res
+
+	cmdline := `GoclashZ.exe ` + args
+	argv, err := windows.UTF16PtrFromString(cmdline)
+	if err != nil {
+		return nil
+	}
+
+	var argc int32
+	ptr, err := windows.CommandLineToArgv(argv, &argc)
+	if err != nil {
+		return nil
+	}
+	defer windows.LocalFree(windows.Handle(unsafe.Pointer(ptr)))
+
+	argsArr := (*[(1 << 29) - 1]*uint16)(unsafe.Pointer(ptr))[:argc:argc]
+	out := make([]string, 0, argc-1)
+	for i := int32(1); i < argc; i++ {
+		out = append(out, windows.UTF16PtrToString(argsArr[i]))
+	}
+	return out
 }
 
 func extractArgValue(args string, key string) string {
@@ -249,19 +266,23 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 		info.ActualArgs = info.Arguments
 
 		expectedDataDir := filepath.Clean(utils.GetDataDir())
-		actualDataDir := filepath.Clean(extractArgValue(info.Arguments, "--data-dir"))
+		rawDataDir := strings.TrimSpace(extractArgValue(info.Arguments, "--data-dir"))
+		actualDataDir := ""
+		if rawDataDir != "" {
+			actualDataDir = filepath.Clean(rawDataDir)
+		}
 
 		hasStartup := strings.Contains(info.Arguments, "--startup")
 		hasSilent := strings.Contains(info.Arguments, "--silent")
 		hasElevated := strings.Contains(info.Arguments, "--elevated")
 		hasDataDir := actualDataDir != ""
-		dataDirMismatch := !strings.EqualFold(actualDataDir, expectedDataDir)
+		dataDirMismatch := !hasDataDir || !strings.EqualFold(actualDataDir, expectedDataDir)
 
 		info.ExpectedDataDir = expectedDataDir
 		info.ActualDataDir = actualDataDir
 
 		pathMismatch := !strings.EqualFold(filepath.Clean(actual), filepath.Clean(expected))
-		argsMismatch := !hasStartup || !hasSilent || (info.Mode == StartupElevated && !hasElevated) || !hasDataDir || dataDirMismatch
+		argsMismatch := !hasStartup || !hasSilent || (info.Mode == StartupElevated && !hasElevated) || dataDirMismatch
 
 		if pathMismatch || argsMismatch {
 			info.Enabled = false

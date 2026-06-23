@@ -12,6 +12,8 @@ export const normalizeStartupTaskInfo = (info: any) => {
     expectedPath: info.expectedPath ?? info.ExpectedPath ?? '',
     actualPath: info.actualPath ?? info.ActualPath ?? '',
     actualArgs: info.actualArgs ?? info.ActualArgs ?? '',
+    expectedDataDir: info.expectedDataDir ?? info.ExpectedDataDir ?? '',
+    actualDataDir: info.actualDataDir ?? info.ActualDataDir ?? '',
     isHealthy: info.isHealthy ?? info.IsHealthy ?? false,
   };
 };
