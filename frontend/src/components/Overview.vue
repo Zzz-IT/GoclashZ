@@ -173,10 +173,6 @@ const runSysProxyWorker = async (target: boolean) => {
       pendingSysProxyTarget = null;
       sysProxyWorkerActive = false;
       setTimeout(() => refreshOutboundIP(), 1500);
-      setTimeout(async () => {
-        const state = await (API as any).GetAppState().catch(() => null);
-        if (state) updateStateFromBackend(state);
-      }, 800);
     }
   }
 };
@@ -215,10 +211,6 @@ const runTunWorker = async (target: boolean) => {
       pendingTunTarget = null;
       tunWorkerActive = false;
       setTimeout(() => refreshOutboundIP(), 1500);
-      setTimeout(async () => {
-        const state = await (API as any).GetAppState().catch(() => null);
-        if (state) updateStateFromBackend(state);
-      }, 800);
     }
   }
 };
@@ -301,10 +293,6 @@ const runModeWorker = async (targetMode: string) => {
       pendingModeTarget = null;
       modeWorkerActive = false;
       setTimeout(() => refreshOutboundIP(), 1500);
-      setTimeout(async () => {
-        const state = await (API as any).GetAppState().catch(() => null);
-        if (state) updateStateFromBackend(state);
-      }, 800);
     }
   }
 };

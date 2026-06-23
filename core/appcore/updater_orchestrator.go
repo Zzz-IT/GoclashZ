@@ -9,6 +9,7 @@ import (
 	"goclashz/core/downloader"
 	"goclashz/core/logger"
 	"goclashz/core/utils"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -46,7 +47,29 @@ func (c *Controller) UpdateAllGeoDatabasesAsync(ctx context.Context) {
 	c.GeoUpdates.UpdateAllAsync(ctx)
 }
 
+func (c *Controller) IsCoreBinWritable() bool {
+	testFile := filepath.Join(utils.GetCoreBinDir(), ".write_test")
+	err := os.WriteFile(testFile, []byte("test"), 0644)
+	if err != nil {
+		return false
+	}
+	os.Remove(testFile)
+	return true
+}
+
 func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
+	if !c.IsCoreBinWritable() {
+		errStr := "需要管理员权限进行内核更新 (组件被 Windows 安全策略保护)。请以管理员身份重启软件后重试。"
+		c.setLastError(errStr)
+		c.UpdateTasks.Set("core-update", UpdateTaskState{
+			Key:    "core-update",
+			Title:  "Mihomo 内核更新",
+			Status: "error",
+			Error:  errStr,
+		})
+		return
+	}
+
 	c.runComponentUpdateTransaction(ctx, "core-update", ComponentUpdateOptions{
 		Name:        "Mihomo 内核更新",
 		StopCore:    true,

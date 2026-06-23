@@ -49,9 +49,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: ".\build\bin\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
 ; 2. --- 核心修改 3：修正打包源路径 ---
-; 源码中内核存放在 .\data\core\bin，打包时我们把它塞进安装目录的 {app}\data\core\bin 中
+; 源码中内核存放在 .\data\core\bin，打包时我们把它塞进安装目录的 {app}\core\bin 中
 ; 排除在开发运行时产生的临时下载文件和内核缓存数据库 (如 cache.db, geoip.metadb)
-Source: ".\data\core\bin\*"; DestDir: "{app}\data\core\bin"; Excludes: "*.tmp,*.zip,*.old,*.txt,*.json,*.db,*.metadb"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: ".\data\core\bin\*"; DestDir: "{app}\core\bin"; Excludes: "*.tmp,*.zip,*.old,*.txt,*.json,*.db,*.metadb,*.meta.json"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -59,11 +59,12 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Dirs]
 Name: "{app}\data"; Permissions: users-modify
-Name: "{app}\data\core"; Permissions: users-modify
-Name: "{app}\data\core\bin"; Permissions: users-modify
 Name: "{app}\data\Settings"; Permissions: users-modify
 Name: "{app}\data\Subscriptions"; Permissions: users-modify
 Name: "{app}\data\profiles"; Permissions: users-modify
+
+Name: "{app}\core"; Permissions: users-readexec
+Name: "{app}\core\bin"; Permissions: users-readexec
 
 [INI]
 Filename: "{app}\.installed"; Section: "Install"; Key: "Status"; String: "Installed"

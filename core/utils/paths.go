@@ -29,7 +29,7 @@ func initDirs() {
 	_ = os.MkdirAll(filepath.Join(dataDir, "profiles"), 0755)      // 存放 index.json
 	_ = os.MkdirAll(filepath.Join(dataDir, "Subscriptions"), 0755) // 🎯 新增：存放 YAML 和 Rules
 	_ = os.MkdirAll(filepath.Join(dataDir, "Settings"), 0755)      // 🎯 新增：存放独立设置文件
-	_ = os.MkdirAll(filepath.Join(dataDir, "core", "bin"), 0755)   // 提前建好内核目录
+	_ = os.MkdirAll(filepath.Join(appDir, "core", "bin"), 0755)    // 提前建好内核目录
 }
 
 func resolveAppDir() string {
@@ -100,6 +100,11 @@ func GetAppDir() string {
 
 // GetCoreBinDir 返回 clash.exe 所在目录 (只读)
 func GetCoreBinDir() string {
+	return filepath.Join(appDir, "core", "bin")
+}
+
+// GetLegacyDataCoreBinDir 返回旧的 clash.exe 所在目录 (只读，仅用于迁移)
+func GetLegacyDataCoreBinDir() string {
 	return filepath.Join(dataDir, "core", "bin")
 }
 

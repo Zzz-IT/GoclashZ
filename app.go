@@ -445,6 +445,14 @@ func (a *App) RepairDataDirPermission() error {
 	return utils.RepairDataDirPermission()
 }
 
+func (a *App) RepairCoreLayout() error {
+	clash.MigrateCoreAssetsToBin()
+	if !sys.CheckAdmin() {
+		return sys.RunElevatedWithArgsWait("--repair-core-layout")
+	}
+	return utils.RepairCoreBinPermission()
+}
+
 func (a *App) CheckTunEnv() map[string]bool {
 	return map[string]bool{
 		"isAdmin":   sys.CheckAdmin(),

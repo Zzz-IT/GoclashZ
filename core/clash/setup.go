@@ -50,11 +50,15 @@ func PrepareEnv(ctx context.Context) error {
 	return nil
 }
 
-// MigrateCoreAssetsToBin 将旧版遗留在 data 根目录的资产迁移到 core/bin 下
+// MigrateCoreAssetsToBin 将旧版遗留在 data 根目录及旧 core/bin 下的资产迁移到新的 core/bin 下
 func MigrateCoreAssetsToBin() {
-	dataDir := utils.GetDataDir()
-	binDir := utils.GetCoreBinDir()
-	os.MkdirAll(binDir, 0755)
+	targetDir := utils.GetCoreBinDir()
+	_ = os.MkdirAll(targetDir, 0755)
+
+	legacyDirs := []string{
+		utils.GetLegacyDataCoreBinDir(),
+		utils.GetDataDir(),
+	}
 
 	assets := []string{
 		"clash.exe", "wintun.dll",
@@ -62,17 +66,41 @@ func MigrateCoreAssetsToBin() {
 	}
 
 	for _, name := range assets {
-		oldPath := filepath.Join(dataDir, name)
-		newPath := filepath.Join(binDir, name)
+		target := filepath.Join(targetDir, name)
 
-		if _, err := os.Stat(oldPath); err == nil {
-			// 旧路径存在文件
-			if _, err := os.Stat(newPath); os.IsNotExist(err) {
-				// 新路径不存在，执行移动
-				_ = os.Rename(oldPath, newPath)
-			} else {
-				// 新旧都存在，则删除旧的（保持清理）
-				_ = os.Remove(oldPath)
+		targetExists := false
+		if st, err := os.Stat(target); err == nil && !st.IsDir() {
+			targetExists = true
+		}
+
+		for _, legacyDir := range legacyDirs {
+			oldPath := filepath.Join(legacyDir, name)
+			if _, err := os.Stat(oldPath); err != nil {
+				continue
+			}
+
+			if targetExists {
+				_ = os.Rename(oldPath, oldPath+".old")
+				continue
+			}
+
+			if err := os.Rename(oldPath, target); err == nil {
+				targetExists = true
+				if name == "clash.exe" {
+					_ = ValidateWindowsPE(target, 5*1024*1024)
+				}
+				break
+			}
+
+			if data, err := os.ReadFile(oldPath); err == nil {
+				if err := os.WriteFile(target, data, 0755); err == nil {
+					_ = os.Remove(oldPath)
+					targetExists = true
+					if name == "clash.exe" {
+						_ = ValidateWindowsPE(target, 5*1024*1024)
+					}
+					break
+				}
 			}
 		}
 	}

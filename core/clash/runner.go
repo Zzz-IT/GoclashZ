@@ -4,6 +4,7 @@ package clash
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"goclashz/core/logger"
 	"os"
@@ -112,15 +113,20 @@ func Start(ctx context.Context) error {
 		return err
 	}
 
-	// 🎯 核心分离：
-	// -d 设定内核的 Home 目录，它会去这里找 GeoSite.dat / mmdb (因为是只读的，放 AppDir 没问题)
-	// -f 设定内核强制读取的 yaml 配置，指向我们的 DataDir
-	cmd := exec.Command(exePath, "-d", binDir, "-f", runtimeConfig)
-	cmd.Dir = binDir
-	utils.HideCommandWindow(cmd, windows.CREATE_BREAKAWAY_FROM_JOB)
+	if err := validateCoreExecutable(exePath); err != nil {
+		return err
+	}
 
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("无法启动内核: %v", err)
+	cmd, err := startCoreProcessWithRetry(ctx, exePath, binDir, runtimeConfig)
+	if err != nil {
+		if isAccessDenied(err) {
+			return fmt.Errorf(
+				"无法启动内核：Windows 拒绝执行 %s。可能原因：核心位于可写 data 目录、文件仍被安全软件扫描、或权限策略阻止。请尝试修复核心目录布局或稍后重试: %w",
+				exePath,
+				err,
+			)
+		}
+		return fmt.Errorf("无法启动内核: %w", err)
 	}
 
 	clashCmd = cmd
@@ -201,4 +207,63 @@ func Stop() error {
 
 func IsRunning() bool {
 	return isRunning.Load()
+}
+
+func validateCoreExecutable(exePath string) error {
+	st, err := os.Stat(exePath)
+	if err != nil {
+		return fmt.Errorf("内核文件不存在: %w", err)
+	}
+
+	if st.IsDir() {
+		return fmt.Errorf("内核路径不是文件: %s", exePath)
+	}
+
+	if st.Size() < 5*1024*1024 {
+		return fmt.Errorf("内核文件体积异常: %d bytes", st.Size())
+	}
+
+	return ValidateWindowsPE(exePath, 5*1024*1024)
+}
+
+func startCoreProcessWithRetry(ctx context.Context, exePath, binDir, runtimeConfig string) (*exec.Cmd, error) {
+	var lastErr error
+
+	for i := 0; i < 8; i++ {
+		cmd := exec.Command(exePath, "-d", binDir, "-f", runtimeConfig)
+		cmd.Dir = binDir
+		utils.HideCommandWindow(cmd, windows.CREATE_BREAKAWAY_FROM_JOB)
+
+		err := cmd.Start()
+		if err == nil {
+			return cmd, nil
+		}
+
+		lastErr = err
+
+		if !isAccessDenied(err) {
+			return nil, err
+		}
+
+		time.Sleep(time.Duration(250+i*250) * time.Millisecond)
+	}
+
+	return nil, fmt.Errorf("启动内核被系统拒绝，可能是文件仍被安全软件扫描或目录策略阻止: %w", lastErr)
+}
+
+func isAccessDenied(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, os.ErrPermission) {
+		return true
+	}
+
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) {
+		return errors.Is(pathErr.Err, windows.ERROR_ACCESS_DENIED)
+	}
+
+	return strings.Contains(strings.ToLower(err.Error()), "access is denied")
 }

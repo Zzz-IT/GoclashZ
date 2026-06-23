@@ -582,6 +582,12 @@ export namespace sys {
 	export class DataDirInfo {
 	    appDir: string;
 	    dataDir: string;
+	    coreBinDir: string;
+	    coreExePath: string;
+	    coreExists: boolean;
+	    coreExecutable: boolean;
+	    coreInDataDir: boolean;
+	    legacyCoreExists: boolean;
 	    legacyDataDir: string;
 	    legacyExists: boolean;
 	    migrated: boolean;
@@ -595,6 +601,12 @@ export namespace sys {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.appDir = source["appDir"];
 	        this.dataDir = source["dataDir"];
+	        this.coreBinDir = source["coreBinDir"];
+	        this.coreExePath = source["coreExePath"];
+	        this.coreExists = source["coreExists"];
+	        this.coreExecutable = source["coreExecutable"];
+	        this.coreInDataDir = source["coreInDataDir"];
+	        this.legacyCoreExists = source["legacyCoreExists"];
 	        this.legacyDataDir = source["legacyDataDir"];
 	        this.legacyExists = source["legacyExists"];
 	        this.migrated = source["migrated"];

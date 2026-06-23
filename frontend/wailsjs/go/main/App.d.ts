@@ -104,6 +104,8 @@ export function RemoveUpdateTask(arg1:string):Promise<void>;
 
 export function RenameConfig(arg1:string,arg2:string):Promise<void>;
 
+export function RepairCoreLayout():Promise<void>;
+
 export function RepairDataDirMigration():Promise<void>;
 
 export function RepairDataDirPermission():Promise<void>;

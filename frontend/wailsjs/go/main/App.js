@@ -198,6 +198,10 @@ export function RenameConfig(arg1, arg2) {
   return window['go']['main']['App']['RenameConfig'](arg1, arg2);
 }
 
+export function RepairCoreLayout() {
+  return window['go']['main']['App']['RepairCoreLayout']();
+}
+
 export function RepairDataDirMigration() {
   return window['go']['main']['App']['RepairDataDirMigration']();
 }

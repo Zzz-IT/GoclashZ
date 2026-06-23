@@ -13,6 +13,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	"goclashz/core/appcore"
+	"goclashz/core/clash"
 	"goclashz/core/logger"
 	"goclashz/core/sys"
 	"goclashz/core/utils"
@@ -74,6 +75,25 @@ func main() {
 			os.Exit(1)
 		}
 		logger.Infof("✅ 成功修复数据目录权限")
+		os.Exit(0)
+	}
+
+	if hasFlag("--repair-core-layout") {
+		if !sys.CheckAdmin() {
+			err := sys.RequestAdmin()
+			if err != nil {
+				logger.Errorf("请求管理员权限失败: %v", err)
+			}
+			os.Exit(0)
+		}
+
+		clash.MigrateCoreAssetsToBin()
+		err := utils.RepairCoreBinPermission()
+		if err != nil {
+			logger.Errorf("修复内核目录权限失败: %v", err)
+			os.Exit(1)
+		}
+		logger.Infof("✅ 成功修复内核布局及权限")
 		os.Exit(0)
 	}
 

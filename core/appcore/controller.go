@@ -209,7 +209,10 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 
 	// 只有自启且配置了恢复状态时，才执行全量恢复操作
 	if opts.IsStartupLaunch && c.Behavior.Get().RestoreOnStartup {
-		c.Supervisor.ReconcileAsync("startup")
+		go func() {
+			time.Sleep(3 * time.Second)
+			c.Supervisor.ReconcileAsync("startup")
+		}()
 	} else {
 		// 普通双击启动，或者关闭了恢复状态的自启：清空期望状态，回归一张白纸，确保清爽无拦截
 		desired := c.Desired.Get()

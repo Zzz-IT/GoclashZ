@@ -1216,12 +1216,21 @@
                   <p v-if="dataDirInfo.lastError" class="red-text" style="font-size: 0.8rem; margin-top: 4px;">错误: {{ dataDirInfo.lastError }}</p>
                 </div>
               </div>
+              <div class="setting-item" style="padding: 6px 0; align-items: flex-start; border-bottom: none;">
+                <div class="info">
+                  <h4>内核位置布局 (Core Layout)</h4>
+                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.coreExePath }}</p>
+                  <p v-if="dataDirInfo.coreInDataDir" style="color: var(--red-text); font-weight: 600; margin-top: 4px;">警告: 检测到内核仍位于可写 data 目录下，这极易导致开机自启拦截！</p>
+                  <p v-else style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">状态: 正常隔离在程序组件区</p>
+                </div>
+              </div>
             </div>
             
             <div class="modal-footer" style="margin-top: 16px;">
               <button class="action-btn flex-1" @click="showDataDirDiagnosticModal = false">关闭</button>
               <button class="action-btn flex-1" @click="handleRepairDataDirMigration">尝试修复迁移</button>
               <button class="primary-btn accent-btn flex-1" @click="handleRepairDataDirPermission">修复目录权限</button>
+              <button v-if="dataDirInfo?.coreInDataDir" class="primary-btn flex-1" style="background: var(--red-bg); color: var(--red-text);" @click="handleRepairCoreLayout">修复内核布局</button>
             </div>
           </div>
         </div>
@@ -1724,6 +1733,7 @@ const loadData = async () => {
   }
 };
 
+
 onMounted(() => { 
   loadData(); 
 
@@ -1949,6 +1959,15 @@ const handleRepairDataDirPermission = async () => {
     showAlert('权限修复请求已发送（可能需要通过 UAC 确认）。修复完成后请手动刷新状态。');
   } catch (error) {
     showAlert('权限修复失败: ' + error);
+  }
+};
+
+const handleRepairCoreLayout = async () => {
+  try {
+    await API.RepairCoreLayout();
+    showAlert('内核布局修复请求已发送（可能需要通过 UAC 确认）。修复完成后请手动刷新状态。');
+  } catch (error) {
+    showAlert('修复内核布局失败: ' + error);
   }
 };
 
