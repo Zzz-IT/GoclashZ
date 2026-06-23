@@ -29,7 +29,6 @@ type StartupMode string
 const (
 	StartupDisabled StartupMode = "disabled"
 	StartupNormal   StartupMode = "normal"
-	StartupElevated StartupMode = "elevated"
 )
 
 type StartupTaskInfo struct {
@@ -251,12 +250,8 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 			actions.Release()
 		}
 
-		if info.RunLevel == 1 {
-			info.Mode = StartupElevated
-		} else {
-			info.Mode = StartupNormal
-		}
-		
+		info.Mode = StartupNormal
+
 		// Validation
 		actualPath := strings.Trim(info.Path, "\"")
 		actualPath = strings.TrimSpace(actualPath)
@@ -274,7 +269,6 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 
 		hasStartup := strings.Contains(info.Arguments, "--startup")
 		hasSilent := strings.Contains(info.Arguments, "--silent")
-		hasElevated := strings.Contains(info.Arguments, "--elevated")
 		hasDataDir := actualDataDir != ""
 		dataDirMismatch := !hasDataDir || !strings.EqualFold(actualDataDir, expectedDataDir)
 
@@ -282,16 +276,18 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 		info.ActualDataDir = actualDataDir
 
 		pathMismatch := !strings.EqualFold(filepath.Clean(actual), filepath.Clean(expected))
-		argsMismatch := !hasStartup || !hasSilent || (info.Mode == StartupElevated && !hasElevated) || dataDirMismatch
+		argsMismatch := !hasStartup || !hasSilent || dataDirMismatch
 
-		if pathMismatch || argsMismatch {
+		// 旧的 elevated 任务 (RunLevel=1) 视为不健康，需要修复为普通任务
+		if info.RunLevel == 1 {
+			info.LastError = "旧的管理员自启任务已不再支持，请重新设置开机自启"
+			info.Enabled = false
+		} else if pathMismatch || argsMismatch {
 			info.Enabled = false
 			info.LastError = "path mismatch or incomplete arguments"
 		}
-		
-		if !info.Enabled {
-			info.Mode = StartupDisabled
-		}
+
+		info.Mode = StartupNormal
 	}
 
 	info.IsHealthy = info.Exists && info.Enabled && info.LastError == ""
@@ -300,14 +296,6 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 }
 
 func CreateStartupTask(exePath string) error {
-	return createStartupTaskInternal(exePath, false)
-}
-
-func CreateElevatedStartupTask(exePath string) error {
-	return createStartupTaskInternal(exePath, true)
-}
-
-func createStartupTaskInternal(exePath string, elevated bool) error {
 	absPath, err := filepath.Abs(exePath)
 	if err != nil {
 		return fmt.Errorf("无法获取绝对路径: %w", err)
@@ -345,13 +333,6 @@ func createStartupTaskInternal(exePath string, elevated bool) error {
 	settings.PutProperty("StopIfGoingOnBatteries", false)
 	settings.PutProperty("AllowStartIfOnBatteries", true)
 	settings.PutProperty("ExecutionTimeLimit", "PT0S")
-	
-	if elevated {
-		settings.PutProperty("MultipleInstances", 1) // IgnoreNew (1)
-		settings.PutProperty("StartWhenAvailable", true)
-		settings.PutProperty("RestartCount", 3)
-		settings.PutProperty("RestartInterval", "PT1M")
-	}
 	settings.Release()
 
 	actionsV, err := def.GetProperty("Actions")
@@ -367,9 +348,6 @@ func createStartupTaskInternal(exePath string, elevated bool) error {
 	action := actionV.ToIDispatch()
 	action.PutProperty("Path", absPath)
 	args := fmt.Sprintf("--startup --silent --data-dir \"%s\"", utils.GetDataDir())
-	if elevated {
-		args += " --elevated"
-	}
 	action.PutProperty("Arguments", args)
 	action.PutProperty("WorkingDirectory", workDir)
 	action.Release()
@@ -395,21 +373,12 @@ func createStartupTaskInternal(exePath string, elevated bool) error {
 		return fmt.Errorf("获取 Principal 失败: %w", err)
 	}
 	principal := principalV.ToIDispatch()
-	if elevated {
-		principal.PutProperty("LogonType", 3) // TASK_LOGON_INTERACTIVE_TOKEN
-		principal.PutProperty("RunLevel", 1)  // TASK_RUNLEVEL_HIGHEST (Elevated)
-	} else {
-		principal.PutProperty("LogonType", 3) // TASK_LOGON_TOKEN
-		principal.PutProperty("RunLevel", 0)  // TASK_RUNLEVEL_LUA
-	}
+	principal.PutProperty("LogonType", 3) // TASK_LOGON_TOKEN
+	principal.PutProperty("RunLevel", 0)  // TASK_RUNLEVEL_LUA (normal user)
 	principal.Release()
 
 	def.PutProperty("DisplayName", tsTaskName)
-	if elevated {
-		def.PutProperty("Description", "开机自启 GoclashZ 代理客户端 (管理员权限)")
-	} else {
-		def.PutProperty("Description", "开机自启 GoclashZ 代理客户端")
-	}
+	def.PutProperty("Description", "开机自启 GoclashZ 代理客户端")
 
 	rootV, err := sched.CallMethod("GetFolder", `\`)
 	if err != nil {
@@ -419,9 +388,6 @@ func createStartupTaskInternal(exePath string, elevated bool) error {
 	defer root.Release()
 
 	logonType := int32(3) // TASK_LOGON_TOKEN
-	if elevated {
-		logonType = 3 // TASK_LOGON_INTERACTIVE_TOKEN -> it's the same enum value, 3.
-	}
 
 	_, err = root.CallMethod("RegisterTaskDefinition",
 		tsTaskName,
@@ -432,9 +398,6 @@ func createStartupTaskInternal(exePath string, elevated bool) error {
 		logonType,
 	)
 	if err != nil {
-		if elevated {
-			return fmt.Errorf("注册管理员计划任务失败: %w", err)
-		}
 		return fmt.Errorf("注册计划任务失败: %w", err)
 	}
 

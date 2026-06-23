@@ -31,7 +31,6 @@ type AutoDelayRefreshOptions struct {
 type BootstrapOptions struct {
 	IsStartupLaunch bool
 	Silent          bool
-	Elevated        bool
 }
 
 type Options struct {
@@ -207,12 +206,9 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 
 	c.Supervisor.Start(ctx)
 
-	// 只有自启且配置了恢复状态时，才执行全量恢复操作
+	// 只有自启且配置了恢复状态时，才执行后台恢复任务（异步，带重试，不阻塞 UI）
 	if opts.IsStartupLaunch && c.Behavior.Get().RestoreOnStartup {
-		go func() {
-			time.Sleep(3 * time.Second)
-			c.Supervisor.ReconcileAsync("startup")
-		}()
+		go c.runStartupRestoreJob(ctx)
 	} else {
 		// 普通双击启动，或者关闭了恢复状态的自启：清空期望状态，回归一张白纸，确保清爽无拦截
 		desired := c.Desired.Get()
@@ -231,6 +227,42 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 	c.RefreshAppAutoUpdate()
 }
 
+// runStartupRestoreJob 在后台异步恢复代理状态，带指数退避重试
+// 不阻塞 UI 主流程，Access denied 等瞬态错误会自动重试
+func (c *Controller) runStartupRestoreJob(ctx context.Context) {
+	backoff := []time.Duration{8 * time.Second, 15 * time.Second, 30 * time.Second, 60 * time.Second, 120 * time.Second}
+
+	for attempt := 0; attempt < 5; attempt++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff[attempt]):
+		}
+
+		desired := c.Desired.Get()
+		if desired.ActiveConfig == "" && !desired.CoreRunning && !desired.SystemProxy && !desired.Tun {
+			return
+		}
+
+		c.Supervisor.ReconcileAsync("startup-restore")
+
+		// 等待一段时间让 reconcile 完成，然后检查是否成功
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+
+		state := c.GetAppState()
+		if state.IsRunning || state.SystemProxy || state.Tun {
+			logger.Infof("启动恢复成功 (attempt %d)", attempt+1)
+			return
+		}
+	}
+
+	logger.Warnf("启动恢复在 5 次尝试后仍未成功")
+}
+
 func (c *Controller) syncStartupTaskStateSafe() {
 	info, err := sys.CheckStartupTask()
 	if err != nil {
@@ -242,13 +274,6 @@ func (c *Controller) syncStartupTaskStateSafe() {
 
 	// 只有明确检测到任务不存在/禁用，才更新为 false，避免错误覆盖
 	behavior.StartupWithOS = info.Exists && info.Enabled
-	
-	// 如果检测到了任务的模式，才更新；否则保留用户之前的预期（或者是默认的 elevated）
-	if string(info.Mode) != "" && string(info.Mode) != "disabled" {
-		behavior.StartupMode = string(info.Mode)
-	} else if behavior.StartupMode == "" {
-		behavior.StartupMode = "elevated"
-	}
 
 	_ = c.Behavior.SetAndSave(behavior)
 }
@@ -1128,15 +1153,15 @@ func (c *Controller) SaveAppBehavior(b AppBehavior) error {
 		c.events.Emit("traffic-stat-mode-changed", next.ProxyTrafficOnly)
 	}
 
-	if old.StartupWithOS != next.StartupWithOS || old.StartupMode != next.StartupMode {
-		c.handleStartupWithOSChange(next.StartupWithOS, next.StartupMode)
+	if old.StartupWithOS != next.StartupWithOS {
+		c.handleStartupWithOSChange(next.StartupWithOS)
 	}
 
 	c.SyncState()
 	return nil
 }
 
-func (c *Controller) handleStartupWithOSChange(enable bool, mode string) {
+func (c *Controller) handleStartupWithOSChange(enable bool) {
 	exePath, err := os.Executable()
 	if err != nil {
 		c.events.Emit("app-state-sync", c.GetAppState())
@@ -1147,18 +1172,10 @@ func (c *Controller) handleStartupWithOSChange(enable bool, mode string) {
 	_ = sys.DeleteStartupTask()
 
 	if enable {
-		var createTaskErr error
-		if mode == "elevated" {
-			createTaskErr = sys.CreateElevatedStartupTask(exePath)
-		} else {
-			createTaskErr = sys.CreateStartupTask(exePath)
-		}
-
-		if createTaskErr != nil {
+		if createTaskErr := sys.CreateStartupTask(exePath); createTaskErr != nil {
 			// Roll back on failure
 			behavior := c.Behavior.Get()
 			behavior.StartupWithOS = false
-			behavior.StartupMode = "normal"
 			_ = c.Behavior.SetAndSave(behavior)
 			c.setLastError("设置开机自启失败: " + createTaskErr.Error())
 			c.events.Emit("app-state-sync", c.GetAppState())

@@ -12,7 +12,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
-	"goclashz/core/appcore"
 	"goclashz/core/clash"
 	"goclashz/core/logger"
 	"goclashz/core/sys"
@@ -96,52 +95,6 @@ func main() {
 		logger.Infof("✅ 成功修复内核布局及权限")
 		os.Exit(0)
 	}
-
-	// 处理设置管理员自启的特殊参数
-	if hasFlag("--setup-elevated-startup") {
-		if !sys.CheckAdmin() {
-			err := sys.RequestAdmin()
-			if err != nil {
-				logger.Errorf("请求管理员权限失败: %v", err)
-			}
-			os.Exit(0)
-		}
-
-		err := sys.CreateElevatedStartupTask(exePath)
-		if err != nil {
-			store := appcore.NewBehaviorStore()
-			b := store.Get()
-			b.StartupWithOS = false
-			b.StartupMode = "normal"
-			_ = store.SetAndSave(b)
-
-			logger.Errorf("创建最高权限自启任务失败: %v", err)
-			os.Exit(1)
-		}
-
-		store := appcore.NewBehaviorStore()
-		b := store.Get()
-		b.StartupWithOS = true
-		b.StartupMode = "elevated"
-		_ = store.SetAndSave(b)
-
-		logger.Infof("✅ 成功创建最高权限开机自启任务")
-		os.Exit(0)
-	}
-
-	// 提前读取配置以决定是否需要提权启动
-	// 只有当启动模式是 elevated，且当前并非由于已提权重启、且非管理员状态时才提权
-	if !sys.CheckAdmin() && !hasFlag("--elevated") {
-		behavior := appcore.NewBehaviorStore().Get()
-		if behavior.StartupMode == "elevated" && hasFlag("--startup") {
-			err := sys.RequestAdmin()
-			if err != nil {
-				logger.Errorf("根据设置请求管理员权限失败: %v", err)
-			}
-			os.Exit(0)
-		}
-	}
-
 
 	// 2. 单实例锁逻辑
 	if !isDebugMode {

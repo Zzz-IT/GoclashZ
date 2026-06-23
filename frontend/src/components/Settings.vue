@@ -623,24 +623,6 @@
             <Transition name="dropdown">
               <div v-if="behavior.startupWithOS" class="delay-retention-sub-items">
                 <div class="divider"></div>
-                <div class="setting-item" style="align-items: flex-start;">
-                  <div class="info">
-                    <h4>启动模式</h4>
-                    <p v-if="behavior.startupMode === 'elevated'" class="status-msg" style="margin-top: 6px; line-height: 1.6; font-size: 0.8rem; font-weight: normal;">
-                      以最高权限在登录后启动，首次启用需确认 UAC 授权。
-                    </p>
-                  </div>
-                  <ModernSelect 
-                    v-model="behavior.startupMode" 
-                    :options="[
-                      { label: '管理员模式 (推荐)', value: 'elevated' },
-                      { label: '普通自启', value: 'normal' }
-                    ]" 
-                    @change="handleStartupModeChange"
-                  />
-                </div>
-                
-                <div class="divider"></div>
                 
                 <div class="setting-item">
                   <div class="info">
@@ -1136,7 +1118,7 @@
                 <strong>错误：</strong>{{ startupTaskInfo.lastError }}
               </div>
               
-              <div style="background: var(--bg-secondary); padding: 12px; border-radius: 8px;">
+                <div style="background: var(--bg-secondary); padding: 12px; border-radius: 8px;">
                 <div style="display: flex; margin-bottom: 4px;">
                   <span style="color: var(--text-muted); width: 80px;">期望路径:</span>
                   <span style="word-break: break-all; flex: 1;">{{ startupTaskInfo.expectedPath }}</span>
@@ -1144,14 +1126,6 @@
                 <div style="display: flex; margin-bottom: 4px;">
                   <span style="color: var(--text-muted); width: 80px;">实际路径:</span>
                   <span style="word-break: break-all; flex: 1;" :style="{ color: startupTaskInfo.actualPath ? 'inherit' : 'var(--red-text)' }">{{ startupTaskInfo.actualPath || '未配置' }}</span>
-                </div>
-                <div style="display: flex; margin-bottom: 4px;">
-                  <span style="color: var(--text-muted); width: 80px;">期望模式:</span>
-                  <span>{{ behavior.startupMode === 'elevated' ? '最高权限' : '普通权限' }}</span>
-                </div>
-                <div style="display: flex; margin-bottom: 4px;">
-                  <span style="color: var(--text-muted); width: 80px;">实际模式:</span>
-                  <span>{{ startupTaskInfo.runLevel === 1 ? '最高权限' : (startupTaskInfo.runLevel === 0 ? '普通权限' : '未知') }}</span>
                 </div>
                 <div style="display: flex; margin-bottom: 4px;">
                   <span style="color: var(--text-muted); width: 80px;">期望数据:</span>
@@ -1625,9 +1599,8 @@ watch(() => netConfig.value.hosts, (newVal) => {
 const behavior = ref<any>({
   silentStart: false,
   closeToTray: true,
-  startupWithOS: false,
-  startupMode: 'elevated',
-  restoreOnStartup: false,
+    startupWithOS: false,
+    restoreOnStartup: false,
   // 👇 新增：显色彩色延迟数字
   colorDelay: false,
   delayRetention: false,          // 👇 移到了这里
@@ -1889,37 +1862,6 @@ const saveBehavior = async () => {
 const handleStartupWithOSChange = async () => {
   if (!behavior.value.startupWithOS) {
     behavior.value.restoreOnStartup = false;
-  } else if (behavior.value.startupMode === 'elevated') {
-    try {
-      await (API as any).SetupElevatedStartupAndSaveBehavior(behavior.value);
-      loadStartupTaskInfo();
-      return; // 内部已落盘保存，无需再次 saveBehavior
-    } catch (e) {
-      console.error('提权注册自启失败', e);
-      behavior.value.startupWithOS = false;
-      behavior.value.restoreOnStartup = false;
-      await showAlert("管理员自启注册失败：" + e, "错误", true);
-      return;
-    }
-  }
-  saveBehavior();
-  loadStartupTaskInfo();
-};
-
-const handleStartupModeChange = async () => {
-  if (behavior.value.startupWithOS && behavior.value.startupMode === 'elevated') {
-    try {
-      await (API as any).SetupElevatedStartupAndSaveBehavior(behavior.value);
-      loadStartupTaskInfo();
-      return; // 内部已落盘保存，无需再次 saveBehavior
-    } catch (e) {
-      console.error('提权注册自启失败', e);
-      behavior.value.startupWithOS = false;
-      behavior.value.restoreOnStartup = false;
-      await showAlert("管理员自启注册失败：" + e, "错误", true);
-      loadStartupTaskInfo();
-      return;
-    }
   }
   saveBehavior();
   loadStartupTaskInfo();

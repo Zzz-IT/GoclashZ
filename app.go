@@ -119,7 +119,6 @@ func (a *App) startup(ctx context.Context) {
 	a.core.Bootstrap(ctx, appcore.BootstrapOptions{
 		IsStartupLaunch: hasFlag("--startup"),
 		Silent:          isSilent,
-		Elevated:        sys.CheckAdmin(),
 	})
 
 	if !isSilent {
@@ -373,42 +372,6 @@ func (a *App) SaveThemePreference(isDark bool) {
 
 // --- System Tools ---
 
-func (a *App) SetupElevatedStartupAndSaveBehavior(config AppBehavior) error {
-	exePath, err := os.Executable()
-	if err != nil {
-		return err
-	}
-
-	oldConfig := a.core.Behavior.Get()
-
-	// 1. 先保存预期的开机自启配置
-	config.StartupWithOS = true
-	config.StartupMode = "elevated"
-	if err := a.core.Behavior.SetAndSave(config); err != nil {
-		return fmt.Errorf("保存 elevated 启动配置失败: %w", err)
-	}
-	// 同步一下状态
-	a.SyncState()
-
-	// 2. 如果非管理员，调用 RunElevatedWithArgsWait 等待子进程创建任务，不会退出当前进程
-	if !sys.CheckAdmin() {
-		if err := sys.RunElevatedWithArgsWait("--setup-elevated-startup"); err != nil {
-			_ = a.core.Behavior.SetAndSave(oldConfig)
-			a.SyncState()
-			return err
-		}
-		return nil
-	}
-
-	// 3. 如果已经是管理员，直接创建任务
-	if err := sys.CreateElevatedStartupTask(exePath); err != nil {
-		_ = a.core.Behavior.SetAndSave(oldConfig)
-		a.SyncState()
-		return err
-	}
-	return nil
-}
-
 func (a *App) GetStartupTaskInfo() (sys.StartupTaskInfo, error) {
 	return sys.CheckStartupTask()
 }
@@ -418,15 +381,6 @@ func (a *App) RepairStartupTask() error {
 	if err != nil {
 		return err
 	}
-	
-	behavior := a.core.Behavior.Get()
-	if behavior.StartupMode == "elevated" {
-		if !sys.CheckAdmin() {
-			return sys.RunElevatedWithArgsWait("--setup-elevated-startup")
-		}
-		return sys.CreateElevatedStartupTask(exePath)
-	}
-	
 	return sys.CreateStartupTask(exePath)
 }
 

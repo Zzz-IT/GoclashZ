@@ -95,7 +95,7 @@ func (s *CoreSupervisor) Reconcile(reason string) {
 
 
 	if desired.Tun && !sys.CheckAdmin() {
-		s.controller.setLastError("TUN 需要管理员权限")
+		s.controller.setLastError("TUN 模式需要安装后台服务 (GoclashZHelper) 才能在开机后自动恢复")
 		s.controller.SyncState()
 		return
 	}
