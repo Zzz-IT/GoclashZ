@@ -96,6 +96,60 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Helper 服务管理命令（由提权子进程执行）
+	if hasFlag("--install-helper") {
+		if !sys.CheckAdmin() {
+			if err := sys.RequestAdmin(); err != nil {
+				logger.Errorf("请求管理员权限失败: %v", err)
+			}
+			os.Exit(0)
+		}
+		exePath := filepath.Join(filepath.Dir(exePath), "GoclashZHelper.exe")
+		if err := sys.InstallHelperService(exePath); err != nil {
+			logger.Errorf("安装 Helper 服务失败: %v", err)
+			os.Exit(1)
+		}
+		if err := sys.StartHelperService(); err != nil {
+			logger.Errorf("启动 Helper 服务失败: %v", err)
+			os.Exit(1)
+		}
+		logger.Infof("✅ 成功安装并启动 Helper 服务")
+		os.Exit(0)
+	}
+
+	if hasFlag("--uninstall-helper") {
+		if !sys.CheckAdmin() {
+			if err := sys.RequestAdmin(); err != nil {
+				logger.Errorf("请求管理员权限失败: %v", err)
+			}
+			os.Exit(0)
+		}
+		if err := sys.UninstallHelperService(); err != nil {
+			logger.Errorf("卸载 Helper 服务失败: %v", err)
+			os.Exit(1)
+		}
+		logger.Infof("✅ 成功卸载 Helper 服务")
+		os.Exit(0)
+	}
+
+	if hasFlag("--restart-helper") {
+		if !sys.CheckAdmin() {
+			if err := sys.RequestAdmin(); err != nil {
+				logger.Errorf("请求管理员权限失败: %v", err)
+			}
+			os.Exit(0)
+		}
+		if err := sys.StopHelperService(); err != nil {
+			logger.Warnf("停止 Helper 服务失败: %v", err)
+		}
+		if err := sys.StartHelperService(); err != nil {
+			logger.Errorf("启动 Helper 服务失败: %v", err)
+			os.Exit(1)
+		}
+		logger.Infof("✅ 成功重启 Helper 服务")
+		os.Exit(0)
+	}
+
 	// 2. 单实例锁逻辑
 	if !isDebugMode {
 		mutexName, _ := syswin.UTF16PtrFromString("Global\\GoclashZ_Single_Instance_Mutex")

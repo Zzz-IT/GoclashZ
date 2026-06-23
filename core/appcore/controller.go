@@ -879,8 +879,9 @@ func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
 // ToggleTunMode 开关：TUN 模式
 func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
 	if enable {
-		if !sys.CheckAdmin() {
-			return fmt.Errorf("TUN 模式必须以管理员身份运行")
+		helperStatus := sys.CheckHelperService()
+		if !helperStatus.Reachable {
+			return fmt.Errorf("TUN 模式需要后台服务 (GoclashZHelper) 运行中，请在设置中安装或启动服务")
 		}
 		if !sys.IsWintunInstalled() {
 			return fmt.Errorf("缺失 Wintun 驱动")

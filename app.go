@@ -384,6 +384,60 @@ func (a *App) RepairStartupTask() error {
 	return sys.CreateStartupTask(exePath)
 }
 
+// --- Helper Service Management ---
+
+// GetHelperServiceStatus 返回后台服务状态
+func (a *App) GetHelperServiceStatus() sys.HelperStatusData {
+	return sys.CheckHelperService()
+}
+
+// InstallHelperService 安装后台服务（需要 UAC 提权）
+func (a *App) InstallHelperService() error {
+	exePath := filepath.Join(utils.GetAppDir(), "GoclashZHelper.exe")
+	if _, err := os.Stat(exePath); err != nil {
+		return fmt.Errorf("GoclashZHelper.exe 不存在于 %s，请先部署 helper 程序", exePath)
+	}
+
+	// 非管理员需要提权
+	if !sys.CheckAdmin() {
+		if err := sys.RunElevatedWithArgsWait("--install-helper"); err != nil {
+			return fmt.Errorf("安装后台服务失败: %w", err)
+		}
+		// 等待服务就绪
+		time.Sleep(500 * time.Millisecond)
+		return sys.WaitForHelperReady(5, 1*time.Second)
+	}
+
+	if err := sys.InstallHelperService(exePath); err != nil {
+		return err
+	}
+	if err := sys.StartHelperService(); err != nil {
+		return err
+	}
+	time.Sleep(300 * time.Millisecond)
+	return sys.WaitForHelperReady(5, 1*time.Second)
+}
+
+// UninstallHelperService 卸载后台服务（需要 UAC 提权）
+func (a *App) UninstallHelperService() error {
+	if !sys.CheckAdmin() {
+		return sys.RunElevatedWithArgsWait("--uninstall-helper")
+	}
+	return sys.UninstallHelperService()
+}
+
+// RestartHelperService 重启后台服务（需要 UAC 提权）
+func (a *App) RestartHelperService() error {
+	if !sys.CheckAdmin() {
+		return sys.RunElevatedWithArgsWait("--restart-helper")
+	}
+	if err := sys.StopHelperService(); err != nil {
+		return err
+	}
+	time.Sleep(300 * time.Millisecond)
+	return sys.StartHelperService()
+}
+
 func (a *App) GetDataDirInfo() sys.DataDirInfo {
 	return sys.GetDataDirInfo()
 }

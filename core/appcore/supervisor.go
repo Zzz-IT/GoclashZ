@@ -94,10 +94,13 @@ func (s *CoreSupervisor) Reconcile(reason string) {
 
 
 
-	if desired.Tun && !sys.CheckAdmin() {
-		s.controller.setLastError("TUN 模式需要安装后台服务 (GoclashZHelper) 才能在开机后自动恢复")
-		s.controller.SyncState()
-		return
+	if desired.Tun {
+		helperStatus := sys.CheckHelperService()
+		if !helperStatus.Reachable {
+			s.controller.setLastError("TUN 模式需要后台服务 (GoclashZHelper) 运行中，请在设置中安装或启动服务")
+			s.controller.SyncState()
+			return
+		}
 	}
 
 	if desired.Tun && !sys.IsWintunInstalled() {

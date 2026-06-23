@@ -647,6 +647,47 @@
             </Transition>
             <div class="divider"></div>
 
+            <!-- 后台服务管理 (GoclashZHelper) -->
+            <div class="setting-item">
+              <div class="info">
+                <h4>后台服务</h4>
+                <p>GoclashZHelper 服务为 TUN 模式、内核更新等高权限功能提供支持。</p>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span :style="{ color: helperStatus.reachable ? 'var(--green-text)' : (helperStatus.installed ? 'var(--yellow-text)' : 'var(--text-muted)'), fontSize: '0.8rem' }">
+                  {{ helperStatus.reachable ? '运行中' : (helperStatus.installed ? (helperStatus.running ? '连接失败' : '已停止') : '未安装') }}
+                </span>
+                <button class="action-btn" @click="refreshHelperStatus" :disabled="helperLoading" style="min-width: 60px;">
+                  {{ helperLoading ? '...' : '刷新' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="info">
+                <p v-if="!helperStatus.installed" style="color: var(--yellow-text); font-size: 0.8rem; margin-top: 4px;">
+                  TUN 模式需要后台服务才能在开机后自动恢复。点击右侧按钮安装。
+                </p>
+                <p v-else-if="!helperStatus.reachable" style="color: var(--yellow-text); font-size: 0.8rem; margin-top: 4px;">
+                  服务已安装但未正常运行，请尝试重启。
+                </p>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button v-if="!helperStatus.installed" class="primary-btn accent-btn" @click="installHelper" :disabled="helperLoading" style="font-size: 0.8rem; padding: 6px 12px;">
+                  安装服务
+                </button>
+                <template v-else>
+                  <button class="action-btn" @click="restartHelper" :disabled="helperLoading" style="font-size: 0.8rem; padding: 6px 12px;">
+                    重启
+                  </button>
+                  <button class="action-btn" @click="uninstallHelper" :disabled="helperLoading" style="font-size: 0.8rem; padding: 6px 12px; color: var(--red-text);">
+                    卸载
+                  </button>
+                </template>
+              </div>
+            </div>
+            <div class="divider"></div>
+
             <div class="setting-item">
               <div class="info">
                 <h4>自动延迟测速</h4>
@@ -1689,6 +1730,7 @@ const loadData = async () => {
     if (behaviorConf) {
       behavior.value = behaviorConf;
       loadStartupTaskInfo();
+      refreshHelperStatus();
     }
 
     const info = await (API as any).GetComponentFileInfo();
@@ -1872,6 +1914,60 @@ const loadingTaskInfo = ref(false);
 const repairingTask = ref(false);
 
 const showStartupDiagnosticModal = ref(false);
+
+// Helper 服务状态
+const helperStatus = ref<any>({ installed: false, running: false, reachable: false });
+const helperLoading = ref(false);
+
+const refreshHelperStatus = async () => {
+  helperLoading.value = true;
+  try {
+    helperStatus.value = await (API as any).GetHelperServiceStatus();
+  } catch (e) {
+    console.error('获取 Helper 服务状态失败', e);
+  } finally {
+    helperLoading.value = false;
+  }
+};
+
+const installHelper = async () => {
+  helperLoading.value = true;
+  try {
+    await (API as any).InstallHelperService();
+    await refreshHelperStatus();
+    showAlert('后台服务安装成功', '完成');
+  } catch (e) {
+    showAlert('安装后台服务失败: ' + e, '错误', true);
+  } finally {
+    helperLoading.value = false;
+  }
+};
+
+const uninstallHelper = async () => {
+  helperLoading.value = true;
+  try {
+    await (API as any).UninstallHelperService();
+    await refreshHelperStatus();
+    showAlert('后台服务已卸载', '完成');
+  } catch (e) {
+    showAlert('卸载后台服务失败: ' + e, '错误', true);
+  } finally {
+    helperLoading.value = false;
+  }
+};
+
+const restartHelper = async () => {
+  helperLoading.value = true;
+  try {
+    await (API as any).RestartHelperService();
+    await refreshHelperStatus();
+    showAlert('后台服务已重启', '完成');
+  } catch (e) {
+    showAlert('重启后台服务失败: ' + e, '错误', true);
+  } finally {
+    helperLoading.value = false;
+  }
+};
 
 const showDataDirDiagnosticModal = ref(false);
 const dataDirInfo = ref<any>(null);

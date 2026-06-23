@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"goclashz/core/logger"
+	"goclashz/core/sys"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,6 +38,7 @@ var (
 	isIntentionalStop atomic.Bool
 	processExitCh     chan struct{} // 👈 新增：进程退出信号通道
 	onExitCallback    OnExitFunc    // 🚀 新增：退出回调，替代直接引用 Wails
+	startedViaHelper  atomic.Bool   // 标记是否通过 helper 启动
 )
 
 // SetOnExitCallback 注册内核异常退出的回调（由 appcore 层在启动时设置）
@@ -87,6 +89,29 @@ func cleanupResidualClashProcess(pidFile string, expectedExeName string) {
 	_ = os.Remove(pidFile)
 }
 
+// tryStartViaHelper 尝试通过 Helper 服务启动内核
+// 返回 true 表示成功通过 helper 启动，false 表示需要 fallback 到直接启动
+func tryStartViaHelper(ctx context.Context, exePath, binDir, runtimeConfig string) bool {
+	helperStatus := sys.CheckHelperService()
+	if !helperStatus.Installed || !helperStatus.Running || !helperStatus.Reachable {
+		return false
+	}
+
+	client := sys.NewHelperClient()
+	err := client.StartCore(sys.StartCoreParams{
+		CorePath:      exePath,
+		BinDir:        binDir,
+		RuntimeConfig: runtimeConfig,
+		Args:          []string{"-d", binDir, "-f", runtimeConfig},
+	})
+	if err != nil {
+		logger.Warnf("Helper 启动内核失败，将 fallback 到直接启动: %v", err)
+		return false
+	}
+
+	return true
+}
+
 func Start(ctx context.Context) error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -117,6 +142,17 @@ func Start(ctx context.Context) error {
 		return err
 	}
 
+	// 🚀 优先尝试通过 Helper 服务启动内核（TUN 场景需要服务权限）
+	if helperStartOk := tryStartViaHelper(ctx, exePath, binDir, runtimeConfig); helperStartOk {
+		startedViaHelper.Store(true)
+		isRunning.Store(true)
+		isIntentionalStop.Store(false)
+		logger.Infof("内核已通过 Helper 服务启动")
+		return nil
+	}
+
+	// Fallback: 直接启动内核进程
+	startedViaHelper.Store(false)
 	cmd, err := startCoreProcessWithRetry(ctx, exePath, binDir, runtimeConfig)
 	if err != nil {
 		if isAccessDenied(err) {
@@ -165,6 +201,18 @@ func Start(ctx context.Context) error {
 func Stop() error {
 	mu.Lock()
 	isIntentionalStop.Store(true)
+
+	// 🚀 如果通过 helper 启动，也通过 helper 停止
+	if startedViaHelper.Load() {
+		mu.Unlock()
+		client := sys.NewHelperClient()
+		if err := client.StopCore(filepath.Base(filepath.Join(utils.GetCoreBinDir(), "clash.exe"))); err != nil {
+			logger.Warnf("Helper 停止内核失败: %v", err)
+		}
+		startedViaHelper.Store(false)
+		isRunning.Store(false)
+		return nil
+	}
 
 	var exitCh chan struct{}
 	var proc *os.Process
