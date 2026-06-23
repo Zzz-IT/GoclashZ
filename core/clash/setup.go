@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"goclashz/core/downloader"
+	"goclashz/core/sys"
 	"goclashz/core/utils"
 )
 
@@ -303,12 +304,23 @@ func CommitCoreUpdate(ctx context.Context, prepared map[string]string) (string, 
 		return "", fmt.Errorf("内核更新 staging 信息缺失")
 	}
 
-	if err := WaitFileReleased(exePath, 5*time.Second); err != nil {
-		return "", err
-	}
+	// 如果 core\bin 不可写，通过 helper 服务替换
+	if !isDirWritable(filepath.Dir(exePath)) {
+		client := sys.NewHelperClient()
+		if err := client.ReplaceCoreFile(sys.ReplaceCoreFileParams{
+			Source: stagedExe,
+			Target: exePath,
+		}); err != nil {
+			return "", fmt.Errorf("通过 Helper 替换内核失败: %w", err)
+		}
+	} else {
+		if err := WaitFileReleased(exePath, 5*time.Second); err != nil {
+			return "", err
+		}
 
-	if err := ReplaceFileWithBackup(stagedExe, exePath); err != nil {
-		return "", err
+		if err := ReplaceFileWithBackup(stagedExe, exePath); err != nil {
+			return "", err
+		}
 	}
 
 	ClearLocalCoreVersionCache()

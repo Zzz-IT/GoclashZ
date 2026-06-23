@@ -28,7 +28,7 @@ DisableDirPage=no
 
 ; --- 核心修改 2：降级权限要求 ---
 ; 软件安装和日常运行不需要管理员权限。
-; (开启 TUN 虚拟网卡时，你代码里的 sys.CheckAdmin 会自动弹出 UAC 提权，体验更好)
+; TUN 模式通过 GoclashZHelper 后台服务提供高权限能力，无需 UI 提权。
 PrivilegesRequired=lowest
 
 ; 输出设置
@@ -48,7 +48,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; 1. 打包主程序
 Source: ".\build\bin\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
-; 2. --- 核心修改 3：修正打包源路径 ---
+; 2. 打包 Helper 服务程序 (用于 TUN、内核更新等高权限操作)
+Source: ".\build\bin\GoclashZHelper.exe"; DestDir: "{app}"; Flags: ignoreversion
+
+; 3. --- 核心修改 3：修正打包源路径 ---
 ; 源码中内核存放在 .\data\core\bin，打包时我们把它塞进安装目录的 {app}\core\bin 中
 ; 排除在开发运行时产生的临时下载文件和内核缓存数据库 (如 cache.db, geoip.metadb)
 Source: ".\data\core\bin\*"; DestDir: "{app}\core\bin"; Excludes: "*.tmp,*.zip,*.old,*.txt,*.json,*.db,*.metadb,*.meta.json"; Flags: ignoreversion recursesubdirs createallsubdirs

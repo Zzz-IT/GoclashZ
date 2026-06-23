@@ -12,19 +12,19 @@ import (
 )
 
 const (
-	helperConnectTimeout = 3 * time.Second
+	helperConnectTimeout = 500 * time.Millisecond
 	helperRequestTimeout = 10 * time.Second
 )
 
-// HelperClient 通过 named pipe 与 GoclashZHelper 服务通信
+// HelperClient 通过 TCP 与 GoclashZHelper 服务通信
 type HelperClient struct {
-	pipeName string
+	addr string
 }
 
 // NewHelperClient 创建 helper 客户端
 func NewHelperClient() *HelperClient {
 	return &HelperClient{
-		pipeName: GetHelperPipeName(),
+		addr: HelperAddr,
 	}
 }
 
@@ -117,15 +117,27 @@ func (c *HelperClient) ReplaceCoreFile(params ReplaceCoreFileParams) error {
 	return nil
 }
 
-// sendRequest 通过 named pipe 发送请求并等待响应
-func (c *HelperClient) sendRequest(method string, params json.RawMessage) (*HelperResponse, error) {
-	if err := validatePipeName(c.pipeName); err != nil {
-		return nil, err
-	}
-
-	conn, err := net.DialTimeout("pipe", c.pipeName, helperConnectTimeout)
+// InstallWintun 通过 helper 安装 Wintun 驱动文件
+func (c *HelperClient) InstallWintun(source, target string) error {
+	data, err := json.Marshal(InstallWintunParams{Source: source, Target: target})
 	if err != nil {
-		return nil, fmt.Errorf("connect to helper pipe failed: %w", err)
+		return err
+	}
+	resp, err := c.sendRequest("install-wintun", data)
+	if err != nil {
+		return fmt.Errorf("helper install-wintun failed: %w", err)
+	}
+	if !resp.OK {
+		return fmt.Errorf("helper install-wintun error: %s", resp.Error)
+	}
+	return nil
+}
+
+// sendRequest 通过 TCP 发送请求并等待响应
+func (c *HelperClient) sendRequest(method string, params json.RawMessage) (*HelperResponse, error) {
+	conn, err := net.DialTimeout("tcp", c.addr, helperConnectTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("connect to helper failed: %w", err)
 	}
 	defer conn.Close()
 
@@ -134,6 +146,7 @@ func (c *HelperClient) sendRequest(method string, params json.RawMessage) (*Help
 	}
 
 	req := HelperRequest{
+		Secret: HelperSecret,
 		Method: method,
 		Params: params,
 	}
@@ -180,7 +193,7 @@ func CheckHelperService() HelperStatusData {
 		return status
 	}
 
-	// 3. 通过 named pipe ping 验证可达
+	// 3. 通过 TCP ping 验证可达
 	client := NewHelperClient()
 	if err := client.Ping(); err != nil {
 		status.Error = fmt.Sprintf("服务可达性检查失败: %v", err)
@@ -208,7 +221,6 @@ func InstallHelperService(exePath string) error {
 
 // UninstallHelperService 卸载 helper 服务（需要管理员权限）
 func UninstallHelperService() error {
-	// 先尝试停止服务
 	_ = StopHelperService()
 	return uninstallServiceSCM(HelperServiceName)
 }
@@ -223,7 +235,7 @@ func StopHelperService() error {
 	return stopServiceSCM(HelperServiceName)
 }
 
-// WaitForHelperReady 等待 helper 服务就绪（最多 maxRetries 次，每次间隔 interval）
+// WaitForHelperReady 等待 helper 服务就绪
 func WaitForHelperReady(maxRetries int, interval time.Duration) error {
 	client := NewHelperClient()
 	for i := 0; i < maxRetries; i++ {

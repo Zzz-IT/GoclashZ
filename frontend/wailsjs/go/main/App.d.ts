@@ -68,6 +68,8 @@ export function GetDataDirInfo():Promise<sys.DataDirInfo>;
 
 export function GetEditableConfigs():Promise<Array<clash.ConfigTextResult>>;
 
+export function GetHelperServiceStatus():Promise<sys.HelperStatusData>;
+
 export function GetInitialData():Promise<Record<string, any>>;
 
 export function GetLocalConfigs():Promise<Array<clash.SubIndexItem>>;
@@ -94,6 +96,8 @@ export function GetWintunVersion():Promise<string>;
 
 export function HideMainWindow():Promise<void>;
 
+export function InstallHelperService():Promise<void>;
+
 export function InstallTunDriverAsync(arg1:boolean):Promise<void>;
 
 export function IsConfigEditable(arg1:string):Promise<boolean>;
@@ -117,6 +121,8 @@ export function ResetComponentSettings(arg1:string):Promise<void>;
 export function ResetTrafficTotals():Promise<void>;
 
 export function RestartCore():Promise<void>;
+
+export function RestartHelperService():Promise<void>;
 
 export function SaveAppBehavior(arg1:appcore.AppBehavior):Promise<void>;
 
@@ -146,8 +152,6 @@ export function SelectLocalFile():Promise<main.FileInfo>;
 
 export function SelectProxy(arg1:string,arg2:string):Promise<void>;
 
-export function SetupElevatedStartupAndSaveBehavior(arg1:appcore.AppBehavior):Promise<void>;
-
 export function ShowMainWindow():Promise<void>;
 
 export function StartClash(arg1:string):Promise<void>;
@@ -171,6 +175,8 @@ export function ToggleMainWindow():Promise<void>;
 export function ToggleSystemProxy(arg1:boolean):Promise<void>;
 
 export function ToggleTunMode(arg1:boolean):Promise<void>;
+
+export function UninstallHelperService():Promise<void>;
 
 export function UpdateAllGeoDatabasesAsync():Promise<void>;
 

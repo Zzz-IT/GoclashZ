@@ -74,12 +74,20 @@ func CommitWintunRuntime(ctx context.Context, prepared map[string]string) (strin
 		return "", fmt.Errorf("Wintun staging 信息缺失")
 	}
 
-	if err := WaitFileReleased(destPath, 5*time.Second); err != nil {
-		return "", err
-	}
+	// 如果 core\bin 不可写，通过 helper 服务替换
+	if !isDirWritable(filepath.Dir(destPath)) {
+		client := sys.NewHelperClient()
+		if err := client.InstallWintun(stagedDLL, destPath); err != nil {
+			return "", fmt.Errorf("通过 Helper 安装 Wintun 失败: %w", err)
+		}
+	} else {
+		if err := WaitFileReleased(destPath, 5*time.Second); err != nil {
+			return "", err
+		}
 
-	if err := ReplaceFileWithBackup(stagedDLL, destPath); err != nil {
-		return "", err
+		if err := ReplaceFileWithBackup(stagedDLL, destPath); err != nil {
+			return "", err
+		}
 	}
 
 	version, err := sys.GetFileVersion(destPath)
@@ -88,6 +96,17 @@ func CommitWintunRuntime(ctx context.Context, prepared map[string]string) (strin
 	}
 
 	return version, nil
+}
+
+// isDirWritable 检查目录是否可写
+func isDirWritable(dir string) bool {
+	testFile := filepath.Join(dir, ".write_test")
+	err := os.WriteFile(testFile, []byte("test"), 0644)
+	if err != nil {
+		return false
+	}
+	os.Remove(testFile)
+	return true
 }
 
 func validateWintunZip(path string) error {

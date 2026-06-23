@@ -90,14 +90,15 @@ func cleanupResidualClashProcess(pidFile string, expectedExeName string) {
 }
 
 // tryStartViaHelper 尝试通过 Helper 服务启动内核
-// 返回 true 表示成功通过 helper 启动，false 表示需要 fallback 到直接启动
+// 直接尝试 TCP 连接，不走 SCM 查询，速度更快
 func tryStartViaHelper(ctx context.Context, exePath, binDir, runtimeConfig string) bool {
-	helperStatus := sys.CheckHelperService()
-	if !helperStatus.Installed || !helperStatus.Running || !helperStatus.Reachable {
+	client := sys.NewHelperClient()
+
+	// 快速 ping 检测 helper 是否可达（1 秒超时）
+	if err := client.Ping(); err != nil {
 		return false
 	}
 
-	client := sys.NewHelperClient()
 	err := client.StartCore(sys.StartCoreParams{
 		CorePath:      exePath,
 		BinDir:        binDir,

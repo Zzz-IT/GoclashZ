@@ -121,6 +121,9 @@ func (a *App) startup(ctx context.Context) {
 		Silent:          isSilent,
 	})
 
+	// 自动安装并启动 Helper 服务（后台执行，不阻塞 UI）
+	go a.ensureHelperService()
+
 	if !isSilent {
 		runtime.WindowShow(ctx)
 		a.setWindowVisible(true)
@@ -135,12 +138,55 @@ func (a *App) startup(ctx context.Context) {
 	a.tray.Start(ctx)
 }
 
+// ensureHelperService 自动安装并启动 Helper 服务
+func (a *App) ensureHelperService() {
+	status := sys.CheckHelperService()
+
+	// 已经在运行且可达，无需操作
+	if status.Reachable {
+		return
+	}
+
+	helperExe := filepath.Join(utils.GetAppDir(), "GoclashZHelper.exe")
+	if _, err := os.Stat(helperExe); err != nil {
+		// helper 程序不存在，跳过
+		return
+	}
+
+	// 未安装则安装
+	if !status.Installed {
+		if err := sys.InstallHelperService(helperExe); err != nil {
+			// 安装失败（可能没有管理员权限），静默跳过
+			logger.Warnf("自动安装 Helper 服务失败: %v", err)
+			return
+		}
+		logger.Infof("Helper 服务已自动安装")
+	}
+
+	// 未运行则启动
+	if err := sys.StartHelperService(); err != nil {
+		logger.Warnf("自动启动 Helper 服务失败: %v", err)
+		return
+	}
+
+	// 等待就绪
+	if err := sys.WaitForHelperReady(5, 1*time.Second); err != nil {
+		logger.Warnf("Helper 服务就绪超时: %v", err)
+		return
+	}
+
+	logger.Infof("Helper 服务已自动就绪")
+}
+
 func (a *App) shutdown(ctx context.Context) {
 	if a.tray != nil {
 		a.tray.Stop()
 	}
 	a.core.StopCoreService()
 	a.core.StopTrafficStream()
+
+	// 主程序退出时停止 Helper 服务
+	_ = sys.StopHelperService()
 }
 
 // --- AppState & Sync ---
@@ -462,9 +508,11 @@ func (a *App) RepairCoreLayout() error {
 }
 
 func (a *App) CheckTunEnv() map[string]bool {
+	helperStatus := sys.CheckHelperService()
 	return map[string]bool{
-		"isAdmin":   sys.CheckAdmin(),
-		"hasWintun": sys.IsWintunInstalled(),
+		"isAdmin":       sys.CheckAdmin(),
+		"hasWintun":     sys.IsWintunInstalled(),
+		"helperRunning": helperStatus.Reachable,
 	}
 }
 

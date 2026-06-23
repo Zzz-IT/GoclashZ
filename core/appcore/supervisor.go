@@ -95,16 +95,18 @@ func (s *CoreSupervisor) Reconcile(reason string) {
 
 
 	if desired.Tun {
-		helperStatus := sys.CheckHelperService()
-		if !helperStatus.Reachable {
-			s.controller.setLastError("TUN 模式需要后台服务 (GoclashZHelper) 运行中，请在设置中安装或启动服务")
+		// TUN 需要 helper 服务或管理员权限（快速 TCP ping 检测）
+		client := sys.NewHelperClient()
+		helperReachable := client.Ping() == nil
+		if !helperReachable && !sys.CheckAdmin() {
+			s.controller.setLastError("TUN 模式需要后台服务 (GoclashZHelper) 或以管理员身份运行")
 			s.controller.SyncState()
 			return
 		}
 	}
 
 	if desired.Tun && !sys.IsWintunInstalled() {
-		s.controller.setLastError("缺失 Wintun 驱动")
+		s.controller.setLastError("缺失 Wintun 驱动，请在设置中安装 Wintun")
 		s.controller.SyncState()
 		return
 	}

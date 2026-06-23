@@ -17,13 +17,12 @@ import (
 )
 
 const (
-	serviceName = "GoclashZHelper"
-	pipePrefix  = `\\.\pipe\GoclashZHelper-`
+	serviceName  = "GoclashZHelper"
+	helperAddr   = "127.0.0.1:19720"
+	helperSecret = "GoclashZ-Helper-v1"
 )
 
 type helperService struct {
-	pipeName string
-
 	mu      sync.Mutex
 	coreCmd *exec.Cmd
 	corePID int
@@ -51,25 +50,23 @@ func main() {
 	}
 
 	if isWindowsService {
-		err = svc.Run(serviceName, &helperService{
-			pipeName: getPipeName(),
-		})
+		err = svc.Run(serviceName, &helperService{})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "service run failed: %v\n", err)
 			os.Exit(1)
 		}
 		return
-	} else {
-		runDebug()
 	}
+
+	runDebug()
 }
 
 func (s *helperService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
 	changes <- svc.Status{State: svc.StartPending}
 
-	// Start named pipe listener
-	ln, err := listenPipe(s.pipeName)
+	ln, err := net.Listen("tcp", helperAddr)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "listen failed: %v\n", err)
 		changes <- svc.Status{State: svc.StopPending}
 		return false, 1
 	}
@@ -79,29 +76,25 @@ func (s *helperService) Execute(args []string, r <-chan svc.ChangeRequest, chang
 		Accepts: svc.AcceptStop | svc.AcceptShutdown,
 	}
 
-	// Handle requests in background
 	go s.serve(ln)
 
-	// Wait for stop signal
-	for {
-		select {
-		case req := <-r:
-			switch req.Cmd {
-			case svc.Stop, svc.Shutdown:
-				changes <- svc.Status{State: svc.StopPending}
-				ln.Close()
-				s.stopCore()
-				return false, 0
-			}
+	for req := range r {
+		switch req.Cmd {
+		case svc.Stop, svc.Shutdown:
+			changes <- svc.Status{State: svc.StopPending}
+			ln.Close()
+			s.stopCore()
+			return false, 0
 		}
 	}
+
+	return false, 0
 }
 
 func (s *helperService) serve(ln net.Listener) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			// Listener closed
 			return
 		}
 		go s.handleConn(conn)
@@ -110,16 +103,21 @@ func (s *helperService) serve(ln net.Listener) {
 
 func (s *helperService) handleConn(conn net.Conn) {
 	defer conn.Close()
-
 	conn.SetDeadline(time.Now().Add(10 * time.Second))
 
 	decoder := json.NewDecoder(conn)
 	var req struct {
+		Secret string          `json:"secret"`
 		Method string          `json:"method"`
 		Params json.RawMessage `json:"params,omitempty"`
 	}
 	if err := decoder.Decode(&req); err != nil {
-		s.writeResponse(conn, false, nil, fmt.Sprintf("decode request failed: %v", err))
+		s.writeResponse(conn, false, nil, fmt.Sprintf("decode failed: %v", err))
+		return
+	}
+
+	if req.Secret != helperSecret {
+		s.writeResponse(conn, false, nil, "unauthorized")
 		return
 	}
 
@@ -136,6 +134,8 @@ func (s *helperService) handleConn(conn net.Conn) {
 		s.handleRepairPermission(conn, req.Params)
 	case "replace-core-file":
 		s.handleReplaceCoreFile(conn, req.Params)
+	case "install-wintun":
+		s.handleInstallWintun(conn, req.Params)
 	default:
 		s.writeResponse(conn, false, nil, fmt.Sprintf("unknown method: %s", req.Method))
 	}
@@ -153,7 +153,6 @@ func (s *helperService) handleStartCore(conn net.Conn, params json.RawMessage) {
 		return
 	}
 
-	// Validate paths
 	if !filepath.IsAbs(p.CorePath) || !filepath.IsAbs(p.BinDir) {
 		s.writeResponse(conn, false, nil, "absolute paths required")
 		return
@@ -167,7 +166,6 @@ func (s *helperService) handleStartCore(conn net.Conn, params json.RawMessage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Stop existing core if running
 	if s.coreCmd != nil && s.coreCmd.Process != nil {
 		s.coreCmd.Process.Kill()
 		s.coreCmd.Wait()
@@ -182,8 +180,6 @@ func (s *helperService) handleStartCore(conn net.Conn, params json.RawMessage) {
 
 	cmd := exec.Command(p.CorePath, args...)
 	cmd.Dir = p.BinDir
-
-	// Inherit environment
 	cmd.Env = os.Environ()
 
 	if err := cmd.Start(); err != nil {
@@ -194,7 +190,6 @@ func (s *helperService) handleStartCore(conn net.Conn, params json.RawMessage) {
 	s.coreCmd = cmd
 	s.corePID = cmd.Process.Pid
 
-	// Wait for exit in background
 	go func() {
 		cmd.Wait()
 		s.mu.Lock()
@@ -222,7 +217,6 @@ func (s *helperService) handleStopCore(conn net.Conn, params json.RawMessage) {
 		return
 	}
 
-	// Wait briefly for exit
 	done := make(chan struct{})
 	go func() {
 		s.coreCmd.Wait()
@@ -265,7 +259,6 @@ func (s *helperService) handleRepairPermission(conn net.Conn, params json.RawMes
 		return
 	}
 
-	// Use icacls to repair permissions
 	cmd := exec.Command("icacls", p.DataDir, "/grant", "Users:(OI)(CI)F", "/T", "/Q")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -287,7 +280,6 @@ func (s *helperService) handleReplaceCoreFile(conn net.Conn, params json.RawMess
 		return
 	}
 
-	// Validate paths
 	if !filepath.IsAbs(p.Source) || !filepath.IsAbs(p.Target) {
 		s.writeResponse(conn, false, nil, "absolute paths required")
 		return
@@ -298,9 +290,6 @@ func (s *helperService) handleReplaceCoreFile(conn net.Conn, params json.RawMess
 		return
 	}
 
-	// TODO: SHA256 verification if provided
-
-	// Stop core first
 	s.mu.Lock()
 	if s.coreCmd != nil && s.coreCmd.Process != nil {
 		s.coreCmd.Process.Kill()
@@ -310,10 +299,43 @@ func (s *helperService) handleReplaceCoreFile(conn net.Conn, params json.RawMess
 	}
 	s.mu.Unlock()
 
-	// Replace file
-	if err := os.Rename(p.Target, p.Target+".bak"); err != nil && !os.IsNotExist(err) {
-		// Non-fatal, continue
+	_ = os.Rename(p.Target, p.Target+".bak")
+
+	input, err := os.ReadFile(p.Source)
+	if err != nil {
+		s.writeResponse(conn, false, nil, fmt.Sprintf("read source failed: %v", err))
+		return
 	}
+
+	if err := os.WriteFile(p.Target, input, 0755); err != nil {
+		s.writeResponse(conn, false, nil, fmt.Sprintf("write target failed: %v", err))
+		return
+	}
+
+	s.writeResponse(conn, true, nil, "")
+}
+
+func (s *helperService) handleInstallWintun(conn net.Conn, params json.RawMessage) {
+	var p struct {
+		Source string `json:"source"`
+		Target string `json:"target"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		s.writeResponse(conn, false, nil, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+
+	if !filepath.IsAbs(p.Source) || !filepath.IsAbs(p.Target) {
+		s.writeResponse(conn, false, nil, "absolute paths required")
+		return
+	}
+
+	if _, err := os.Stat(p.Source); err != nil {
+		s.writeResponse(conn, false, nil, fmt.Sprintf("source wintun.dll not found: %v", err))
+		return
+	}
+
+	_ = os.Rename(p.Target, p.Target+".bak")
 
 	input, err := os.ReadFile(p.Source)
 	if err != nil {
@@ -355,31 +377,26 @@ func (s *helperService) writeResponse(conn net.Conn, ok bool, data json.RawMessa
 	encoder.Encode(resp)
 }
 
-func listenPipe(pipeName string) (net.Listener, error) {
-	// Clean up any stale pipe
-	ln, err := net.Listen("pipe", pipeName)
-	if err != nil {
-		return nil, fmt.Errorf("listen pipe %s failed: %w", pipeName, err)
-	}
-	return ln, nil
-}
+func runDebug() {
+	fmt.Printf("GoclashZHelper starting in debug mode on %s\n", helperAddr)
 
-func getPipeName() string {
-	// Try to get current user SID for pipe name
-	u, err := os.UserHomeDir()
+	ln, err := net.Listen("tcp", helperAddr)
 	if err != nil {
-		return pipePrefix + "default"
+		fmt.Fprintf(os.Stderr, "listen failed: %v\n", err)
+		os.Exit(1)
 	}
-	// Use a hash of home dir as identifier
-	return pipePrefix + simpleHash(u)
-}
+	defer ln.Close()
 
-func simpleHash(s string) string {
-	h := uint32(0)
-	for _, c := range s {
-		h = h*31 + uint32(c)
+	s := &helperService{}
+	fmt.Println("Waiting for connections...")
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "accept error: %v\n", err)
+			continue
+		}
+		go s.handleConn(conn)
 	}
-	return fmt.Sprintf("%x", h)
 }
 
 func installService() {
@@ -426,7 +443,6 @@ func uninstallService() {
 	}
 	defer s.Close()
 
-	// Try to stop first
 	status, _ := s.Query()
 	if status.State != svc.Stopped {
 		s.Control(svc.Stop)
@@ -439,28 +455,4 @@ func uninstallService() {
 	}
 
 	fmt.Println("GoclashZHelper service uninstalled successfully")
-}
-
-func runDebug() {
-	pipeName := getPipeName()
-	fmt.Printf("GoclashZHelper starting in debug mode on pipe: %s\n", pipeName)
-
-	ln, err := listenPipe(pipeName)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to listen: %v\n", err)
-		os.Exit(1)
-	}
-	defer ln.Close()
-
-	s := &helperService{pipeName: pipeName}
-
-	fmt.Println("Waiting for connections...")
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "accept error: %v\n", err)
-			continue
-		}
-		go s.handleConn(conn)
-	}
 }

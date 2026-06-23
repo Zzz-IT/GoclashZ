@@ -24,7 +24,6 @@ export namespace appcore {
 	    autoDelayTestInterval: number;
 	    proxyTrafficOnly: boolean;
 	    startupWithOS: boolean;
-	    startupMode: string;
 	    restoreOnStartup: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -56,7 +55,6 @@ export namespace appcore {
 	        this.autoDelayTestInterval = source["autoDelayTestInterval"];
 	        this.proxyTrafficOnly = source["proxyTrafficOnly"];
 	        this.startupWithOS = source["startupWithOS"];
-	        this.startupMode = source["startupMode"];
 	        this.restoreOnStartup = source["restoreOnStartup"];
 	    }
 	}
@@ -611,6 +609,24 @@ export namespace sys {
 	        this.legacyExists = source["legacyExists"];
 	        this.migrated = source["migrated"];
 	        this.lastError = source["lastError"];
+	    }
+	}
+	export class HelperStatusData {
+	    installed: boolean;
+	    running: boolean;
+	    reachable: boolean;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new HelperStatusData(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.installed = source["installed"];
+	        this.running = source["running"];
+	        this.reachable = source["reachable"];
+	        this.error = source["error"];
 	    }
 	}
 	export class StartupTaskInfo {

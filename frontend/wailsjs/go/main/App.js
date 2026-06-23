@@ -126,6 +126,10 @@ export function GetEditableConfigs() {
   return window['go']['main']['App']['GetEditableConfigs']();
 }
 
+export function GetHelperServiceStatus() {
+  return window['go']['main']['App']['GetHelperServiceStatus']();
+}
+
 export function GetInitialData() {
   return window['go']['main']['App']['GetInitialData']();
 }
@@ -178,6 +182,10 @@ export function HideMainWindow() {
   return window['go']['main']['App']['HideMainWindow']();
 }
 
+export function InstallHelperService() {
+  return window['go']['main']['App']['InstallHelperService']();
+}
+
 export function InstallTunDriverAsync(arg1) {
   return window['go']['main']['App']['InstallTunDriverAsync'](arg1);
 }
@@ -224,6 +232,10 @@ export function ResetTrafficTotals() {
 
 export function RestartCore() {
   return window['go']['main']['App']['RestartCore']();
+}
+
+export function RestartHelperService() {
+  return window['go']['main']['App']['RestartHelperService']();
 }
 
 export function SaveAppBehavior(arg1) {
@@ -282,10 +294,6 @@ export function SelectProxy(arg1, arg2) {
   return window['go']['main']['App']['SelectProxy'](arg1, arg2);
 }
 
-export function SetupElevatedStartupAndSaveBehavior(arg1) {
-  return window['go']['main']['App']['SetupElevatedStartupAndSaveBehavior'](arg1);
-}
-
 export function ShowMainWindow() {
   return window['go']['main']['App']['ShowMainWindow']();
 }
@@ -332,6 +340,10 @@ export function ToggleSystemProxy(arg1) {
 
 export function ToggleTunMode(arg1) {
   return window['go']['main']['App']['ToggleTunMode'](arg1);
+}
+
+export function UninstallHelperService() {
+  return window['go']['main']['App']['UninstallHelperService']();
 }
 
 export function UpdateAllGeoDatabasesAsync() {
