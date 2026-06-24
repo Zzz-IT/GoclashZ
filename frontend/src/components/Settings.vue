@@ -658,14 +658,6 @@
                   </label>
                 </div>
 
-                <div class="setting-item">
-                  <div class="info">
-                    <h4>自启任务诊断</h4>
-                    <p>检测当前系统中的自启任务配置是否健康。</p>
-                  </div>
-                  <button class="action-btn" @click="openStartupDiagnosticModal">检查诊断</button>
-                </div>
-
               </div>
             </Transition>
             <div class="divider"></div>
@@ -1124,60 +1116,6 @@
     </Transition>
 
     <Transition name="pop">
-      <div v-if="showStartupDiagnosticModal" class="modal-overlay" @click.self="showStartupDiagnosticModal = false">
-        <div class="custom-modal-card" @click.stop style="max-width: 500px;">
-          <div class="modal-header">
-            <h3>自启任务诊断</h3>
-          </div>
-          <div class="modal-body" style="font-size: 0.9rem; line-height: 1.6;">
-            <div v-if="loadingTaskInfo" style="color: var(--text-muted); text-align: center; padding: 20px 0;">正在加载任务信息...</div>
-            <div v-else-if="startupTaskInfo">
-              <div :style="{ color: startupTaskInfo.isHealthy ? 'var(--green-text)' : 'var(--red-text)', fontWeight: '600', marginBottom: '12px', fontSize: '1rem', textAlign: 'center' }">
-                <span v-if="startupTaskInfo.isHealthy" v-html="ICONS.check"></span>
-                <span v-else v-html="ICONS.alert"></span>
-                {{ startupTaskInfo.isHealthy ? ' 健康：自启任务配置正确' : ' 异常：自启任务存在问题' }}
-              </div>
-              <div v-if="!startupTaskInfo.isHealthy && startupTaskInfo.lastError" style="color: var(--red-text); margin-bottom: 12px; padding: 8px; background: rgba(255, 59, 48, 0.1); border-radius: 6px;">
-                <strong>错误：</strong>{{ startupTaskInfo.lastError }}
-              </div>
-              
-                <div style="background: var(--bg-secondary); padding: 12px; border-radius: 8px;">
-                <div style="display: flex; margin-bottom: 4px;">
-                  <span style="color: var(--text-muted); width: 80px;">期望路径:</span>
-                  <span style="word-break: break-all; flex: 1;">{{ startupTaskInfo.expectedPath }}</span>
-                </div>
-                <div style="display: flex; margin-bottom: 4px;">
-                  <span style="color: var(--text-muted); width: 80px;">实际路径:</span>
-                  <span style="word-break: break-all; flex: 1;" :style="{ color: startupTaskInfo.actualPath ? 'inherit' : 'var(--red-text)' }">{{ startupTaskInfo.actualPath || '未配置' }}</span>
-                </div>
-                <div style="display: flex; margin-bottom: 4px;">
-                  <span style="color: var(--text-muted); width: 80px;">期望数据:</span>
-                  <span style="word-break: break-all; flex: 1;">{{ startupTaskInfo.expectedDataDir }}</span>
-                </div>
-                <div style="display: flex; margin-bottom: 4px;">
-                  <span style="color: var(--text-muted); width: 80px;">实际数据:</span>
-                  <span style="word-break: break-all; flex: 1;" :style="{ color: startupTaskInfo.actualDataDir ? (startupTaskInfo.actualDataDir.toLowerCase() === startupTaskInfo.expectedDataDir?.toLowerCase() ? 'inherit' : 'var(--red-text)') : 'var(--red-text)' }">{{ startupTaskInfo.actualDataDir || '未配置' }}</span>
-                </div>
-                <div style="display: flex;">
-                  <span style="color: var(--text-muted); width: 80px;">参数:</span>
-                  <span style="word-break: break-all; flex: 1;">{{ startupTaskInfo.actualArgs || '无' }}</span>
-                </div>
-              </div>
-            </div>
-            <div v-else style="color: var(--red-text); text-align: center; padding: 20px 0;">无法获取任务信息</div>
-
-            <div class="modal-footer" style="margin-top: 20px;">
-              <button class="action-btn flex-1" @click="showStartupDiagnosticModal = false">关闭</button>
-              <button class="primary-btn accent-btn flex-1" @click="handleRepairStartupTask" :disabled="repairingTask">
-                {{ repairingTask ? '修复中...' : '尝试修复任务' }}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Transition>
-
-    <Transition name="pop">
       <div v-if="showDataDirDiagnosticModal" class="modal-overlay" @click.self="showDataDirDiagnosticModal = false">
         <div class="custom-modal-card" @click.stop style="max-width: 500px;">
           <div class="modal-header">
@@ -1242,7 +1180,6 @@ import * as API from '../../wailsjs/go/main/App';
 import { BrowserOpenURL, EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
 import { showAlert, showConfirm, globalState } from '../store';
 import { formatBytes, formatSpeed, formatEtaTime, formatRelativeTime } from '../utils/format';
-import { normalizeStartupTaskInfo } from '../utils/normalize';
 import { ICONS } from '../utils/icons';
 import appLogo from '../assets/logo.ico';
 import UpdateTaskPanel from './UpdateTaskPanel.vue';
@@ -1711,7 +1648,6 @@ const loadData = async () => {
     const behaviorConf = await (API.GetAppBehavior as any)();
     if (behaviorConf) {
       behavior.value = behaviorConf;
-      loadStartupTaskInfo();
       refreshHelperStatus();
     }
 
@@ -1888,14 +1824,7 @@ const handleStartupWithOSChange = async () => {
     behavior.value.restoreOnStartup = false;
   }
   saveBehavior();
-  loadStartupTaskInfo();
 };
-
-const startupTaskInfo = ref<any>(null);
-const loadingTaskInfo = ref(false);
-const repairingTask = ref(false);
-
-const showStartupDiagnosticModal = ref(false);
 
 // Helper 服务状态
 const helperStatus = ref<any>({ installed: false, running: false, reachable: false });
@@ -1975,44 +1904,6 @@ const handleRepairCoreLayout = async () => {
     showAlert('内核布局修复请求已发送（可能需要通过 UAC 确认）。修复完成后请手动刷新状态。');
   } catch (error) {
     showAlert('修复内核布局失败: ' + error);
-  }
-};
-
-const openStartupDiagnosticModal = async () => {
-  showStartupDiagnosticModal.value = true;
-  await loadStartupTaskInfo();
-};
-
-const loadStartupTaskInfo = async () => {
-  if (!behavior.value.startupWithOS) return;
-  loadingTaskInfo.value = true;
-  try {
-    const info = await (API as any).GetStartupTaskInfo();
-    startupTaskInfo.value = normalizeStartupTaskInfo(info);
-  } catch (err) {
-    console.error('获取自启任务诊断信息失败', err);
-    startupTaskInfo.value = null;
-  } finally {
-    loadingTaskInfo.value = false;
-  }
-};
-
-const handleRepairStartupTask = async () => {
-  repairingTask.value = true;
-  try {
-    await (API as any).RepairStartupTask();
-    await loadStartupTaskInfo();
-
-    if (startupTaskInfo.value?.isHealthy) {
-      await showAlert("自启任务修复成功", "完成");
-    } else {
-      await showAlert("已执行修复，但任务仍异常，请查看诊断详情。", "提示", true);
-    }
-  } catch (e) {
-    console.error('修复自启任务失败', e);
-    await showAlert("修复自启任务失败: " + String(e), "错误", true);
-  } finally {
-    repairingTask.value = false;
   }
 };
 

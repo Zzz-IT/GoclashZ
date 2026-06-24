@@ -3,12 +3,16 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +33,58 @@ type helperService struct {
 	coreCmd *exec.Cmd
 	corePID int
 	ln      net.Listener
+}
+
+// getPathWhitelist 返回允许的文件操作白名单
+func getPathWhitelist() (coreBinDir, stagingDir, dataDir string) {
+	exe, _ := os.Executable()
+	appDir := filepath.Dir(exe)
+	coreBinDir = filepath.Join(appDir, "core", "bin")
+
+	// 读取 data dir：优先环境变量，其次 {app}\data
+	dataDir = os.Getenv("GOCLASHZ_DATA_DIR")
+	if dataDir == "" {
+		dataDir = filepath.Join(appDir, "data")
+	}
+	stagingDir = filepath.Join(dataDir, "staging")
+
+	return
+}
+
+func isUnderPath(path, parent string) bool {
+	rel, err := filepath.Rel(parent, path)
+	if err != nil {
+		return false
+	}
+	return !strings.HasPrefix(rel, "..")
+}
+
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func isValidPE(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	header := make([]byte, 2)
+	if _, err := io.ReadFull(f, header); err != nil {
+		return false
+	}
+	return header[0] == 'M' && header[1] == 'Z'
 }
 
 func main() {
@@ -283,7 +339,13 @@ func (s *helperService) handleRepairPermission(conn net.Conn, params json.RawMes
 		return
 	}
 
-	cmd := exec.Command("icacls", p.DataDir, "/grant", "Users:(OI)(CI)F", "/T", "/Q")
+	_, _, dataDir := getPathWhitelist()
+	if !strings.EqualFold(filepath.Clean(p.DataDir), filepath.Clean(dataDir)) {
+		s.writeResponse(conn, false, nil, "can only repair GoclashZ data dir")
+		return
+	}
+
+	cmd := exec.Command("icacls", dataDir, "/grant", "Users:(OI)(CI)F", "/T", "/Q")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		s.writeResponse(conn, false, nil, fmt.Sprintf("icacls failed: %v, output: %s", err, string(output)))
@@ -304,16 +366,45 @@ func (s *helperService) handleReplaceCoreFile(conn net.Conn, params json.RawMess
 		return
 	}
 
-	if !filepath.IsAbs(p.Source) || !filepath.IsAbs(p.Target) {
-		s.writeResponse(conn, false, nil, "absolute paths required")
+	coreBinDir, stagingDir, _ := getPathWhitelist()
+	source := filepath.Clean(p.Source)
+	target := filepath.Clean(p.Target)
+
+	// 白名单校验
+	if !isUnderPath(source, stagingDir) {
+		s.writeResponse(conn, false, nil, "source must be under staging dir")
 		return
 	}
-
-	if _, err := os.Stat(p.Source); err != nil {
+	expectedTarget := filepath.Join(coreBinDir, "clash.exe")
+	if !strings.EqualFold(target, expectedTarget) {
+		s.writeResponse(conn, false, nil, "target must be core binary")
+		return
+	}
+	if _, err := os.Stat(source); err != nil {
 		s.writeResponse(conn, false, nil, fmt.Sprintf("source not found: %v", err))
 		return
 	}
 
+	// SHA256 校验
+	if p.SHA256 != "" {
+		hash, err := sha256File(source)
+		if err != nil {
+			s.writeResponse(conn, false, nil, fmt.Sprintf("sha256 calc failed: %v", err))
+			return
+		}
+		if !strings.EqualFold(hash, p.SHA256) {
+			s.writeResponse(conn, false, nil, "sha256 mismatch")
+			return
+		}
+	}
+
+	// PE 校验
+	if !isValidPE(source) {
+		s.writeResponse(conn, false, nil, "source is not a valid PE")
+		return
+	}
+
+	// 停止 core
 	s.mu.Lock()
 	if s.coreCmd != nil && s.coreCmd.Process != nil {
 		s.coreCmd.Process.Kill()
@@ -323,15 +414,19 @@ func (s *helperService) handleReplaceCoreFile(conn net.Conn, params json.RawMess
 	}
 	s.mu.Unlock()
 
-	_ = os.Rename(p.Target, p.Target+".bak")
+	// 原子替换：target -> .bak，source -> target
+	_ = os.Remove(target + ".bak")
+	_ = os.Rename(target, target+".bak")
 
-	input, err := os.ReadFile(p.Source)
+	input, err := os.ReadFile(source)
 	if err != nil {
 		s.writeResponse(conn, false, nil, fmt.Sprintf("read source failed: %v", err))
 		return
 	}
 
-	if err := os.WriteFile(p.Target, input, 0755); err != nil {
+	if err := os.WriteFile(target, input, 0755); err != nil {
+		// rollback
+		_ = os.Rename(target+".bak", target)
 		s.writeResponse(conn, false, nil, fmt.Sprintf("write target failed: %v", err))
 		return
 	}
@@ -349,25 +444,43 @@ func (s *helperService) handleInstallWintun(conn net.Conn, params json.RawMessag
 		return
 	}
 
-	if !filepath.IsAbs(p.Source) || !filepath.IsAbs(p.Target) {
-		s.writeResponse(conn, false, nil, "absolute paths required")
+	coreBinDir, stagingDir, _ := getPathWhitelist()
+	source := filepath.Clean(p.Source)
+	target := filepath.Clean(p.Target)
+
+	// 白名单校验
+	if !isUnderPath(source, stagingDir) {
+		s.writeResponse(conn, false, nil, "source must be under staging dir")
 		return
 	}
-
-	if _, err := os.Stat(p.Source); err != nil {
+	expectedTarget := filepath.Join(coreBinDir, "wintun.dll")
+	if !strings.EqualFold(target, expectedTarget) {
+		s.writeResponse(conn, false, nil, "target must be wintun.dll")
+		return
+	}
+	if _, err := os.Stat(source); err != nil {
 		s.writeResponse(conn, false, nil, fmt.Sprintf("source wintun.dll not found: %v", err))
 		return
 	}
 
-	_ = os.Rename(p.Target, p.Target+".bak")
+	// DLL PE 校验
+	if !isValidPE(source) {
+		s.writeResponse(conn, false, nil, "source is not a valid DLL/PE")
+		return
+	}
 
-	input, err := os.ReadFile(p.Source)
+	// 原子替换
+	_ = os.Remove(target + ".bak")
+	_ = os.Rename(target, target+".bak")
+
+	input, err := os.ReadFile(source)
 	if err != nil {
 		s.writeResponse(conn, false, nil, fmt.Sprintf("read source failed: %v", err))
 		return
 	}
 
-	if err := os.WriteFile(p.Target, input, 0755); err != nil {
+	if err := os.WriteFile(target, input, 0755); err != nil {
+		_ = os.Rename(target+".bak", target)
 		s.writeResponse(conn, false, nil, fmt.Sprintf("write target failed: %v", err))
 		return
 	}

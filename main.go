@@ -104,8 +104,18 @@ func main() {
 			}
 			os.Exit(0)
 		}
+
+		// 解析 --allowed-sid 参数
+		allowedSid := ""
+		for i, arg := range os.Args {
+			if arg == "--allowed-sid" && i+1 < len(os.Args) {
+				allowedSid = os.Args[i+1]
+				break
+			}
+		}
+
 		exePath := filepath.Join(filepath.Dir(exePath), "GoclashZHelper.exe")
-		if err := sys.InstallHelperService(exePath); err != nil {
+		if err := sys.InstallHelperServiceForUser(exePath, allowedSid); err != nil {
 			logger.Errorf("安装 Helper 服务失败: %v", err)
 			os.Exit(1)
 		}

@@ -28,17 +28,22 @@ type CoreSupervisor struct {
 
 	desired *DesiredStateStore
 
-	reconcileCh  chan string
+	reconcileCh  chan reconcileRequest
 	watchdogTick *time.Ticker
 
 	mu sync.Mutex
+}
+
+type reconcileRequest struct {
+	Reason string
+	Ctx    context.Context
 }
 
 func NewCoreSupervisor(c *Controller, d *DesiredStateStore) *CoreSupervisor {
 	return &CoreSupervisor{
 		controller:  c,
 		desired:     d,
-		reconcileCh: make(chan string, 10),
+		reconcileCh: make(chan reconcileRequest, 10),
 	}
 }
 
@@ -66,10 +71,22 @@ func (s *CoreSupervisor) Stop() {
 	}
 }
 
+// ReconcileAsync 异步触发 reconcile，使用独立 timeout ctx
 func (s *CoreSupervisor) ReconcileAsync(reason string) {
+	ctx, cancel := context.WithTimeout(s.ctx, 8*time.Second)
+	req := reconcileRequest{Reason: reason, Ctx: ctx}
 	select {
-	case s.reconcileCh <- reason:
+	case s.reconcileCh <- req:
+		go func() {
+			// 等请求被消费后 cancel
+			select {
+			case <-ctx.Done():
+			case <-time.After(10 * time.Second):
+				cancel()
+			}
+		}()
 	default:
+		cancel()
 	}
 }
 
@@ -78,23 +95,25 @@ func (s *CoreSupervisor) loop() {
 		select {
 		case <-s.ctx.Done():
 			return
-		case reason := <-s.reconcileCh:
-			if err := s.Reconcile(reason); err != nil {
-				logger.Warnf("Reconcile(%s) failed: %v", reason, err)
+		case req := <-s.reconcileCh:
+			if err := s.Reconcile(req.Ctx, req.Reason); err != nil {
+				logger.Warnf("Reconcile(%s) failed: %v", req.Reason, err)
 			}
 		case <-s.watchdogTick.C:
 			desired := s.desired.Get()
 			if desired.CoreRunning {
-				if err := s.Reconcile("watchdog"); err != nil {
+				ctx, cancel := context.WithTimeout(s.ctx, 8*time.Second)
+				if err := s.Reconcile(ctx, "watchdog"); err != nil {
 					logger.Warnf("Reconcile(watchdog) failed: %v", err)
 				}
+				cancel()
 			}
 		}
 	}
 }
 
-// Reconcile 执行状态调和，返回 error 供调用方处理
-func (s *CoreSupervisor) Reconcile(reason string) error {
+// Reconcile 执行状态调和，使用传入的操作级 ctx
+func (s *CoreSupervisor) Reconcile(ctx context.Context, reason string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -130,13 +149,13 @@ func (s *CoreSupervisor) Reconcile(reason string) error {
 	appState := s.controller.GetAppState()
 
 	if desired.Tun != appState.Tun && appState.IsRunning {
-		if err := s.controller.RestartCoreWithReason(s.ctx, reason); err != nil {
+		if err := s.controller.RestartCoreWithReason(ctx, reason); err != nil {
 			s.controller.setLastError(err.Error())
 			s.controller.SyncState()
 			return fmt.Errorf("restart core failed: %w", err)
 		}
 	} else {
-		if err := s.controller.EnsureCoreRunning(s.ctx); err != nil {
+		if err := s.controller.EnsureCoreRunning(ctx); err != nil {
 			s.controller.setLastError(err.Error())
 			s.controller.SyncState()
 			return err

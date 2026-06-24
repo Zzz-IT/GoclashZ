@@ -582,4 +582,15 @@ onUnmounted(() => {
   align-items: center;
   border: 1px solid rgba(255, 170, 0, 0.2);
 }
+
+/* 选区 span 级兜底：确保 token 颜色不干扰选中文字 */
+.editor-body :deep(.cm-content span::selection) {
+  background: #000 !important;
+  color: #fff !important;
+}
+
+:root.dark .editor-body :deep(.cm-content span::selection) {
+  background: #fff !important;
+  color: #000 !important;
+}
 </style>

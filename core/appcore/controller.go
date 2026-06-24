@@ -241,35 +241,49 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 }
 
 // runStartupRestoreJob 在后台异步恢复代理状态，带指数退避重试
-// 不阻塞 UI 主流程，Access denied 等瞬态错误会自动重试
+// 使用同步 Reconcile，结果驱动
 func (c *Controller) runStartupRestoreJob(ctx context.Context) {
-	backoff := []time.Duration{8 * time.Second, 15 * time.Second, 30 * time.Second, 60 * time.Second, 120 * time.Second}
+	backoff := []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second}
 
-	for attempt := 0; attempt < 5; attempt++ {
+	for i, delay := range backoff {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(backoff[attempt]):
+		case <-time.After(delay):
 		}
 
 		desired := c.Desired.Get()
-		if desired.ActiveConfig == "" && !desired.CoreRunning && !desired.SystemProxy && !desired.Tun {
+		if !desired.CoreRunning && !desired.SystemProxy && !desired.Tun {
 			return
 		}
 
-		c.Supervisor.ReconcileAsync("startup-restore")
-
-		// 等待一段时间让 reconcile 完成，然后检查是否成功
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(5 * time.Second):
+		// 根据 desired 类型设置不同的 timeout
+		restoreTimeout := 8 * time.Second
+		if desired.Tun {
+			restoreTimeout = 15 * time.Second
 		}
 
-		state := c.GetAppState()
-		if state.IsRunning || state.SystemProxy || state.Tun {
-			logger.Infof("启动恢复成功 (attempt %d)", attempt+1)
+		attemptCtx, cancel := context.WithTimeout(ctx, restoreTimeout)
+		err := c.Supervisor.Reconcile(attemptCtx, "startup-restore")
+		cancel()
+
+		if err == nil {
+			logger.Infof("启动恢复成功 (attempt %d)", i+1)
 			return
+		}
+
+		switch {
+		case errors.Is(err, ErrNoActiveConfig):
+			c.events.Emit("notify-error", "启动恢复失败：尚未添加配置")
+			return
+		case errors.Is(err, ErrHelperInstallRequired):
+			c.events.Emit("notify-error", "TUN 启动恢复需要初始化后台服务")
+			return
+		case errors.Is(err, ErrWintunMissing):
+			c.events.Emit("notify-error", "TUN 启动恢复失败：缺少 Wintun 驱动")
+			return
+		default:
+			logger.Warnf("启动恢复失败 attempt=%d: %v", i+1, err)
 		}
 	}
 
@@ -895,7 +909,7 @@ func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
 
 	c.Desired.SetAndSave(desired)
 
-	if err := c.Supervisor.Reconcile("system-proxy-toggle"); err != nil {
+	if err := c.Supervisor.Reconcile(ctx, "system-proxy-toggle"); err != nil {
 		// 回滚
 		c.Desired.SetAndSave(previousDesired)
 		c.SyncState()
@@ -1008,7 +1022,7 @@ func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
 	c.fillDesiredTarget(&desired)
 	c.Desired.SetAndSave(desired)
 
-	if err := c.Supervisor.Reconcile("tun-toggle"); err != nil {
+	if err := c.Supervisor.Reconcile(ctx, "tun-toggle"); err != nil {
 		c.Desired.SetAndSave(previousDesired)
 		c.SyncState()
 		return err

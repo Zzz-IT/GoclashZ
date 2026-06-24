@@ -405,17 +405,22 @@ func (a *App) InstallHelperService() error {
 		return fmt.Errorf("GoclashZHelper.exe 不存在于 %s，请先部署 helper 程序", exePath)
 	}
 
-	// 非管理员需要提权
+	sid, err := sys.CurrentUserSID()
+	if err != nil {
+		return fmt.Errorf("获取当前用户 SID 失败: %w", err)
+	}
+
+	// 非管理员需要提权，传递当前用户 SID
 	if !sys.CheckAdmin() {
-		if err := sys.RunElevatedWithArgsWait("--install-helper"); err != nil {
+		if err := sys.RunElevatedWithArgsWait("--install-helper", "--allowed-sid", sid); err != nil {
 			return fmt.Errorf("安装后台服务失败: %w", err)
 		}
-		// 等待服务就绪
 		time.Sleep(500 * time.Millisecond)
 		return sys.WaitForHelperReady(5, 1*time.Second)
 	}
 
-	if err := sys.InstallHelperService(exePath); err != nil {
+	// 管理员直接安装
+	if err := sys.InstallHelperServiceForUser(exePath, sid); err != nil {
 		return err
 	}
 	if err := sys.StartHelperService(); err != nil {
