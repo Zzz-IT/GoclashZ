@@ -9,6 +9,7 @@ import (
 
 	"github.com/Microsoft/go-winio"
 	"goclashz/core/logger"
+	"golang.org/x/sys/windows/registry"
 )
 
 const (
@@ -221,6 +222,31 @@ func isServiceRunning(name string) (bool, error) {
 // InstallHelperService 安装 helper 服务（需要管理员权限）
 func InstallHelperService(exePath string) error {
 	return installServiceSCM(HelperServiceName, exePath, HelperDescription)
+}
+
+// InstallHelperServiceForUser 安装 helper 服务并授权指定用户 SID
+func InstallHelperServiceForUser(exePath string, userSID string) error {
+	if err := installServiceSCM(HelperServiceName, exePath, HelperDescription); err != nil {
+		return err
+	}
+
+	if userSID != "" {
+		writeAllowedSidToRegistry(userSID)
+	}
+
+	return nil
+}
+
+func writeAllowedSidToRegistry(sid string) {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Services\GoclashZHelper`, registry.SET_VALUE)
+	if err != nil {
+		key, _, err = registry.CreateKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Services\GoclashZHelper`, registry.SET_VALUE)
+		if err != nil {
+			return
+		}
+	}
+	defer key.Close()
+	_ = key.SetStringValue("AllowedSids", sid)
 }
 
 // UninstallHelperService 卸载 helper 服务（需要管理员权限）

@@ -921,12 +921,38 @@ func (c *Controller) ensureHelperReadySlow(reason string) error {
 		return nil
 	}
 
-	// 直接尝试启动服务（如果已安装会快速返回）
-	if err := sys.StartHelperService(); err != nil {
-		return fmt.Errorf("后台服务未安装或启动失败，请在设置中安装: %w", err)
+	// 检查服务是否已安装
+	status := sys.CheckHelperService()
+
+	if !status.Installed {
+		// 管理员模式下静默安装
+		if !sys.CheckAdmin() {
+			return ErrHelperInstallRequired
+		}
+
+		helperExe := filepath.Join(utils.GetAppDir(), "GoclashZHelper.exe")
+		if _, err := os.Stat(helperExe); err != nil {
+			return fmt.Errorf("helper 程序不存在: %s", helperExe)
+		}
+
+		sid, err := sys.CurrentUserSID()
+		if err != nil {
+			return fmt.Errorf("获取当前用户 SID 失败: %w", err)
+		}
+
+		if err := sys.InstallHelperServiceForUser(helperExe, sid); err != nil {
+			return fmt.Errorf("安装后台服务失败: %w", err)
+		}
+
+		logger.Infof("Helper 服务已静默安装 (reason: %s)", reason)
 	}
 
-	// 等待就绪（服务 Running 后 pipe 应该已可用，只需短暂确认）
+	// 启动服务
+	if err := sys.StartHelperService(); err != nil {
+		return fmt.Errorf("启动后台服务失败: %w", err)
+	}
+
+	// 等待就绪
 	if err := sys.WaitForHelperReady(2, 100*time.Millisecond); err != nil {
 		return fmt.Errorf("后台服务就绪超时: %w", err)
 	}

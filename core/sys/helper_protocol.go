@@ -4,6 +4,8 @@ package sys
 
 import (
 	"encoding/json"
+	"fmt"
+	"os/user"
 )
 
 const (
@@ -18,6 +20,15 @@ const (
 // GetHelperPipeName 返回 Named Pipe 路径（固定名称）
 func GetHelperPipeName() string {
 	return HelperPipeName
+}
+
+// CurrentUserSID 获取当前用户的 SID
+func CurrentUserSID() (string, error) {
+	u, err := user.Current()
+	if err != nil {
+		return "", fmt.Errorf("get current user failed: %w", err)
+	}
+	return u.Uid, nil
 }
 
 // HelperRequest 是 UI -> Helper 的请求
@@ -40,9 +51,6 @@ type StartCoreParams struct {
 	RuntimeConfig string   `json:"runtimeConfig"`
 	Args          []string `json:"args"`
 }
-
-// StopCoreParams 停止内核的参数
-type StopCoreParams struct{}
 
 // ReplaceCoreFileParams 替换核心文件的参数
 type ReplaceCoreFileParams struct {

@@ -13,14 +13,15 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
+	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
 const (
-	serviceName  = "GoclashZHelper"
-	pipeName     = `\\.\pipe\GoclashZ.Helper`
-	helperSecret = "GoclashZ-Helper-v1"
+	serviceName   = "GoclashZHelper"
+	pipeName      = `\\.\pipe\GoclashZ.Helper`
+	registryPath  = `SYSTEM\CurrentControlSet\Services\GoclashZHelper`
 )
 
 type helperService struct {
@@ -34,7 +35,14 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "install":
-			installService()
+			allowedSid := ""
+			for i, arg := range os.Args {
+				if arg == "--allowed-sid" && i+1 < len(os.Args) {
+					allowedSid = os.Args[i+1]
+					break
+				}
+			}
+			installService(allowedSid)
 			return
 		case "uninstall":
 			uninstallService()
@@ -95,9 +103,12 @@ func (s *helperService) Execute(args []string, r <-chan svc.ChangeRequest, chang
 }
 
 func createPipeListener(pipeName string) (net.Listener, error) {
-	// 配置 pipe 安全属性：只允许 SYSTEM 和 Administrators
+	// 读取授权的用户 SID
+	allowedSids := readAllowedSids()
+	sddl := buildPipeSDDL(allowedSids)
+
 	cfg := &winio.PipeConfig{
-		SecurityDescriptor: "D:(A;;GA;;;SY)(A;;GA;;;BA)",
+		SecurityDescriptor: sddl,
 		InputBufferSize:    4096,
 		OutputBufferSize:   4096,
 	}
@@ -418,7 +429,7 @@ func runDebug() {
 	}
 }
 
-func installService() {
+func installService(allowedSid string) {
 	exePath, err := os.Executable()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to get executable path: %v\n", err)
@@ -444,7 +455,52 @@ func installService() {
 	}
 	defer s.Close()
 
+	// 写入允许的用户 SID 到注册表
+	if allowedSid != "" {
+		writeAllowedSid(allowedSid)
+	}
+
 	fmt.Println("GoclashZHelper service installed successfully")
+}
+
+func writeAllowedSid(sid string) {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, registryPath, registry.SET_VALUE)
+	if err != nil {
+		// 尝试创建
+		key, _, err = registry.CreateKey(registry.LOCAL_MACHINE, registryPath, registry.SET_VALUE)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write allowed SID to registry: %v\n", err)
+			return
+		}
+	}
+	defer key.Close()
+
+	if err := key.SetStringValue("AllowedSids", sid); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to set AllowedSids: %v\n", err)
+	}
+}
+
+func readAllowedSids() []string {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, registryPath, registry.READ)
+	if err != nil {
+		return nil
+	}
+	defer key.Close()
+
+	val, _, err := key.GetStringValue("AllowedSids")
+	if err != nil || val == "" {
+		return nil
+	}
+
+	return []string{val}
+}
+
+func buildPipeSDDL(allowedSids []string) string {
+	sddl := "D:(A;;GA;;;SY)(A;;GA;;;BA)"
+	for _, sid := range allowedSids {
+		sddl += "(A;;GA;;;" + sid + ")"
+	}
+	return sddl
 }
 
 func uninstallService() {

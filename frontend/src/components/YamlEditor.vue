@@ -42,12 +42,15 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, shallowRef } from 'vue';
-import { EditorView, basicSetup } from 'codemirror';
+import { EditorView } from 'codemirror';
 import { EditorState, Compartment } from '@codemirror/state';
 import { yaml } from '@codemirror/lang-yaml';
-import { keymap } from '@codemirror/view';
-import { indentWithTab } from '@codemirror/commands';
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, dropCursor } from '@codemirror/view';
+import { indentWithTab, defaultKeymap, historyKeymap } from '@codemirror/commands';
+import { history } from '@codemirror/commands';
+import { HighlightStyle, syntaxHighlighting, indentOnInput, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language';
+import { closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
+import { searchKeymap } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
 import * as API from '../../wailsjs/go/main/App';
 import { globalState } from '../store';
@@ -66,6 +69,7 @@ const emit = defineEmits<{
 const editorContainer = ref<HTMLElement>();
 const editorView = shallowRef<EditorView>();
 const themeCompartment = new Compartment();
+const highlightCompartment = new Compartment();
 const loading = ref(false);
 const saving = ref(false);
 const validating = ref(false);
@@ -79,25 +83,56 @@ const totalChars = ref(0);
 const statusText = ref('已保存');
 const yamlError = ref('');
 
+// 自定义 editor setup：不引入 basicSetup / highlightSelectionMatches / drawSelection
+const editorBaseSetup = [
+  lineNumbers(),
+  highlightActiveLineGutter(),
+  history(),
+  foldGutter(),
+  dropCursor(),
+  indentOnInput(),
+  bracketMatching(),
+  closeBrackets(),
+  highlightActiveLine(),
+  keymap.of([
+    indentWithTab,
+    ...closeBracketsKeymap,
+    ...defaultKeymap,
+    ...searchKeymap,
+    ...historyKeymap,
+    ...foldKeymap,
+    ...completionKeymap,
+  ]),
+];
+
 const lightTheme = EditorView.theme({
   '&': {
     backgroundColor: '#FFFFFF',
-    color: '#1A1A1A',
+    color: '#000000',
   },
   '.cm-content': {
-    caretColor: '#1A1A1A',
+    caretColor: '#000000',
     fontFamily: "'JetBrains Mono', 'MiSans', monospace",
     fontSize: '14px',
     lineHeight: '1.6',
   },
   '.cm-cursor': {
-    borderLeftColor: '#1A1A1A',
-  },
-  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-    backgroundColor: 'rgba(88, 166, 255, 0.25)',
+    borderLeftColor: '#000000',
   },
   '& ::selection': {
-    backgroundColor: 'rgba(88, 166, 255, 0.25)',
+    backgroundColor: '#000000',
+    color: '#FFFFFF',
+  },
+  '.cm-content ::selection': {
+    backgroundColor: '#000000',
+    color: '#FFFFFF',
+  },
+  '.cm-line ::selection': {
+    backgroundColor: '#000000',
+    color: '#FFFFFF',
+  },
+  '.cm-selectionBackground': {
+    backgroundColor: '#000000 !important',
   },
   '.cm-gutters': {
     backgroundColor: '#F5F5F5',
@@ -143,23 +178,32 @@ const lightHighlight = HighlightStyle.define([
 
 const darkTheme = EditorView.theme({
   '&': {
-    backgroundColor: '#1A1A1A',
-    color: '#E8E8E8',
+    backgroundColor: '#0D1117',
+    color: '#FFFFFF',
   },
   '.cm-content': {
-    caretColor: '#E8E8E8',
+    caretColor: '#FFFFFF',
     fontFamily: "'JetBrains Mono', 'MiSans', monospace",
     fontSize: '14px',
     lineHeight: '1.6',
   },
   '.cm-cursor': {
-    borderLeftColor: '#E8E8E8',
-  },
-  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-    backgroundColor: 'rgba(88, 166, 255, 0.3)',
+    borderLeftColor: '#FFFFFF',
   },
   '& ::selection': {
-    backgroundColor: 'rgba(88, 166, 255, 0.3)',
+    backgroundColor: '#FFFFFF',
+    color: '#000000',
+  },
+  '.cm-content ::selection': {
+    backgroundColor: '#FFFFFF',
+    color: '#000000',
+  },
+  '.cm-line ::selection': {
+    backgroundColor: '#FFFFFF',
+    color: '#000000',
+  },
+  '.cm-selectionBackground': {
+    backgroundColor: '#FFFFFF !important',
   },
   '.cm-gutters': {
     backgroundColor: '#111111',
@@ -207,7 +251,6 @@ const isDark = () => document.documentElement.classList.contains('dark');
 
 const getTheme = () => isDark() ? darkTheme : lightTheme;
 const getHighlight = () => isDark() ? darkHighlight : lightHighlight;
-const highlightCompartment = new Compartment();
 
 const updateEditorStats = (view: EditorView) => {
   totalLines.value = view.state.doc.lines;
@@ -222,9 +265,8 @@ const updateEditorStats = (view: EditorView) => {
 };
 
 const createExtensions = () => [
-  basicSetup,
+  ...editorBaseSetup,
   yaml(),
-  keymap.of([indentWithTab]),
   EditorView.lineWrapping,
   themeCompartment.of(getTheme()),
   highlightCompartment.of(syntaxHighlighting(getHighlight())),
