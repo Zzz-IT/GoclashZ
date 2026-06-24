@@ -4,9 +4,20 @@ package appcore
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"goclashz/core/logger"
 	"goclashz/core/sys"
 	"sync"
 	"time"
+)
+
+// 哨兵错误
+var (
+	ErrNoActiveConfig        = errors.New("no active config selected")
+	ErrHelperInstallRequired = errors.New("helper_install_required")
+	ErrTunNeedHelperOrAdmin  = errors.New("tun_need_helper_or_admin")
+	ErrWintunMissing         = errors.New("wintun_missing")
 )
 
 type CoreSupervisor struct {
@@ -27,7 +38,7 @@ func NewCoreSupervisor(c *Controller, d *DesiredStateStore) *CoreSupervisor {
 	return &CoreSupervisor{
 		controller:  c,
 		desired:     d,
-		reconcileCh: make(chan string, 10), // Buffered to prevent blocking
+		reconcileCh: make(chan string, 10),
 	}
 }
 
@@ -59,7 +70,6 @@ func (s *CoreSupervisor) ReconcileAsync(reason string) {
 	select {
 	case s.reconcileCh <- reason:
 	default:
-		// Queue full, drop or log
 	}
 }
 
@@ -69,18 +79,22 @@ func (s *CoreSupervisor) loop() {
 		case <-s.ctx.Done():
 			return
 		case reason := <-s.reconcileCh:
-			s.Reconcile(reason)
+			if err := s.Reconcile(reason); err != nil {
+				logger.Warnf("Reconcile(%s) failed: %v", reason, err)
+			}
 		case <-s.watchdogTick.C:
-			// Ensure running if needed
 			desired := s.desired.Get()
 			if desired.CoreRunning {
-				s.Reconcile("watchdog")
+				if err := s.Reconcile("watchdog"); err != nil {
+					logger.Warnf("Reconcile(watchdog) failed: %v", err)
+				}
 			}
 		}
 	}
 }
 
-func (s *CoreSupervisor) Reconcile(reason string) {
+// Reconcile 执行状态调和，返回 error 供调用方处理
+func (s *CoreSupervisor) Reconcile(reason string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -92,50 +106,43 @@ func (s *CoreSupervisor) Reconcile(reason string) {
 		desired.Mode = behavior.ActiveMode
 	}
 
-
-
 	if desired.Tun {
-		// TUN 需要 helper 服务或管理员权限
 		client := sys.NewHelperClient()
 		if err := client.Ping(); err != nil && !sys.CheckAdmin() {
 			s.controller.setLastError("TUN 模式需要后台服务 (GoclashZHelper) 或以管理员身份运行")
 			s.controller.SyncState()
-			return
+			return ErrTunNeedHelperOrAdmin
 		}
 	}
 
 	if desired.Tun && !sys.IsWintunInstalled() {
 		s.controller.setLastError("缺失 Wintun 驱动，请在设置中安装 Wintun")
 		s.controller.SyncState()
-		return
+		return ErrWintunMissing
 	}
 
 	needCore := desired.CoreRunning || desired.SystemProxy || desired.Tun
 	if !needCore {
 		s.controller.DisableAll()
-		return
+		return nil
 	}
 
 	appState := s.controller.GetAppState()
 
-	// 核心修复：如果核心正在运行，且 TUN 期望状态与运行时状态不一致，必须重启核心来重新生成配置
 	if desired.Tun != appState.Tun && appState.IsRunning {
-		err := s.controller.RestartCoreWithReason(s.ctx, reason)
-		if err != nil {
+		if err := s.controller.RestartCoreWithReason(s.ctx, reason); err != nil {
 			s.controller.setLastError(err.Error())
 			s.controller.SyncState()
-			return
+			return fmt.Errorf("restart core failed: %w", err)
 		}
 	} else {
-		err := s.controller.EnsureCoreRunning(s.ctx)
-		if err != nil {
+		if err := s.controller.EnsureCoreRunning(s.ctx); err != nil {
 			s.controller.setLastError(err.Error())
 			s.controller.SyncState()
-			return
+			return err
 		}
 	}
 
-	// 代理状态控制
 	if desired.SystemProxy {
 		s.controller.ensureSystemProxyEnabled()
 	} else {
@@ -144,12 +151,11 @@ func (s *CoreSupervisor) Reconcile(reason string) {
 
 	s.controller.setRuntimeStateFromDesired(desired)
 	s.controller.SyncState()
+	return nil
 }
 
 func (s *CoreSupervisor) ShutdownRuntime(reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	// 退出时可以关闭当前代理，但不要把 desired 写回磁盘
 	s.controller.DisableAll()
 }

@@ -195,7 +195,7 @@ func Stop() error {
 	if startedViaHelper.Load() {
 		mu.Unlock()
 		client := sys.NewHelperClient()
-		if err := client.StopCore(filepath.Base(filepath.Join(utils.GetCoreBinDir(), "clash.exe"))); err != nil {
+		if err := client.StopCore(); err != nil {
 			logger.Warnf("Helper 停止内核失败: %v", err)
 		}
 		startedViaHelper.Store(false)

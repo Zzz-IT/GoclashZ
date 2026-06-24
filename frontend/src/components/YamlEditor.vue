@@ -94,10 +94,10 @@ const lightTheme = EditorView.theme({
     borderLeftColor: '#1A1A1A',
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-    backgroundColor: '#D4D4D4',
+    backgroundColor: 'rgba(88, 166, 255, 0.25)',
   },
   '& ::selection': {
-    backgroundColor: '#D4D4D4',
+    backgroundColor: 'rgba(88, 166, 255, 0.25)',
   },
   '.cm-gutters': {
     backgroundColor: '#F5F5F5',
@@ -156,10 +156,10 @@ const darkTheme = EditorView.theme({
     borderLeftColor: '#E8E8E8',
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-    backgroundColor: '#333333',
+    backgroundColor: 'rgba(88, 166, 255, 0.3)',
   },
   '& ::selection': {
-    backgroundColor: '#333333',
+    backgroundColor: 'rgba(88, 166, 255, 0.3)',
   },
   '.cm-gutters': {
     backgroundColor: '#111111',
@@ -493,29 +493,28 @@ onUnmounted(() => {
   padding: 8px 14px;
 }
 
-/* 编辑区：自然撑开，不使用内部滚动 */
+/* 编辑区 */
 .editor-body {
-  flex: none;
-  min-height: calc(100vh - 260px);
-  overflow: visible;
+  flex: 1;
+  height: calc(100vh - 260px);
+  overflow: hidden;
   border: none;
   border-radius: 0;
   background: transparent;
 }
 
 .editor-body :deep(.cm-editor) {
-  height: auto;
-  min-height: calc(100vh - 260px);
+  height: calc(100vh - 260px);
   border-radius: 12px;
   background: var(--surface);
 }
 
 .editor-body :deep(.cm-scroller) {
-  overflow: visible !important;
+  overflow: auto;
 }
 
 .editor-body :deep(.cm-content) {
-  min-height: calc(100vh - 260px);
+  min-height: 100%;
 }
 
 /* 底部统计栏：滚到底部后显示 */

@@ -234,11 +234,15 @@ func (a *App) StopConnectionMonitor() {
 // --- Toggles & Controls ---
 
 func (a *App) ToggleSystemProxy(enable bool) error {
-	return a.core.ToggleSystemProxy(a.ctx, enable)
+	ctx, cancel := context.WithTimeout(a.ctx, 8*time.Second)
+	defer cancel()
+	return a.core.ToggleSystemProxy(ctx, enable)
 }
 
 func (a *App) ToggleTunMode(enable bool) error {
-	return a.core.ToggleTunMode(a.ctx, enable)
+	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	defer cancel()
+	return a.core.ToggleTunMode(ctx, enable)
 }
 
 func (a *App) UpdateClashMode(mode string) error {

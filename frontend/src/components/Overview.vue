@@ -157,14 +157,15 @@ const runSysProxyWorker = async (target: boolean) => {
   
   try {
     await API.ToggleSystemProxy(target);
-  } catch (err) {
-    // 💥 灾难回滚：只有在底层真报错时，才把 UI 掰回来
+  } catch (err: any) {
     globalState.systemProxy = !target;
-    console.error("系统代理失败: ", err);
+    const msg = String(err?.message || err || '');
+    if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
+      showAlert('尚未添加配置\n\n启用系统代理前，请先添加并应用一个配置文件。', '提示');
+    } else {
+      showAlert('系统代理启用失败: ' + msg, '错误', true);
+    }
   } finally {
-
-
-    // 4. 关键点：活干完了，看看这段时间里，用户有没有又狂点了按钮？
     if (pendingSysProxyTarget !== null && pendingSysProxyTarget !== target) {
       const nextTarget = pendingSysProxyTarget;
       pendingSysProxyTarget = null;
@@ -197,12 +198,29 @@ const runTunWorker = async (target: boolean) => {
   
   try {
     await API.ToggleTunMode(target);
-  } catch (err) {
+  } catch (err: any) {
     globalState.tun = !target;
-    console.error("虚拟网卡失败: ", err);
+    const msg = String(err?.message || err || '');
+
+    if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
+      showAlert('尚未添加配置\n\n启用虚拟网卡前，请先添加并应用一个配置文件。', '提示');
+    } else if (msg.includes('helper_install_required')) {
+      const confirmed = await showConfirm('TUN 模式需要安装后台服务 (GoclashZHelper)\n\n安装后支持开机自动恢复 TUN 模式。', '需要安装后台服务');
+      if (confirmed) {
+        try {
+          await (API as any).InstallHelperService();
+          await API.ToggleTunMode(target);
+        } catch (installErr: any) {
+          showAlert('安装后台服务失败: ' + String(installErr?.message || installErr), '错误', true);
+          globalState.tun = false;
+        }
+      }
+    } else if (msg.includes('wintun_missing') || msg.includes('Wintun')) {
+      showAlert('缺少 Wintun 驱动，请在「组件与库更新」页面安装 Wintun 驱动。', '缺少依赖', true);
+    } else {
+      showAlert('虚拟网卡启用失败: ' + msg, '错误', true);
+    }
   } finally {
-
-
     if (pendingTunTarget !== null && pendingTunTarget !== target) {
       const nextTarget = pendingTunTarget;
       pendingTunTarget = null;

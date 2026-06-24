@@ -4,9 +4,6 @@ package sys
 
 import (
 	"encoding/json"
-	"fmt"
-	"os/user"
-	"strings"
 )
 
 const (
@@ -14,25 +11,13 @@ const (
 	HelperDisplayName = "GoclashZ Helper Service"
 	HelperDescription = "为 GoclashZ 提供高权限能力：TUN 启动、Wintun 安装、核心文件替换、权限修复"
 
-	// Named Pipe 名称 (按用户 SID 隔离)
-	HelperPipePrefix = `\\.\pipe\GoclashZ.Helper.`
+	// 固定 Named Pipe 名称
+	HelperPipeName = `\\.\pipe\GoclashZ.Helper`
 )
 
-// GetHelperPipeName 返回当前用户的 Named Pipe 路径
+// GetHelperPipeName 返回 Named Pipe 路径（固定名称）
 func GetHelperPipeName() string {
-	sid := getUserSID()
-	if sid == "" {
-		return HelperPipePrefix + "default"
-	}
-	return HelperPipePrefix + sid
-}
-
-func getUserSID() string {
-	u, err := user.Current()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(u.Uid)
+	return HelperPipeName
 }
 
 // HelperRequest 是 UI -> Helper 的请求
@@ -57,9 +42,7 @@ type StartCoreParams struct {
 }
 
 // StopCoreParams 停止内核的参数
-type StopCoreParams struct {
-	TargetExeName string `json:"targetExeName"`
-}
+type StopCoreParams struct{}
 
 // ReplaceCoreFileParams 替换核心文件的参数
 type ReplaceCoreFileParams struct {
@@ -87,15 +70,4 @@ type HelperStatusData struct {
 	Running   bool   `json:"running"`
 	Reachable bool   `json:"reachable"`
 	Error     string `json:"error,omitempty"`
-}
-
-// ValidatePipeName 防御性检查 pipe 名称
-func ValidatePipeName(name string) error {
-	if !strings.HasPrefix(name, `\\.\pipe\`) {
-		return fmt.Errorf("invalid pipe name: %s", name)
-	}
-	if len(name) > 256 {
-		return fmt.Errorf("pipe name too long: %d", len(name))
-	}
-	return nil
 }

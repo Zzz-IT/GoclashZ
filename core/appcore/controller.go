@@ -19,7 +19,11 @@ import (
 	"goclashz/core/utils"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
+
+var helperReadyGroup singleflight.Group
 
 type LogEntry = logger.LogEntry
 
@@ -395,7 +399,7 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 	}
 
 	if desired.ActiveConfig == "" {
-		return fmt.Errorf("no active config selected")
+		return ErrNoActiveConfig
 	}
 
 	// TUN 模式：确保 helper 服务就绪
@@ -876,7 +880,9 @@ func (c *Controller) fillDesiredTarget(d *DesiredState) {
 
 // ToggleSystemProxy 开关：系统代理
 func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
-	desired := c.Desired.Get()
+	previousDesired := c.Desired.Get()
+
+	desired := previousDesired
 	desired.SystemProxy = enable
 
 	if enable {
@@ -888,14 +894,26 @@ func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
 	c.fillDesiredTarget(&desired)
 
 	c.Desired.SetAndSave(desired)
-	// 同步执行 reconcile，等待核心真正 ready 后再返回
-	c.Supervisor.Reconcile("system-proxy-toggle")
+
+	if err := c.Supervisor.Reconcile("system-proxy-toggle"); err != nil {
+		// 回滚
+		c.Desired.SetAndSave(previousDesired)
+		c.SyncState()
+		return err
+	}
 	return nil
 }
 
 // EnsureHelperReady 确保 helper 服务已安装并运行
-// 只在 TUN / core 更新 / wintun 安装等需要高权限时调用
+// 使用 singleflight 合并并发调用
 func (c *Controller) EnsureHelperReady(reason string) error {
+	_, err, _ := helperReadyGroup.Do("helper-ready", func() (any, error) {
+		return nil, c.ensureHelperReadySlow(reason)
+	})
+	return err
+}
+
+func (c *Controller) ensureHelperReadySlow(reason string) error {
 	client := sys.NewHelperClient()
 
 	// 快速 ping 检测是否已可达
@@ -908,8 +926,8 @@ func (c *Controller) EnsureHelperReady(reason string) error {
 		return fmt.Errorf("后台服务未安装或启动失败，请在设置中安装: %w", err)
 	}
 
-	// 等待就绪
-	if err := sys.WaitForHelperReady(3, 300*time.Millisecond); err != nil {
+	// 等待就绪（服务 Running 后 pipe 应该已可用，只需短暂确认）
+	if err := sys.WaitForHelperReady(2, 100*time.Millisecond); err != nil {
 		return fmt.Errorf("后台服务就绪超时: %w", err)
 	}
 
@@ -920,17 +938,39 @@ func (c *Controller) EnsureHelperReady(reason string) error {
 // ToggleTunMode 开关：TUN 模式
 func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
 	if enable {
-		// TUN 需要 helper 服务或管理员权限（快速检查，不启动服务）
-		client := sys.NewHelperClient()
-		if err := client.Ping(); err != nil && !sys.CheckAdmin() {
-			return fmt.Errorf("TUN 模式需要后台服务 (GoclashZHelper) 或以管理员身份运行")
+		// 无配置检查
+		behavior := c.Behavior.Get()
+		if behavior.ActiveConfig == "" {
+			return ErrNoActiveConfig
 		}
+
+		// helper 检查（快速 ping，不启动服务）
+		client := sys.NewHelperClient()
+		helperReachable := client.Ping() == nil
+
+		if !helperReachable && !sys.CheckAdmin() {
+			// 非管理员且 helper 不可达，需要安装 helper
+			helperStatus := sys.CheckHelperService()
+			if !helperStatus.Installed {
+				return ErrHelperInstallRequired
+			}
+			return ErrTunNeedHelperOrAdmin
+		}
+
+		// 管理员模式下 helper 未安装，静默安装
+		if !helperReachable && sys.CheckAdmin() {
+			if err := c.EnsureHelperReady("tun-first-install"); err != nil {
+				return fmt.Errorf("安装后台服务失败: %w", err)
+			}
+		}
+
 		if !sys.IsWintunInstalled() {
-			return fmt.Errorf("缺失 Wintun 驱动")
+			return ErrWintunMissing
 		}
 	}
 
-	desired := c.Desired.Get()
+	previousDesired := c.Desired.Get()
+	desired := previousDesired
 	desired.Tun = enable
 
 	if enable {
@@ -940,11 +980,13 @@ func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
 	}
 
 	c.fillDesiredTarget(&desired)
-
 	c.Desired.SetAndSave(desired)
 
-	// 同步执行 reconcile，等待核心真正 ready 后再返回
-	c.Supervisor.Reconcile("tun-toggle")
+	if err := c.Supervisor.Reconcile("tun-toggle"); err != nil {
+		c.Desired.SetAndSave(previousDesired)
+		c.SyncState()
+		return err
+	}
 	return nil
 }
 

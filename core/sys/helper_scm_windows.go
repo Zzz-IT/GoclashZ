@@ -60,7 +60,7 @@ func installServiceSCM(name, exePath, description string) error {
 	s, err := m.CreateService(name, exePath, mgr.Config{
 		DisplayName:  HelperDisplayName,
 		Description:  description,
-		StartType:    mgr.StartAutomatic,
+		StartType:    mgr.StartManual,
 		ErrorControl: mgr.ErrorNormal,
 	})
 	if err != nil {

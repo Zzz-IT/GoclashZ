@@ -11,30 +11,17 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
-	"unsafe"
 
 	"github.com/Microsoft/go-winio"
-	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
 const (
-	serviceName = "GoclashZHelper"
+	serviceName  = "GoclashZHelper"
+	pipeName     = `\\.\pipe\GoclashZ.Helper`
+	helperSecret = "GoclashZ-Helper-v1"
 )
-
-// getPipeName 根据当前连接方的 SID 生成 pipe 名称
-// 服务以 SYSTEM 运行，需要从客户端 token 获取 SID
-func getPipeName() string {
-	// 服务端监听所有用户的 pipe，使用通配模式
-	// 实际 pipe 名称由客户端 SID 决定
-	return `\\.\pipe\GoclashZ.Helper.`
-}
-
-// getPipeNameForUser 为指定 SID 生成 pipe 名称
-func getPipeNameForUser(sid string) string {
-	return `\\.\pipe\GoclashZ.Helper.` + sid
-}
 
 type helperService struct {
 	mu      sync.Mutex
@@ -79,10 +66,6 @@ func main() {
 func (s *helperService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
 	changes <- svc.Status{State: svc.StartPending}
 
-	// 为当前交互用户创建 Named Pipe
-	// 服务以 SYSTEM 运行，需要为每个用户 session 创建 pipe
-	pipeName := detectUserPipeName()
-
 	ln, err := createPipeListener(pipeName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "listen pipe failed: %v\n", err)
@@ -111,75 +94,10 @@ func (s *helperService) Execute(args []string, r <-chan svc.ChangeRequest, chang
 	return false, 0
 }
 
-// detectUserPipeName 检测当前交互用户的 SID 并生成 pipe 名称
-func detectUserPipeName() string {
-	// 尝试从 explorer.exe 获取当前登录用户的 SID
-	sid := getActiveUserSID()
-	if sid != "" {
-		return getPipeNameForUser(sid)
-	}
-	// fallback: 使用固定名称
-	return `\\.\pipe\GoclashZ.Helper.default`
-}
-
-// getActiveUserSID 从当前交互 session 的 explorer.exe 获取用户 SID
-func getActiveUserSID() string {
-	// 枚举所有 explorer.exe 进程，获取第一个非 SYSTEM 用户的 SID
-	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
-	if err != nil {
-		return ""
-	}
-	defer windows.CloseHandle(snap)
-
-	var pe windows.ProcessEntry32
-	pe.Size = uint32(unsafe.Sizeof(pe))
-
-	if err := windows.Process32First(snap, &pe); err != nil {
-		return ""
-	}
-
-	for {
-		name := windows.UTF16ToString(pe.ExeFile[:])
-		if name == "explorer.exe" {
-			sid := getProcessUserSID(pe.ProcessID)
-			if sid != "" && sid != "S-1-5-18" && sid != "S-1-5-19" && sid != "S-1-5-20" {
-				return sid
-			}
-		}
-		if err := windows.Process32Next(snap, &pe); err != nil {
-			break
-		}
-	}
-
-	return ""
-}
-
-// getProcessUserSID 获取指定进程的用户 SID
-func getProcessUserSID(pid uint32) string {
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_INFORMATION, false, pid)
-	if err != nil {
-		return ""
-	}
-	defer windows.CloseHandle(h)
-
-	var token windows.Token
-	if err := windows.OpenProcessToken(h, windows.TOKEN_QUERY, &token); err != nil {
-		return ""
-	}
-	defer token.Close()
-
-	user, err := token.GetTokenUser()
-	if err != nil {
-		return ""
-	}
-
-	return user.User.Sid.String()
-}
-
 func createPipeListener(pipeName string) (net.Listener, error) {
-	// 配置 pipe 安全属性：允许当前用户、Administrators、SYSTEM
+	// 配置 pipe 安全属性：只允许 SYSTEM 和 Administrators
 	cfg := &winio.PipeConfig{
-		SecurityDescriptor: "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;AU)",
+		SecurityDescriptor: "D:(A;;GA;;;SY)(A;;GA;;;BA)",
 		InputBufferSize:    4096,
 		OutputBufferSize:   4096,
 	}

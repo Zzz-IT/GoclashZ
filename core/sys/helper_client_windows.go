@@ -5,7 +5,6 @@ package sys
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"time"
 
 	"github.com/Microsoft/go-winio"
@@ -13,9 +12,22 @@ import (
 )
 
 const (
-	helperConnectTimeout = 2 * time.Second
-	helperRequestTimeout = 10 * time.Second
+	helperConnectTimeout = 150 * time.Millisecond
 )
+
+// getMethodTimeout 根据方法返回不同的请求超时
+func getMethodTimeout(method string) time.Duration {
+	switch method {
+	case "ping":
+		return 200 * time.Millisecond
+	case "core-status":
+		return 500 * time.Millisecond
+	case "start-core", "stop-core":
+		return 3 * time.Second
+	default:
+		return 10 * time.Second
+	}
+}
 
 // HelperClient 通过 Named Pipe 与 GoclashZHelper 服务通信
 type HelperClient struct {
@@ -58,12 +70,8 @@ func (c *HelperClient) StartCore(params StartCoreParams) error {
 }
 
 // StopCore 通过 helper 停止内核进程
-func (c *HelperClient) StopCore(targetExeName string) error {
-	data, err := json.Marshal(StopCoreParams{TargetExeName: targetExeName})
-	if err != nil {
-		return err
-	}
-	resp, err := c.sendRequest("stop-core", data)
+func (c *HelperClient) StopCore() error {
+	resp, err := c.sendRequest("stop-core", nil)
 	if err != nil {
 		return fmt.Errorf("helper stop-core failed: %w", err)
 	}
@@ -136,10 +144,6 @@ func (c *HelperClient) InstallWintun(source, target string) error {
 
 // sendRequest 通过 Named Pipe 发送请求并等待响应
 func (c *HelperClient) sendRequest(method string, params json.RawMessage) (*HelperResponse, error) {
-	if err := ValidatePipeName(c.pipeName); err != nil {
-		return nil, err
-	}
-
 	timeout := helperConnectTimeout
 	conn, err := winio.DialPipe(c.pipeName, &timeout)
 	if err != nil {
@@ -147,7 +151,7 @@ func (c *HelperClient) sendRequest(method string, params json.RawMessage) (*Help
 	}
 	defer conn.Close()
 
-	if err := conn.SetDeadline(time.Now().Add(helperRequestTimeout)); err != nil {
+	if err := conn.SetDeadline(time.Now().Add(getMethodTimeout(method))); err != nil {
 		return nil, fmt.Errorf("set deadline failed: %w", err)
 	}
 
@@ -248,9 +252,4 @@ func WaitForHelperReady(maxRetries int, interval time.Duration) error {
 		}
 	}
 	return fmt.Errorf("helper 服务在 %d 次尝试后仍未就绪", maxRetries)
-}
-
-// DialPipe 导出 Named Pipe 连接（供 helper 服务端使用）
-func DialPipe(pipeName string, timeout *time.Duration) (net.Conn, error) {
-	return winio.DialPipe(pipeName, timeout)
 }
