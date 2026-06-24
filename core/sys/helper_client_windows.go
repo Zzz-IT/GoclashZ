@@ -224,30 +224,45 @@ func InstallHelperService(exePath string) error {
 	return installServiceSCM(HelperServiceName, exePath, HelperDescription)
 }
 
-// InstallHelperServiceForUser 安装 helper 服务并授权指定用户 SID
-func InstallHelperServiceForUser(exePath string, userSID string) error {
-	if err := installServiceSCM(HelperServiceName, exePath, HelperDescription); err != nil {
-		return err
+// InstallOrRepairHelperServiceForUser 安装或修复 helper 服务并授权指定用户 SID
+// 服务已存在时跳过创建，继续补写 SID 和 DACL
+func InstallOrRepairHelperServiceForUser(exePath string, userSID string) error {
+	installed, err := isServiceInstalled(HelperServiceName)
+	if err != nil {
+		return fmt.Errorf("检查服务状态失败: %w", err)
+	}
+
+	if !installed {
+		if err := installServiceSCM(HelperServiceName, exePath, HelperDescription); err != nil {
+			return err
+		}
 	}
 
 	if userSID != "" {
-		writeAllowedSidToRegistry(userSID)
-		_ = grantServiceControlToUser(HelperServiceName, userSID)
+		if err := writeAllowedSidToRegistry(userSID); err != nil {
+			return fmt.Errorf("写入 AllowedSids 注册表失败: %w", err)
+		}
+		if err := grantServiceControlToUser(HelperServiceName, userSID); err != nil {
+			return fmt.Errorf("设置服务 DACL 失败: %w", err)
+		}
 	}
 
 	return nil
 }
 
-func writeAllowedSidToRegistry(sid string) {
+func writeAllowedSidToRegistry(sid string) error {
 	key, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Services\GoclashZHelper`, registry.SET_VALUE)
 	if err != nil {
 		key, _, err = registry.CreateKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Services\GoclashZHelper`, registry.SET_VALUE)
 		if err != nil {
-			return
+			return fmt.Errorf("打开/创建注册表项失败: %w", err)
 		}
 	}
 	defer key.Close()
-	_ = key.SetStringValue("AllowedSids", sid)
+	if err := key.SetStringValue("AllowedSids", sid); err != nil {
+		return fmt.Errorf("设置 AllowedSids 值失败: %w", err)
+	}
+	return nil
 }
 
 // UninstallHelperService 卸载 helper 服务（需要管理员权限）

@@ -420,7 +420,7 @@ func (a *App) InstallHelperService() error {
 	}
 
 	// 管理员直接安装
-	if err := sys.InstallHelperServiceForUser(exePath, sid); err != nil {
+	if err := sys.InstallOrRepairHelperServiceForUser(exePath, sid); err != nil {
 		return err
 	}
 	if err := sys.StartHelperService(); err != nil {

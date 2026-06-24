@@ -538,6 +538,9 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 
 	// 设置运行时状态
 	owner := "direct"
+	if desired.Tun {
+		owner = "helper"
+	}
 	c.runtimeState.Set(CoreRuntimeState{
 		Running:      true,
 		Owner:        owner,
@@ -1027,7 +1030,7 @@ func (c *Controller) ensureHelperReadySlow(reason string) error {
 			return fmt.Errorf("获取当前用户 SID 失败: %w", err)
 		}
 
-		if err := sys.InstallHelperServiceForUser(helperExe, sid); err != nil {
+		if err := sys.InstallOrRepairHelperServiceForUser(helperExe, sid); err != nil {
 			return fmt.Errorf("安装后台服务失败: %w", err)
 		}
 
@@ -1062,15 +1065,16 @@ func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
 		helperReachable := client.Ping() == nil
 
 		if !helperReachable && !sys.CheckAdmin() {
-			// 非管理员且 helper 不可达，需要安装 helper
+			// 非管理员且 helper 不可达
 			helperStatus := sys.CheckHelperService()
 			if !helperStatus.Installed {
 				return ErrHelperInstallRequired
 			}
-			return ErrTunNeedHelperOrAdmin
+			// 已安装但不可达，需要修复
+			return ErrHelperRepairRequired
 		}
 
-		// 管理员模式下 helper 未安装，静默安装
+		// 管理员模式下 helper 不可达，静默安装/修复
 		if !helperReachable && sys.CheckAdmin() {
 			if err := c.EnsureHelperReady("tun-first-install"); err != nil {
 				return fmt.Errorf("安装后台服务失败: %w", err)

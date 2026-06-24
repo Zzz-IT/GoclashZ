@@ -166,11 +166,11 @@ const toggleTun = async () => {
     const msg = String(err?.message || err || '');
     if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
       showAlert('尚未添加配置\n\n启用虚拟网卡前，请先添加并应用一个配置文件。', '提示');
-    } else if (msg.includes('helper_install_required')) {
-      const confirmed = await showConfirm('TUN 模式需要安装后台服务 (GoclashZHelper)\n\n安装后支持开机自动恢复 TUN 模式。', '需要安装后台服务');
+    } else if (msg.includes('helper_install_required') || msg.includes('helper_repair_required')) {
+      const confirmed = await showConfirm('TUN 模式需要初始化后台服务 (GoclashZHelper)\n\n此操作只需管理员确认一次，之后可无感启用 TUN 和开机恢复。', '需要初始化后台服务');
       if (confirmed) {
         try { await (API as any).InstallHelperService(); await API.ToggleTunMode(target); }
-        catch (e: any) { showAlert('安装后台服务失败: ' + String(e?.message || e), '错误', true); }
+        catch (e: any) { showAlert('初始化后台服务失败: ' + String(e?.message || e), '错误', true); }
       }
     } else if (msg.includes('wintun_missing') || msg.includes('Wintun')) {
       showAlert('缺少 Wintun 驱动，请在「组件与库更新」页面安装 Wintun 驱动。', '缺少依赖', true);

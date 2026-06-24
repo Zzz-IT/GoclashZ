@@ -83,21 +83,23 @@ var (
 
 func (c *Controller) outboundIPCacheKey() string {
 	state := c.GetAppState()
-	proxyActive := state.SystemProxy || state.Tun
-
-	if proxyActive && !clash.IsRunning() {
-		proxyActive = false
-	}
 
 	mode := "direct"
-	if proxyActive {
+	switch {
+	case state.Tun:
+		mode = "tun-route"
+	case state.SystemProxy:
 		mode = "proxy"
+	}
+
+	if (mode == "proxy" || mode == "tun-route") && !clash.IsRunning() {
+		mode = "direct"
 	}
 
 	return fmt.Sprintf(
 		"%s|proxy=%t|tun=%t|sys=%t|config=%s",
 		mode,
-		proxyActive,
+		state.SystemProxy,
 		state.Tun,
 		state.SystemProxy,
 		state.ActiveConfig,
@@ -178,10 +180,11 @@ func (c *Controller) getOutboundIPInternal() (OutboundIPResult, error) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	type ipResult struct {
+		family string // "ipv4" or "ipv6"
 		ip     string
 		source string
 		err    error
@@ -196,51 +199,75 @@ func (c *Controller) getOutboundIPInternal() (OutboundIPResult, error) {
 		endpointsV4 = ipv4DirectEndpoints
 	}
 
-	ipv6Ch := make(chan ipResult, 1)
-	ipv4Ch := make(chan ipResult, 1)
+	resultCh := make(chan ipResult, 2)
 
-	go func() {
-		ip, source, err := detectIP(ctx, endpointsV6, "tcp6", useHTTPProxy)
-		ipv6Ch <- ipResult{ip: ip, source: source, err: err}
-	}()
-
-	go func() {
-		ip, source, err := detectIP(ctx, endpointsV4, "tcp4", useHTTPProxy)
-		ipv4Ch <- ipResult{ip: ip, source: source, err: err}
-	}()
-
-	ipv6Res := <-ipv6Ch
-	ipv4Res := <-ipv4Ch
-
-	result := OutboundIPResult{
-		IPv4: ipv4Res.ip,
-		IPv6: ipv6Res.ip,
-		Mode: mode,
+	// TUN/direct 模式优先 IPv4，proxy 模式并发
+	if mode == "tun-route" || mode == "direct" {
+		go func() {
+			ip, source, err := detectIP(ctx, endpointsV4, "tcp4", useHTTPProxy)
+			resultCh <- ipResult{family: "ipv4", ip: ip, source: source, err: err}
+		}()
+		go func() {
+			// IPv4 优先窗口：延迟 200ms 再启动 IPv6
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(200 * time.Millisecond):
+			}
+			ip, source, err := detectIP(ctx, endpointsV6, "tcp6", useHTTPProxy)
+			resultCh <- ipResult{family: "ipv6", ip: ip, source: source, err: err}
+		}()
+	} else {
+		// proxy 模式并发
+		go func() {
+			ip, source, err := detectIP(ctx, endpointsV6, "tcp6", useHTTPProxy)
+			resultCh <- ipResult{family: "ipv6", ip: ip, source: source, err: err}
+		}()
+		go func() {
+			ip, source, err := detectIP(ctx, endpointsV4, "tcp4", useHTTPProxy)
+			resultCh <- ipResult{family: "ipv4", ip: ip, source: source, err: err}
+		}()
 	}
 
-	if ipv6Res.ip != "" {
-		result.Preferred = ipv6Res.ip
-		result.Source = ipv6Res.source
-	} else if ipv4Res.ip != "" {
-		result.Preferred = ipv4Res.ip
-		result.Source = ipv4Res.source
+	// first-valid 快速返回：第一个成功就返回
+	result := OutboundIPResult{Mode: mode}
+	var lastErr error
+	deadline := time.NewTimer(3500 * time.Millisecond)
+	defer deadline.Stop()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case r := <-resultCh:
+			if r.err == nil && r.ip != "" {
+				result.Preferred = r.ip
+				result.Source = r.source
+				if r.family == "ipv6" {
+					result.IPv6 = r.ip
+				} else {
+					result.IPv4 = r.ip
+				}
+				return result, nil
+			}
+			lastErr = r.err
+		case <-deadline.C:
+			result.Message = "IP 检测超时"
+			return result, nil
+		}
 	}
 
-	if result.Preferred == "" {
-		result.Message = "所有检测站点均不可达"
-		if ipv6Res.err != nil {
-			result.Message = fmt.Sprintf("IPv6: %v; IPv4: %v", ipv6Res.err, ipv4Res.err)
-		}
-		
-		entry := logger.LogEntry{
-			Type:    "error",
-			Payload: "出站 IP 检测失败: " + result.Message,
-			Time:    time.Now().Format("15:04:05"),
-		}
-		logger.AppLogs.Add(entry)
-		if c.events != nil {
-			c.events.Emit(EventLogMessage, entry)
-		}
+	result.Message = "所有检测站点均不可达"
+	if lastErr != nil {
+		result.Message = fmt.Sprintf("%v", lastErr)
+	}
+
+	entry := logger.LogEntry{
+		Type:    "error",
+		Payload: "出站 IP 检测失败: " + result.Message,
+		Time:    time.Now().Format("15:04:05"),
+	}
+	logger.AppLogs.Add(entry)
+	if c.events != nil {
+		c.events.Emit(EventLogMessage, entry)
 	}
 
 	return result, nil
@@ -266,7 +293,7 @@ func detectIP(ctx context.Context, endpoints []string, network string, useProxy 
 				defer wg.Done()
 				
 				// 给单个请求一个合理的超时，避免无限期挂起
-				fetchCtx, fetchCancel := context.WithTimeout(reqCtx, 4500*time.Millisecond)
+				fetchCtx, fetchCancel := context.WithTimeout(reqCtx, 3500*time.Millisecond)
 				defer fetchCancel()
 
 				ip, err := fetchIPFromEndpoint(fetchCtx, endpoint, network, useProxy)
@@ -295,8 +322,8 @@ func detectIP(ctx context.Context, endpoints []string, network string, useProxy 
 				select {
 				case <-reqCtx.Done():
 					return // 如果已经拿到正确结果被 cancel，则停止继续分发后续请求
-				case <-time.After(150 * time.Millisecond):
-					// 等待 150ms 的错峰延时。如果前一个请求非常快，则不会启动后面的协程。
+				case <-time.After(80 * time.Millisecond):
+					// 错峰延时
 				}
 			}
 		}
@@ -330,7 +357,7 @@ func fetchIPFromEndpoint(ctx context.Context, endpoint string, network string, u
 			Proxy: http.ProxyURL(proxyURL),
 		}
 	} else {
-		dialer := &net.Dialer{Timeout: 4500 * time.Millisecond}
+		dialer := &net.Dialer{Timeout: 3500 * time.Millisecond}
 		transport = &http.Transport{
 			Proxy: nil,
 			DialContext: func(ctx context.Context, n, addr string) (net.Conn, error) {
@@ -341,7 +368,7 @@ func fetchIPFromEndpoint(ctx context.Context, endpoint string, network string, u
 
 	client := &http.Client{
 		Transport: transport,
-		Timeout:   4500 * time.Millisecond,
+		Timeout:   3500 * time.Millisecond,
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)

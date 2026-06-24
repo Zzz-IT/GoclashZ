@@ -115,7 +115,7 @@ func main() {
 		}
 
 		exePath := filepath.Join(filepath.Dir(exePath), "GoclashZHelper.exe")
-		if err := sys.InstallHelperServiceForUser(exePath, allowedSid); err != nil {
+		if err := sys.InstallOrRepairHelperServiceForUser(exePath, allowedSid); err != nil {
 			logger.Errorf("安装 Helper 服务失败: %v", err)
 			os.Exit(1)
 		}

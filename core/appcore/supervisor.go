@@ -16,6 +16,7 @@ import (
 var (
 	ErrNoActiveConfig        = errors.New("no active config selected")
 	ErrHelperInstallRequired = errors.New("helper_install_required")
+	ErrHelperRepairRequired  = errors.New("helper_repair_required")
 	ErrTunNeedHelperOrAdmin  = errors.New("tun_need_helper_or_admin")
 	ErrWintunMissing         = errors.New("wintun_missing")
 )
