@@ -111,6 +111,10 @@ export function updateStateFromBackend(rawData: any) {
   if (rawData.isRunning !== undefined) globalState.isRunning = rawData.isRunning;
   else if (rawData.IsRunning !== undefined) globalState.isRunning = rawData.IsRunning;
 
+  // mode 更新
+  if (rawData.mode !== undefined) globalState.mode = rawData.mode;
+  else if (rawData.Mode !== undefined) globalState.mode = rawData.Mode;
+
   const newTheme = rawData.theme ?? rawData.Theme;
   if (newTheme !== undefined) {
     globalState.theme = newTheme;
@@ -307,14 +311,18 @@ export function scheduleOutboundIPRefresh(
 /**
  * 执行 IP 检测（latest-wins，不丢弃新请求）
  */
-export async function refreshOutboundIP(options?: { force?: boolean; reason?: string }) {
+export async function refreshOutboundIP(options?: { force?: boolean; clearBeforeStart?: boolean; reason?: string }) {
   if (globalState.ipDetecting) {
-    // 检测中：记录最新请求，完成后立即重试
-    pendingIPRefresh = { force: true, reason: options?.reason };
+    pendingIPRefresh = { force: true, clearBeforeStart: options?.clearBeforeStart, reason: options?.reason };
     return;
   }
 
   const seq = ++ipDetectSeq;
+
+  if (options?.clearBeforeStart) {
+    globalState.outboundIP = null;
+  }
+
   globalState.ipDetecting = true;
 
   try {

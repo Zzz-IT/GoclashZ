@@ -69,7 +69,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { globalState, showAlert, showConfirm, scheduleOutboundIPRefresh } from '../store';
+import { globalState, showAlert, showConfirm, updateStateFromBackend, scheduleOutboundIPRefresh } from '../store';
 import { ICONS } from '../utils/icons';
 import TrafficCard from './TrafficCard.vue';
 
@@ -138,7 +138,8 @@ const toggleSysProxy = async () => {
   sysProxyTarget.value = target;
   try {
     await API.ToggleSystemProxy(target);
-    // 后端通过 app-state-sync 回传真实状态
+    const latest = await (API as any).GetAppState();
+    updateStateFromBackend(latest);
   } catch (err: any) {
     const msg = String(err?.message || err || '');
     if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
@@ -159,6 +160,8 @@ const toggleTun = async () => {
   tunTarget.value = target;
   try {
     await API.ToggleTunMode(target);
+    const latest = await (API as any).GetAppState();
+    updateStateFromBackend(latest);
   } catch (err: any) {
     const msg = String(err?.message || err || '');
     if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
@@ -189,9 +192,8 @@ let previousMode = globalState.mode;
 
 const handleModeChange = (val: string) => {
   if (globalState.mode === val) return;
-  previousMode = globalState.mode;
-  globalState.mode = val;
   if (modeWorkerActive) { pendingModeTarget = val; return; }
+  previousMode = globalState.mode;
   runModeWorker(val);
 };
 
@@ -215,6 +217,8 @@ const runModeWorker = async (targetMode: string) => {
         }
       }
     }
+    const latest = await (API as any).GetAppState();
+    updateStateFromBackend(latest);
   } catch (err) {
     globalState.mode = previousMode;
     await showAlert("模式切换失败: " + err, '错误');

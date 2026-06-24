@@ -45,6 +45,54 @@ type Options struct {
 	OnStateChange func()
 }
 
+// CoreRuntimeState 核心运行时状态
+type CoreRuntimeState struct {
+	Running      bool
+	PID          int
+	Owner        string // direct/helper
+	Purpose      string // user/delay/startup
+	Tun          bool
+	ActiveConfig string
+	Mode         string
+	StartedAt    time.Time
+}
+
+// runtimeStateStore 线程安全的核心运行时状态存储
+type runtimeStateStore struct {
+	mu    sync.RWMutex
+	state CoreRuntimeState
+}
+
+func (s *runtimeStateStore) Get() CoreRuntimeState {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state
+}
+
+func (s *runtimeStateStore) Set(st CoreRuntimeState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state = st
+}
+
+func (s *runtimeStateStore) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state = CoreRuntimeState{}
+}
+
+// runtimeSatisfiesDesired 检查当前运行时状态是否满足期望状态
+func (c *Controller) runtimeSatisfiesDesired(desired DesiredState) bool {
+	st := c.runtimeState.Get()
+	if !st.Running {
+		return false
+	}
+	return st.Purpose == "user" &&
+		st.Tun == desired.Tun &&
+		st.ActiveConfig == desired.ActiveConfig &&
+		st.Mode == desired.Mode
+}
+
 type Controller struct {
 	events        EventSink
 	onStateChange func()
@@ -99,6 +147,9 @@ type Controller struct {
 	// 🚀 新增：明确用户运行意图
 	userCoreRunning bool
 	coreStartedAt   time.Time
+
+	// 核心运行时状态
+	runtimeState runtimeStateStore
 
 	// 🚀 核心：自适应调度状态
 	networkMu            sync.RWMutex
@@ -408,7 +459,8 @@ func (c *Controller) SyncState() {
 // --- 内部方法 (需要提前持有 coreLifecycleMu) ---
 
 func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desired DesiredState) error {
-	if clash.IsRunning() {
+	// 检查当前运行时状态是否已满足期望
+	if c.runtimeSatisfiesDesired(desired) {
 		return nil
 	}
 
@@ -436,7 +488,7 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 
 	apiReady := false
 	var lastProbeErr error
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 30; i++ {
 		select {
 		case <-ctx.Done():
 			clash.Stop()
@@ -448,14 +500,14 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 		default:
 		}
 
-		if _, err := clash.GetInitialDataWithContext(ctx); err == nil {
+		if err := clash.PingAPIWithContext(ctx); err == nil {
 			apiReady = true
 			break
 		} else {
 			lastProbeErr = err
 		}
 
-		timer := time.NewTimer(100 * time.Millisecond)
+		timer := time.NewTimer(50 * time.Millisecond)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
@@ -484,8 +536,28 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 	c.coreStartedAt = time.Now()
 	c.mu.Unlock()
 
-	c.applyStoredProxySelections(ctx, desired.ActiveConfig)
-	c.SyncProxyStateOnce()
+	// 设置运行时状态
+	owner := "direct"
+	c.runtimeState.Set(CoreRuntimeState{
+		Running:      true,
+		Owner:        owner,
+		Purpose:      "user",
+		Tun:          desired.Tun,
+		ActiveConfig: desired.ActiveConfig,
+		Mode:         desired.Mode,
+		StartedAt:    time.Now(),
+	})
+
+	// 内核已有反应，同步状态
+	c.SyncState()
+
+	// 完整代理数据后台处理，不阻塞开关返回
+	go func() {
+		bgCtx, cancel := context.WithTimeout(c.ctx, 8*time.Second)
+		defer cancel()
+		c.applyStoredProxySelections(bgCtx, desired.ActiveConfig)
+		c.SyncProxyStateOnce()
+	}()
 
 	return nil
 }
@@ -496,6 +568,7 @@ func (c *Controller) stopCoreProcessLocked() {
 	c.userCoreRunning = false
 	c.coreStartedAt = time.Time{}
 	c.mu.Unlock()
+	c.runtimeState.Clear()
 }
 
 // classifyProbeError 将探针错误分类为用户可读的诊断信息

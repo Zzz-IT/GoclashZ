@@ -232,6 +232,7 @@ func InstallHelperServiceForUser(exePath string, userSID string) error {
 
 	if userSID != "" {
 		writeAllowedSidToRegistry(userSID)
+		_ = grantServiceControlToUser(HelperServiceName, userSID)
 	}
 
 	return nil

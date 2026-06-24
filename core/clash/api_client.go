@@ -410,6 +410,12 @@ func GetInitialData() (map[string]interface{}, error) {
 	return GetInitialDataWithContext(context.Background())
 }
 
+// PingAPIWithContext 轻量级 API 探针，只检查核心是否有反应
+func PingAPIWithContext(ctx context.Context) error {
+	_, err := doKernelGetWithContext[map[string]interface{}](ctx, "/configs")
+	return err
+}
+
 func GetInitialDataWithContext(ctx context.Context) (map[string]interface{}, error) {
 	configData, err := doKernelGetWithContext[map[string]interface{}](ctx, "/configs")
 	if err != nil {

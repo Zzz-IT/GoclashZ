@@ -109,7 +109,7 @@
 import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed, watch, nextTick } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { showAlert, globalState, refreshOutboundIP } from '../store';
+import { showAlert, globalState, scheduleOutboundIPRefresh } from '../store';
 import { ICONS } from '../utils/icons';
 
 const localGroups = ref<any[]>([]);
@@ -312,7 +312,12 @@ const selectNode = async (groupName: string, nodeName: string) => {
     await loadData();
     
     // 触发刷新出站 IP
-    setTimeout(() => refreshOutboundIP(), 1500);
+    scheduleOutboundIPRefresh('node-switch', {
+      force: true,
+      delay: 1200,
+      clearBeforeStart: true,
+      reason: 'node-switch',
+    });
   } catch (e) {
     await showAlert("切换失败: " + e, '错误');
   }

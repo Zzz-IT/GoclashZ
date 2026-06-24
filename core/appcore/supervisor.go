@@ -125,15 +125,6 @@ func (s *CoreSupervisor) Reconcile(ctx context.Context, reason string) error {
 		desired.Mode = behavior.ActiveMode
 	}
 
-	if desired.Tun {
-		client := sys.NewHelperClient()
-		if err := client.Ping(); err != nil && !sys.CheckAdmin() {
-			s.controller.setLastError("TUN 模式需要后台服务 (GoclashZHelper) 或以管理员身份运行")
-			s.controller.SyncState()
-			return ErrTunNeedHelperOrAdmin
-		}
-	}
-
 	if desired.Tun && !sys.IsWintunInstalled() {
 		s.controller.setLastError("缺失 Wintun 驱动，请在设置中安装 Wintun")
 		s.controller.SyncState()
@@ -146,9 +137,15 @@ func (s *CoreSupervisor) Reconcile(ctx context.Context, reason string) error {
 		return nil
 	}
 
-	appState := s.controller.GetAppState()
+	// 检查当前运行时状态是否已满足期望
+	if s.controller.runtimeSatisfiesDesired(desired) {
+		s.controller.SyncState()
+		return nil
+	}
 
-	if desired.Tun != appState.Tun && appState.IsRunning {
+	// 检查是否需要重启（TUN 变化或配置变化）
+	appState := s.controller.GetAppState()
+	if appState.IsRunning && (desired.Tun != appState.Tun || desired.ActiveConfig != appState.ActiveConfig) {
 		if err := s.controller.RestartCoreWithReason(ctx, reason); err != nil {
 			s.controller.setLastError(err.Error())
 			s.controller.SyncState()

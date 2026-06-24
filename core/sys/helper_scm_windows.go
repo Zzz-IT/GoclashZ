@@ -4,8 +4,11 @@ package sys
 
 import (
 	"fmt"
+	"os/exec"
 	"time"
 
+	"goclashz/core/logger"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
@@ -92,7 +95,7 @@ func uninstallServiceSCM(name string) error {
 	return nil
 }
 
-// startServiceSCM 通过 SCM 启动服务
+// startServiceSCM 通过 SCM 启动服务（已运行时容错）
 func startServiceSCM(name string) error {
 	m, err := mgr.Connect()
 	if err != nil {
@@ -106,7 +109,16 @@ func startServiceSCM(name string) error {
 	}
 	defer s.Close()
 
+	// 已运行则直接返回
+	status, err := s.Query()
+	if err == nil && status.State == svc.Running {
+		return nil
+	}
+
 	if err := s.Start(); err != nil {
+		if err == windows.ERROR_SERVICE_ALREADY_RUNNING {
+			return nil
+		}
 		return fmt.Errorf("start service failed: %w", err)
 	}
 
@@ -170,4 +182,16 @@ func stopServiceSCM(name string) error {
 	}
 
 	return fmt.Errorf("service did not stop within timeout")
+}
+
+// grantServiceControlToUser 设置服务 DACL，允许指定用户 start/stop/query
+func grantServiceControlToUser(serviceName string, userSID string) error {
+	sddl := fmt.Sprintf("D:(A;;CCDCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRRC;;;BA)(A;;LCRPWP;;;%s)", userSID)
+	cmd := exec.Command("sc", "sdset", serviceName, sddl)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		logger.Warnf("设置服务 DACL 失败（非致命）: %v, output: %s", err, string(output))
+		return nil
+	}
+	return nil
 }

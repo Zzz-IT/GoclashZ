@@ -141,29 +141,41 @@ func (c *Controller) GetOutboundIP(force bool) (OutboundIPResult, error) {
 
 func (c *Controller) getOutboundIPInternal() (OutboundIPResult, error) {
 	state := c.GetAppState()
-	proxyActive := state.SystemProxy || state.Tun
 
-	if proxyActive && !clash.IsRunning() {
-		proxyActive = false
+	// TUN 模式：不走 HTTP proxy，直接检测（TUN 在网络层透明接管）
+	// System Proxy 模式：通过 HTTP proxy 检测
+	// Direct：直连检测
+	mode := "direct"
+	useHTTPProxy := false
+
+	switch {
+	case state.Tun:
+		mode = "tun-route"
+		useHTTPProxy = false
+	case state.SystemProxy:
+		mode = "proxy"
+		useHTTPProxy = true
 	}
 
-	if proxyActive {
+	if useHTTPProxy && !clash.IsRunning() {
+		useHTTPProxy = false
+		mode = "direct"
+	}
+
+	if useHTTPProxy {
 		port := clash.GetProxyPort()
 		if port > 0 {
 			conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond)
 			if err != nil {
-				proxyActive = false
+				useHTTPProxy = false
+				mode = "direct"
 			} else {
 				conn.Close()
 			}
 		} else {
-			proxyActive = false
+			useHTTPProxy = false
+			mode = "direct"
 		}
-	}
-
-	mode := "direct"
-	if proxyActive {
-		mode = "proxy"
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
@@ -176,7 +188,7 @@ func (c *Controller) getOutboundIPInternal() (OutboundIPResult, error) {
 	}
 
 	var endpointsV6, endpointsV4 []string
-	if proxyActive {
+	if useHTTPProxy {
 		endpointsV6 = ipv6ProxyEndpoints
 		endpointsV4 = ipv4ProxyEndpoints
 	} else {
@@ -188,12 +200,12 @@ func (c *Controller) getOutboundIPInternal() (OutboundIPResult, error) {
 	ipv4Ch := make(chan ipResult, 1)
 
 	go func() {
-		ip, source, err := detectIP(ctx, endpointsV6, "tcp6", proxyActive)
+		ip, source, err := detectIP(ctx, endpointsV6, "tcp6", useHTTPProxy)
 		ipv6Ch <- ipResult{ip: ip, source: source, err: err}
 	}()
 
 	go func() {
-		ip, source, err := detectIP(ctx, endpointsV4, "tcp4", proxyActive)
+		ip, source, err := detectIP(ctx, endpointsV4, "tcp4", useHTTPProxy)
 		ipv4Ch <- ipResult{ip: ip, source: source, err: err}
 	}()
 
