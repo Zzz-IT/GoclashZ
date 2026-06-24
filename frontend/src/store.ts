@@ -111,20 +111,16 @@ export function updateStateFromBackend(rawData: any) {
   if (rawData.isRunning !== undefined) globalState.isRunning = rawData.isRunning;
   else if (rawData.IsRunning !== undefined) globalState.isRunning = rawData.IsRunning;
 
-  // 🚀 核心修复：增加对 mode (路由模式) 的实时接收，打通从托盘到 UI 的数据流
-  if (rawData.mode !== undefined) globalState.mode = rawData.mode;
-  else if (rawData.Mode !== undefined) globalState.mode = rawData.Mode;
-
   const newTheme = rawData.theme ?? rawData.Theme;
   if (newTheme !== undefined) {
     globalState.theme = newTheme;
-    localStorage.setItem('goclashz_theme', newTheme); // 存入缓存
+    localStorage.setItem('goclashz_theme', newTheme);
   }
 
   const newHideLogs = rawData.hideLogs ?? rawData.HideLogs;
   if (newHideLogs !== undefined) {
     globalState.hideLogs = newHideLogs;
-    localStorage.setItem('goclashz_hideLogs', String(newHideLogs)); // 存入缓存
+    localStorage.setItem('goclashz_hideLogs', String(newHideLogs));
   }
 
   const newAppLogLevel = rawData.appLogLevel ?? rawData.AppLogLevel;
@@ -132,28 +128,36 @@ export function updateStateFromBackend(rawData: any) {
     globalState.appLogLevel = newAppLogLevel || 'info';
   }
 
-  // 👇 新增这三个字段的清洗逻辑
-  let proxyToggled = false;
-  if (rawData.systemProxy !== undefined) {
-    if (globalState.systemProxy !== rawData.systemProxy) proxyToggled = true;
-    globalState.systemProxy = rawData.systemProxy;
-  }
-  else if (rawData.SystemProxy !== undefined) {
-    if (globalState.systemProxy !== rawData.SystemProxy) proxyToggled = true;
-    globalState.systemProxy = rawData.SystemProxy;
-  }
+  // 检测代理/TUN 状态变化，触发强制 IP 检测
+  const oldProxy = globalState.systemProxy;
+  const oldTun = globalState.tun;
+  const newProxy = rawData.systemProxy ?? rawData.SystemProxy;
+  const newTun = rawData.tun ?? rawData.Tun;
 
-  if (rawData.tun !== undefined) {
-    if (globalState.tun !== rawData.tun) proxyToggled = true;
-    globalState.tun = rawData.tun;
-  }
-  else if (rawData.Tun !== undefined) {
-    if (globalState.tun !== rawData.Tun) proxyToggled = true;
-    globalState.tun = rawData.Tun;
-  }
+  if (newProxy !== undefined) globalState.systemProxy = newProxy;
+  if (newTun !== undefined) globalState.tun = newTun;
 
-  if (proxyToggled) {
-    setTimeout(() => refreshOutboundIP(), 1500);
+  const proxyChanged = newProxy !== undefined && oldProxy !== newProxy;
+  const tunChanged = newTun !== undefined && oldTun !== newTun;
+
+  if (proxyChanged || tunChanged) {
+    const tunOn = newTun === true;
+    const tunOff = oldTun === true && newTun === false;
+
+    scheduleOutboundIPRefresh('state-change', {
+      force: true,
+      delay: tunOn ? 1200 : 500,
+      clearBeforeStart: true,
+      reason: tunOn ? 'tun-on' : tunOff ? 'tun-off' : 'proxy-change',
+    });
+
+    // 二次确认：TUN/路由/DNS 收敛可能慢
+    scheduleOutboundIPRefresh('state-confirm', {
+      force: true,
+      delay: tunOn ? 3000 : 1500,
+      clearBeforeStart: false,
+      reason: tunOn ? 'tun-on-confirm' : 'state-confirm',
+    });
   }
 
   if (rawData.version !== undefined) globalState.version = rawData.version;
@@ -167,10 +171,10 @@ export function updateStateFromBackend(rawData: any) {
 
   if (rawData.activeConfig !== undefined) {
     globalState.activeConfigId = rawData.activeConfig;
-    localStorage.setItem('goclashz_activeConfigId', rawData.activeConfig); // 存入缓存
+    localStorage.setItem('goclashz_activeConfigId', rawData.activeConfig);
   } else if (rawData.ActiveConfig !== undefined) {
     globalState.activeConfigId = rawData.ActiveConfig;
-    localStorage.setItem('goclashz_activeConfigId', rawData.ActiveConfig); // 存入缓存
+    localStorage.setItem('goclashz_activeConfigId', rawData.ActiveConfig);
   }
 
   if (rawData.activeConfigName !== undefined) globalState.activeConfigName = rawData.activeConfigName;
@@ -185,7 +189,6 @@ export function updateStateFromBackend(rawData: any) {
   if (rawData.delayRetentionTime !== undefined) globalState.delayRetentionTime = rawData.delayRetentionTime;
   else if (rawData.DelayRetentionTime !== undefined) globalState.delayRetentionTime = rawData.DelayRetentionTime;
 
-  // 👇 新增：应用更新状态清洗
   if (rawData.updateReady !== undefined) globalState.updateReady = rawData.updateReady;
   else if (rawData.UpdateReady !== undefined) globalState.updateReady = rawData.UpdateReady;
 
@@ -269,38 +272,92 @@ export function showConfirm(message: string, title: string = '操作确认', isD
   });
 }
 
-export async function refreshOutboundIP(options?: { force?: boolean }) {
-  if (globalState.ipDetecting) return;
+// IP 检测队列（latest-wins）
+let ipDetectSeq = 0;
+let pendingIPRefresh: { force?: boolean; clearBeforeStart?: boolean; reason?: string } | null = null;
+const ipRefreshTimers: Record<string, number> = {};
+
+/**
+ * 统一调度 IP 检测（latest-wins）
+ * 同 key 的重复调度会覆盖前一个
+ */
+export function scheduleOutboundIPRefresh(
+  key: string,
+  opts: {
+    force?: boolean;
+    delay?: number;
+    clearBeforeStart?: boolean;
+    reason?: string;
+  } = {}
+) {
+  if (ipRefreshTimers[key]) {
+    clearTimeout(ipRefreshTimers[key]);
+  }
+
+  if (opts.clearBeforeStart) {
+    globalState.outboundIP = null;
+  }
+
+  ipRefreshTimers[key] = window.setTimeout(() => {
+    delete ipRefreshTimers[key];
+    refreshOutboundIP({ force: opts.force, reason: opts.reason });
+  }, opts.delay ?? 800);
+}
+
+/**
+ * 执行 IP 检测（latest-wins，不丢弃新请求）
+ */
+export async function refreshOutboundIP(options?: { force?: boolean; reason?: string }) {
+  if (globalState.ipDetecting) {
+    // 检测中：记录最新请求，完成后立即重试
+    pendingIPRefresh = { force: true, reason: options?.reason };
+    return;
+  }
+
+  const seq = ++ipDetectSeq;
   globalState.ipDetecting = true;
 
-  const attemptFetch = async () => {
-    return await (API as any).GetOutboundIP(!!options?.force);
-  };
-
   try {
-    let result;
-    try {
-      result = await attemptFetch();
-    } catch {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      result = await attemptFetch();
-    }
-    
+    const result = await (API as any).GetOutboundIP(!!options?.force);
+
+    // 已有更新请求，丢弃旧结果
+    if (seq !== ipDetectSeq) return;
+
     if (result && result.preferred) {
       globalState.outboundIP = result;
       localStorage.setItem('goclashz_outboundIP', JSON.stringify(result));
-    } else if (globalState.outboundIP) {
-      // 保留上次结果
-      (globalState.outboundIP as any).stale = true;
-      (globalState.outboundIP as any).message = result?.message || '检测失败，保留上次结果';
+    } else {
+      // 检测失败：清空旧结果，显示错误
+      globalState.outboundIP = {
+        preferred: '',
+        ipv4: '',
+        ipv6: '',
+        mode: '',
+        source: '',
+        message: result?.message || '检测失败',
+      } as any;
     }
   } catch {
-    if (globalState.outboundIP) {
-      (globalState.outboundIP as any).stale = true;
-      (globalState.outboundIP as any).message = '网络请求失败，保留上次结果';
-    }
+    if (seq !== ipDetectSeq) return;
+    globalState.outboundIP = {
+      preferred: '',
+      ipv4: '',
+      ipv6: '',
+      mode: '',
+      source: '',
+      message: '网络请求失败',
+    } as any;
   } finally {
-    globalState.ipDetecting = false;
+    if (seq === ipDetectSeq) {
+      globalState.ipDetecting = false;
+    }
+
+    // latest-wins：如果有新请求排队，立即执行
+    if (pendingIPRefresh) {
+      const next = pendingIPRefresh;
+      pendingIPRefresh = null;
+      setTimeout(() => refreshOutboundIP(next), 0);
+    }
   }
 }
 
@@ -394,12 +451,12 @@ export async function initStore() {
   // 3. 初始化刷新出站 IP，并注册各种事件触发刷新
   refreshOutboundIP();
   
-  EventsOn("core-restarted", () => setTimeout(() => refreshOutboundIP(), 1500));
+  EventsOn("core-restarted", () => scheduleOutboundIPRefresh('core-restarted', { force: true, delay: 1500, reason: 'core-restarted' }));
   ['geoip', 'geosite', 'mmdb', 'asn'].forEach(key => {
-    EventsOn(`geo-update-${key}-success`, () => setTimeout(() => refreshOutboundIP(), 1500));
+    EventsOn(`geo-update-${key}-success`, () => scheduleOutboundIPRefresh(`geo-${key}`, { force: true, delay: 1500, reason: `geo-${key}` }));
   });
-  EventsOn("core-update-success", () => setTimeout(() => refreshOutboundIP(), 1500));
-  EventsOn("driver-install-success", () => setTimeout(() => refreshOutboundIP(), 1500));
+  EventsOn("core-update-success", () => scheduleOutboundIPRefresh('core-update', { force: true, delay: 1500, reason: 'core-update' }));
+  EventsOn("driver-install-success", () => scheduleOutboundIPRefresh('driver-install', { force: true, delay: 1500, reason: 'driver-install' }));
 
   // 👇 提取出一个清空延迟的通用函数
   const clearAllDelays = () => {
