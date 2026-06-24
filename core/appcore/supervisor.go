@@ -95,10 +95,9 @@ func (s *CoreSupervisor) Reconcile(reason string) {
 
 
 	if desired.Tun {
-		// TUN 需要 helper 服务或管理员权限（快速 TCP ping 检测）
+		// TUN 需要 helper 服务或管理员权限
 		client := sys.NewHelperClient()
-		helperReachable := client.Ping() == nil
-		if !helperReachable && !sys.CheckAdmin() {
+		if err := client.Ping(); err != nil && !sys.CheckAdmin() {
 			s.controller.setLastError("TUN 模式需要后台服务 (GoclashZHelper) 或以管理员身份运行")
 			s.controller.SyncState()
 			return

@@ -8,23 +8,24 @@ import (
 	"net"
 	"time"
 
+	"github.com/Microsoft/go-winio"
 	"goclashz/core/logger"
 )
 
 const (
-	helperConnectTimeout = 500 * time.Millisecond
+	helperConnectTimeout = 2 * time.Second
 	helperRequestTimeout = 10 * time.Second
 )
 
-// HelperClient 通过 TCP 与 GoclashZHelper 服务通信
+// HelperClient 通过 Named Pipe 与 GoclashZHelper 服务通信
 type HelperClient struct {
-	addr string
+	pipeName string
 }
 
 // NewHelperClient 创建 helper 客户端
 func NewHelperClient() *HelperClient {
 	return &HelperClient{
-		addr: HelperAddr,
+		pipeName: GetHelperPipeName(),
 	}
 }
 
@@ -133,11 +134,16 @@ func (c *HelperClient) InstallWintun(source, target string) error {
 	return nil
 }
 
-// sendRequest 通过 TCP 发送请求并等待响应
+// sendRequest 通过 Named Pipe 发送请求并等待响应
 func (c *HelperClient) sendRequest(method string, params json.RawMessage) (*HelperResponse, error) {
-	conn, err := net.DialTimeout("tcp", c.addr, helperConnectTimeout)
+	if err := ValidatePipeName(c.pipeName); err != nil {
+		return nil, err
+	}
+
+	timeout := helperConnectTimeout
+	conn, err := winio.DialPipe(c.pipeName, &timeout)
 	if err != nil {
-		return nil, fmt.Errorf("connect to helper failed: %w", err)
+		return nil, fmt.Errorf("connect to helper pipe failed: %w", err)
 	}
 	defer conn.Close()
 
@@ -146,7 +152,6 @@ func (c *HelperClient) sendRequest(method string, params json.RawMessage) (*Help
 	}
 
 	req := HelperRequest{
-		Secret: HelperSecret,
 		Method: method,
 		Params: params,
 	}
@@ -169,7 +174,6 @@ func (c *HelperClient) sendRequest(method string, params json.RawMessage) (*Help
 func CheckHelperService() HelperStatusData {
 	status := HelperStatusData{}
 
-	// 1. 检查服务是否已注册
 	installed, err := isServiceInstalled(HelperServiceName)
 	if err != nil {
 		status.Error = fmt.Sprintf("检查服务注册失败: %v", err)
@@ -181,7 +185,6 @@ func CheckHelperService() HelperStatusData {
 		return status
 	}
 
-	// 2. 检查服务是否正在运行
 	running, err := isServiceRunning(HelperServiceName)
 	if err != nil {
 		status.Error = fmt.Sprintf("检查服务状态失败: %v", err)
@@ -193,7 +196,6 @@ func CheckHelperService() HelperStatusData {
 		return status
 	}
 
-	// 3. 通过 TCP ping 验证可达
 	client := NewHelperClient()
 	if err := client.Ping(); err != nil {
 		status.Error = fmt.Sprintf("服务可达性检查失败: %v", err)
@@ -204,12 +206,10 @@ func CheckHelperService() HelperStatusData {
 	return status
 }
 
-// isServiceInstalled 检查 Windows 服务是否已注册
 func isServiceInstalled(name string) (bool, error) {
 	return isServiceInstalledSCM(name)
 }
 
-// isServiceRunning 检查 Windows 服务是否正在运行
 func isServiceRunning(name string) (bool, error) {
 	return isServiceRunningSCM(name)
 }
@@ -248,4 +248,9 @@ func WaitForHelperReady(maxRetries int, interval time.Duration) error {
 		}
 	}
 	return fmt.Errorf("helper 服务在 %d 次尝试后仍未就绪", maxRetries)
+}
+
+// DialPipe 导出 Named Pipe 连接（供 helper 服务端使用）
+func DialPipe(pipeName string, timeout *time.Duration) (net.Conn, error) {
+	return winio.DialPipe(pipeName, timeout)
 }

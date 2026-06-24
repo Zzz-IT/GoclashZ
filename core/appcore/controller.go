@@ -208,9 +208,16 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 
 	// 只有自启且配置了恢复状态时，才执行后台恢复任务（异步，带重试，不阻塞 UI）
 	if opts.IsStartupLaunch && c.Behavior.Get().RestoreOnStartup {
-		go c.runStartupRestoreJob(ctx)
+		// 启动恢复：在后台完成后再启动 auto delay
+		go func() {
+			c.runStartupRestoreJob(ctx)
+			c.RefreshAutoDelayTest(AutoDelayRefreshOptions{
+				Immediate: true,
+				Reason:    "startup",
+			})
+		}()
 	} else {
-		// 普通双击启动，或者关闭了恢复状态的自启：清空期望状态，回归一张白纸，确保清爽无拦截
+		// 普通双击启动，或者关闭了恢复状态的自启：清空期望状态
 		desired := c.Desired.Get()
 		desired.SystemProxy = false
 		desired.Tun = false
@@ -218,12 +225,14 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 		c.Desired.SetAndSave(desired)
 		
 		c.SyncState()
+
+		// 非启动恢复，立即启动 auto delay
+		c.RefreshAutoDelayTest(AutoDelayRefreshOptions{
+			Immediate: true,
+			Reason:    "startup",
+		})
 	}
 
-	c.RefreshAutoDelayTest(AutoDelayRefreshOptions{
-		Immediate: true,
-		Reason:    "startup",
-	})
 	c.RefreshAppAutoUpdate()
 }
 
@@ -389,6 +398,13 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 		return fmt.Errorf("no active config selected")
 	}
 
+	// TUN 模式：确保 helper 服务就绪
+	if desired.Tun {
+		if err := c.EnsureHelperReady("tun-start"); err != nil {
+			return err
+		}
+	}
+
 	behavior := c.Behavior.Get()
 
 	err := clash.BuildRuntimeConfig(desired.ActiveConfig, desired.Mode, behavior.LogLevel, desired.Tun)
@@ -396,7 +412,7 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 		return err
 	}
 
-	if err := clash.Start(ctx); err != nil {
+	if err := clash.Start(ctx, desired.Tun); err != nil {
 		return err
 	}
 
@@ -842,7 +858,7 @@ func (c *Controller) StartCoreOnly(ctx context.Context, id string) error {
 	if err := clash.BuildRuntimeConfig(id, behavior.ActiveMode, behavior.LogLevel, false); err != nil {
 		return err
 	}
-	return clash.Start(ctx)
+	return clash.Start(ctx, false) // delay 测试不走 TUN
 }
 
 // StopCoreProcess 仅停止物理进程，保留用户开启意图
@@ -872,18 +888,41 @@ func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
 	c.fillDesiredTarget(&desired)
 
 	c.Desired.SetAndSave(desired)
-	c.Supervisor.ReconcileAsync("system-proxy-toggle")
+	// 同步执行 reconcile，等待核心真正 ready 后再返回
+	c.Supervisor.Reconcile("system-proxy-toggle")
+	return nil
+}
+
+// EnsureHelperReady 确保 helper 服务已安装并运行
+// 只在 TUN / core 更新 / wintun 安装等需要高权限时调用
+func (c *Controller) EnsureHelperReady(reason string) error {
+	client := sys.NewHelperClient()
+
+	// 快速 ping 检测是否已可达
+	if err := client.Ping(); err == nil {
+		return nil
+	}
+
+	// 直接尝试启动服务（如果已安装会快速返回）
+	if err := sys.StartHelperService(); err != nil {
+		return fmt.Errorf("后台服务未安装或启动失败，请在设置中安装: %w", err)
+	}
+
+	// 等待就绪
+	if err := sys.WaitForHelperReady(3, 300*time.Millisecond); err != nil {
+		return fmt.Errorf("后台服务就绪超时: %w", err)
+	}
+
+	logger.Infof("Helper 服务已就绪 (reason: %s)", reason)
 	return nil
 }
 
 // ToggleTunMode 开关：TUN 模式
 func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
 	if enable {
-		// TUN 需要以下任一条件：
-		// 1. Helper 服务可达（推荐方式）
-		// 2. 当前以管理员身份运行（兼容方式）
-		helperStatus := sys.CheckHelperService()
-		if !helperStatus.Reachable && !sys.CheckAdmin() {
+		// TUN 需要 helper 服务或管理员权限（快速检查，不启动服务）
+		client := sys.NewHelperClient()
+		if err := client.Ping(); err != nil && !sys.CheckAdmin() {
 			return fmt.Errorf("TUN 模式需要后台服务 (GoclashZHelper) 或以管理员身份运行")
 		}
 		if !sys.IsWintunInstalled() {
@@ -903,7 +942,9 @@ func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
 	c.fillDesiredTarget(&desired)
 
 	c.Desired.SetAndSave(desired)
-	c.Supervisor.ReconcileAsync("tun-toggle")
+
+	// 同步执行 reconcile，等待核心真正 ready 后再返回
+	c.Supervisor.Reconcile("tun-toggle")
 	return nil
 }
 

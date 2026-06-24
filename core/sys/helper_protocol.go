@@ -4,6 +4,9 @@ package sys
 
 import (
 	"encoding/json"
+	"fmt"
+	"os/user"
+	"strings"
 )
 
 const (
@@ -11,16 +14,29 @@ const (
 	HelperDisplayName = "GoclashZ Helper Service"
 	HelperDescription = "为 GoclashZ 提供高权限能力：TUN 启动、Wintun 安装、核心文件替换、权限修复"
 
-	// Helper 监听地址 (仅本机)
-	HelperAddr = "127.0.0.1:19720"
-
-	// 简单共享密钥，防止其他程序误连
-	HelperSecret = "GoclashZ-Helper-v1"
+	// Named Pipe 名称 (按用户 SID 隔离)
+	HelperPipePrefix = `\\.\pipe\GoclashZ.Helper.`
 )
+
+// GetHelperPipeName 返回当前用户的 Named Pipe 路径
+func GetHelperPipeName() string {
+	sid := getUserSID()
+	if sid == "" {
+		return HelperPipePrefix + "default"
+	}
+	return HelperPipePrefix + sid
+}
+
+func getUserSID() string {
+	u, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(u.Uid)
+}
 
 // HelperRequest 是 UI -> Helper 的请求
 type HelperRequest struct {
-	Secret string          `json:"secret"`
 	Method string          `json:"method"`
 	Params json.RawMessage `json:"params,omitempty"`
 }
@@ -71,4 +87,15 @@ type HelperStatusData struct {
 	Running   bool   `json:"running"`
 	Reachable bool   `json:"reachable"`
 	Error     string `json:"error,omitempty"`
+}
+
+// ValidatePipeName 防御性检查 pipe 名称
+func ValidatePipeName(name string) error {
+	if !strings.HasPrefix(name, `\\.\pipe\`) {
+		return fmt.Errorf("invalid pipe name: %s", name)
+	}
+	if len(name) > 256 {
+		return fmt.Errorf("pipe name too long: %d", len(name))
+	}
+	return nil
 }

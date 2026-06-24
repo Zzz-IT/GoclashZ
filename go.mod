@@ -3,6 +3,7 @@ module goclashz
 go 1.25.0
 
 require (
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/cavaliergopher/grab/v3 v3.0.1
 	github.com/go-ole/go-ole v1.3.0
 	github.com/gorilla/websocket v1.5.3
