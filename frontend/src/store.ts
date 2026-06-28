@@ -39,6 +39,7 @@ export const globalState = reactive({
   tun: false,
   version: '',
   appVersion: '', // 👈 新增
+  logLevel: 'error', // 👈 新增：内核日志等级
   appLogLevel: 'info', // 👈 新增：软件日志等级
   isAdmin: false,
   tunStatus: { hasWintun: false, isAdmin: false },
@@ -110,6 +111,15 @@ export type OutboundIPResult = {
 };
 
 // 👇 新增清洗规则：打破数据格式强粘合，防止大小写污染
+const normalizeLogLevel = (level?: string) => {
+  const v = String(level || '').toLowerCase().trim();
+  if (v === 'warning') return 'warn';
+  if (v === 'trace') return 'debug';
+  if (v === 'fatal' || v === 'panic') return 'error';
+  if (['debug', 'info', 'warn', 'error'].includes(v)) return v;
+  return 'info';
+};
+
 export function updateStateFromBackend(rawData: any) {
   if (!rawData) return;
 
@@ -132,9 +142,14 @@ export function updateStateFromBackend(rawData: any) {
     localStorage.setItem('goclashz_hideLogs', String(newHideLogs));
   }
 
+  const newLogLevel = rawData.logLevel ?? rawData.LogLevel;
+  if (newLogLevel !== undefined) {
+    globalState.logLevel = normalizeLogLevel(newLogLevel || 'error');
+  }
+
   const newAppLogLevel = rawData.appLogLevel ?? rawData.AppLogLevel;
   if (newAppLogLevel !== undefined) {
-    globalState.appLogLevel = newAppLogLevel || 'info';
+    globalState.appLogLevel = normalizeLogLevel(newAppLogLevel || 'info');
   }
 
   // 检测代理/TUN 状态变化，触发强制 IP 检测

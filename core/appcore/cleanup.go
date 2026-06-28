@@ -50,3 +50,31 @@ func CleanLegacyFiles(currentAppVersion string) {
 		}
 	}
 }
+
+// MigrateLegacyRootSettings migrates legacy settings from root to Settings/
+func MigrateLegacyRootSettings() {
+	mappings := map[string]string{
+		"behavior.json": "user_behavior.json",
+		"dns.json":      "user_dns.json",
+		"network.json":  "user_network.json",
+		"tun.json":      "user_tun.json",
+	}
+
+	settingsDir := utils.GetSettingsDir()
+	_ = os.MkdirAll(settingsDir, 0755)
+
+	for oldName, newName := range mappings {
+		oldPath := filepath.Join(utils.GetDataDir(), oldName)
+		newPath := filepath.Join(settingsDir, newName)
+
+		if _, err := os.Stat(oldPath); err != nil {
+			continue
+		}
+
+		if _, err := os.Stat(newPath); os.IsNotExist(err) {
+			_ = os.Rename(oldPath, newPath)
+		} else {
+			_ = os.Remove(oldPath)
+		}
+	}
+}

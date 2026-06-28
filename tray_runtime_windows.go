@@ -3,7 +3,7 @@
 package main
 
 import (
-	"goclashz/core/logger"
+
 	"context"
 	"fmt"
 	"goclashz/core/appcore"
@@ -159,6 +159,7 @@ var (
 // TrayRuntime is the Win32-based system tray implementation
 type TrayRuntime struct {
 	app *App
+	logf func(level string, format string, args ...any)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -189,6 +190,7 @@ func NewTrayRuntime(app *App) *TrayRuntime {
 	return &TrayRuntime{
 		app:  app,
 		cmdCh: make(chan TrayCommand, 10),
+		logf: app.logApp,
 	}
 }
 
@@ -276,7 +278,7 @@ func (t *TrayRuntime) runWin32TrayLoop() {
 	// Create hidden window
 	hwnd := t.createHiddenWindow()
 	if hwnd == 0 {
-		logger.Errorf("[Tray] Failed to create tray window")
+		t.logf("error", "[Tray] Failed to create tray window")
 		return
 	}
 	t.hwnd = hwnd
@@ -336,9 +338,9 @@ func (t *TrayRuntime) createHiddenWindow() windows.HWND {
 	r, _, err := procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
 	if r == 0 {
 		if errno, ok := err.(syscall.Errno); ok && errno == windows.ERROR_CLASS_ALREADY_EXISTS {
-			logger.Debugf("[Tray] window class already exists")
+			t.logf("debug", "[Tray] window class already exists")
 		} else {
-			logger.Errorf("[Tray] RegisterClassExW failed: %v", err)
+			t.logf("error", "[Tray] RegisterClassExW failed: %v", err)
 			return 0
 		}
 	}
@@ -355,7 +357,7 @@ func (t *TrayRuntime) createHiddenWindow() windows.HWND {
 		0,
 	)
 	if hwnd == 0 {
-		logger.Errorf("[Tray] CreateWindowExW failed: %v", err)
+		t.logf("error", "[Tray] CreateWindowExW failed: %v", err)
 	}
 
 	return windows.HWND(hwnd)
@@ -458,7 +460,7 @@ func (t *TrayRuntime) deleteTrayIcon() {
 	}
 
 	if err := shellNotifyIcon(NIM_DELETE, &nid); err != nil {
-		logger.Errorf("[Tray] deleteTrayIcon failed: %v", err)
+		t.logf("error", "[Tray] deleteTrayIcon failed: %v", err)
 	}
 	t.iconAdded.Store(false)
 }
@@ -479,11 +481,11 @@ func (t *TrayRuntime) updateTrayTooltip(tooltip string) {
 	copy(nid.SzTip[:], windows.StringToUTF16(tooltip))
 
 	if err := shellNotifyIcon(NIM_MODIFY, &nid); err != nil {
-		logger.Warnf("[Tray] updateTrayTooltip failed: %v", err)
+		t.logf("warn", "[Tray] updateTrayTooltip failed: %v", err)
 
 		// 轻量自愈：NIM_MODIFY 失败时尝试重新添加一次
 		if err := t.addTrayIcon(); err != nil {
-			logger.Errorf("[Tray] re-add tray icon after modify failure failed: %v", err)
+			t.logf("error", "[Tray] re-add tray icon after modify failure failed: %v", err)
 		}
 	}
 }
@@ -492,7 +494,7 @@ func (t *TrayRuntime) updateTrayTooltip(tooltip string) {
 func (t *TrayRuntime) wndProc(hwnd windows.HWND, msg uint32, wparam uintptr, lparam uintptr) uintptr {
 	// Handle TaskbarCreated message (Explorer restart)
 	if msg == t.taskbarCreatedMsg && t.taskbarCreatedMsg != 0 {
-		logger.Infof("[Tray] Explorer restarted, re-adding tray icon")
+		t.logf("info", "[Tray] Explorer restarted, re-adding tray icon")
 		t.retryAddCount.Store(0)
 		if err := t.addTrayIcon(); err != nil {
 			t.scheduleTrayAddRetry()
@@ -505,7 +507,7 @@ func (t *TrayRuntime) wndProc(hwnd windows.HWND, msg uint32, wparam uintptr, lpa
 	switch msg {
 	case WM_TRAY_ADD_RETRY:
 		if err := t.addTrayIcon(); err != nil {
-			logger.Warnf("[Tray] async add tray icon failed: %v", err)
+			t.logf("warn", "[Tray] async add tray icon failed: %v", err)
 			t.scheduleTrayAddRetry()
 		} else {
 			t.retryAddCount.Store(0)
@@ -672,7 +674,7 @@ func (t *TrayRuntime) reportTrayError(action string, err error) {
 	if err == nil {
 		return
 	}
-	logger.Errorf("[Tray] %s failed: %v", action, err)
+	t.logf("error", "[Tray] %s failed: %v", action, err)
 	t.app.core.GetEvents().Emit("notify-error", fmt.Sprintf("%s失败: %v", action, err))
 }
 
@@ -680,7 +682,7 @@ func (t *TrayRuntime) reportTrayError(action string, err error) {
 func (t *TrayRuntime) handleCommand(cmd TrayCommand) {
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Errorf("[Tray] Command panic: %v", r)
+			t.logf("error", "[Tray] Command panic: %v", r)
 		}
 	}()
 

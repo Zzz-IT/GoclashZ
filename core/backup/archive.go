@@ -151,8 +151,14 @@ func RestoreTransactional(ctx context.Context, dataDir, archivePath, mode string
 	// 🛡️ 核心修复：针对替换式恢复，必须确保备份包内包含有效的索引文件
 	if mode == "all" || mode == "subs" {
 		if !stagingResult.HasIndex {
-			return fmt.Errorf("备份包缺少 profiles/index.json，无法执行替换式订阅恢复")
+			rebuilt, err := rebuildIndexFromSubscriptions(stagingDir)
+			if err != nil {
+				return fmt.Errorf("备份缺少 profiles/index.json，且无法从 Subscriptions 重建索引: %w", err)
+			}
+			stagingResult.Index = rebuilt
+			stagingResult.HasIndex = true
 		}
+
 		if stagingResult.IndexErr != nil {
 			return fmt.Errorf("备份订阅索引解析失败: %v", stagingResult.IndexErr)
 		}
@@ -174,6 +180,13 @@ func RestoreTransactional(ctx context.Context, dataDir, archivePath, mode string
 	// 6. 备份当前受影响的目标到 rollback 目录，用于失败回滚
 	if err := backupCurrentTargets(dataDir, plan, rollbackDir); err != nil {
 		return fmt.Errorf("备份当前数据失败，取消恢复: %v", err)
+	}
+
+	if mode == "subs-merge" && len(stagingResult.Index) == 0 {
+		rebuilt, err := rebuildIndexFromSubscriptions(stagingDir)
+		if err == nil {
+			stagingResult.Index = rebuilt
+		}
 	}
 
 	// 7. 执行原子替换逻辑
@@ -635,4 +648,47 @@ func cleanBackupRest(rest string) (string, bool) {
 		return "", false
 	}
 	return rest, true
+}
+
+func rebuildIndexFromSubscriptions(stagingDir string) ([]clash.SubIndexItem, error) {
+	subDir := filepath.Join(stagingDir, "Subscriptions")
+
+	entries, err := os.ReadDir(subDir)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]clash.SubIndexItem, 0)
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+
+		name := e.Name()
+		lower := strings.ToLower(name)
+
+		if !strings.HasSuffix(lower, ".yaml") && !strings.HasSuffix(lower, ".yml") {
+			continue
+		}
+
+		id := strings.TrimSuffix(name, filepath.Ext(name))
+
+		safeID, err := utils.SanitizeFilename(id)
+		if err != nil || safeID != id {
+			continue
+		}
+
+		items = append(items, clash.SubIndexItem{
+			ID:   id,
+			Name: id,
+			Type: "local",
+		})
+	}
+
+	if len(items) == 0 {
+		return nil, fmt.Errorf("备份中未找到可恢复的订阅配置文件")
+	}
+
+	return items, nil
 }

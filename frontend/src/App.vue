@@ -190,18 +190,42 @@ const logLines = ref<any[]>([]);
 const logSourceFilter = ref('all');
 
 const logLevels = { debug: 0, info: 1, warn: 2, warning: 2, error: 3 };
+
+const normalizeLogType = (t?: string) => {
+  const v = String(t || 'info').toLowerCase().trim();
+  if (v === 'warning') return 'warn';
+  if (v === 'trace') return 'debug';
+  if (v === 'fatal' || v === 'panic') return 'error';
+  if (['debug', 'info', 'warn', 'error'].includes(v)) return v;
+  return 'info';
+};
+
+const rankOf = (level?: string) => {
+  const normalized = normalizeLogType(level);
+  return logLevels[normalized as keyof typeof logLevels] ?? 1;
+};
+
 const filteredLogLines = computed(() => {
-  const minLevel = logLevels[globalState.appLogLevel as keyof typeof logLevels] || 0;
   return logLines.value.filter(log => {
-    // 来源过滤
-    if (logSourceFilter.value !== 'all') {
-      const src = (log.source || 'core').toLowerCase();
-      if (src !== logSourceFilter.value) return false;
+    const source = String(log.source || 'core').toLowerCase();
+    const type = normalizeLogType(log.type);
+
+    if (logSourceFilter.value !== 'all' && source !== logSourceFilter.value) {
+      return false;
     }
-    // 等级过滤
-    const typeStr = (log.type || 'info').toLowerCase();
-    const level = logLevels[typeStr as keyof typeof logLevels] ?? 1;
-    return level >= minLevel;
+
+    const entryRank = rankOf(type);
+
+    if (source === 'core') {
+      return entryRank >= rankOf(globalState.logLevel);
+    }
+
+    if (source === 'app') {
+      return entryRank >= rankOf(globalState.appLogLevel);
+    }
+
+    // 未知 source 默认按 app 处理，避免噪声过大
+    return entryRank >= rankOf(globalState.appLogLevel);
   });
 });
 const logBox = ref<HTMLElement | null>(null);

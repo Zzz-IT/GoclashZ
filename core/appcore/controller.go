@@ -233,6 +233,17 @@ func (c *Controller) logError(format string, args ...any) {
 	})
 }
 
+func (c *Controller) LogApp(level string, format string, args ...any) {
+	if c == nil || c.appLogger == nil {
+		return
+	}
+
+	c.appLogger.AddApp(logger.LogEntry{
+		Type:    logger.NormalizeLevel(level),
+		Payload: fmt.Sprintf(format, args...),
+	})
+}
+
 func (c *Controller) CancelUpdateTask(key string) {
 	if isGeoKey(key) {
 		c.GeoUpdates.Cancel(key)
@@ -1435,6 +1446,10 @@ func (c *Controller) SaveAppBehavior(b AppBehavior) error {
 
 	if old.LogLevel != next.LogLevel {
 		c.StartLogStream(c.ctx)
+	}
+
+	if old.AppLogLevel != next.AppLogLevel {
+		c.SyncState()
 	}
 
 	if old.ProxyTrafficOnly != next.ProxyTrafficOnly {

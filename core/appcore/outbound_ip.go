@@ -259,14 +259,11 @@ func (c *Controller) getOutboundIPInternal() (OutboundIPResult, error) {
 
 	if result.Preferred == "" {
 		result.Message = "所有检测站点均不可达或检测超时"
-		entry := logger.LogEntry{
-			Type:    "error",
-			Payload: "出站 IP 检测失败: " + result.Message,
-			Time:    time.Now().Format("15:04:05"),
-		}
-		logger.AppLogs.Add(entry)
-		if c.events != nil {
-			c.events.Emit(EventLogMessage, entry)
+		if c.appLogger != nil {
+			c.appLogger.AddApp(logger.LogEntry{
+				Type:    "error",
+				Payload: "出站 IP 检测失败: " + result.Message,
+			})
 		}
 	}
 

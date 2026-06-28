@@ -89,7 +89,23 @@ func (a *App) ToggleMainWindow() {
 	a.ShowMainWindow()
 }
 
+func (a *App) logApp(level string, format string, args ...any) {
+	if a == nil || a.core == nil {
+		logger.AppLogs.Add(logger.LogEntry{
+			Type:    logger.NormalizeLevel(level),
+			Source:  logger.LogSourceApp,
+			Payload: fmt.Sprintf(format, args...),
+			Time:    time.Now().Format("15:04:05"),
+		})
+		return
+	}
+
+	a.core.LogApp(level, format, args...)
+}
+
 func NewApp() *App {
+	appcore.MigrateLegacyRootSettings()
+
 	app := &App{}
 	app.core = appcore.NewController(appcore.Options{
 		Events:        &WailsEventSink{},

@@ -101,23 +101,30 @@ const outboundIPText = computed(() => {
 
 const outboundIPTitle = computed(() => {
   if (!globalState.outboundIP) return '';
+
   const r = globalState.outboundIP;
-  const stale = (r as any).stale;
-  
-  const lines = [];
-  if (stale && r.preferred) {
-    lines.push(`上次成功检测结果：${r.preferred}`);
+
+  const modeText =
+    r.mode === 'proxy'
+      ? '代理检测'
+      : r.mode === 'tun-route'
+        ? 'TUN 路由检测'
+        : '直连检测';
+
+  const lines = [
+    `模式：${modeText}`,
+    `IPv6：${r.ipv6 || '不可用'}`,
+    `IPv4：${r.ipv4 || '不可用'}`,
+  ];
+
+  if (r.source) {
+    lines.push(`来源：${r.source}`);
   }
-  lines.push(`模式：${r.mode === 'proxy' ? '代理检测' : '直连检测'}`);
-  lines.push(`IPv6：${r.ipv6 || '不可用'}`);
-  if (r.source6 || r.message6) {
-    lines.push(`  └─ ${r.source6 || '未命出来源'} ${r.message6 ? `(异常: ${r.message6})` : ''}`);
+
+  if (r.message && !r.preferred) {
+    lines.push(`状态：${r.message}`);
   }
-  lines.push(`IPv4：${r.ipv4 || '不可用'}`);
-  if (r.source4 || r.message4) {
-    lines.push(`  └─ ${r.source4 || '未命出来源'} ${r.message4 ? `(异常: ${r.message4})` : ''}`);
-  }
-  
+
   return lines.join('\n');
 });
 
