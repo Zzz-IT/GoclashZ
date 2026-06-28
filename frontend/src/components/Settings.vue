@@ -289,7 +289,7 @@
           <div class="glass-card setting-group scrollable">
 
             <div class="setting-item">
-              <div class="info"><h4>启用 DNS 解析 (Enable DNS)</h4></div>
+              <div class="info"><h4>启用 DNS 覆写 (Enable DNS)</h4></div>
               <label class="modern-switch">
                 <input type="checkbox" v-model="dnsConfig.enable" @change="saveDns">
                 <span class="slider"></span>
