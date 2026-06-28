@@ -650,40 +650,66 @@ func cleanBackupRest(rest string) (string, bool) {
 	return rest, true
 }
 
+func uniqueID(base string, seen map[string]bool) string {
+	if !seen[base] {
+		return base
+	}
+
+	for i := 2; ; i++ {
+		id := fmt.Sprintf("%s_%d", base, i)
+		if !seen[id] {
+			return id
+		}
+	}
+}
+
 func rebuildIndexFromSubscriptions(stagingDir string) ([]clash.SubIndexItem, error) {
 	subDir := filepath.Join(stagingDir, "Subscriptions")
 
-	entries, err := os.ReadDir(subDir)
-	if err != nil {
+	if _, err := os.Stat(subDir); err != nil {
 		return nil, err
 	}
 
 	items := make([]clash.SubIndexItem, 0)
+	seen := make(map[string]bool)
 
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
+	err := filepath.WalkDir(subDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
 		}
 
-		name := e.Name()
+		if d.IsDir() {
+			return nil
+		}
+
+		name := d.Name()
 		lower := strings.ToLower(name)
 
 		if !strings.HasSuffix(lower, ".yaml") && !strings.HasSuffix(lower, ".yml") {
-			continue
+			return nil
 		}
 
 		id := strings.TrimSuffix(name, filepath.Ext(name))
 
 		safeID, err := utils.SanitizeFilename(id)
-		if err != nil || safeID != id {
-			continue
+		if err != nil || safeID != id || id == "" {
+			return nil
 		}
 
+		finalID := uniqueID(id, seen)
+		seen[finalID] = true
+
 		items = append(items, clash.SubIndexItem{
-			ID:   id,
-			Name: id,
+			ID:   finalID,
+			Name: finalID,
 			Type: "local",
 		})
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
 	if len(items) == 0 {

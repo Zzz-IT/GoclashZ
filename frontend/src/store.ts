@@ -18,12 +18,40 @@ export type UpdateTaskState = {
   finishedAt: number;
 };
 
+export type OutboundIPResult = {
+  preferred: string;
+  ipv4: string;
+  ipv6: string;
+  mode: string;
+  source: string;
+  message: string;
+};
+
+export function normalizeOutboundIP(raw: any): OutboundIPResult {
+  return {
+    preferred: raw?.preferred || '',
+    ipv4: raw?.ipv4 || '',
+    ipv6: raw?.ipv6 || '',
+    mode: raw?.mode || '',
+    source: raw?.source || '',
+    message: raw?.message || '',
+  };
+}
+
 // 1. 同步读取本地缓存（发生在 Vue 渲染前，绝对 0 延迟）
 const cachedHideLogs = localStorage.getItem('goclashz_hideLogs') === 'true';
 const cachedTheme = localStorage.getItem('goclashz_theme') || 'light';
 const cachedActiveConfigId = localStorage.getItem('goclashz_activeConfigId') || ''; // 👈 新增缓存预热
 const cachedOutboundIP = localStorage.getItem('goclashz_outboundIP');
-const initialOutboundIP = cachedOutboundIP ? JSON.parse(cachedOutboundIP) : null;
+
+let initialOutboundIP: OutboundIPResult | null = null;
+try {
+  initialOutboundIP = cachedOutboundIP
+    ? normalizeOutboundIP(JSON.parse(cachedOutboundIP))
+    : null;
+} catch {
+  initialOutboundIP = null;
+}
 
 // 存储全局倒计时 ID，不放在 reactive 中防止不必要的响应式开销
 const delayTimers: Record<string, number> = {};
@@ -96,19 +124,7 @@ export const globalState = reactive({
   }
 });
 
-export type OutboundIPResult = {
-  preferred: string;
-  ipv4: string;
-  ipv6: string;
-  mode: string;
-  source: string;
-  source4: string;
-  source6: string;
-  message: string;
-  message4: string;
-  message6: string;
-  complete: boolean;
-};
+
 
 // 👇 新增清洗规则：打破数据格式强粘合，防止大小写污染
 const normalizeLogLevel = (level?: string) => {
@@ -372,8 +388,9 @@ export async function refreshOutboundIP(options?: {
     if (seq !== ipDetectSeq) return;
 
     if (result && result.preferred) {
-      globalState.outboundIP = result;
-      localStorage.setItem('goclashz_outboundIP', JSON.stringify(result));
+      const cleaned = normalizeOutboundIP(result);
+      globalState.outboundIP = cleaned;
+      localStorage.setItem('goclashz_outboundIP', JSON.stringify(cleaned));
     } else if (!options?.silent) {
       // 检测失败：清空旧结果，显示错误
       globalState.outboundIP = {
@@ -383,7 +400,7 @@ export async function refreshOutboundIP(options?: {
         mode: '',
         source: '',
         message: result?.message || '检测失败',
-      } as any;
+      };
     }
   } catch {
     if (seq !== ipDetectSeq) return;
@@ -396,7 +413,7 @@ export async function refreshOutboundIP(options?: {
         mode: '',
         source: '',
         message: '网络请求失败',
-      } as any;
+      };
     }
   } finally {
     if (!options?.silent && seq === ipDetectSeq) {

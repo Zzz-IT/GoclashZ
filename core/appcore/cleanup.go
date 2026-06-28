@@ -3,6 +3,7 @@
 package appcore
 
 import (
+	"goclashz/core/logger"
 	"goclashz/core/utils"
 	"goclashz/core/version"
 	"os"
@@ -51,6 +52,27 @@ func CleanLegacyFiles(currentAppVersion string) {
 	}
 }
 
+func moveOrCopyFile(oldPath, newPath string) error {
+	if err := os.MkdirAll(filepath.Dir(newPath), 0755); err != nil {
+		return err
+	}
+
+	if err := os.Rename(oldPath, newPath); err == nil {
+		return nil
+	}
+
+	data, err := os.ReadFile(oldPath)
+	if err != nil {
+		return err
+	}
+
+	if err := utils.WriteFileAtomic(newPath, data, 0644); err != nil {
+		return err
+	}
+
+	return os.Remove(oldPath)
+}
+
 // MigrateLegacyRootSettings migrates legacy settings from root to Settings/
 func MigrateLegacyRootSettings() {
 	mappings := map[string]string{
@@ -72,8 +94,12 @@ func MigrateLegacyRootSettings() {
 		}
 
 		if _, err := os.Stat(newPath); os.IsNotExist(err) {
-			_ = os.Rename(oldPath, newPath)
+			if err := moveOrCopyFile(oldPath, newPath); err != nil {
+				logger.Warnf("迁移旧设置失败 %s -> %s: %v", oldPath, newPath, err)
+				continue
+			}
 		} else {
+			// 新文件已存在，以新文件为准，删除旧文件
 			_ = os.Remove(oldPath)
 		}
 	}

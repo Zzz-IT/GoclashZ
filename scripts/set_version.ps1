@@ -23,12 +23,12 @@ Write-Utf8NoBom "core/version/version.go" $vgo
 
 # wails.json
 $wails = Get-Content wails.json -Raw
-$wails = $wails -replace '"productVersion"\s*:\s*"[^"]*"', '"productVersion": "' + $Version + '"'
+$wails = $wails -replace '"productVersion"\s*:\s*"[^"]*"', "`"productVersion`": `"$Version`""
 Write-Utf8NoBom "wails.json" $wails
 
 # frontend/package.json
 $pkg = Get-Content frontend/package.json -Raw
-$pkg = $pkg -replace '"version"\s*:\s*"[^"]*"', '"version": "' + $Version + '"'
+$pkg = $pkg -replace '"version"\s*:\s*"[^"]*"', "`"version`": `"$Version`""
 Write-Utf8NoBom "frontend/package.json" $pkg
 
 # package.iss
