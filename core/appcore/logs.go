@@ -7,20 +7,19 @@ import (
 	"goclashz/core/clash"
 	"goclashz/core/logger"
 	"sync"
-	"time"
 )
 
 type LogStreamManager struct {
-	mu      sync.Mutex
-	cancel  context.CancelFunc
-	gen     int
-	running bool
-	emit    EventSink
+	mu         sync.Mutex
+	cancel     context.CancelFunc
+	gen        int
+	running    bool
+	dispatcher *LogDispatcher
 }
 
-func NewLogStreamManager(emit EventSink) *LogStreamManager {
+func NewLogStreamManager(dispatcher *LogDispatcher) *LogStreamManager {
 	return &LogStreamManager{
-		emit: emit,
+		dispatcher: dispatcher,
 	}
 }
 
@@ -64,13 +63,10 @@ func (m *LogStreamManager) Start(ctx context.Context, logLevel string) {
 				entry := logger.LogEntry{
 					Type:    typ,
 					Payload: payload,
-					Time:    time.Now().Format("15:04:05"),
 				}
 
-				// 写入缓冲区并通知前端
-				logger.AppLogs.Add(entry)
-				if m.emit != nil {
-					m.emit.Emit(EventLogMessage, entry)
+				if m.dispatcher != nil {
+					m.dispatcher.AddCore(entry)
 				}
 			}
 		})

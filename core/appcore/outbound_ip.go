@@ -18,14 +18,18 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// OutboundIPResult 出站 IP 检测结果
 type OutboundIPResult struct {
 	Preferred string `json:"preferred"` // 最终显示 IP，IPv6 优先
 	IPv4      string `json:"ipv4"`
 	IPv6      string `json:"ipv6"`
-	Mode      string `json:"mode"`    // proxy 或 direct
-	Source    string `json:"source"`  // 命中的检测站点
-	Message   string `json:"message"` // 失败原因或说明
+	Mode      string `json:"mode"`      // proxy 或 direct
+	Source    string `json:"source"`    // (旧字段，可能废弃或保留用于主显)
+	Source4   string `json:"source4"`
+	Source6   string `json:"source6"`
+	Message   string `json:"message"`   // (整体消息)
+	Message4  string `json:"message4"`
+	Message6  string `json:"message6"`
+	Complete  bool   `json:"complete"`
 }
 
 var ipv6ProxyEndpoints = []string{
@@ -223,18 +227,29 @@ func (c *Controller) getOutboundIPInternal() (OutboundIPResult, error) {
 			if r.err == nil && r.ip != "" {
 				if r.family == "ipv6" {
 					result.IPv6 = r.ip
+					result.Source6 = r.source
 					result.Source = r.source
 				} else {
 					result.IPv4 = r.ip
+					result.Source4 = r.source
 					if result.Source == "" {
 						result.Source = r.source
 					}
 				}
+			} else if r.err != nil {
+				if r.family == "ipv6" {
+					result.Message6 = r.err.Error()
+				} else {
+					result.Message4 = r.err.Error()
+				}
 			}
 		case <-deadline.C:
 			count = 2 // Timeout, break the loop
+			result.Message = "检测超时"
 		}
 	}
+
+	result.Complete = true
 
 	if result.IPv6 != "" {
 		result.Preferred = result.IPv6
@@ -272,6 +287,13 @@ func detectIP(ctx context.Context, endpoints []string, network string, useProxy 
 	var wg sync.WaitGroup
 
 	go func() {
+		defer func() {
+			go func() {
+				wg.Wait()
+				close(ch)
+			}()
+		}()
+
 		for i, ep := range endpoints {
 			wg.Add(1)
 			go func(endpoint string) {
@@ -312,11 +334,6 @@ func detectIP(ctx context.Context, endpoints []string, network string, useProxy 
 				}
 			}
 		}
-
-		go func() {
-			wg.Wait()
-			close(ch)
-		}()
 	}()
 
 	var lastErr error

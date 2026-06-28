@@ -84,6 +84,10 @@ func (s *runtimeStateStore) Clear() {
 
 // runtimeSatisfiesCore 检查当前运行时状态是否满足期望核心状态
 func (c *Controller) runtimeSatisfiesCore(plan RuntimePlan) bool {
+	if !clash.IsRunning() {
+		return false
+	}
+
 	st := c.runtimeState.Get()
 	if !st.Running {
 		return false
@@ -115,6 +119,7 @@ type Controller struct {
 	autoTestQuit chan struct{}
 	autoTestMu   sync.Mutex
 
+	appLogger   *LogDispatcher
 	traffic     *TrafficStreamManager
 	logs        *LogStreamManager
 	Delay       *DelayTestManager
@@ -191,11 +196,12 @@ func NewController(opts Options) *Controller {
 		Tasks:         tasks.NewManager(opts.Events),
 		Desired:       NewDesiredStateStore(),
 	}
-	c.Supervisor = NewCoreSupervisor(c, c.Desired)
-	c.traffic = NewTrafficStreamManager(opts.Events, func() string {
-		return c.Behavior.Get().LogLevel
+	c.appLogger = NewLogDispatcher(opts.Events, func() string {
+		return c.Behavior.Get().AppLogLevel
 	})
-	c.logs = NewLogStreamManager(opts.Events)
+	c.Supervisor = NewCoreSupervisor(c, c.Desired)
+	c.traffic = NewTrafficStreamManager(opts.Events, c.appLogger)
+	c.logs = NewLogStreamManager(c.appLogger)
 	c.Delay = NewDelayTestManager(opts.Events, c)
 	c.proxyState = NewProxyStateMonitor(opts.Events)
 	c.connections = NewConnectionMonitorManager(opts.Events)
@@ -204,6 +210,27 @@ func NewController(opts Options) *Controller {
 	c.GeoUpdates = NewGeoUpdateManager(opts.Events, c.updateGeoDatabase, c.UpdateTasks)
 
 	return c
+}
+
+func (c *Controller) logInfo(format string, args ...any) {
+	c.appLogger.AddApp(logger.LogEntry{
+		Type:    "info",
+		Payload: fmt.Sprintf(format, args...),
+	})
+}
+
+func (c *Controller) logWarn(format string, args ...any) {
+	c.appLogger.AddApp(logger.LogEntry{
+		Type:    "warn",
+		Payload: fmt.Sprintf(format, args...),
+	})
+}
+
+func (c *Controller) logError(format string, args ...any) {
+	c.appLogger.AddApp(logger.LogEntry{
+		Type:    "error",
+		Payload: fmt.Sprintf(format, args...),
+	})
 }
 
 func (c *Controller) CancelUpdateTask(key string) {
@@ -247,14 +274,21 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 			wasSysProxy := c.sysProxyActive
 			c.sysProxyActive = false
 			c.tunActive = false
+			c.userCoreRunning = false
+			c.coreStartedAt = time.Time{}
 			c.mu.Unlock()
 
+			c.runtimeState.Clear()
+
 			if wasSysProxy {
-				_ = sys.DisableSystemProxy()
+				if err := sys.DisableSystemProxy(); err != nil {
+					c.logWarn("内核异常退出后关闭系统代理失败: %v", err)
+				}
 			}
 
 			c.events.Emit("clash-exited", e.Message)
 			c.SyncState()
+			c.Supervisor.ReconcileAsync("core-exited")
 		}
 	})
 
@@ -320,7 +354,7 @@ func (c *Controller) runStartupRestoreJob(ctx context.Context) {
 		cancel()
 
 		if err == nil {
-			logger.Infof("启动恢复成功 (attempt %d)", i+1)
+			c.logInfo("启动恢复成功 (attempt %d)", i+1)
 			return
 		}
 
@@ -335,11 +369,11 @@ func (c *Controller) runStartupRestoreJob(ctx context.Context) {
 			c.events.Emit("notify-error", "TUN 启动恢复失败：缺少 Wintun 驱动")
 			return
 		default:
-			logger.Warnf("启动恢复失败 attempt=%d: %v", i+1, err)
+			c.logWarn("启动恢复失败 attempt=%d: %v", i+1, err)
 		}
 	}
 
-	logger.Warnf("启动恢复在 5 次尝试后仍未成功")
+	c.logWarn("启动恢复在 5 次尝试后仍未成功")
 }
 
 func (c *Controller) syncStartupTaskStateSafe() {
@@ -698,9 +732,16 @@ func (c *Controller) ensureSystemProxyEnabled() error {
 
 func (c *Controller) ensureSystemProxyDisabled() error {
 	current, err := sys.GetSystemProxyState()
-	if err == nil && current.Enabled {
-		_ = sys.DisableSystemProxy()
+	if err != nil {
+		return fmt.Errorf("读取 Windows 系统代理状态失败: %w", err)
 	}
+
+	if current.Enabled {
+		if err := sys.DisableSystemProxy(); err != nil {
+			return fmt.Errorf("关闭 Windows 系统代理失败: %w", err)
+		}
+	}
+
 	c.mu.Lock()
 	c.sysProxyActive = false
 	c.mu.Unlock()
@@ -1073,7 +1114,7 @@ func (c *Controller) ensureHelperReadySlow(reason string) error {
 			return fmt.Errorf("安装后台服务失败: %w", err)
 		}
 
-		logger.Infof("Helper 服务已静默安装 (reason: %s)", reason)
+		c.logInfo("Helper 服务已静默安装 (reason: %s)", reason)
 	}
 
 	// 启动服务
@@ -1086,7 +1127,7 @@ func (c *Controller) ensureHelperReadySlow(reason string) error {
 		return fmt.Errorf("后台服务就绪超时: %w", err)
 	}
 
-	logger.Infof("Helper 服务已就绪 (reason: %s)", reason)
+	c.logInfo("Helper 服务已就绪 (reason: %s)", reason)
 	return nil
 }
 
@@ -1185,7 +1226,7 @@ func (c *Controller) RestartCoreWithReason(ctx context.Context, reason string) e
 
 	// 🛡️ 核心改进：仅在用户明确意图或核心配置变更时，才通知前端清理延迟缓存
 	switch reason {
-	case "manual", "config-switch", "subscription-update", "restore":
+	case "manual", "config-switch", "subscription-update", "restore", "config-save":
 		c.events.Emit("delay-cache-clear", reason)
 	}
 
@@ -1218,6 +1259,12 @@ func (c *Controller) UpdateClashMode(ctx context.Context, mode string) error {
 		if err := clash.UpdateModeWithContext(ctx, mode); err != nil {
 			c.SyncState()
 			return fmt.Errorf("内核模式切换失败: %v", err)
+		}
+
+		st := c.runtimeState.Get()
+		if st.Running && st.Purpose == "user" {
+			st.Mode = mode
+			c.runtimeState.Set(st)
 		}
 
 		// 🚀 核心修复：切换到全局模式时，主动同步隐藏 GLOBAL
@@ -1315,7 +1362,7 @@ func (c *Controller) runAutoDelayTestOnce(reason string) {
 		return
 	}
 
-	logger.Infof("Triggering auto delay test, reason: %s", reason)
+	c.logInfo("Triggering auto delay test, reason: %s", reason)
 	go c.Delay.TestAllProxiesAuto(c.ctx, reason)
 }
 
@@ -1598,7 +1645,7 @@ func (c *Controller) syncGlobalSelectionOnModeEnter(ctx context.Context, profile
 
 	// 执行同步
 	if err := c.selectGlobalProxyIfValid(ctx, targetNode); err != nil {
-		logger.Errorf("进入全局模式同步失败: %v", err)
+		c.logError("进入全局模式同步失败: %v", err)
 	}
 }
 
@@ -1655,7 +1702,7 @@ func (c *Controller) applyStoredProxySelections(ctx context.Context, profileID s
 
 	data, err := clash.GetInitialDataWithContext(ctx)
 	if err != nil {
-		logger.Errorf("读取内核代理组失败，跳过节点选择回放: %v", err)
+		c.logError("读取内核代理组失败，跳过节点选择回放: %v", err)
 		return
 	}
 
@@ -1697,7 +1744,7 @@ func (c *Controller) applyStoredProxySelections(ctx context.Context, profileID s
 	if behavior.ActiveMode == "global" {
 		if globalNode, ok := selected["GLOBAL"]; ok && globalNode != "" {
 			if err := c.selectGlobalProxyIfValid(ctx, globalNode); err != nil {
-				logger.Errorf("回放 GLOBAL 出口失败: %v", err)
+				c.logError("回放 GLOBAL 出口失败: %v", err)
 			}
 		}
 	}

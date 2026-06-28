@@ -70,6 +70,16 @@
             </div>
 
             <div v-else-if="currentTab === 'logs'" key="logs" class="view-transition-wrapper view-logs" style="display: flex; flex-direction: column; gap: 12px; height: 100%;">
+              <div class="logs-header" style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0px;">
+                <div class="conn-tabs-viewport" style="flex: none;">
+                  <div class="conn-tabs-track" ref="logsTabsTrackRef">
+                    <button :ref="(el) => { if (logSourceFilter === 'all') logsTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: logSourceFilter === 'all' }]" @click="logSourceFilter = 'all'">全部</button>
+                    <button :ref="(el) => { if (logSourceFilter === 'core') logsTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: logSourceFilter === 'core' }]" @click="logSourceFilter = 'core'">内核</button>
+                    <button :ref="(el) => { if (logSourceFilter === 'app') logsTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: logSourceFilter === 'app' }]" @click="logSourceFilter = 'app'">主程序</button>
+                    <div class="conn-tab-slider" :class="{ animated: logsSliderReady }" v-show="logsSliderVisible" :style="logsSliderStyle"></div>
+                  </div>
+                </div>
+              </div>
               <div class="terminal-box" ref="logBox" style="flex: 1; height: auto;">
                 <div v-for="(log, i) in filteredLogLines" :key="i" :class="['log-line', log.type]">
                   <span class="l-time">{{ log.time }}</span>
@@ -177,17 +187,63 @@ const traffic = ref({
   downloadTotalRaw: 0
 });
 const logLines = ref<any[]>([]);
+const logSourceFilter = ref('all');
 
 const logLevels = { debug: 0, info: 1, warn: 2, warning: 2, error: 3 };
 const filteredLogLines = computed(() => {
   const minLevel = logLevels[globalState.appLogLevel as keyof typeof logLevels] || 0;
   return logLines.value.filter(log => {
+    // 来源过滤
+    if (logSourceFilter.value !== 'all') {
+      const src = (log.source || 'core').toLowerCase();
+      if (src !== logSourceFilter.value) return false;
+    }
+    // 等级过滤
     const typeStr = (log.type || 'info').toLowerCase();
     const level = logLevels[typeStr as keyof typeof logLevels] ?? 1;
     return level >= minLevel;
   });
 });
 const logBox = ref<HTMLElement | null>(null);
+
+const logsTabsTrackRef = ref<HTMLElement | null>(null);
+const logsTabEl = ref<HTMLElement | null>(null);
+const logsSliderStyle = ref({ left: '0px', width: '0px' });
+const logsSliderReady = ref(false);
+const logsSliderVisible = ref(false);
+
+const updateLogsSlider = () => {
+  const track = logsTabsTrackRef.value;
+  const btn = logsTabEl.value;
+  if (track && btn) {
+    logsSliderStyle.value = {
+      left: `${btn.offsetLeft}px`,
+      width: `${btn.offsetWidth}px`,
+    };
+  }
+};
+
+const resetLogsSlider = () => {
+  logsSliderReady.value = false;
+  logsSliderVisible.value = false;
+  nextTick(() => {
+    updateLogsSlider();
+    nextTick(() => {
+      logsSliderVisible.value = true;
+      logsSliderReady.value = true;
+    });
+  });
+};
+
+watch(logSourceFilter, () => {
+  nextTick(updateLogsSlider);
+});
+
+watch(logsTabsTrackRef, (el) => {
+  if (el) {
+    resetLogsSlider();
+  }
+});
 
 let scrollTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -697,6 +753,18 @@ const resetViewScroller = () => {
   font-weight: 600;
   color: var(--text-sub);
   font-family: var(--font-mono);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.yaml-save-status.modified {
+  color: var(--text-main);
+  background: var(--surface-hover);
+}
+
+.yaml-save-status.error {
+  color: var(--surface-panel);
+  background: var(--text-main);
 }
 
 .yaml-cursor-status {

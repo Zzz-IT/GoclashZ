@@ -9,10 +9,18 @@ import (
 	"time"
 )
 
+type LogSource string
+
+const (
+	LogSourceCore LogSource = "core"
+	LogSourceApp  LogSource = "app"
+)
+
 type LogEntry struct {
-	Type    string `json:"type"`
-	Payload string `json:"payload"`
-	Time    string `json:"time"`
+	Type    string    `json:"type"`
+	Source  LogSource `json:"source"`
+	Payload string    `json:"payload"`
+	Time    string    `json:"time"`
 }
 
 // RingBuffer 线程安全的环形日志缓冲区
@@ -83,6 +91,7 @@ func (r *RingBuffer) Clear() {
 func Infof(format string, args ...any) {
 	AppLogs.Add(LogEntry{
 		Type:    "info",
+		Source:  LogSourceApp,
 		Payload: fmt.Sprintf(format, args...),
 		Time:    time.Now().Format("15:04:05"),
 	})
@@ -92,6 +101,7 @@ func Infof(format string, args ...any) {
 func Errorf(format string, args ...any) {
 	AppLogs.Add(LogEntry{
 		Type:    "error",
+		Source:  LogSourceApp,
 		Payload: fmt.Sprintf(format, args...),
 		Time:    time.Now().Format("15:04:05"),
 	})
@@ -100,6 +110,7 @@ func Errorf(format string, args ...any) {
 func Warnf(format string, args ...any) {
 	AppLogs.Add(LogEntry{
 		Type:    "warn",
+		Source:  LogSourceApp,
 		Payload: fmt.Sprintf(format, args...),
 		Time:    time.Now().Format("15:04:05"),
 	})
@@ -108,6 +119,7 @@ func Warnf(format string, args ...any) {
 func Debugf(format string, args ...any) {
 	AppLogs.Add(LogEntry{
 		Type:    "debug",
+		Source:  LogSourceApp,
 		Payload: fmt.Sprintf(format, args...),
 		Time:    time.Now().Format("15:04:05"),
 	})

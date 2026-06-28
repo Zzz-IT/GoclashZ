@@ -41,7 +41,7 @@ type TrafficStreamManager struct {
 	cancel      context.CancelFunc
 	gen         int
 	emit        EventSink
-	getLogLevel func() string
+	dispatcher  *LogDispatcher
 
 	lastErrAt  time.Time
 	lastErrMsg string
@@ -55,10 +55,10 @@ type TrafficStreamManager struct {
 	prevConnTraffic map[string]connTrafficMark
 }
 
-func NewTrafficStreamManager(emit EventSink, getLogLevel func() string) *TrafficStreamManager {
+func NewTrafficStreamManager(emit EventSink, dispatcher *LogDispatcher) *TrafficStreamManager {
 	return &TrafficStreamManager{
 		emit:            emit,
-		getLogLevel:     getLogLevel,
+		dispatcher:      dispatcher,
 		prevConnTraffic: make(map[string]connTrafficMark),
 	}
 }
@@ -316,10 +316,6 @@ func (m *TrafficStreamManager) emitErrorLog(err error) {
 		return
 	}
 
-	if m.getLogLevel != nil && !shouldEmitLog(m.getLogLevel(), "error") {
-		return
-	}
-
 	msg := err.Error()
 
 	m.mu.Lock()
@@ -331,37 +327,10 @@ func (m *TrafficStreamManager) emitErrorLog(err error) {
 	m.lastErrAt = time.Now()
 	m.mu.Unlock()
 
-	entry := logger.LogEntry{
-		Type:    "error",
-		Payload: "Traffic stream error: " + msg,
-		Time:    time.Now().Format("15:04:05"),
+	if m.dispatcher != nil {
+		m.dispatcher.AddApp(logger.LogEntry{
+			Type:    "error",
+			Payload: "Traffic stream error: " + msg,
+		})
 	}
-
-	logger.AppLogs.Add(entry)
-
-	if m.emit != nil {
-		m.emit.Emit("log-message", entry)
-	}
-}
-
-func shouldEmitLog(configLevel, entryLevel string) bool {
-	rank := map[string]int{
-		"debug":   0,
-		"info":    1,
-		"warning": 2,
-		"warn":    2,
-		"error":   3,
-	}
-
-	cfg, ok := rank[strings.ToLower(configLevel)]
-	if !ok {
-		cfg = rank["info"]
-	}
-
-	ent, ok := rank[strings.ToLower(entryLevel)]
-	if !ok {
-		ent = rank["info"]
-	}
-
-	return ent >= cfg
 }

@@ -489,3 +489,65 @@ body,
     height: 14px;
     display: block;
 }
+
+/* 选项卡样式 (移植自 Proxies.vue) */
+.conn-tabs-viewport {
+    flex: 1;
+    min-width: 0;
+    border-radius: 8px;
+}
+
+.conn-tabs-track {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface-hover);
+    padding: 6px;
+    border-radius: 12px;
+    user-select: none;
+    -webkit-user-select: none;
+    position: relative;
+}
+
+.conn-tab-btn {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    padding: 0 16px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-sub);
+    font-size: 0.95rem;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    position: relative;
+    z-index: 1;
+    transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.conn-tab-btn:hover {
+    color: var(--text-main);
+}
+
+.conn-tab-btn.active {
+    color: var(--accent-fg);
+    font-weight: 800;
+}
+
+.conn-tab-slider {
+    position: absolute;
+    top: 6px;
+    height: 36px;
+    background: var(--accent);
+    border-radius: 8px;
+    z-index: 0;
+    pointer-events: none;
+}
+
+.conn-tab-slider.animated {
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}

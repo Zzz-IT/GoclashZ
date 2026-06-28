@@ -217,7 +217,12 @@ export namespace appcore {
 	    ipv6: string;
 	    mode: string;
 	    source: string;
+	    source4: string;
+	    source6: string;
 	    message: string;
+	    message4: string;
+	    message6: string;
+	    complete: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new OutboundIPResult(source);
@@ -230,7 +235,12 @@ export namespace appcore {
 	        this.ipv6 = source["ipv6"];
 	        this.mode = source["mode"];
 	        this.source = source["source"];
+	        this.source4 = source["source4"];
+	        this.source6 = source["source6"];
 	        this.message = source["message"];
+	        this.message4 = source["message4"];
+	        this.message6 = source["message6"];
+	        this.complete = source["complete"];
 	    }
 	}
 
@@ -541,6 +551,7 @@ export namespace logger {
 	
 	export class LogEntry {
 	    type: string;
+	    source: string;
 	    payload: string;
 	    time: string;
 	
@@ -551,6 +562,7 @@ export namespace logger {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.type = source["type"];
+	        this.source = source["source"];
 	        this.payload = source["payload"];
 	        this.time = source["time"];
 	    }

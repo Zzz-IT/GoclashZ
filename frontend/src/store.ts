@@ -101,7 +101,12 @@ export type OutboundIPResult = {
   ipv6: string;
   mode: string;
   source: string;
+  source4: string;
+  source6: string;
   message: string;
+  message4: string;
+  message6: string;
+  complete: boolean;
 };
 
 // 👇 新增清洗规则：打破数据格式强粘合，防止大小写污染

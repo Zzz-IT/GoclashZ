@@ -129,17 +129,8 @@ func IsConfigEditable(id string) bool {
 	return err == nil
 }
 
-// GetEditableConfigs 获取所有可编辑的配置列表
 func GetEditableConfigs() []ConfigTextResult {
 	var results []ConfigTextResult
-
-	// 主配置
-	if IsConfigEditable("") {
-		res, err := ReadConfigText("")
-		if err == nil {
-			results = append(results, res)
-		}
-	}
 
 	// 订阅配置
 	items := ListSubIndex()
