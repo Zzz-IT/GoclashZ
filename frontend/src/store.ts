@@ -153,6 +153,7 @@ export function updateStateFromBackend(rawData: any) {
       delay: tunOn ? 1200 : 500,
       clearBeforeStart: true,
       reason: tunOn ? 'tun-on' : tunOff ? 'tun-off' : 'proxy-change',
+      silent: false,
     });
 
     // 二次确认：TUN/路由/DNS 收敛可能慢
@@ -161,6 +162,7 @@ export function updateStateFromBackend(rawData: any) {
       delay: tunOn ? 3000 : 1500,
       clearBeforeStart: false,
       reason: tunOn ? 'tun-on-confirm' : 'state-confirm',
+      silent: true,
     });
   }
 
@@ -278,7 +280,7 @@ export function showConfirm(message: string, title: string = '操作确认', isD
 
 // IP 检测队列（latest-wins）
 let ipDetectSeq = 0;
-let pendingIPRefresh: { force?: boolean; clearBeforeStart?: boolean; reason?: string } | null = null;
+let pendingIPRefresh: { force?: boolean; clearBeforeStart?: boolean; reason?: string; silent?: boolean } | null = null;
 const ipRefreshTimers: Record<string, number> = {};
 
 /**
@@ -292,6 +294,7 @@ export function scheduleOutboundIPRefresh(
     delay?: number;
     clearBeforeStart?: boolean;
     reason?: string;
+    silent?: boolean;
   } = {}
 ) {
   if (ipRefreshTimers[key]) {
@@ -304,16 +307,31 @@ export function scheduleOutboundIPRefresh(
 
   ipRefreshTimers[key] = window.setTimeout(() => {
     delete ipRefreshTimers[key];
-    refreshOutboundIP({ force: opts.force, reason: opts.reason });
+    refreshOutboundIP({
+      force: opts.force,
+      clearBeforeStart: opts.clearBeforeStart,
+      reason: opts.reason,
+      silent: opts.silent,
+    });
   }, opts.delay ?? 800);
 }
 
 /**
  * 执行 IP 检测（latest-wins，不丢弃新请求）
  */
-export async function refreshOutboundIP(options?: { force?: boolean; clearBeforeStart?: boolean; reason?: string }) {
+export async function refreshOutboundIP(options?: {
+  force?: boolean;
+  clearBeforeStart?: boolean;
+  reason?: string;
+  silent?: boolean;
+}) {
   if (globalState.ipDetecting) {
-    pendingIPRefresh = { force: true, clearBeforeStart: options?.clearBeforeStart, reason: options?.reason };
+    pendingIPRefresh = {
+      force: true,
+      clearBeforeStart: options?.clearBeforeStart,
+      reason: options?.reason,
+      silent: options?.silent,
+    };
     return;
   }
 
@@ -323,7 +341,9 @@ export async function refreshOutboundIP(options?: { force?: boolean; clearBefore
     globalState.outboundIP = null;
   }
 
-  globalState.ipDetecting = true;
+  if (!options?.silent) {
+    globalState.ipDetecting = true;
+  }
 
   try {
     const result = await (API as any).GetOutboundIP(!!options?.force);
@@ -334,7 +354,7 @@ export async function refreshOutboundIP(options?: { force?: boolean; clearBefore
     if (result && result.preferred) {
       globalState.outboundIP = result;
       localStorage.setItem('goclashz_outboundIP', JSON.stringify(result));
-    } else {
+    } else if (!options?.silent) {
       // 检测失败：清空旧结果，显示错误
       globalState.outboundIP = {
         preferred: '',
@@ -347,16 +367,19 @@ export async function refreshOutboundIP(options?: { force?: boolean; clearBefore
     }
   } catch {
     if (seq !== ipDetectSeq) return;
-    globalState.outboundIP = {
-      preferred: '',
-      ipv4: '',
-      ipv6: '',
-      mode: '',
-      source: '',
-      message: '网络请求失败',
-    } as any;
+
+    if (!options?.silent) {
+      globalState.outboundIP = {
+        preferred: '',
+        ipv4: '',
+        ipv6: '',
+        mode: '',
+        source: '',
+        message: '网络请求失败',
+      } as any;
+    }
   } finally {
-    if (seq === ipDetectSeq) {
+    if (!options?.silent && seq === ipDetectSeq) {
       globalState.ipDetecting = false;
     }
 

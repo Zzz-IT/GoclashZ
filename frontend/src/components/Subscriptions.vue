@@ -188,7 +188,7 @@ import { formatBytes } from '../utils/format';
 import { ICONS } from '../utils/icons';
 
 const emit = defineEmits<{
-  'edit-config': [id: string, name: string];
+  'edit-config': [id: string, name: string, type: 'local' | 'remote'];
 }>();
 
 const activeModal = ref<'import' | 'import_confirm' | 'rename' | 'delete' | null>(null);
@@ -383,7 +383,7 @@ const confirmRename = async () => {
 
 const handleEditFile = async (config: clash.SubIndexItem) => {
   activeMenu.value = null;
-  emit('edit-config', config.id, config.name);
+  emit('edit-config', config.id, config.name, config.type as 'local' | 'remote');
 };
 
 const handleShareLink = async (config: clash.SubIndexItem) => {

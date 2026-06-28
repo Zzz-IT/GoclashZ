@@ -123,7 +123,7 @@ func Start(ctx context.Context, tun bool) error {
 }
 
 // startCoreViaHelper 通过 helper 服务启动内核（TUN 专用）
-func startCoreViaHelper(ctx context.Context, exePath, binDir, runtimeConfig, pidFile string) error {
+func startCoreViaHelper(_ context.Context, exePath, binDir, runtimeConfig, _ string) error {
 	client := sys.NewHelperClient()
 
 	if err := client.StartCore(sys.StartCoreParams{
@@ -268,7 +268,7 @@ func startCoreProcessWithRetry(ctx context.Context, exePath, binDir, runtimeConf
 	var lastErr error
 
 	for i := 0; i < 8; i++ {
-		cmd := exec.Command(exePath, "-d", binDir, "-f", runtimeConfig)
+		cmd := exec.CommandContext(ctx, exePath, "-d", binDir, "-f", runtimeConfig)
 		cmd.Dir = binDir
 		utils.HideCommandWindow(cmd, 0) // 不使用 CREATE_BREAKAWAY_FROM_JOB
 

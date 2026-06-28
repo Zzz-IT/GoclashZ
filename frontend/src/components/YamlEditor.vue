@@ -29,7 +29,7 @@
 
     <div class="editor-body" ref="editorContainer"></div>
 
-    <div v-if="globalState.activeConfigType === 'remote'" class="remote-warning">
+    <div v-if="props.configType === 'remote'" class="remote-warning">
       <span>当前为远程订阅配置。建议通过【规则页】的附加规则修改。在此修改将在下次订阅更新时被覆盖。</span>
     </div>
 
@@ -58,6 +58,7 @@ import { globalState } from '../store';
 const props = defineProps<{
   configId: string;
   configName: string;
+  configType: 'local' | 'remote';
 }>();
 
 const emit = defineEmits<{
@@ -155,27 +156,6 @@ const lightTheme = EditorView.theme({
   },
 });
 
-const lightHighlight = HighlightStyle.define([
-  { tag: tags.keyword, color: '#D32F2F' },
-  { tag: tags.atom, color: '#1976D2' },
-  { tag: tags.bool, color: '#1976D2' },
-  { tag: tags.comment, color: '#6A737D', fontStyle: 'italic' },
-  { tag: tags.definition(tags.variableName), color: '#005CC5' },
-  { tag: tags.string, color: '#032F62' },
-  { tag: tags.number, color: '#005CC5' },
-  { tag: tags.operator, color: '#24292E' },
-  { tag: tags.tagName, color: '#22863A' },
-  { tag: tags.typeName, color: '#6F42C1' },
-  { tag: tags.className, color: '#6F42C1' },
-  { tag: tags.labelName, color: '#E36209' },
-  { tag: tags.propertyName, color: '#22863A' },
-  { tag: tags.special(tags.string), color: '#032F62' },
-  { tag: tags.regexp, color: '#032F62' },
-  { tag: tags.escape, color: '#22863A' },
-  { tag: tags.meta, color: '#6A737D' },
-  { tag: tags.invalid, color: '#CB2431' },
-]);
-
 const darkTheme = EditorView.theme({
   '&': {
     backgroundColor: '#0D1117',
@@ -226,31 +206,22 @@ const darkTheme = EditorView.theme({
   },
 });
 
-const darkHighlight = HighlightStyle.define([
-  { tag: tags.keyword, color: '#C678DD' },
-  { tag: tags.atom, color: '#D19A66' },
-  { tag: tags.bool, color: '#D19A66' },
-  { tag: tags.comment, color: '#7F848E', fontStyle: 'italic' },
-  { tag: tags.definition(tags.variableName), color: '#E06C75' },
-  { tag: tags.string, color: '#98C379' },
-  { tag: tags.number, color: '#D19A66' },
-  { tag: tags.operator, color: '#ABB2BF' },
-  { tag: tags.tagName, color: '#E06C75' },
-  { tag: tags.typeName, color: '#E5C07B' },
-  { tag: tags.className, color: '#E5C07B' },
-  { tag: tags.labelName, color: '#E06C75' },
-  { tag: tags.propertyName, color: '#61AFEF' },
-  { tag: tags.special(tags.string), color: '#98C379' },
-  { tag: tags.regexp, color: '#98C379' },
-  { tag: tags.escape, color: '#56B6C2' },
-  { tag: tags.meta, color: '#7F848E' },
-  { tag: tags.invalid, color: '#F44747' },
+const monoHighlight = HighlightStyle.define([
+  { tag: tags.keyword, color: 'var(--text-main)', fontWeight: '700' },
+  { tag: tags.atom, color: 'var(--text-main)' },
+  { tag: tags.bool, color: 'var(--text-main)', fontWeight: '700' },
+  { tag: tags.comment, color: 'var(--text-sub)', fontStyle: 'italic' },
+  { tag: tags.string, color: 'var(--text-main)' },
+  { tag: tags.number, color: 'var(--text-main)' },
+  { tag: tags.propertyName, color: 'var(--text-main)', fontWeight: '600' },
+  { tag: tags.operator, color: 'var(--text-sub)' },
+  { tag: tags.invalid, color: 'var(--text-main)', textDecoration: 'underline wavy' },
 ]);
 
 const isDark = () => document.documentElement.classList.contains('dark');
 
 const getTheme = () => isDark() ? darkTheme : lightTheme;
-const getHighlight = () => isDark() ? darkHighlight : lightHighlight;
+const getHighlight = () => monoHighlight;
 
 const updateEditorStats = (view: EditorView) => {
   totalLines.value = view.state.doc.lines;
@@ -321,8 +292,14 @@ const loadConfig = async () => {
       updateEditorStats(editorView.value);
     }
   } catch (e: any) {
-    statusText.value = '加载失败: ' + (e.message || e);
+    const errorMsg = e.message || String(e);
+    statusText.value = '加载失败: ' + errorMsg;
     emit('status-change', { text: '加载失败', modified: false, error: true });
+    
+    // 如果读取配置失败（如严格路径校验不通过），弹出提示并返回
+    import('../store').then(({ showAlert }) => {
+      showAlert('配置文件读取失败: ' + errorMsg, '错误', true);
+    });
   } finally {
     loading.value = false;
   }
@@ -342,8 +319,13 @@ const handleSave = async () => {
 
     emit('status-change', { text: '已保存', modified: false, error: false });
   } catch (e: any) {
-    statusText.value = '保存失败: ' + (e.message || e);
+    const errorMsg = e.message || String(e);
+    statusText.value = '保存失败: ' + errorMsg;
     emit('status-change', { text: '保存失败', modified: isModified.value, error: true });
+    
+    import('../store').then(({ showAlert }) => {
+      showAlert('配置文件保存失败: ' + errorMsg, '错误', true);
+    });
   } finally {
     saving.value = false;
   }
@@ -390,7 +372,7 @@ onMounted(async () => {
   themeObserver = new MutationObserver(() => {
     if (editorView.value) {
       const currentTheme = isDark() ? darkTheme : lightTheme;
-      const currentHighlight = isDark() ? darkHighlight : lightHighlight;
+      const currentHighlight = monoHighlight;
       editorView.value.dispatch({
         effects: [
           themeCompartment.reconfigure(currentTheme),
@@ -572,15 +554,15 @@ onUnmounted(() => {
 }
 
 .remote-warning {
-  background: rgba(255, 170, 0, 0.1);
-  color: #d97706;
+  background: var(--surface-panel);
+  color: var(--text-main);
   padding: 8px 12px;
   border-radius: 8px;
   font-size: 0.8rem;
   margin-top: 8px;
   display: flex;
   align-items: center;
-  border: 1px solid rgba(255, 170, 0, 0.2);
+  border: 1px dashed var(--text-muted);
 }
 
 /* 选区 span 级兜底：确保 token 颜色不干扰选中文字 */

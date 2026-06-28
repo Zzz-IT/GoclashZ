@@ -27,7 +27,7 @@
     </section>
 
     <section class="switch-row">
-      <div class="action-card" :class="{ 'on': globalState.systemProxy, 'switching': sysProxySwitching }" @click="toggleSysProxy">
+      <div class="action-card" :class="{ 'on': sysProxyCardOn }" @click="toggleSysProxy">
         <div class="card-content">
           <div class="icon-ring" v-html="ICONS.sysProxy"></div>
           <div class="text-group">
@@ -38,7 +38,7 @@
         <div class="status-node"></div>
       </div>
 
-      <div class="action-card" :class="{ 'on': globalState.tun, 'switching': tunSwitching }" @click="toggleTun">
+      <div class="action-card" :class="{ 'on': tunCardOn }" @click="toggleTun">
         <div class="card-content">
           <div class="icon-ring" v-html="ICONS.tun"></div>
           <div class="text-group">
@@ -114,33 +114,52 @@ const handleRestartCore = async () => {
 };
 
 // ==========================================
-// 切换状态管理（非乐观 UI）
+// 切换状态管理（乐观 UI）
 // ==========================================
 const sysProxySwitching = ref(false);
-const sysProxyTarget = ref<boolean | null>(null);
+const optimisticSysProxy = ref<boolean | null>(null);
+
 const tunSwitching = ref(false);
-const tunTarget = ref<boolean | null>(null);
+const optimisticTun = ref<boolean | null>(null);
+
+const sysProxyCardOn = computed(() => {
+  return optimisticSysProxy.value !== null
+    ? optimisticSysProxy.value
+    : globalState.systemProxy;
+});
+
+const tunCardOn = computed(() => {
+  return optimisticTun.value !== null
+    ? optimisticTun.value
+    : globalState.tun;
+});
 
 const sysProxyLabel = computed(() => {
-  if (sysProxySwitching.value) return sysProxyTarget.value ? '正在启用...' : '正在关闭...';
-  return globalState.systemProxy ? '已修改系统网络层设置' : '未接管系统 HTTP 流量';
+  return sysProxyCardOn.value
+    ? '已修改系统网络层设置'
+    : '未接管系统 HTTP 流量';
 });
 
 const tunLabel = computed(() => {
-  if (tunSwitching.value) return tunTarget.value ? '正在启用...' : '正在关闭...';
-  return globalState.tun ? '高优先级虚拟设备已挂载' : '透明代理驱动未加载';
+  return tunCardOn.value
+    ? '高优先级虚拟设备已挂载'
+    : '透明代理驱动未加载';
 });
 
 const toggleSysProxy = async () => {
   if (sysProxySwitching.value) return;
-  const target = !globalState.systemProxy;
+
+  const target = !sysProxyCardOn.value;
+  optimisticSysProxy.value = target;
   sysProxySwitching.value = true;
-  sysProxyTarget.value = target;
+
   try {
     await API.ToggleSystemProxy(target);
     const latest = await (API as any).GetAppState();
     updateStateFromBackend(latest);
   } catch (err: any) {
+    optimisticSysProxy.value = null;
+
     const msg = String(err?.message || err || '');
     if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
       showAlert('尚未添加配置\n\n启用系统代理前，请先添加并应用一个配置文件。', '提示');
@@ -149,28 +168,45 @@ const toggleSysProxy = async () => {
     }
   } finally {
     sysProxySwitching.value = false;
-    sysProxyTarget.value = null;
+    optimisticSysProxy.value = null;
   }
 };
 
 const toggleTun = async () => {
   if (tunSwitching.value) return;
-  const target = !globalState.tun;
+
+  const target = !tunCardOn.value;
+  optimisticTun.value = target;
   tunSwitching.value = true;
-  tunTarget.value = target;
+
   try {
     await API.ToggleTunMode(target);
     const latest = await (API as any).GetAppState();
     updateStateFromBackend(latest);
   } catch (err: any) {
+    optimisticTun.value = null;
+
     const msg = String(err?.message || err || '');
+
     if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
       showAlert('尚未添加配置\n\n启用虚拟网卡前，请先添加并应用一个配置文件。', '提示');
     } else if (msg.includes('helper_install_required') || msg.includes('helper_repair_required')) {
-      const confirmed = await showConfirm('TUN 模式需要初始化后台服务 (GoclashZHelper)\n\n此操作只需管理员确认一次，之后可无感启用 TUN 和开机恢复。', '需要初始化后台服务');
+      const confirmed = await showConfirm(
+        'TUN 模式需要初始化后台服务 (GoclashZHelper)\n\n此操作只需管理员确认一次，之后可无感启用 TUN 和开机恢复。',
+        '需要初始化后台服务'
+      );
+
       if (confirmed) {
-        try { await (API as any).InstallHelperService(); await API.ToggleTunMode(target); }
-        catch (e: any) { showAlert('初始化后台服务失败: ' + String(e?.message || e), '错误', true); }
+        try {
+          optimisticTun.value = target;
+          await (API as any).InstallHelperService();
+          await API.ToggleTunMode(target);
+          const latest = await (API as any).GetAppState();
+          updateStateFromBackend(latest);
+        } catch (e: any) {
+          optimisticTun.value = null;
+          showAlert('初始化后台服务失败: ' + String(e?.message || e), '错误', true);
+        }
       }
     } else if (msg.includes('wintun_missing') || msg.includes('Wintun')) {
       showAlert('缺少 Wintun 驱动，请在「组件与库更新」页面安装 Wintun 驱动。', '缺少依赖', true);
@@ -179,7 +215,7 @@ const toggleTun = async () => {
     }
   } finally {
     tunSwitching.value = false;
-    tunTarget.value = null;
+    optimisticTun.value = null;
   }
 };
 
@@ -265,7 +301,6 @@ const runModeWorker = async (targetMode: string) => {
 .switch-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .action-card { padding: 20px 24px; background: var(--surface); border: none; border-radius: 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s cubic-bezier(0.4,0,0.2,1); }
 .action-card.on { background: var(--accent); }
-.action-card.switching { opacity: 0.7; cursor: wait; }
 .icon-ring { width: 40px; height: 40px; border-radius: 12px; background: var(--surface-hover); display: flex; align-items: center; justify-content: center; color: var(--text-sub); transition: 0.3s; }
 .icon-ring :deep(svg) { width: 22px; height: 22px; }
 .on .icon-ring { background: rgba(128,128,128,0.25) !important; color: var(--accent-fg); }

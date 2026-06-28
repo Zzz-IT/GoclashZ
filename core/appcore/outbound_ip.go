@@ -201,73 +201,58 @@ func (c *Controller) getOutboundIPInternal() (OutboundIPResult, error) {
 
 	resultCh := make(chan ipResult, 2)
 
-	// TUN/direct 模式优先 IPv4，proxy 模式并发
-	if mode == "tun-route" || mode == "direct" {
-		go func() {
-			ip, source, err := detectIP(ctx, endpointsV4, "tcp4", useHTTPProxy)
-			resultCh <- ipResult{family: "ipv4", ip: ip, source: source, err: err}
-		}()
-		go func() {
-			// IPv4 优先窗口：延迟 200ms 再启动 IPv6
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(200 * time.Millisecond):
-			}
-			ip, source, err := detectIP(ctx, endpointsV6, "tcp6", useHTTPProxy)
-			resultCh <- ipResult{family: "ipv6", ip: ip, source: source, err: err}
-		}()
-	} else {
-		// proxy 模式并发
-		go func() {
-			ip, source, err := detectIP(ctx, endpointsV6, "tcp6", useHTTPProxy)
-			resultCh <- ipResult{family: "ipv6", ip: ip, source: source, err: err}
-		}()
-		go func() {
-			ip, source, err := detectIP(ctx, endpointsV4, "tcp4", useHTTPProxy)
-			resultCh <- ipResult{family: "ipv4", ip: ip, source: source, err: err}
-		}()
-	}
+	// 并发检测双栈
+	go func() {
+		ip, source, err := detectIP(ctx, endpointsV6, "tcp6", useHTTPProxy)
+		resultCh <- ipResult{family: "ipv6", ip: ip, source: source, err: err}
+	}()
+	go func() {
+		ip, source, err := detectIP(ctx, endpointsV4, "tcp4", useHTTPProxy)
+		resultCh <- ipResult{family: "ipv4", ip: ip, source: source, err: err}
+	}()
 
-	// first-valid 快速返回：第一个成功就返回
 	result := OutboundIPResult{Mode: mode}
-	var lastErr error
 	deadline := time.NewTimer(3500 * time.Millisecond)
 	defer deadline.Stop()
 
-	for i := 0; i < 2; i++ {
+	var count int
+	for count < 2 {
 		select {
 		case r := <-resultCh:
+			count++
 			if r.err == nil && r.ip != "" {
-				result.Preferred = r.ip
-				result.Source = r.source
 				if r.family == "ipv6" {
 					result.IPv6 = r.ip
+					result.Source = r.source
 				} else {
 					result.IPv4 = r.ip
+					if result.Source == "" {
+						result.Source = r.source
+					}
 				}
-				return result, nil
 			}
-			lastErr = r.err
 		case <-deadline.C:
-			result.Message = "IP 检测超时"
-			return result, nil
+			count = 2 // Timeout, break the loop
 		}
 	}
 
-	result.Message = "所有检测站点均不可达"
-	if lastErr != nil {
-		result.Message = fmt.Sprintf("%v", lastErr)
+	if result.IPv6 != "" {
+		result.Preferred = result.IPv6
+	} else if result.IPv4 != "" {
+		result.Preferred = result.IPv4
 	}
 
-	entry := logger.LogEntry{
-		Type:    "error",
-		Payload: "出站 IP 检测失败: " + result.Message,
-		Time:    time.Now().Format("15:04:05"),
-	}
-	logger.AppLogs.Add(entry)
-	if c.events != nil {
-		c.events.Emit(EventLogMessage, entry)
+	if result.Preferred == "" {
+		result.Message = "所有检测站点均不可达或检测超时"
+		entry := logger.LogEntry{
+			Type:    "error",
+			Payload: "出站 IP 检测失败: " + result.Message,
+			Time:    time.Now().Format("15:04:05"),
+		}
+		logger.AppLogs.Add(entry)
+		if c.events != nil {
+			c.events.Emit(EventLogMessage, entry)
+		}
 	}
 
 	return result, nil

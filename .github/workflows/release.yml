@@ -5,6 +5,10 @@ on:
     tags:
       - "v*"
 
+env:
+  APP_TAG: ""
+  APP_VERSION: ""
+
 permissions:
   contents: write
 

@@ -11,10 +11,9 @@
         @click="refreshOutboundIP({ force: true })"
       >
         <span class="ip-label">当前出站IP</span>
-        <span class="ip-value" :class="{ detecting: !outboundIPText || outboundIPText === '检测失败' }">
+        <span class="ip-value">
           {{ outboundIPText }}
         </span>
-        <span v-if="globalState.ipDetecting && outboundIPHasValue" class="ip-refreshing">刷新中</span>
       </div>
 
       <button class="reset-btn" @click="handleReset">
@@ -79,25 +78,16 @@ const props = defineProps<{
   traffic: TrafficSnapshot;
 }>();
 
-const outboundIPHasValue = computed(() => {
-  return !!(globalState.outboundIP?.preferred);
-});
-
 const outboundIPText = computed(() => {
-  const r = globalState.outboundIP;
-  
-  if (!r) {
-    return globalState.ipDetecting ? '检测中' : '未检测';
-  }
-  
-  const ip = r.preferred;
-  const status = (r as any).status;
-  const stale = (r as any).stale;
-  
-  if (!ip) {
-    return globalState.ipDetecting ? '检测中' : '检测失败';
-  }
-  
+  if (globalState.ipDetecting) return '检测中...';
+  if (!globalState.outboundIP) return '检测中...';
+
+  const ip = globalState.outboundIP.preferred;
+  const status = (globalState.outboundIP as any).status;
+  const stale = (globalState.outboundIP as any).stale;
+
+  if (!ip) return '检测失败';
+
   if (status === 'network_busy') {
     return ip + ' (任务繁忙)';
   } else if (status === 'proxy_starting') {
@@ -105,7 +95,7 @@ const outboundIPText = computed(() => {
   } else if (status === 'stale' || stale) {
     return '检测失败';
   }
-  
+
   return ip;
 });
 
@@ -189,14 +179,14 @@ const handleReset = async () => {
   font-size: 0.85rem;
   font-weight: 700;
   color: var(--text-main);
-  opacity: 0.8;
+  opacity: 1;
   white-space: nowrap;
 }
 
 .ip-value {
   font-family: var(--font-mono);
   font-size: 0.95rem;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text-main);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -205,23 +195,6 @@ const handleReset = async () => {
   text-overflow: ellipsis;
   display: inline-block;
   vertical-align: bottom;
-  font-synthesis-weight: none;
-  text-rendering: geometricPrecision;
-}
-
-.ip-value.detecting {
-  font-family: var(--font-sans);
-  color: var(--text-muted);
-  font-weight: 600;
-}
-
-.ip-refreshing {
-  font-family: var(--font-sans);
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-left: 4px;
-  font-synthesis-weight: none;
 }
 
 .reset-btn {

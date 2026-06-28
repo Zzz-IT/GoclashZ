@@ -62,7 +62,7 @@ func GetOfflineData(id string) (map[string]interface{}, error) {
 	configMu.Lock()
 	defer configMu.Unlock()
 
-	_, configPath, err := ProfilePathByIDOrMain(id)
+	_, configPath, err := ProfilePathByIDStrict(id)
 	if err != nil {
 		return nil, err
 	}

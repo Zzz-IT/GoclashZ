@@ -257,6 +257,7 @@ export namespace clash {
 	export class ConfigTextResult {
 	    id: string;
 	    name: string;
+	    type: string;
 	    content: string;
 	    path: string;
 	
@@ -268,6 +269,7 @@ export namespace clash {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
+	        this.type = source["type"];
 	        this.content = source["content"];
 	        this.path = source["path"];
 	    }

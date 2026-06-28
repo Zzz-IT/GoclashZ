@@ -73,3 +73,20 @@ func ProfilePathByIDOrMain(id string) (string, string, error) {
 
 	return normalizedID, path, nil
 }
+
+func ProfilePathByIDStrict(id string) (string, string, error) {
+	normalizedID, path, err := ProfilePathByID(id)
+	if err != nil {
+		return "", "", err
+	}
+
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return "", "", fmt.Errorf("配置文件不存在: %s", id)
+		}
+		return "", "", err
+	}
+
+	return normalizedID, path, nil
+}
+

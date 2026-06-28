@@ -4,6 +4,7 @@ package sys
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -221,7 +222,7 @@ func isServiceRunning(name string) (bool, error) {
 
 // InstallHelperService 安装 helper 服务（需要管理员权限）
 func InstallHelperService(exePath string) error {
-	return installServiceSCM(HelperServiceName, exePath, HelperDescription)
+	return errors.New("deprecated: use InstallOrRepairHelperServiceForUser")
 }
 
 // InstallOrRepairHelperServiceForUser 安装或修复 helper 服务并授权指定用户 SID

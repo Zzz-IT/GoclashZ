@@ -52,6 +52,7 @@ type CoreRuntimeState struct {
 	Owner        string // direct/helper
 	Purpose      string // user/delay/startup
 	Tun          bool
+	SystemProxy  bool
 	ActiveConfig string
 	Mode         string
 	StartedAt    time.Time
@@ -81,16 +82,16 @@ func (s *runtimeStateStore) Clear() {
 	s.state = CoreRuntimeState{}
 }
 
-// runtimeSatisfiesDesired 检查当前运行时状态是否满足期望状态
-func (c *Controller) runtimeSatisfiesDesired(desired DesiredState) bool {
+// runtimeSatisfiesCore 检查当前运行时状态是否满足期望核心状态
+func (c *Controller) runtimeSatisfiesCore(plan RuntimePlan) bool {
 	st := c.runtimeState.Get()
 	if !st.Running {
 		return false
 	}
 	return st.Purpose == "user" &&
-		st.Tun == desired.Tun &&
-		st.ActiveConfig == desired.ActiveConfig &&
-		st.Mode == desired.Mode
+		st.Tun == plan.NeedTun &&
+		st.ActiveConfig == plan.ActiveConfig &&
+		st.Mode == plan.Mode
 }
 
 type Controller struct {
@@ -460,7 +461,11 @@ func (c *Controller) SyncState() {
 
 func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desired DesiredState) error {
 	// 检查当前运行时状态是否已满足期望
-	if c.runtimeSatisfiesDesired(desired) {
+	if c.runtimeSatisfiesCore(RuntimePlan{
+		NeedTun:      desired.Tun,
+		ActiveConfig: desired.ActiveConfig,
+		Mode:         desired.Mode,
+	}) {
 		return nil
 	}
 
@@ -488,7 +493,7 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 
 	apiReady := false
 	var lastProbeErr error
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 100; i++ {
 		select {
 		case <-ctx.Done():
 			clash.Stop()
@@ -507,7 +512,7 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 			lastProbeErr = err
 		}
 
-		timer := time.NewTimer(50 * time.Millisecond)
+		timer := time.NewTimer(100 * time.Millisecond)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
@@ -546,6 +551,7 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 		Owner:        owner,
 		Purpose:      "user",
 		Tun:          desired.Tun,
+		SystemProxy:  c.sysProxyActive,
 		ActiveConfig: desired.ActiveConfig,
 		Mode:         desired.Mode,
 		StartedAt:    time.Now(),
@@ -638,42 +644,75 @@ func (c *Controller) StopCoreService() {
 	c.DisableAll()
 }
 
-func (c *Controller) ensureSystemProxyEnabled() {
-	if c.sysProxyActive {
-		return
+func (c *Controller) reconcileCoreProcess(ctx context.Context, plan RuntimePlan) error {
+	if c.runtimeSatisfiesCore(plan) {
+		return nil
 	}
+
+	if plan.RestartRequired {
+		if err := c.RestartCoreWithReason(ctx, plan.Reason); err != nil {
+			return fmt.Errorf("restart core failed: %w", err)
+		}
+	} else {
+		if err := c.EnsureCoreRunning(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Controller) reconcileSystemProxy(plan RuntimePlan) error {
+	if plan.NeedSysProxy {
+		return c.ensureSystemProxyEnabled()
+	}
+	return c.ensureSystemProxyDisabled()
+}
+
+func (c *Controller) ensureSystemProxyEnabled() error {
 	port := clash.GetProxyPort()
-	err := sys.EnableSystemProxy(
+	current, err := sys.GetSystemProxyState()
+	if err == nil && current.Enabled && current.Server == fmt.Sprintf("127.0.0.1:%d", port) {
+		c.mu.Lock()
+		c.sysProxyActive = true
+		c.mu.Unlock()
+		return nil
+	}
+
+	err = sys.EnableSystemProxy(
 		"127.0.0.1",
 		port,
 		"localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>",
 	)
 	if err != nil {
 		c.setLastError("设置 Windows 系统代理失败: " + err.Error())
-		return
+		c.mu.Lock()
+		c.sysProxyActive = false
+		c.mu.Unlock()
+		return err
 	}
 	c.mu.Lock()
 	c.sysProxyActive = true
 	c.mu.Unlock()
+	return nil
 }
 
-func (c *Controller) ensureSystemProxyDisabled() {
-	if !c.sysProxyActive {
-		return
+func (c *Controller) ensureSystemProxyDisabled() error {
+	current, err := sys.GetSystemProxyState()
+	if err == nil && current.Enabled {
+		_ = sys.DisableSystemProxy()
 	}
-	_ = sys.DisableSystemProxy()
 	c.mu.Lock()
 	c.sysProxyActive = false
 	c.mu.Unlock()
+	return nil
 }
 
-func (c *Controller) setRuntimeStateFromDesired(d DesiredState) {
+func (c *Controller) setRuntimeStateFromPlan(plan RuntimePlan) {
 	c.mu.Lock()
-	c.tunActive = d.Tun
-	c.userCoreRunning = d.CoreRunning
+	c.tunActive = plan.NeedTun
+	c.userCoreRunning = plan.NeedCore
 	c.mu.Unlock()
 }
-
 
 
 func (c *Controller) setLastError(msg string) {
@@ -862,7 +901,7 @@ func (c *Controller) startDelayCoreAndWaitReady(ctx context.Context, profileID s
 	ticker := time.NewTicker(150 * time.Millisecond)
 	defer ticker.Stop()
 
-	timeout := time.NewTimer(3 * time.Second)
+	timeout := time.NewTimer(10 * time.Second)
 	defer timeout.Stop()
 
 	for {

@@ -54,7 +54,7 @@
             </div>
 
             <div v-else-if="currentTab === 'yaml-editor'" key="yaml-editor" class="view-transition-wrapper">
-              <YamlEditor :config-id="editingConfigId" :config-name="editingConfigName" @back="closeYamlEditor" @status-change="handleYamlStatusChange" @cursor-change="handleYamlCursorChange" />
+              <YamlEditor :config-id="editingConfigId" :config-name="editingConfigName" :config-type="editingConfigType" @back="closeYamlEditor" @status-change="handleYamlStatusChange" @cursor-change="handleYamlCursorChange" />
             </div>
 
             <div v-else-if="currentTab === 'proxies'" key="proxies" class="view-transition-wrapper">
@@ -158,6 +158,7 @@ const currentTab = ref('home');
 const targetSettingsView = ref('main');
 const editingConfigId = ref('');
 const editingConfigName = ref('');
+const editingConfigType = ref<'local' | 'remote'>('local');
 const isMaximized = ref(false);
 const viewScroller = ref<HTMLElement | null>(null);
 const yamlEditorStatus = ref('已保存');
@@ -216,9 +217,10 @@ const activeMenuLabel = computed(() => {
   return menu.find(m => m.id === currentTab.value)?.label;
 });
 
-const openYamlEditor = (id: string, name: string) => {
+const openYamlEditor = (id: string, name: string, type: 'local' | 'remote') => {
   editingConfigId.value = id;
   editingConfigName.value = name;
+  editingConfigType.value = type;
   currentTab.value = 'yaml-editor';
 };
 

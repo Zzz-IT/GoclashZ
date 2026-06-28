@@ -15,13 +15,24 @@ import (
 type ConfigTextResult struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
+	Type    string `json:"type"` // local / remote / runtime
 	Content string `json:"content"`
 	Path    string `json:"path"`
 }
 
+func resolveConfigType(id string) string {
+	if item, ok := FindSubIndexByID(id); ok {
+		return item.Type
+	}
+	if id == MainConfigID || id == "" {
+		return "runtime"
+	}
+	return "local"
+}
+
 // ReadConfigText 读取配置文件文本内容
 func ReadConfigText(id string) (ConfigTextResult, error) {
-	normalizedID, configPath, err := ProfilePathByIDOrMain(id)
+	normalizedID, configPath, err := ProfilePathByIDStrict(id)
 	if err != nil {
 		return ConfigTextResult{}, err
 	}
@@ -34,6 +45,7 @@ func ReadConfigText(id string) (ConfigTextResult, error) {
 	return ConfigTextResult{
 		ID:      normalizedID,
 		Name:    filepath.Base(configPath),
+		Type:    resolveConfigType(id),
 		Content: string(data),
 		Path:    configPath,
 	}, nil
@@ -73,7 +85,7 @@ func SaveConfigText(id string, content string) error {
 			}
 		}
 
-		_, configPath, err := ProfilePathByIDOrMain(id)
+		_, configPath, err := ProfilePathByIDStrict(id)
 		if err != nil {
 			return err
 		}
@@ -100,7 +112,7 @@ func ValidateConfigText(content string) error {
 
 // GetConfigFilePath 获取配置文件路径
 func GetConfigFilePath(id string) string {
-	_, configPath, err := ProfilePathByIDOrMain(id)
+	_, configPath, err := ProfilePathByIDStrict(id)
 	if err != nil {
 		return ""
 	}
@@ -109,7 +121,7 @@ func GetConfigFilePath(id string) string {
 
 // IsConfigEditable 判断配置是否可编辑
 func IsConfigEditable(id string) bool {
-	_, configPath, err := ProfilePathByIDOrMain(id)
+	_, configPath, err := ProfilePathByIDStrict(id)
 	if err != nil {
 		return false
 	}

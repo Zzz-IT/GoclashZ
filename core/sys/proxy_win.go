@@ -9,6 +9,7 @@ import (
 	"sync"
 	"syscall"
 	"unsafe"
+	"golang.org/x/sys/windows/registry"
 )
 
 var (
@@ -224,4 +225,38 @@ func setRasProxy(list *INTERNET_PER_CONN_OPTION_LIST) {
 		// 保护 entries 切片不被回收
 		runtime.KeepAlive(entries)
 	}
+}
+
+// SystemProxyState 表示系统代理的当前状态
+type SystemProxyState struct {
+	Enabled bool
+	Server  string
+}
+
+// GetSystemProxyState 从注册表读取当前的系统代理配置
+func GetSystemProxyState() (SystemProxyState, error) {
+	key, err := registry.OpenKey(
+		registry.CURRENT_USER,
+		`Software\Microsoft\Windows\CurrentVersion\Internet Settings`,
+		registry.QUERY_VALUE,
+	)
+	if err != nil {
+		return SystemProxyState{}, err
+	}
+	defer key.Close()
+
+	enabled, _, err := key.GetIntegerValue("ProxyEnable")
+	if err != nil {
+		return SystemProxyState{}, err
+	}
+
+	proxyServer, _, err := key.GetStringValue("ProxyServer")
+	if err != nil {
+		proxyServer = ""
+	}
+
+	return SystemProxyState{
+		Enabled: enabled != 0,
+		Server:  proxyServer,
+	}, nil
 }

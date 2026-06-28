@@ -234,7 +234,7 @@ func (a *App) StopConnectionMonitor() {
 // --- Toggles & Controls ---
 
 func (a *App) ToggleSystemProxy(enable bool) error {
-	ctx, cancel := context.WithTimeout(a.ctx, 8*time.Second)
+	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
 	return a.core.ToggleSystemProxy(ctx, enable)
 }

@@ -2,7 +2,12 @@
 
 package main
 
-import "goclashz/core/clash"
+import (
+	"context"
+	"time"
+
+	"goclashz/core/clash"
+)
 
 type ConfigTextResult = clash.ConfigTextResult
 
@@ -11,7 +16,9 @@ func (a *App) ReadConfigText(id string) (ConfigTextResult, error) {
 }
 
 func (a *App) SaveConfigText(id string, content string) error {
-	return clash.SaveConfigText(id, content)
+	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	defer cancel()
+	return a.core.SaveConfigText(ctx, id, content)
 }
 
 func (a *App) ValidateConfigText(content string) error {

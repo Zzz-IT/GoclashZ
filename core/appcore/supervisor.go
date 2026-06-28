@@ -5,7 +5,6 @@ package appcore
 import (
 	"context"
 	"errors"
-	"fmt"
 	"goclashz/core/logger"
 	"goclashz/core/sys"
 	"sync"
@@ -39,6 +38,17 @@ type reconcileRequest struct {
 	Reason string
 	Ctx    context.Context
 }
+
+type RuntimePlan struct {
+	NeedCore        bool
+	NeedTun         bool
+	NeedSysProxy    bool
+	ActiveConfig    string
+	Mode            string
+	RestartRequired bool
+	Reason          string
+}
+
 
 func NewCoreSupervisor(c *Controller, d *DesiredStateStore) *CoreSupervisor {
 	return &CoreSupervisor{
@@ -132,41 +142,26 @@ func (s *CoreSupervisor) Reconcile(ctx context.Context, reason string) error {
 		return ErrWintunMissing
 	}
 
-	needCore := desired.CoreRunning || desired.SystemProxy || desired.Tun
-	if !needCore {
+	plan := s.buildRuntimePlan(desired, behavior, reason)
+
+	if !plan.NeedCore {
 		s.controller.DisableAll()
 		return nil
 	}
 
-	// 检查当前运行时状态是否已满足期望
-	if s.controller.runtimeSatisfiesDesired(desired) {
+	if err := s.controller.reconcileCoreProcess(ctx, plan); err != nil {
+		s.controller.setLastError(err.Error())
 		s.controller.SyncState()
-		return nil
+		return err
 	}
 
-	// 检查是否需要重启（TUN 变化或配置变化）
-	appState := s.controller.GetAppState()
-	if appState.IsRunning && (desired.Tun != appState.Tun || desired.ActiveConfig != appState.ActiveConfig) {
-		if err := s.controller.RestartCoreWithReason(ctx, reason); err != nil {
-			s.controller.setLastError(err.Error())
-			s.controller.SyncState()
-			return fmt.Errorf("restart core failed: %w", err)
-		}
-	} else {
-		if err := s.controller.EnsureCoreRunning(ctx); err != nil {
-			s.controller.setLastError(err.Error())
-			s.controller.SyncState()
-			return err
-		}
+	if err := s.controller.reconcileSystemProxy(plan); err != nil {
+		s.controller.setLastError(err.Error())
+		s.controller.SyncState()
+		return err
 	}
 
-	if desired.SystemProxy {
-		s.controller.ensureSystemProxyEnabled()
-	} else {
-		s.controller.ensureSystemProxyDisabled()
-	}
-
-	s.controller.setRuntimeStateFromDesired(desired)
+	s.controller.setRuntimeStateFromPlan(plan)
 	s.controller.SyncState()
 	return nil
 }
@@ -175,4 +170,22 @@ func (s *CoreSupervisor) ShutdownRuntime(reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.controller.DisableAll()
+}
+
+func (s *CoreSupervisor) buildRuntimePlan(desired DesiredState, _ AppBehavior, reason string) RuntimePlan {
+	plan := RuntimePlan{
+		NeedCore:     desired.CoreRunning || desired.SystemProxy || desired.Tun,
+		NeedTun:      desired.Tun,
+		NeedSysProxy: desired.SystemProxy,
+		ActiveConfig: desired.ActiveConfig,
+		Mode:         desired.Mode,
+		Reason:       reason,
+	}
+
+	// 检查是否需要重启（TUN 变化或配置变化）
+	appState := s.controller.GetAppState()
+	if appState.IsRunning && (desired.Tun != appState.Tun || desired.ActiveConfig != appState.ActiveConfig) {
+		plan.RestartRequired = true
+	}
+	return plan
 }
