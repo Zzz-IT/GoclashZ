@@ -17,22 +17,22 @@ function Write-Utf8NoBom($Path, $Content) {
 }
 
 # version.go
-$vgo = Get-Content core/version/version.go -Raw
+$vgo = Get-Content core/version/version.go -Raw -Encoding UTF8
 $vgo = $vgo -replace 'var AppVersion = ".*"', "var AppVersion = `"v$Version`""
 Write-Utf8NoBom "core/version/version.go" $vgo
 
 # wails.json
-$wails = Get-Content wails.json -Raw
+$wails = Get-Content wails.json -Raw -Encoding UTF8
 $wails = $wails -replace '"productVersion"\s*:\s*"[^"]*"', "`"productVersion`": `"$Version`""
 Write-Utf8NoBom "wails.json" $wails
 
 # frontend/package.json
-$pkg = Get-Content frontend/package.json -Raw
+$pkg = Get-Content frontend/package.json -Raw -Encoding UTF8
 $pkg = $pkg -replace '"version"\s*:\s*"[^"]*"', "`"version`": `"$Version`""
 Write-Utf8NoBom "frontend/package.json" $pkg
 
 # package.iss
-$iss = Get-Content package.iss -Raw
+$iss = Get-Content package.iss -Raw -Encoding UTF8
 $iss = $iss -replace '#define MyAppVersion ".*"', "#define MyAppVersion `"$Version`""
 $iss = $iss -replace 'VersionInfoVersion=.*', "VersionInfoVersion=$Version.0"
 Write-Utf8NoBom "package.iss" $iss
