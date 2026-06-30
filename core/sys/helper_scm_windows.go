@@ -13,6 +13,23 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
+func openServiceWithAccess(m *mgr.Mgr, name string, access uint32) (*mgr.Service, error) {
+	namePtr, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return nil, err
+	}
+
+	handle, err := windows.OpenService(m.Handle, namePtr, access)
+	if err != nil {
+		return nil, err
+	}
+
+	return &mgr.Service{
+		Name:   name,
+		Handle: handle,
+	}, nil
+}
+
 // isServiceInstalledSCM 通过 SCM 检查服务是否已注册
 func isServiceInstalledSCM(name string) (bool, error) {
 	m, err := mgr.Connect()
@@ -21,7 +38,7 @@ func isServiceInstalledSCM(name string) (bool, error) {
 	}
 	defer m.Disconnect()
 
-	s, err := m.OpenService(name)
+	s, err := openServiceWithAccess(m, name, windows.SERVICE_QUERY_STATUS)
 	if err != nil {
 		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
 			return false, nil
@@ -40,7 +57,7 @@ func isServiceRunningSCM(name string) (bool, error) {
 	}
 	defer m.Disconnect()
 
-	s, err := m.OpenService(name)
+	s, err := openServiceWithAccess(m, name, windows.SERVICE_QUERY_STATUS)
 	if err != nil {
 		return false, nil
 	}
@@ -74,7 +91,11 @@ func installOrUpdateServiceSCM(name, exePath, description string) error {
 			return fmt.Errorf("create service failed: %w", err)
 		}
 
-		s, err = m.OpenService(name)
+		s, err = openServiceWithAccess(
+			m,
+			name,
+			windows.SERVICE_QUERY_CONFIG|windows.SERVICE_CHANGE_CONFIG,
+		)
 		if err != nil {
 			return fmt.Errorf("open existing service failed: %w", err)
 		}
@@ -126,7 +147,7 @@ func uninstallServiceSCM(name string) error {
 	}
 	defer m.Disconnect()
 
-	s, err := m.OpenService(name)
+	s, err := openServiceWithAccess(m, name, windows.SERVICE_QUERY_STATUS|windows.SERVICE_STOP|windows.DELETE)
 	if err != nil {
 		return fmt.Errorf("open service failed: %w", err)
 	}
@@ -147,7 +168,7 @@ func startServiceSCM(name string) error {
 	}
 	defer m.Disconnect()
 
-	s, err := m.OpenService(name)
+	s, err := openServiceWithAccess(m, name, windows.SERVICE_QUERY_STATUS|windows.SERVICE_START|windows.SERVICE_INTERROGATE)
 	if err != nil {
 		return fmt.Errorf("open service failed: %w", err)
 	}
@@ -193,7 +214,7 @@ func stopServiceSCM(name string) error {
 	}
 	defer m.Disconnect()
 
-	s, err := m.OpenService(name)
+	s, err := openServiceWithAccess(m, name, windows.SERVICE_QUERY_STATUS|windows.SERVICE_STOP|windows.SERVICE_INTERROGATE)
 	if err != nil {
 		return fmt.Errorf("open service failed: %w", err)
 	}
@@ -230,8 +251,14 @@ func stopServiceSCM(name string) error {
 
 // grantServiceControlToUser 设置服务 DACL，允许指定用户 query/start/stop/interrogate
 func grantServiceControlToUser(serviceName string, userSID string) error {
+	adminRights := "CCDCLCSWRPWPDTLOCRSDRCWDWO"
+	userRights := "LCRPWPLOCRRC"
+
 	sddl := fmt.Sprintf(
-		"D:(A;;CCDCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRRC;;;BA)(A;;LCRPWPLOCRRC;;;%s)",
+		"D:(A;;%s;;;SY)(A;;%s;;;BA)(A;;%s;;;%s)",
+		adminRights,
+		adminRights,
+		userRights,
 		userSID,
 	)
 	cmd := exec.Command("sc", "sdset", serviceName, sddl)

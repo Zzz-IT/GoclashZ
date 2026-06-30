@@ -243,7 +243,10 @@ func InstallOrRepairHelperServiceForUser(exePath string, userSID string) error {
 		}
 
 		if err := grantServiceControlToUser(HelperServiceName, userSID); err != nil {
-			return fmt.Errorf("设置服务 DACL 失败: %w", err)
+			// 这里不要直接失败。
+			// 因为 f26c5ed 已经可能把旧服务 DACL 写坏，
+			// 但只要管理员进程能启动服务，Helper 仍可恢复工作。
+			logger.Warnf("设置服务 DACL 失败，继续尝试启动服务: %v", err)
 		}
 	}
 
@@ -260,28 +263,32 @@ func RecoverHelperServiceForUser(exePath string, userSID string) error {
 		return fmt.Errorf("helper 程序不存在: %s: %w", exePath, err)
 	}
 
-	// 先尽力停止旧服务
 	_ = StopHelperService()
 
-	// 幂等安装或更新
 	if err := InstallOrRepairHelperServiceForUser(exePath, userSID); err != nil {
 		return fmt.Errorf("安装/修复 Helper 服务失败: %w", err)
 	}
 
-	// 再次停止，确保旧实例不会继续占用 pipe
-	_ = StopHelperService()
-
 	if err := StartHelperService(); err != nil {
-		// 如果服务处于删除挂起或 SCM 卡住，尝试 delete + recreate
-		_ = UninstallHelperService()
-		time.Sleep(1200 * time.Millisecond)
-
-		if err2 := InstallOrRepairHelperServiceForUser(exePath, userSID); err2 != nil {
-			return fmt.Errorf("重建 Helper 服务失败: startErr=%v rebuildErr=%w", err, err2)
-		}
+		// 再试一次停止 + 启动，不要立即 delete。
+		_ = StopHelperService()
+		time.Sleep(500 * time.Millisecond)
 
 		if err2 := StartHelperService(); err2 != nil {
-			return fmt.Errorf("启动 Helper 服务失败: first=%v retry=%w", err, err2)
+			// 最后才尝试 delete/recreate。
+			if delErr := UninstallHelperService(); delErr == nil {
+				time.Sleep(1200 * time.Millisecond)
+
+				if rebuildErr := InstallOrRepairHelperServiceForUser(exePath, userSID); rebuildErr != nil {
+					return fmt.Errorf("重建 Helper 服务失败: startErr=%v retryErr=%v rebuildErr=%w", err, err2, rebuildErr)
+				}
+
+				if startErr := StartHelperService(); startErr != nil {
+					return fmt.Errorf("重建后启动 Helper 服务失败: first=%v retry=%v final=%w", err, err2, startErr)
+				}
+			} else {
+				return fmt.Errorf("启动 Helper 服务失败: first=%v retry=%v deleteErr=%w", err, err2, delErr)
+			}
 		}
 	}
 
