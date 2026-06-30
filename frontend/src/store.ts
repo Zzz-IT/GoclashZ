@@ -468,6 +468,23 @@ function scheduleRouteAwareIPRefresh(reason: string) {
   }, delay);
 }
 
+export function refreshOutboundIPRouteAware(reason = 'manual') {
+  const route = getEffectiveOutboundRoute();
+
+  if (route === 'switching') {
+    globalState.outboundIPStale = true;
+    return;
+  }
+
+  return refreshOutboundIP({
+    force: true,
+    clearBeforeStart: false,
+    reason: `route-${route}:${reason}`,
+    silent: false,
+    expectedRoute: route,
+  });
+}
+
 /**
  * 执行 IP 检测（latest-wins，不丢弃新请求）
  */

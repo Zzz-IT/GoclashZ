@@ -8,7 +8,7 @@
       <div
         class="outbound-ip"
         :title="outboundIPTitle"
-        @click="refreshOutboundIP({ force: true })"
+        @click="refreshOutboundIPRouteAware('manual')"
       >
         <span class="ip-label">当前出站IP</span>
         <span class="ip-value" :class="{ detecting: !outboundIPText || outboundIPText === '检测失败' }">
@@ -57,7 +57,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { globalState, refreshOutboundIP } from '../store';
+import { globalState, refreshOutboundIPRouteAware } from '../store';
 import {
   waveState,
   resetWaveState,
