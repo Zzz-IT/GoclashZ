@@ -109,9 +109,18 @@ func (c *Controller) GetLongConnectionSnapshot() LongConnectionSnapshot {
 	return snap
 }
 
+// userInitiatedReasons 用户直接触发的操作，不应被长连接保护阻断
+var userInitiatedReasons = map[string]bool{
+	"manual":              true,
+	"tun-toggle":          true,
+	"system-proxy-toggle": true,
+	"config-switch":       true,
+	"config-save":         true,
+}
+
 func (c *Controller) ShouldDeferDisruptiveAction(reason string) (bool, LongConnectionSnapshot) {
-	// If it's a manual restart by the user, we do not defer it, we execute immediately.
-	if reason == "manual" {
+	// 用户直接触发的操作立即执行，不延迟
+	if userInitiatedReasons[reason] {
 		return false, LongConnectionSnapshot{}
 	}
 

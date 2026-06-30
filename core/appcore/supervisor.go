@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 	"goclashz/core/logger"
-	"goclashz/core/sys"
+	"goclashz/core/runtimeassets"
 	"sync"
 	"time"
 )
@@ -135,10 +135,12 @@ func (s *CoreSupervisor) Reconcile(ctx context.Context, reason string) error {
 		desired.Mode = behavior.ActiveMode
 	}
 
-	if desired.Tun && !sys.IsWintunInstalled() {
-		s.controller.setLastError("缺失 Wintun 驱动，请在设置中安装 Wintun")
-		s.controller.SyncState()
-		return ErrWintunMissing
+	if desired.Tun {
+		if _, err := runtimeassets.EnsureReady(ctx, runtimeassets.RequireTun, runtimeassets.RepairInvalid); err != nil {
+			s.controller.setLastError("Wintun 不可用: " + err.Error())
+			s.controller.SyncState()
+			return ErrWintunMissing
+		}
 	}
 
 	plan := s.buildRuntimePlan(desired, behavior, reason)

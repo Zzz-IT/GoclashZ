@@ -16,6 +16,7 @@ import (
 	"goclashz/core/clash"
 	"goclashz/core/downloader"
 	"goclashz/core/logger"
+	"goclashz/core/runtimeassets"
 	"goclashz/core/sys"
 	"goclashz/core/tasks"
 	"goclashz/core/utils"
@@ -1156,8 +1157,14 @@ func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
 			}
 		}
 
-		if !sys.IsWintunInstalled() {
-			return ErrWintunMissing
+		// 使用统一资产模型检查 Wintun
+		assetStatus, assetErr := runtimeassets.EnsureReady(ctx, runtimeassets.RequireTun, runtimeassets.RepairInvalid)
+		if assetErr != nil {
+			w := assetStatus.Assets[runtimeassets.AssetWintun]
+			if !w.Ready {
+				return fmt.Errorf("缺少 Wintun 依赖: %s (%s)", w.Error, w.Path)
+			}
+			return assetErr
 		}
 	}
 

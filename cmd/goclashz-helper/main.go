@@ -204,6 +204,17 @@ func (s *helperService) handleConn(conn net.Conn) {
 	switch req.Method {
 	case "ping":
 		s.writeResponse(conn, true, nil, "")
+	case "shutdown":
+		s.writeResponse(conn, true, nil, "")
+		// 延迟退出，让响应先发出去
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			if s.ln != nil {
+				s.ln.Close()
+			}
+			s.stopCore()
+			os.Exit(0)
+		}()
 	case "start-core":
 		s.handleStartCore(conn, req.Params)
 	case "stop-core":

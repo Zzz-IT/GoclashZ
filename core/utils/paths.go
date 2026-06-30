@@ -173,7 +173,11 @@ func GetCoreBinDir() string {
 }
 
 // GetLegacyDataCoreBinDir 返回旧的 clash.exe 所在目录 (只读，仅用于迁移)
+// 实际返回旧版 Roaming 路径下的 core/bin
 func GetLegacyDataCoreBinDir() string {
+	if legacyDataDir != "" {
+		return filepath.Join(legacyDataDir, "core", "bin")
+	}
 	return filepath.Join(dataDir, "core", "bin")
 }
 

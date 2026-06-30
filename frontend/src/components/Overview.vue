@@ -123,15 +123,17 @@ const tunSwitching = ref(false);
 const optimisticTun = ref<boolean | null>(null);
 
 const sysProxyCardOn = computed(() => {
-  return optimisticSysProxy.value !== null
-    ? optimisticSysProxy.value
-    : globalState.systemProxy;
+  if (sysProxySwitching.value && optimisticSysProxy.value !== null) {
+    return optimisticSysProxy.value;
+  }
+  return globalState.systemProxy;
 });
 
 const tunCardOn = computed(() => {
-  return optimisticTun.value !== null
-    ? optimisticTun.value
-    : globalState.tun;
+  if (tunSwitching.value && optimisticTun.value !== null) {
+    return optimisticTun.value;
+  }
+  return globalState.tun;
 });
 
 const sysProxyLabel = computed(() => {
@@ -152,14 +154,14 @@ const toggleSysProxy = async () => {
   const target = !sysProxyCardOn.value;
   optimisticSysProxy.value = target;
   sysProxySwitching.value = true;
+  globalState.systemProxy = target;
+  // 操作期间屏蔽 TUN 状态推送，防止 Reconcile 中间态导致 TUN 卡片闪烁
+  globalState.suppressTunSync = true;
 
   try {
     await API.ToggleSystemProxy(target);
-    const latest = await (API as any).GetAppState();
-    updateStateFromBackend(latest);
   } catch (err: any) {
-    optimisticSysProxy.value = null;
-
+    globalState.systemProxy = !target;
     const msg = String(err?.message || err || '');
     if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
       showAlert('尚未添加配置\n\n启用系统代理前，请先添加并应用一个配置文件。', '提示');
@@ -169,6 +171,7 @@ const toggleSysProxy = async () => {
   } finally {
     sysProxySwitching.value = false;
     optimisticSysProxy.value = null;
+    globalState.suppressTunSync = false;
   }
 };
 
@@ -178,14 +181,14 @@ const toggleTun = async () => {
   const target = !tunCardOn.value;
   optimisticTun.value = target;
   tunSwitching.value = true;
+  globalState.tun = target;
+  // 操作期间屏蔽系统代理状态推送，防止 Reconcile 中间态导致系统代理卡片闪烁
+  globalState.suppressSystemProxySync = true;
 
   try {
     await API.ToggleTunMode(target);
-    const latest = await (API as any).GetAppState();
-    updateStateFromBackend(latest);
   } catch (err: any) {
-    optimisticTun.value = null;
-
+    globalState.tun = !target;
     const msg = String(err?.message || err || '');
 
     if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
@@ -199,14 +202,15 @@ const toggleTun = async () => {
       if (confirmed) {
         try {
           optimisticTun.value = target;
+          globalState.tun = target;
           await (API as any).InstallHelperService();
           await API.ToggleTunMode(target);
-          const latest = await (API as any).GetAppState();
-          updateStateFromBackend(latest);
         } catch (e: any) {
-          optimisticTun.value = null;
+          globalState.tun = !target;
           showAlert('初始化后台服务失败: ' + String(e?.message || e), '错误', true);
         }
+      } else {
+        globalState.tun = !target;
       }
     } else if (msg.includes('wintun_missing') || msg.includes('Wintun')) {
       showAlert('缺少 Wintun 驱动，请在「组件与库更新」页面安装 Wintun 驱动。', '缺少依赖', true);
@@ -216,6 +220,7 @@ const toggleTun = async () => {
   } finally {
     tunSwitching.value = false;
     optimisticTun.value = null;
+    globalState.suppressSystemProxySync = false;
   }
 };
 

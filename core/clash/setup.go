@@ -25,7 +25,7 @@ import (
 
 // PrepareEnv 检查内核并生成基础配置
 func PrepareEnv(ctx context.Context) error {
-	status, err := runtimeassets.EnsureReady(ctx, runtimeassets.RepairInvalid)
+	status, err := runtimeassets.EnsureReady(ctx, runtimeassets.RequireCoreOnly, runtimeassets.RepairInvalid)
 	if err != nil {
 		core := status.Assets[runtimeassets.AssetCore]
 		return fmt.Errorf("内核不可用: %s (%s)", core.Error, core.Path)
@@ -80,7 +80,7 @@ func getLocalCoreVersionLocked(ctx context.Context) string {
 	}
 	localCoreVersionCache.mu.Unlock()
 
-	version := readLocalCoreVersionByCommand(ctx, path)
+	version := readLocalCoreVersionByCommand(path)
 
 	localCoreVersionCache.mu.Lock()
 	localCoreVersionCache.path = path
@@ -100,8 +100,8 @@ func GetLocalCoreVersion(ctx context.Context) string {
 	return getLocalCoreVersionLocked(ctx)
 }
 
-func readLocalCoreVersionByCommand(ctx context.Context, path string) string {
-	cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+func readLocalCoreVersionByCommand(path string) string {
+	cmdCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(cmdCtx, path, "-v")
@@ -450,7 +450,7 @@ func UpdateGeoDB(ctx context.Context, key string, url string, strategy func() do
 		URLs:                []string{url},
 		DestPath:            destPath,
 		Strategy:            strategy,
-		MaxBytes:            geoDBMaxBytes(key),
+		MaxBytes:            geoDBMaxBytes(),
 		UserAgent:           "GoclashZ-GeoUpdater",
 		AttemptsPerEndpoint: 3,
 		Validator: func(tmpPath string) error {
@@ -460,7 +460,7 @@ func UpdateGeoDB(ctx context.Context, key string, url string, strategy func() do
 	})
 }
 
-func geoDBMaxBytes(_ string) int64 {
+func geoDBMaxBytes() int64 {
 	// 默认限制 200MB，防止异常重定向下载了巨大的错误页或二进制
 	return 200 << 20
 }

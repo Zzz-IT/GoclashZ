@@ -179,10 +179,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, onActivated, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { clash } from '../../wailsjs/go/models';
-import { EventsOn, EventsOff, BrowserOpenURL } from '../../wailsjs/runtime/runtime';
+import { EventsOn, BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { showAlert, showConfirm, globalState } from '../store';
 import { formatBytes } from '../utils/format';
 import { ICONS } from '../utils/icons';
@@ -298,7 +298,7 @@ const handleUpdateAll = async () => {
   }
 
   // 🚀 发起异步任务，具体状态由事件监听器控制
-  API.UpdateAllSubsAsync();
+  API.UpdateAllSubsAsync().catch(() => {});
 };
 
 const handleUpdateSingle = async (config: clash.SubIndexItem) => {

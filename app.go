@@ -107,7 +107,8 @@ func (a *App) logApp(level string, format string, args ...any) {
 func NewApp() *App {
 	appcore.MigrateLegacyRootSettings()
 	runtimeassets.MigrateLegacyAssets()
-	if status, err := runtimeassets.EnsureReady(context.Background(), runtimeassets.RepairInvalid); err != nil {
+	// 每次启动检查：从 seed 修补缺失的运行时资产
+	if status, err := runtimeassets.EnsureReady(context.Background(), runtimeassets.RequireAll, runtimeassets.RepairMissingOnly); err != nil {
 		logger.Errorf("运行组件初始化失败: %v", err)
 		for _, asset := range status.Assets {
 			if !asset.Ready && asset.Error != "" {
@@ -167,11 +168,25 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.tray != nil {
 		a.tray.Stop()
 	}
-	a.core.StopCoreService()
-	a.core.StopTrafficStream()
 
-	// 主程序退出时停止 Helper 服务
-	_ = sys.StopHelperService()
+	// 通知 Helper 服务自行退出（通过 Named Pipe，不需要管理员权限）
+	go func() {
+		client := sys.NewHelperClient()
+		_ = client.Shutdown()
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.core.StopCoreService()
+		a.core.StopTrafficStream()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		logger.Warnf("停止内核/流量流超时，继续退出")
+	}
 }
 
 // --- AppState & Sync ---
@@ -634,7 +649,7 @@ func (a *App) GetRuntimeAssetStatus() runtimeassets.RuntimeAssetStatus {
 }
 
 func (a *App) RepairRuntimeAssets() runtimeassets.RuntimeAssetStatus {
-	status, err := runtimeassets.EnsureReady(a.ctx, runtimeassets.RepairForce)
+	status, err := runtimeassets.EnsureReady(a.ctx, runtimeassets.RequireAll, runtimeassets.RepairForce)
 	if err != nil {
 		a.core.LogApp("error", "修复运行组件失败: %v", err)
 	}
@@ -1157,10 +1172,21 @@ func (a *App) safeQuit() {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("退出程序异常: %v", r)
+			os.Exit(0)
 		}
+	}()
+
+	// 强制退出兜底：8秒后强制结束进程
+	go func() {
+		time.Sleep(8 * time.Second)
+		logger.Warnf("正常退出超时，强制结束进程")
+		os.Exit(0)
 	}()
 
 	if a.ctx != nil {
 		runtime.Quit(a.ctx)
+		return
 	}
+
+	os.Exit(0)
 }

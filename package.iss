@@ -128,6 +128,7 @@ end;
 procedure CreateDataDirs();
 var
   DataDir: string;
+  ResultCode: Integer;
 begin
   DataDir := GetResolvedDataDir();
 
@@ -140,6 +141,9 @@ begin
   ForceDirectories(AddBackslash(DataDir) + 'updates');
   ForceDirectories(AddBackslash(DataDir) + 'logs');
   ForceDirectories(AddBackslash(DataDir) + 'backups');
+
+  // 确保数据目录对当前用户完全可写
+  Exec('icacls', '"' + DataDir + '" /grant Users:(OI)(CI)F /T /Q', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 function IsDirWritable(Dir: string): Boolean;

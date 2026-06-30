@@ -56,6 +56,18 @@ func (c *HelperClient) Ping() error {
 	return nil
 }
 
+// Shutdown 通知 helper 服务自行退出（不需要管理员权限）
+func (c *HelperClient) Shutdown() error {
+	resp, err := c.sendRequest("shutdown", nil)
+	if err != nil {
+		return fmt.Errorf("helper shutdown failed: %w", err)
+	}
+	if !resp.OK {
+		return fmt.Errorf("helper shutdown error: %s", resp.Error)
+	}
+	return nil
+}
+
 // StartCore 通过 helper 启动内核进程
 func (c *HelperClient) StartCore(params StartCoreParams) error {
 	data, err := json.Marshal(params)

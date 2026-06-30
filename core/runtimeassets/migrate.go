@@ -1,9 +1,6 @@
 package runtimeassets
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -18,9 +15,12 @@ func MigrateLegacyAssets() {
 	targetDir := utils.GetCoreBinDir()
 	_ = os.MkdirAll(targetDir, 0755)
 
+	appDir := utils.GetAppDir()
+
 	legacyDirs := []string{
-		utils.GetLegacyDataCoreBinDir(), // 旧的 DataDir/core/bin (只读，仅用于迁移)
-		utils.GetDataDir(),              // 旧的 DataDir 根目录
+		filepath.Join(appDir, "core", "bin"),                // 旧版安装器打包的 core/bin
+		utils.GetLegacyDataCoreBinDir(),                     // 旧的 Roaming DataDir/core/bin
+		utils.GetDataDir(),                                  // 旧的 DataDir 根目录（旧架构可能直接放根目录）
 	}
 
 	assets := []string{
@@ -28,13 +28,19 @@ func MigrateLegacyAssets() {
 		"geoip.metadb", "geosite.dat", "country.mmdb", "asn.dat",
 	}
 
+	backupDir := filepath.Join(utils.GetDataDir(), "backups", "legacy-migrate", time.Now().Format("20060102150405"))
+
 	for _, name := range assets {
 		target := filepath.Join(targetDir, name)
 
 		targetExists := false
+		var targetHash string
 		if st, err := os.Stat(target); err == nil && !st.IsDir() {
 			targetExists = true
+			targetHash, _ = calculateSHA256(target)
 		}
+
+		isCore := name == "clash.exe" || name == "wintun.dll"
 
 		for _, legacyDir := range legacyDirs {
 			oldPath := filepath.Join(legacyDir, name)
@@ -42,9 +48,27 @@ func MigrateLegacyAssets() {
 				continue
 			}
 
-			// 如果目标已经有同名文件，我们把老文件改名为 .old 稍后清理，或者直接清理
 			if targetExists {
-				_ = os.Rename(oldPath, oldPath+".old")
+				if isCore {
+					// 核心资产：比较哈希，相同则删除，不同则备份
+					oldHash, _ := calculateSHA256(oldPath)
+					if oldHash != "" && oldHash == targetHash {
+						_ = os.Remove(oldPath)
+					} else {
+						_ = os.MkdirAll(backupDir, 0755)
+						backupPath := filepath.Join(backupDir, name)
+						_ = os.Rename(oldPath, backupPath)
+						if _, err := os.Stat(backupPath); err != nil {
+							if data, err := os.ReadFile(oldPath); err == nil {
+								_ = os.WriteFile(backupPath, data, 0755)
+								_ = os.Remove(oldPath)
+							}
+						}
+					}
+				} else {
+					// 数据资产：目标已存在则保留用户版本，删除旧文件
+					_ = os.Remove(oldPath)
+				}
 				continue
 			}
 
@@ -94,8 +118,8 @@ func CleanupLegacyAssets() {
 
 		// 检查它是否和 activePath 的文件哈希相同。如果相同，可以直接删除。
 		same := false
-		h1, err1 := hashFile(path)
-		h2, err2 := hashFile(activePath)
+		h1, err1 := calculateSHA256(path)
+		h2, err2 := calculateSHA256(activePath)
 		if err1 == nil && err2 == nil && h1 == h2 {
 			same = true
 		}
@@ -145,17 +169,4 @@ func CleanupLegacyAssets() {
 		_ = os.Remove(filepath.Join(appDir, "data", "core"))
 		_ = os.Remove(filepath.Join(appDir, "data")) // 尝试删除多余空目录
 	}
-}
-
-func hashFile(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }

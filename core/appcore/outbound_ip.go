@@ -105,7 +105,7 @@ func (c *Controller) outboundIPCacheKey() string {
 		mode,
 		state.SystemProxy,
 		state.Tun,
-		state.SystemProxy,
+		false,
 		state.ActiveConfig,
 	)
 }

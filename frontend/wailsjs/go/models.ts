@@ -681,6 +681,7 @@ export namespace runtimeassets {
 	    modTime: number;
 	    sha256?: string;
 	    version?: string;
+	    versionProbeOK?: boolean;
 	    errorCode?: string;
 	    error?: string;
 	    hint?: string;
@@ -702,6 +703,7 @@ export namespace runtimeassets {
 	        this.modTime = source["modTime"];
 	        this.sha256 = source["sha256"];
 	        this.version = source["version"];
+	        this.versionProbeOK = source["versionProbeOK"];
 	        this.errorCode = source["errorCode"];
 	        this.error = source["error"];
 	        this.hint = source["hint"];

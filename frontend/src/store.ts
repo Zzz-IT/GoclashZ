@@ -66,6 +66,8 @@ export const globalState = reactive({
   // 👇 新增这三个字段
   systemProxy: false,
   tun: false,
+  suppressSystemProxySync: false,  // 操作期间屏蔽后台 systemProxy 推送
+  suppressTunSync: false,          // 操作期间屏蔽后台 tun 推送
   version: '',
   appVersion: '', // 👈 新增
   logLevel: 'error', // 👈 新增：内核日志等级
@@ -176,8 +178,9 @@ export function updateStateFromBackend(rawData: any) {
   const newProxy = rawData.systemProxy ?? rawData.SystemProxy;
   const newTun = rawData.tun ?? rawData.Tun;
 
-  if (newProxy !== undefined) globalState.systemProxy = newProxy;
-  if (newTun !== undefined) globalState.tun = newTun;
+  // 操作期间屏蔽后台中间态推送，防止卡片闪烁
+  if (newProxy !== undefined && !globalState.suppressSystemProxySync) globalState.systemProxy = newProxy;
+  if (newTun !== undefined && !globalState.suppressTunSync) globalState.tun = newTun;
 
   const proxyChanged = newProxy !== undefined && oldProxy !== newProxy;
   const tunChanged = newTun !== undefined && oldTun !== newTun;

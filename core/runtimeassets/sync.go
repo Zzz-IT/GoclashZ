@@ -99,17 +99,6 @@ func keyFromName(name string) AssetKey {
 	}
 }
 
-func minSizeForKey(key AssetKey) int64 {
-	switch key {
-	case AssetCore:
-		return 5 * 1024 * 1024
-	case AssetWintun:
-		return 32 * 1024
-	default:
-		return 64 * 1024 // geo data files
-	}
-}
-
 func labelForKey(key AssetKey) string {
 	switch key {
 	case AssetCore:
@@ -129,7 +118,7 @@ func labelForKey(key AssetKey) string {
 	}
 }
 
-func RepairFromSeed(ctx context.Context, mode RepairMode) error {
+func RepairFromSeed(ctx context.Context, req Requirement, mode RepairMode) error {
 	manifest, err := LoadSeedManifest()
 	if err != nil {
 		log.Printf("[runtimeassets] 读取内置只读种子清单失败 (可能处于未打包开发模式): %v", err)
@@ -154,6 +143,11 @@ func RepairFromSeed(ctx context.Context, mode RepairMode) error {
 			continue
 		}
 
+		// 非需求资产跳过（除非强制模式）
+		if !requirementNeedsAsset(req, key) && mode != RepairForce {
+			continue
+		}
+
 		seedPath := filepath.Join(utils.GetSeedCoreBinDir(), item.Name)
 		runtimePath := filepath.Join(utils.GetCoreBinDir(), item.Name)
 
@@ -164,7 +158,7 @@ func RepairFromSeed(ctx context.Context, mode RepairMode) error {
 		} else if key == AssetWintun {
 			seedHealth = checkWintunByPath(seedPath)
 		} else {
-			seedHealth = checkDataFileByPath(key, labelForKey(key), seedPath, minSizeForKey(key))
+			seedHealth = checkDataFileByPath(key, labelForKey(key), seedPath)
 		}
 
 		// 如果内置的核心资产 seed 坏了，说明安装包打包有致命问题
@@ -183,7 +177,7 @@ func RepairFromSeed(ctx context.Context, mode RepairMode) error {
 		} else if key == AssetWintun {
 			runtimeHealth = CheckWintun()
 		} else {
-			runtimeHealth = CheckDataFile(key, labelForKey(key), item.Name, minSizeForKey(key))
+			runtimeHealth = CheckDataFile(key, labelForKey(key), item.Name)
 		}
 
 		shouldCopy := false
@@ -191,7 +185,13 @@ func RepairFromSeed(ctx context.Context, mode RepairMode) error {
 		case RepairForce:
 			shouldCopy = true
 		case RepairInvalid:
-			shouldCopy = !runtimeHealth.Ready
+			if isCoreAsset(key) {
+				// 核心资产（clash.exe、wintun.dll）：PE无效或版本探测失败时从 seed 替换
+				shouldCopy = !runtimeHealth.Ready || !runtimeHealth.VersionProbeOK
+			} else {
+				// 数据资产（geo 库等）：只补缺失，不覆盖用户自己的版本
+				shouldCopy = !runtimeHealth.Exists
+			}
 		case RepairMissingOnly:
 			shouldCopy = !runtimeHealth.Exists
 		}
@@ -207,8 +207,9 @@ func RepairFromSeed(ctx context.Context, mode RepairMode) error {
 					shouldCopy = false
 				}
 			} else {
-				log.Printf("[runtimeassets] 资产 %s 存在且已就绪但无拷贝记录，升级时跳过覆盖", item.Name)
-				shouldCopy = false
+				// 无拷贝记录：首次安装或旧版本升级，允许从 seed 复制
+				log.Printf("[runtimeassets] 资产 %s 无拷贝记录，从 seed 同步", item.Name)
+				shouldCopy = true
 			}
 		}
 
@@ -249,4 +250,9 @@ func RepairFromSeed(ctx context.Context, mode RepairMode) error {
 
 func forceMode(mode RepairMode) bool {
 	return mode == RepairForce
+}
+
+// isCoreAsset 判断是否为核心运行时资产（需要版本兼容，应始终从 seed 更新）
+func isCoreAsset(key AssetKey) bool {
+	return key == AssetCore || key == AssetWintun
 }

@@ -14,17 +14,11 @@ const (
 type AssetErrorCode string
 
 const (
-	ErrNone        AssetErrorCode = ""
-	ErrMissing     AssetErrorCode = "missing"
-	ErrIsDir       AssetErrorCode = "is_dir"
-	ErrUnreadable  AssetErrorCode = "unreadable"
-	ErrEmpty       AssetErrorCode = "empty"
-	ErrTooSmall    AssetErrorCode = "too_small"
-	ErrTooLarge    AssetErrorCode = "too_large"
-	ErrInvalidPE   AssetErrorCode = "invalid_pe"
-	ErrExecFailed  AssetErrorCode = "exec_failed"
-	ErrBadContent  AssetErrorCode = "bad_content"
-	ErrSeedMissing AssetErrorCode = "seed_missing"
+	ErrNone       AssetErrorCode = ""
+	ErrMissing    AssetErrorCode = "missing"
+	ErrIsDir      AssetErrorCode = "is_dir"
+	ErrInvalidPE  AssetErrorCode = "invalid_pe"
+	ErrExecFailed AssetErrorCode = "exec_failed"
 )
 
 type AssetHealth struct {
@@ -36,10 +30,11 @@ type AssetHealth struct {
 	Ready    bool           `json:"ready"`
 	Required bool           `json:"required"`
 
-	Size    int64  `json:"size"`
-	ModTime int64  `json:"modTime"`
-	SHA256  string `json:"sha256,omitempty"`
-	Version string `json:"version,omitempty"`
+	Size          int64  `json:"size"`
+	ModTime       int64  `json:"modTime"`
+	SHA256        string `json:"sha256,omitempty"`
+	Version       string `json:"version,omitempty"`
+	VersionProbeOK bool  `json:"versionProbeOK,omitempty"`
 
 	ErrorCode AssetErrorCode `json:"errorCode,omitempty"`
 	Error     string         `json:"error,omitempty"`
@@ -57,6 +52,19 @@ type RuntimeAssetStatus struct {
 	WintunReady bool `json:"wintunReady"`
 	Ready       bool `json:"ready"`
 }
+
+// Requirement 定义不同场景对资产的需求
+type Requirement struct {
+	NeedCore   bool
+	NeedWintun bool
+	NeedGeo    bool
+}
+
+var (
+	RequireCoreOnly = Requirement{NeedCore: true}
+	RequireTun      = Requirement{NeedCore: true, NeedWintun: true}
+	RequireAll      = Requirement{NeedCore: true, NeedWintun: true, NeedGeo: true}
+)
 
 func baseHealth(key AssetKey, label string, path string, required bool) AssetHealth {
 	return AssetHealth{

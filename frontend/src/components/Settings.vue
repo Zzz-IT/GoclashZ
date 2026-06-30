@@ -205,7 +205,7 @@
               <div class="info">
                 <h4>网卡驱动安装</h4>
                 <p class="status-msg">
-                  检测状态: <span :class="tunStatus.hasWintun ? 'green-text' : 'red-text'">{{ tunStatus.hasWintun ? 'wintun 已就绪' : '缺失驱动文件' }}</span>
+                  检测状态: <span :class="tunStatus.hasWintun ? 'green-text' : 'red-text'">{{ tunStatus.hasWintun ? 'wintun 已就绪' : (tunStatus.wintunError || 'wintun 不可用') }}</span>
                 </p>
               </div>
               <button class="action-btn" @click="installDriver(true)" :disabled="isInstalling || tunStatus.hasWintun">
@@ -1186,7 +1186,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { BrowserOpenURL, EventsOn } from '../../wailsjs/runtime/runtime';
 import { showAlert, showConfirm, globalState } from '../store';
@@ -1304,7 +1304,7 @@ const enhancedModeOptions = [
 const logLevelOptions = [
   { label: '调试', value: 'debug' },
   { label: '信息', value: 'info' },
-  { label: '警告', value: 'warning' },
+  { label: '警告', value: 'warn' },
   { label: '错误', value: 'error' },
   { label: '静默', value: 'silent' }
 ];
@@ -1318,16 +1318,9 @@ const appLogLevelOptions = [
 
 const showDbModal = ref(false);
 const editingDb = ref({ type: '', link: '' });
-const componentFileInfo = ref<Record<string, any>>({});
 const dbFileInfo = ref<Record<string, any>>({});
 
 const isUpdatingDb = (key: string) => globalState.componentUpdate.tasks[key]?.status === 'running';
-
-const updatedDbCount = computed(() => {
-  return ["geoip", "geosite", "mmdb", "asn"].filter(k => 
-    globalState.componentUpdate.tasks[k]?.status === 'success' || !isUpdatingDb(k)
-  ).length;
-});
 
 const refreshRuntimeAssets = async () => {
   const status = await (API as any).GetRuntimeAssetStatus();
@@ -1338,15 +1331,16 @@ const refreshRuntimeAssets = async () => {
 
   coreVersion.value = core?.ready
     ? (core.version || '已安装，版本未知')
-    : '未安装';
+    : (core?.error || core?.hint || '未安装');
 
   wintunVersion.value = wintun?.ready
     ? (wintun.version || '已安装，版本未知')
-    : '未安装';
+    : (wintun?.error || wintun?.hint || '未安装');
 
   tunStatus.value = {
     ...tunStatus.value,
     hasWintun: !!wintun?.ready,
+    wintunError: wintun?.ready ? '' : (wintun?.error || wintun?.hint || 'wintun 不可用'),
     wintun,
   };
 
@@ -1491,7 +1485,7 @@ const confirmRestore = async () => {
 
 const handleUpdateCore = async () => {
   if (globalState.componentUpdate.checkingCoreUpdate || globalState.componentUpdate.updatingCore) return;
-  (API as any).CheckCoreUpdateAsync();
+  (API as any).CheckCoreUpdateAsync().catch(() => {});
 };
 
 const cancelCoreUpdateConfirm = () => {
@@ -1503,10 +1497,10 @@ const cancelCoreUpdateConfirm = () => {
 const executeCoreUpdate = () => {
   showCoreUpdateConfirm.value = false;
   if (globalState.componentUpdate.updatingCore) return;
-  (API as any).UpdateCoreComponentAsync();
+  (API as any).UpdateCoreComponentAsync().catch(() => {});
 };
 
-const tunStatus = ref<Record<string, boolean>>({ hasWintun: false, isAdmin: false });
+const tunStatus = ref<Record<string, any>>({ hasWintun: false, isAdmin: false, wintunError: '' });
 
 const tunConfig = ref({
   stack: 'gvisor', device: '', autoRoute: true, autoDetect: true,
@@ -1760,13 +1754,8 @@ const installDriver = async (force: boolean = true) => {
   );
   if (!ok) return;
 
-  (API as any).InstallTunDriverAsync(force);
+  (API as any).InstallTunDriverAsync(force).catch(() => {});
 };
-watch(view, async (v) => {
-  if (v === 'update') {
-    await refreshComponentInfo();
-  }
-});
 
 // 🚀 核心：监听更新间隔时间，防止用户输入 0 或负数
 watch(() => behavior.value.updateInterval, async (newVal) => {
