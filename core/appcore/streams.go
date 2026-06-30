@@ -37,11 +37,11 @@ type connTrafficMark struct {
 }
 
 type TrafficStreamManager struct {
-	mu          sync.Mutex
-	cancel      context.CancelFunc
-	gen         int
-	emit        EventSink
-	dispatcher  *LogDispatcher
+	mu         sync.Mutex
+	cancel     context.CancelFunc
+	gen        int
+	emit       EventSink
+	dispatcher *LogDispatcher
 
 	lastErrAt  time.Time
 	lastErrMsg string

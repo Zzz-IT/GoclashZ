@@ -7,12 +7,12 @@ type EventSink interface {
 }
 
 const (
-	EventClashExited      = "clash-exited"
-	EventUpdateProgress   = "update-progress"
-	EventTrafficMetrics   = "traffic-metrics"
-	EventBehaviorChanged  = "behavior-changed"
-	EventCoreRestarted    = "core-restarted"
-	EventStateSync        = "app-state-sync"
-	EventNotifyError      = "notify-error"
-	EventLogMessage       = "log-message"
+	EventClashExited     = "clash-exited"
+	EventUpdateProgress  = "update-progress"
+	EventTrafficMetrics  = "traffic-metrics"
+	EventBehaviorChanged = "behavior-changed"
+	EventCoreRestarted   = "core-restarted"
+	EventStateSync       = "app-state-sync"
+	EventNotifyError     = "notify-error"
+	EventLogMessage      = "log-message"
 )

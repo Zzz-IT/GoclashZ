@@ -25,6 +25,9 @@ export namespace appcore {
 	    proxyTrafficOnly: boolean;
 	    startupWithOS: boolean;
 	    restoreOnStartup: boolean;
+	    longConnectionProtection: boolean;
+	    deferRestartWhenActive: boolean;
+	    longConnectionMinSeconds: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppBehavior(source);
@@ -56,6 +59,9 @@ export namespace appcore {
 	        this.proxyTrafficOnly = source["proxyTrafficOnly"];
 	        this.startupWithOS = source["startupWithOS"];
 	        this.restoreOnStartup = source["restoreOnStartup"];
+	        this.longConnectionProtection = source["longConnectionProtection"];
+	        this.deferRestartWhenActive = source["deferRestartWhenActive"];
+	        this.longConnectionMinSeconds = source["longConnectionMinSeconds"];
 	    }
 	}
 	export class AppState {

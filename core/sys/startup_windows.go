@@ -256,7 +256,7 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 		actualPath := strings.Trim(info.Path, "\"")
 		actualPath = strings.TrimSpace(actualPath)
 		actual, _ := filepath.Abs(actualPath)
-		
+
 		info.ActualPath = actualPath
 		info.ActualArgs = info.Arguments
 

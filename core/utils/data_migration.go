@@ -395,33 +395,33 @@ func saveMigrationMeta(target string, meta MigrationMeta) error {
 func RepairDataDirPermission() error {
 	appDir := GetAppDir()
 	dataDir := filepath.Join(appDir, "data")
-	
+
 	_ = os.MkdirAll(dataDir, 0755)
-	
+
 	cmd := "icacls"
 	args := []string{dataDir, "/grant", "*S-1-5-32-545:(OI)(CI)M", "/T", "/C", "/Q"}
-	
+
 	out, err := exec.Command(cmd, args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("icacls failed: %v, output: %s", err, string(out))
 	}
-	
+
 	return nil
 }
 
 // RepairCoreBinPermission is a utility function to be called with admin rights to repair core directory ACLs.
 func RepairCoreBinPermission() error {
 	coreDir := filepath.Join(GetAppDir(), "core")
-	
+
 	_ = os.MkdirAll(coreDir, 0755)
-	
+
 	cmd := "icacls"
 	args := []string{coreDir, "/grant", "*S-1-5-32-545:(OI)(CI)RX", "/T", "/C", "/Q"}
-	
+
 	out, err := exec.Command(cmd, args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("icacls (core RX) failed: %v, output: %s", err, string(out))
 	}
-	
+
 	return nil
 }

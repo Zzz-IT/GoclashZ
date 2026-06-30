@@ -125,7 +125,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	// 必须先加载订阅索引，再启动 appcore 的自动任务。
 	clash.LoadIndex()
-	
+
 	// 执行规则存储从 V1 (_rules.json) 到 V2 (yaml/overlay) 的全量迁移
 	_ = clash.MigrateRuleStorageV2()
 
@@ -326,7 +326,6 @@ func (a *App) StartStreamingLogs() {
 	a.core.StartLogStream(a.ctx)
 }
 
-
 func (a *App) GetRecentLogs() []appcore.LogEntry {
 	return a.core.GetRecentLogs()
 }
@@ -426,24 +425,14 @@ func (a *App) InstallHelperService() error {
 		return fmt.Errorf("获取当前用户 SID 失败: %w", err)
 	}
 
-	// 非管理员需要提权，传递当前用户 SID
 	if !sys.CheckAdmin() {
 		if err := sys.RunElevatedWithArgsWait("--install-helper", "--allowed-sid", sid); err != nil {
 			return fmt.Errorf("安装后台服务失败: %w", err)
 		}
-		time.Sleep(500 * time.Millisecond)
-		return sys.WaitForHelperReady(5, 1*time.Second)
+		return sys.WaitForHelperReady(15, 500*time.Millisecond)
 	}
 
-	// 管理员直接安装
-	if err := sys.InstallOrRepairHelperServiceForUser(exePath, sid); err != nil {
-		return err
-	}
-	if err := sys.StartHelperService(); err != nil {
-		return err
-	}
-	time.Sleep(300 * time.Millisecond)
-	return sys.WaitForHelperReady(5, 1*time.Second)
+	return sys.RecoverHelperServiceForUser(exePath, sid)
 }
 
 // UninstallHelperService 卸载后台服务（需要 UAC 提权）
@@ -497,7 +486,6 @@ func (a *App) CheckTunEnv() map[string]bool {
 		"helperRunning": helperStatus.Reachable,
 	}
 }
-
 
 func (a *App) InstallTunDriverAsync(_ bool) {
 	a.core.InstallTunDriverAsync(a.ctx)
@@ -560,7 +548,6 @@ func (a *App) RenameConfig(id, newName string) error {
 func (a *App) DeleteConfig(id string) error {
 	return a.core.DeleteConfig(id)
 }
-
 
 func (a *App) SelectLocalConfig(id string) error {
 	return a.core.SelectLocalConfig(a.ctx, id)
@@ -637,7 +624,7 @@ func (a *App) GetRulePageData(id string) (clash.RulePageData, error) {
 		if err := clash.EnsureRuleStorageMigratedLocked(id); err != nil {
 			return fmt.Errorf("规则存储迁移失败: %w", err)
 		}
-		
+
 		workingRoot, err := clash.ReadWorkingRootWithRecovery(id)
 		if err != nil {
 			return err
@@ -676,7 +663,7 @@ func (a *App) GetRulePageData(id string) (clash.RulePageData, error) {
 func (a *App) AddRule(id string, section string, ruleStr string) error {
 	return clash.WithRuleStorageLock(func() error {
 		_ = clash.EnsureRuleStorageMigratedLocked(id)
-		
+
 		ruleStr, err := clash.SanitizeRuleLine(ruleStr)
 		if err != nil {
 			return err
@@ -688,11 +675,11 @@ func (a *App) AddRule(id string, section string, ruleStr string) error {
 			if err != nil {
 				return err
 			}
-			
+
 			rules := clash.ExtractRulesFromRootPublic(root)
 			rules = append([]string{ruleStr}, rules...)
 			root["rules"] = rules
-			
+
 			out, _ := yaml.Marshal(root)
 			if err := utils.WriteFileAtomic(workingPath, out, 0644); err != nil {
 				return err
@@ -748,7 +735,7 @@ func (a *App) DeleteRule(id string, section string, index int) error {
 			if err != nil {
 				return err
 			}
-			
+
 			rules := clash.ExtractRulesFromRootPublic(root)
 			if index >= 0 && index < len(rules) {
 				rules = append(rules[:index], rules[index+1:]...)
@@ -767,16 +754,16 @@ func (a *App) DeleteRule(id string, section string, index int) error {
 			if err != nil {
 				return err
 			}
-			
+
 			workingRules := clash.ExtractRulesFromRootPublic(root)
 			overlay, err := clash.LoadRuleOverlay(id)
 			if err != nil {
 				return err
 			}
-			
+
 			// Get visible base rules
 			visibleRules := clash.ApplyDeleteOnly(workingRules, overlay.Delete)
-			
+
 			if index >= 0 && index < len(visibleRules) {
 				ruleToDel := visibleRules[index]
 				overlay.Delete = append([]string{ruleToDel}, overlay.Delete...)
@@ -908,7 +895,6 @@ func (a *App) ExportConfig(id string, useCustomRules bool) error {
 func (a *App) GetAppVersion() string {
 	return version.AppVersion
 }
-
 
 // --- Delay Test ---
 

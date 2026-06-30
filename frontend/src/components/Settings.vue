@@ -1177,7 +1177,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { BrowserOpenURL, EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
+import { BrowserOpenURL, EventsOn } from '../../wailsjs/runtime/runtime';
 import { showAlert, showConfirm, globalState } from '../store';
 import { formatBytes, formatSpeed, formatEtaTime, formatRelativeTime } from '../utils/format';
 import { ICONS } from '../utils/icons';
@@ -1667,60 +1667,52 @@ const loadData = async () => {
 };
 
 
+const unsubs: (() => void)[] = [];
+
 onMounted(() => { 
   loadData(); 
 
-  EventsOn("core-version-updated", (payload: any) => {
+  unsubs.push(EventsOn("core-version-updated", (payload: any) => {
     coreVersion.value = payload?.version || coreVersion.value;
     void showAlert(`内核更新成功，当前版本: ${coreVersion.value}`, "更新成功");
-  });
+  }));
 
-  EventsOn("core-update-none", () => {
+  unsubs.push(EventsOn("core-update-none", () => {
     void showAlert("当前已是最新版本，无需更新。", "检查更新");
-  });
+  }));
 
-  EventsOn("wintun-version-updated", (payload: any) => {
+  unsubs.push(EventsOn("wintun-version-updated", (payload: any) => {
     wintunVersion.value = payload?.version || wintunVersion.value;
-  });
+  }));
 
   watch(() => globalState.componentUpdate.pendingCoreUpdate, (newVal) => {
     if (newVal) {
       showCoreUpdateConfirm.value = true;
     }
   });
-  EventsOn("app-update-busy", () => {
+  unsubs.push(EventsOn("app-update-busy", () => {
     globalState.appUpdateChecking = false;
     void showAlert("已有软件更新任务正在进行，请稍后再试。", "提示");
-  });
+  }));
 
   ['geoip', 'geosite', 'mmdb', 'asn'].forEach(key => {
-    EventsOn(`geo-update-${key}-success`, refreshComponentInfo);
+    unsubs.push(EventsOn(`geo-update-${key}-success`, refreshComponentInfo));
   });
 
-  EventsOn("driver-install-start", () => {
+  unsubs.push(EventsOn("driver-install-start", () => {
     isInstalling.value = true;
-  });
-  EventsOn("driver-install-success", () => {
+  }));
+  unsubs.push(EventsOn("driver-install-success", () => {
     isInstalling.value = false;
     refreshComponentInfo(); // To update wintun version immediately if needed, or rely on wintun-version-updated
-  });
-  EventsOn("driver-install-error", () => {
+  }));
+  unsubs.push(EventsOn("driver-install-error", () => {
     isInstalling.value = false;
-  });
+  }));
 });
 
 onUnmounted(() => {
-  EventsOff("core-version-updated");
-  EventsOff("core-update-none");
-  EventsOff("core-update-available");
-  EventsOff("wintun-version-updated");
-  EventsOff("app-update-busy");
-  ['geoip', 'geosite', 'mmdb', 'asn'].forEach(key => {
-    EventsOff(`geo-update-${key}-success`);
-  });
-  EventsOff("driver-install-start");
-  EventsOff("driver-install-success");
-  EventsOff("driver-install-error");
+  unsubs.forEach(unsub => unsub && unsub());
 });
 
 const handleTunToggle = async (e: Event) => {

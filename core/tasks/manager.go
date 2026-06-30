@@ -120,4 +120,3 @@ func (m *Manager) Cancel(name string) {
 		delete(m.tasks, name)
 	}
 }
-

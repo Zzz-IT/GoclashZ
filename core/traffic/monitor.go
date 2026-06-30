@@ -53,9 +53,9 @@ type RawConnection struct {
 // ConnectionVO 视图对象：无损继承 RawConnection 的所有内容
 type ConnectionVO struct {
 	RawConnection        // 匿名组合，直接继承
-	UploadStr   string   `json:"uploadStr"`
-	DownloadStr string   `json:"downloadStr"`
-	DurationStr string   `json:"durationStr"`
+	UploadStr     string `json:"uploadStr"`
+	DownloadStr   string `json:"downloadStr"`
+	DurationStr   string `json:"durationStr"`
 }
 
 // 🚀 核心修复：创建独立的全局流量长连接客户端，并增加 TCP 探活
@@ -137,7 +137,7 @@ func StreamTraffic(ctx context.Context, apiURL string, callback func(upRaw, down
 				Up   float64 `json:"up"`
 				Down float64 `json:"down"`
 			}
-			
+
 			if err := decoder.Decode(&data); err != nil {
 				// 🚀 核心逻辑：一旦内核重启导致连接 EOF 断开或触发 Watchdog，立刻关闭 Body，跳出内层循环，触发重新连接
 				close(stopIdle)

@@ -190,9 +190,9 @@ func (m *GeoUpdateManager) runKey(ctx context.Context, key string) GeoResult {
 		}
 		state.FinishedAt = time.Now().Unix()
 		m.tasks.Set(key, state)
-		
+
 		if isCanceled {
-			m.emit.Emit("geo-update-"+key+"-cancelled")
+			m.emit.Emit("geo-update-" + key + "-cancelled")
 		} else {
 			m.emit.Emit("geo-update-"+key+"-error", err.Error())
 		}
@@ -291,14 +291,14 @@ func (m *GeoUpdateManager) UpdateAllAsync(ctx context.Context) {
 			}
 
 			wg.Add(1)
-			
+
 			taskCtx, cancel := context.WithCancel(ctx)
 			m.mu.Lock()
 			if job, ok := m.active[key]; ok {
 				job.cancel = cancel
 			}
 			m.mu.Unlock()
-			
+
 			go func() {
 				defer wg.Done()
 				defer cancel()

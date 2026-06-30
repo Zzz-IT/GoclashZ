@@ -102,9 +102,9 @@ type Controller struct {
 	events        EventSink
 	onStateChange func()
 	Behavior      *BehaviorStore
-	Offline  *OfflineNodeStore
-	Tasks    *tasks.Manager
-	version  string
+	Offline       *OfflineNodeStore
+	Tasks         *tasks.Manager
+	version       string
 
 	Supervisor *CoreSupervisor
 	Desired    *DesiredStateStore
@@ -134,7 +134,7 @@ type Controller struct {
 	downloadedUpdateVersion string
 	pendingAppUpdateInfo    *downloader.AppUpdateInfo
 
-	GeoUpdates *GeoUpdateManager
+	GeoUpdates  *GeoUpdateManager
 	UpdateTasks *ComponentUpdateTaskStore
 
 	pendingCoreUpdateAssetURL string
@@ -180,8 +180,6 @@ func (c *Controller) setAutoDelayRunning(active bool) {
 	defer c.networkMu.Unlock()
 	c.autoDelayRunning = active
 }
-
-
 
 func NewController(opts Options) *Controller {
 	behavior := NewBehaviorStore()
@@ -278,7 +276,7 @@ func (c *Controller) ClearUpdateCache(key string) {
 func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 	c.ctx = ctx
 	CleanLegacyFiles(c.version)
-	
+
 	clash.SetOnExitCallback(func(e clash.ExitEvent) {
 		if !e.Intentional {
 			c.mu.Lock()
@@ -324,7 +322,7 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 		desired.Tun = false
 		desired.CoreRunning = false
 		c.Desired.SetAndSave(desired)
-		
+
 		c.SyncState()
 
 		// 非启动恢复，立即启动 auto delay
@@ -408,10 +406,10 @@ func (c *Controller) GetEvents() EventSink {
 
 // AppState 定义全局状态同步结构
 type AppState struct {
-	IsRunning bool   `json:"isRunning"`
-	IsAdmin   bool   `json:"isAdmin"`
-	Mode      string `json:"mode"`
-	Theme     string `json:"theme"`
+	IsRunning   bool   `json:"isRunning"`
+	IsAdmin     bool   `json:"isAdmin"`
+	Mode        string `json:"mode"`
+	Theme       string `json:"theme"`
 	HideLogs    bool   `json:"hideLogs"`
 	AppLogLevel string `json:"appLogLevel"`
 	// 👇 新增以下字段，统一接管 UI
@@ -530,6 +528,10 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 	err := clash.BuildRuntimeConfig(desired.ActiveConfig, desired.Mode, behavior.LogLevel, desired.Tun)
 	if err != nil {
 		return err
+	}
+
+	if err := EnsureRuntimeAssets(ctx, behavior); err != nil {
+		c.logWarn("确保运行期资产失败: %v", err)
 	}
 
 	if err := clash.Start(ctx, desired.Tun); err != nil {
@@ -674,7 +676,7 @@ func classifyProbeError(err error) string {
 func (c *Controller) EnsureCoreRunning(ctx context.Context) error {
 	c.coreLifecycleMu.Lock()
 	defer c.coreLifecycleMu.Unlock()
-	
+
 	desired := c.Desired.Get()
 	if desired.ActiveConfig == "" {
 		behavior := c.Behavior.Get()
@@ -765,7 +767,6 @@ func (c *Controller) setRuntimeStateFromPlan(plan RuntimePlan) {
 	c.userCoreRunning = plan.NeedCore
 	c.mu.Unlock()
 }
-
 
 func (c *Controller) setLastError(msg string) {
 	c.events.Emit("notify-error", msg)
@@ -1097,48 +1098,29 @@ func (c *Controller) EnsureHelperReady(reason string) error {
 func (c *Controller) ensureHelperReadySlow(reason string) error {
 	client := sys.NewHelperClient()
 
-	// 快速 ping 检测是否已可达
 	if err := client.Ping(); err == nil {
 		return nil
 	}
 
-	// 检查服务是否已安装
-	status := sys.CheckHelperService()
-
-	if !status.Installed {
-		// 管理员模式下静默安装
-		if !sys.CheckAdmin() {
+	if !sys.CheckAdmin() {
+		helperStatus := sys.CheckHelperService()
+		if !helperStatus.Installed {
 			return ErrHelperInstallRequired
 		}
-
-		helperExe := filepath.Join(utils.GetAppDir(), "GoclashZHelper.exe")
-		if _, err := os.Stat(helperExe); err != nil {
-			return fmt.Errorf("helper 程序不存在: %s", helperExe)
-		}
-
-		sid, err := sys.CurrentUserSID()
-		if err != nil {
-			return fmt.Errorf("获取当前用户 SID 失败: %w", err)
-		}
-
-		if err := sys.InstallOrRepairHelperServiceForUser(helperExe, sid); err != nil {
-			return fmt.Errorf("安装后台服务失败: %w", err)
-		}
-
-		c.logInfo("Helper 服务已静默安装 (reason: %s)", reason)
+		return ErrHelperRepairRequired
 	}
 
-	// 启动服务
-	if err := sys.StartHelperService(); err != nil {
-		return fmt.Errorf("启动后台服务失败: %w", err)
+	helperExe := filepath.Join(utils.GetAppDir(), "GoclashZHelper.exe")
+	sid, err := sys.CurrentUserSID()
+	if err != nil {
+		return fmt.Errorf("获取当前用户 SID 失败: %w", err)
 	}
 
-	// 等待就绪
-	if err := sys.WaitForHelperReady(2, 100*time.Millisecond); err != nil {
-		return fmt.Errorf("后台服务就绪超时: %w", err)
+	if err := sys.RecoverHelperServiceForUser(helperExe, sid); err != nil {
+		return fmt.Errorf("修复后台服务失败: %w", err)
 	}
 
-	c.logInfo("Helper 服务已就绪 (reason: %s)", reason)
+	c.logInfo("Helper 服务已自愈并就绪 (reason: %s)", reason)
 	return nil
 }
 
@@ -1205,6 +1187,11 @@ func (c *Controller) RestartCore(ctx context.Context) error {
 
 // RestartCoreWithReason 重启内核并携带显式原因，决定是否触发缓存清理
 func (c *Controller) RestartCoreWithReason(ctx context.Context, reason string) error {
+	if err := c.guardDisruptiveAction(reason); err != nil {
+		c.queuePendingDisruptiveAction(reason)
+		return err
+	}
+
 	c.coreLifecycleMu.Lock()
 	defer c.coreLifecycleMu.Unlock()
 
@@ -1488,11 +1475,9 @@ func (c *Controller) handleStartupWithOSChange(enable bool) {
 	}
 }
 
-
 func (c *Controller) StopTrafficStream() {
 	c.traffic.Stop()
 }
-
 
 func (c *Controller) ResetTrafficTotals() {
 	c.traffic.ResetRuntimeState()
@@ -1524,7 +1509,6 @@ func (c *Controller) ClearLogs() {
 	logger.AppLogs.Clear()
 }
 
-
 func (c *Controller) GetConnections() (ConnectionsSnapshot, error) {
 	return c.connections.GetSnapshot()
 }
@@ -1536,7 +1520,6 @@ func (c *Controller) StartConnectionMonitor(ctx context.Context) {
 func (c *Controller) StopConnectionMonitor() {
 	c.connections.Stop()
 }
-
 
 func (c *Controller) SetUpdateStatus(ready bool, version string) {
 	c.mu.Lock()
@@ -1556,7 +1539,6 @@ func (c *Controller) SetDownloadedAppUpdate(path, version string) {
 		c.SyncState()
 	}
 }
-
 
 // --- Proxy Selection & Sync ---
 

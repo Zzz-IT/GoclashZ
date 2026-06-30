@@ -66,12 +66,12 @@ func (r *RingBuffer) GetAll() []LogEntry {
 func (r *RingBuffer) Search(keyword string) []LogEntry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	var result []LogEntry
 	lowerKey := strings.ToLower(keyword)
 	for _, entry := range r.data {
-		if strings.Contains(strings.ToLower(entry.Payload), lowerKey) || 
-		   strings.Contains(strings.ToLower(entry.Type), lowerKey) {
+		if strings.Contains(strings.ToLower(entry.Payload), lowerKey) ||
+			strings.Contains(strings.ToLower(entry.Type), lowerKey) {
 			result = append(result, entry)
 		}
 	}
@@ -96,7 +96,6 @@ func Infof(format string, args ...any) {
 		Time:    time.Now().Format("15:04:05"),
 	})
 }
-
 
 func Errorf(format string, args ...any) {
 	AppLogs.Add(LogEntry{

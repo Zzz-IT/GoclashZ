@@ -202,7 +202,6 @@ func (c *Controller) GetCoreVersion(ctx context.Context) string {
 	return clash.GetLocalCoreVersion(ctx)
 }
 
-
 func (c *Controller) CheckAppUpdateAsync(ctx context.Context, currentVersion string, manual bool) {
 	ok := c.Tasks.RunIfIdle(ctx, "app-update-flow", false, func(ctx context.Context) error {
 		if manual {

@@ -384,8 +384,8 @@ func GetRuleFormOptionsData(id string) (RuleFormOptions, error) {
 		}
 	}
 
-	// Sort types: highest count first. 
-	// (Using simple bubble sort for short array, but let's use sort slice later if needed. 
+	// Sort types: highest count first.
+	// (Using simple bubble sort for short array, but let's use sort slice later if needed.
 	// Since order is important, we just bubble sort by count descending, keeping default order for ties.)
 	for i := 0; i < len(types); i++ {
 		for j := i + 1; j < len(types); j++ {

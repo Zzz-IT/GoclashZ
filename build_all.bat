@@ -17,5 +17,12 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
+echo === Validating Assets ===
+powershell -ExecutionPolicy Bypass -File .\scripts\validate_assets.ps1
+if %ERRORLEVEL% neq 0 (
+    echo ERROR: Asset validation failed
+    exit /b 1
+)
+
 echo === Build complete ===
 dir build\bin\*.exe

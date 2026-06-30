@@ -5,11 +5,11 @@ package sys
 import (
 	"fmt"
 	"goclashz/core/logger"
+	"golang.org/x/sys/windows/registry"
 	"runtime"
 	"sync"
 	"syscall"
 	"unsafe"
-	"golang.org/x/sys/windows/registry"
 )
 
 var (

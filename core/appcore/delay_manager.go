@@ -152,7 +152,6 @@ func (c *Controller) autoDelayOptions(source DelaySource) DelayTestOptions {
 	}
 }
 
-
 type DelayTestManager struct {
 	mu    sync.Mutex
 	state DelayRunState
@@ -239,7 +238,6 @@ func (m *DelayTestManager) cancelAutoBatchAndWait(ctx context.Context, maxWait t
 		return false
 	}
 }
-
 
 func (m *DelayTestManager) notifyNodeResult(res DelayResult) {
 	m.mu.Lock()

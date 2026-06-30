@@ -274,7 +274,7 @@ func applyRestorePlan(dataDir, stagingDir string, plan *RestorePlan, mode string
 		src := filepath.Join(stagingDir, "Subscriptions")
 		dst := filepath.Join(dataDir, "Subscriptions")
 		if _, err := os.Stat(src); err == nil {
-			if err := copyDir(src, dst); err != nil { 
+			if err := copyDir(src, dst); err != nil {
 				return err
 			}
 		}

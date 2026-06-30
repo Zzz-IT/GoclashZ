@@ -15,7 +15,7 @@ type AppBehavior struct {
 	ColorDelay         bool   `json:"colorDelay"`  // 显色彩色延迟数字
 	DelayRetention     bool   `json:"delayRetention"`
 	DelayRetentionTime string `json:"delayRetentionTime"`
-	LogLevel           string `json:"logLevel"` // 日志等级
+	LogLevel           string `json:"logLevel"`    // 日志等级
 	AppLogLevel        string `json:"appLogLevel"` // 软件日志等级
 	HideLogs           bool   `json:"hideLogs"`
 	SubUA              string `json:"subUA"` // 订阅更新 User-Agent
@@ -43,6 +43,11 @@ type AppBehavior struct {
 	// 👇 新增：开机自启 (Task Scheduler)
 	StartupWithOS    bool `json:"startupWithOS"`
 	RestoreOnStartup bool `json:"restoreOnStartup"`
+
+	// 👇 新增：长连接保护
+	LongConnectionProtection bool `json:"longConnectionProtection"`
+	DeferRestartWhenActive   bool `json:"deferRestartWhenActive"`
+	LongConnectionMinSeconds int  `json:"longConnectionMinSeconds"`
 }
 
 type BehaviorStore struct {
@@ -95,7 +100,6 @@ func (s *BehaviorStore) SetActiveConfig(id string) error {
 
 	return utils.SaveSetting("behavior", &snapshot)
 }
-
 
 func (s *BehaviorStore) Load() error {
 	defaults := s.Default()
@@ -170,6 +174,10 @@ func normalizeBehavior(b AppBehavior) AppBehavior {
 		b.AsnLink = "https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb"
 	}
 
+	if b.LongConnectionMinSeconds <= 0 {
+		b.LongConnectionMinSeconds = 60
+	}
+
 	return b
 }
 
@@ -202,5 +210,9 @@ func (s *BehaviorStore) Default() AppBehavior {
 
 		StartupWithOS:    false,
 		RestoreOnStartup: false,
+
+		LongConnectionProtection: true,
+		DeferRestartWhenActive:   true,
+		LongConnectionMinSeconds: 60,
 	}
 }

@@ -22,11 +22,11 @@ type OutboundIPResult struct {
 	Preferred string `json:"preferred"` // 最终显示 IP，IPv6 优先
 	IPv4      string `json:"ipv4"`
 	IPv6      string `json:"ipv6"`
-	Mode      string `json:"mode"`      // proxy 或 direct
-	Source    string `json:"source"`    // (旧字段，可能废弃或保留用于主显)
+	Mode      string `json:"mode"`   // proxy 或 direct
+	Source    string `json:"source"` // (旧字段，可能废弃或保留用于主显)
 	Source4   string `json:"source4"`
 	Source6   string `json:"source6"`
-	Message   string `json:"message"`   // (整体消息)
+	Message   string `json:"message"` // (整体消息)
 	Message4  string `json:"message4"`
 	Message6  string `json:"message6"`
 	Complete  bool   `json:"complete"`
@@ -295,7 +295,7 @@ func detectIP(ctx context.Context, endpoints []string, network string, useProxy 
 			wg.Add(1)
 			go func(endpoint string) {
 				defer wg.Done()
-				
+
 				// 给单个请求一个合理的超时，避免无限期挂起
 				fetchCtx, fetchCancel := context.WithTimeout(reqCtx, 3500*time.Millisecond)
 				defer fetchCancel()

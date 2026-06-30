@@ -49,7 +49,6 @@ type RuntimePlan struct {
 	Reason          string
 }
 
-
 func NewCoreSupervisor(c *Controller, d *DesiredStateStore) *CoreSupervisor {
 	return &CoreSupervisor{
 		controller:  c,

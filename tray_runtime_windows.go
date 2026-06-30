@@ -3,7 +3,6 @@
 package main
 
 import (
-
 	"context"
 	"fmt"
 	"goclashz/core/appcore"
@@ -21,20 +20,20 @@ import (
 
 // Win32 constants
 const (
-	WM_USER          = 0x0400
-	WM_TRAYICON      = WM_USER + 1
-	WM_TRAYRENDER    = WM_USER + 2
-	WM_TRAYQUIT      = WM_USER + 3
-	WM_TRAY_ADD_RETRY= WM_USER + 4
-	WM_NULL          = 0x0000
-	WM_COMMAND       = 0x0111
-	WM_RBUTTONUP     = 0x0205
-	WM_LBUTTONDBLCLK = 0x0203
-	WM_DESTROY       = 0x0002
+	WM_USER           = 0x0400
+	WM_TRAYICON       = WM_USER + 1
+	WM_TRAYRENDER     = WM_USER + 2
+	WM_TRAYQUIT       = WM_USER + 3
+	WM_TRAY_ADD_RETRY = WM_USER + 4
+	WM_NULL           = 0x0000
+	WM_COMMAND        = 0x0111
+	WM_RBUTTONUP      = 0x0205
+	WM_LBUTTONDBLCLK  = 0x0203
+	WM_DESTROY        = 0x0002
 
-	NIM_ADD    = 0x00000000
-	NIM_MODIFY = 0x00000001
-	NIM_DELETE = 0x00000002
+	NIM_ADD     = 0x00000000
+	NIM_MODIFY  = 0x00000001
+	NIM_DELETE  = 0x00000002
 	NIF_MESSAGE = 0x00000001
 	NIF_ICON    = 0x00000002
 	NIF_TIP     = 0x00000004
@@ -158,7 +157,7 @@ var (
 
 // TrayRuntime is the Win32-based system tray implementation
 type TrayRuntime struct {
-	app *App
+	app  *App
 	logf func(level string, format string, args ...any)
 
 	ctx    context.Context
@@ -188,9 +187,9 @@ type TrayRuntime struct {
 // NewTrayRuntime creates a new Win32 tray runtime
 func NewTrayRuntime(app *App) *TrayRuntime {
 	return &TrayRuntime{
-		app:  app,
+		app:   app,
 		cmdCh: make(chan TrayCommand, 10),
-		logf: app.logApp,
+		logf:  app.logApp,
 	}
 }
 

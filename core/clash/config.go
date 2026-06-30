@@ -440,7 +440,7 @@ func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool
 	}
 	root["external-controller"] = controller
 	root["secret"] = "" // 确保没有意外的密码阻挡前端 WebSocket
-	
+
 	// 同步更新 Go API Client 的基准地址
 	UpdateAPIBaseURL(controller)
 

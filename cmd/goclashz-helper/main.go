@@ -23,9 +23,9 @@ import (
 )
 
 const (
-	serviceName   = "GoclashZHelper"
-	pipeName      = `\\.\pipe\GoclashZ.Helper`
-	registryPath  = `SYSTEM\CurrentControlSet\Services\GoclashZHelper`
+	serviceName  = "GoclashZHelper"
+	pipeName     = `\\.\pipe\GoclashZ.Helper`
+	registryPath = `SYSTEM\CurrentControlSet\Services\GoclashZHelper`
 )
 
 type helperService struct {

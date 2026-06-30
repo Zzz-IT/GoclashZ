@@ -33,7 +33,6 @@ func hasFlag(flag string) bool {
 	return false
 }
 
-
 func main() {
 	// 🚀 新增：恐慌恢复逻辑，确保程序因未知 Bug 崩溃时，能最后尝试清理一次代理
 	defer func() {
@@ -114,16 +113,14 @@ func main() {
 			}
 		}
 
-		exePath := filepath.Join(filepath.Dir(exePath), "GoclashZHelper.exe")
-		if err := sys.InstallOrRepairHelperServiceForUser(exePath, allowedSid); err != nil {
-			logger.Errorf("安装 Helper 服务失败: %v", err)
+		helperPath := filepath.Join(filepath.Dir(exePath), "GoclashZHelper.exe")
+		if err := sys.RecoverHelperServiceForUser(helperPath, allowedSid); err != nil {
+			logger.Errorf("修复 Helper 服务失败: %v", err)
+			sys.WriteAdminTaskResult("install-helper", err)
 			os.Exit(1)
 		}
-		if err := sys.StartHelperService(); err != nil {
-			logger.Errorf("启动 Helper 服务失败: %v", err)
-			os.Exit(1)
-		}
-		logger.Infof("✅ 成功安装并启动 Helper 服务")
+
+		logger.Infof("✅ 成功安装/修复并启动 Helper 服务")
 		os.Exit(0)
 	}
 
@@ -164,15 +161,15 @@ func main() {
 	if !isDebugMode {
 		mutexName, _ := syswin.UTF16PtrFromString("Global\\GoclashZ_Single_Instance_Mutex")
 		mutexHandle, err := syswin.CreateMutex(nil, false, mutexName)
-		
+
 		// ✅ 核心修复：直接通过系统调用返回的 err 判断，切勿使用 GetLastError()
 		if err != nil {
 			if err == syswin.ERROR_ALREADY_EXISTS {
 				logger.Infof("⚠️ GoclashZ 已经在后台运行，正在唤醒已有窗口...")
-				
+
 				// 🚀 核心重构：调用统一的唤醒与闪烁函数 (由 core/sys 提供)
 				sys.FocusMainWindowAndFlashTwiceWin32Only()
-				
+
 				// 显式释放内核互斥锁句柄
 				if mutexHandle != 0 {
 					syswin.CloseHandle(mutexHandle)
@@ -199,7 +196,7 @@ func main() {
 
 	// 👇 修复：将默认兜底颜色改为夜间模式，对齐 app.go 的默认行为
 	var r, g, b uint8 = 17, 17, 17 // 默认夜间底色 (#111111)
-	
+
 	// ✅ 使用统一的智能数据目录读取主题
 	themeFile := filepath.Join(utils.GetDataDir(), "theme_setting.txt")
 	// 🎯 修复：使用匿名函数建立独立的局部作用域，让 defer 立即执行
@@ -217,19 +214,19 @@ func main() {
 	}()
 
 	err := wails.Run(&options.App{
-		Title:  "GoclashZ",
-		Width:  1024,
-		Height: 768,
-		MinWidth:  900, // 👈 核心修复：限制最小宽度，防止 UI 布局挤压
-		MinHeight: 600, // 👈 核心修复：限制最小高度
+		Title:     "GoclashZ",
+		Width:     1024,
+		Height:    768,
+		MinWidth:  900,  // 👈 核心修复：限制最小宽度，防止 UI 布局挤压
+		MinHeight: 600,  // 👈 核心修复：限制最小高度
 		Frameless: true, // 保持无边框，自己渲染 UI
-		
+
 		HideWindowOnClose: true, // 👈 1. 新增：点击关闭按钮时，隐藏窗口而不是退出进程
 		StartHidden:       true, // 👈 核心：启动时默认不弹窗，为“静默启动”铺垫
-		
+
 		// 2. 👈 使用动态读取的颜色
-		BackgroundColour: &options.RGBA{R: r, G: g, B: b, A: 255}, 
-		
+		BackgroundColour: &options.RGBA{R: r, G: g, B: b, A: 255},
+
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
@@ -239,7 +236,7 @@ func main() {
 			app,
 		},
 		Windows: &windows.Options{
-			Theme:             windows.SystemDefault, 
+			Theme:             windows.SystemDefault,
 			DisableWindowIcon: false,
 		},
 	})

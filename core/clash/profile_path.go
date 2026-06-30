@@ -89,4 +89,3 @@ func ProfilePathByIDStrict(id string) (string, string, error) {
 
 	return normalizedID, path, nil
 }
-

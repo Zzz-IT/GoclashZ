@@ -11,10 +11,10 @@ import (
 
 // ComponentFileInfo 定义组件资产的文件属性
 type ComponentFileInfo struct {
-	Exists  bool      `json:"exists"`
-	Size    int64     `json:"size"`
-	ModTime int64     `json:"modTime"`
-	Path    string    `json:"path"`
+	Exists  bool   `json:"exists"`
+	Size    int64  `json:"size"`
+	ModTime int64  `json:"modTime"`
+	Path    string `json:"path"`
 }
 
 // GetComponentFileInfo 统一获取所有组件资产的状态
@@ -23,7 +23,7 @@ func GetComponentFileInfo() map[string]ComponentFileInfo {
 
 	// 1. 内核资产
 	results["clash"] = getSingleFileInfo(filepath.Join(utils.GetCoreBinDir(), "clash.exe"))
-	
+
 	// 2. 驱动资产
 	results["wintun"] = getSingleFileInfo(filepath.Join(utils.GetCoreBinDir(), "wintun.dll"))
 

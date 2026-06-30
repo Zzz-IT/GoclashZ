@@ -3,6 +3,7 @@
 package sys
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"time"
@@ -22,8 +23,10 @@ func isServiceInstalledSCM(name string) (bool, error) {
 
 	s, err := m.OpenService(name)
 	if err != nil {
-		// 服务不存在
-		return false, nil
+		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+			return false, nil
+		}
+		return false, fmt.Errorf("open service failed: %w", err)
 	}
 	defer s.Close()
 	return true, nil
@@ -51,8 +54,8 @@ func isServiceRunningSCM(name string) (bool, error) {
 	return status.State == svc.Running, nil
 }
 
-// installServiceSCM 通过 SCM 安装服务
-func installServiceSCM(name, exePath, description string) error {
+// installOrUpdateServiceSCM 通过 SCM 安装或更新服务
+func installOrUpdateServiceSCM(name, exePath, description string) error {
 	m, err := mgr.Connect()
 	if err != nil {
 		return fmt.Errorf("SCM connect failed: %w", err)
@@ -65,10 +68,52 @@ func installServiceSCM(name, exePath, description string) error {
 		StartType:    mgr.StartManual,
 		ErrorControl: mgr.ErrorNormal,
 	})
+
 	if err != nil {
-		return fmt.Errorf("create service failed: %w", err)
+		if !errors.Is(err, windows.ERROR_SERVICE_EXISTS) {
+			return fmt.Errorf("create service failed: %w", err)
+		}
+
+		s, err = m.OpenService(name)
+		if err != nil {
+			return fmt.Errorf("open existing service failed: %w", err)
+		}
 	}
 	defer s.Close()
+
+	cfg, err := s.Config()
+	if err != nil {
+		return fmt.Errorf("query service config failed: %w", err)
+	}
+
+	changed := false
+
+	if cfg.BinaryPathName != exePath {
+		cfg.BinaryPathName = exePath
+		changed = true
+	}
+	if cfg.DisplayName != HelperDisplayName {
+		cfg.DisplayName = HelperDisplayName
+		changed = true
+	}
+	if cfg.Description != description {
+		cfg.Description = description
+		changed = true
+	}
+	if cfg.StartType != mgr.StartManual {
+		cfg.StartType = mgr.StartManual
+		changed = true
+	}
+	if cfg.ErrorControl != mgr.ErrorNormal {
+		cfg.ErrorControl = mgr.ErrorNormal
+		changed = true
+	}
+
+	if changed {
+		if err := s.UpdateConfig(cfg); err != nil {
+			return fmt.Errorf("update service config failed: %w", err)
+		}
+	}
 
 	return nil
 }

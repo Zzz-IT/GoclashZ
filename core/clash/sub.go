@@ -77,10 +77,10 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 	}
 
 	err = downloader.FetchSmallFileAtomic(ctx, downloader.Options{
-		URLs:               []string{url},
-		DestPath:           originPath,
-		UserAgent:          userAgent,
-		MaxBytes:           50 * 1024 * 1024,
+		URLs:      []string{url},
+		DestPath:  originPath,
+		UserAgent: userAgent,
+		MaxBytes:  50 * 1024 * 1024,
 		Strategy: func() downloader.DownloadStrategy {
 			var pUrl string
 			if IsRunning() {
@@ -93,7 +93,7 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 				PreferProxy: pUrl != "",
 			}
 		},
-		InsecureSkipVerify: true,     // 🛡️ [SSL宽容] 机场证书烂也能下载
+		InsecureSkipVerify: true, // 🛡️ [SSL宽容] 机场证书烂也能下载
 		OnResponse: func(resp *http.Response) {
 			// 🛡️ [流量提取] 解析 Subscription-Userinfo
 			if info := resp.Header.Get("Subscription-Userinfo"); info != "" {
@@ -133,12 +133,12 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 		if writeErr := utils.WriteFileAtomic(workingPath, originData, 0644); writeErr != nil {
 			return fmt.Errorf("覆盖工作文件失败: %w", writeErr)
 		}
-		
+
 		// 4. 确保 overlay 存在 (如果是新订阅，创建空 overlay；如果是更新，保留用户配置)
 		if err := EnsureEmptyOverlay(safeId); err != nil {
 			return fmt.Errorf("初始化规则配置失败: %w", err)
 		}
-		
+
 		return nil
 	})
 
@@ -324,6 +324,7 @@ func StrictVerifyClashConfig(data []byte) error {
 	// 校验通过，确认为高纯度合规的 Clash 配置
 	return nil
 }
+
 // ImportLocalConfig 导入本地配置文件
 func ImportLocalConfig(srcPath, name string) (string, error) {
 	data, err := os.ReadFile(srcPath)

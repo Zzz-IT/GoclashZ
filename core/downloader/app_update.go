@@ -17,12 +17,12 @@ import (
 )
 
 type AppUpdateInfo struct {
-	HasUpdate   bool     `json:"hasUpdate"`
-	Version     string   `json:"version"`
-	Body        string   `json:"body"`
-	ReleaseURL  string   `json:"releaseUrl"`
-	DownloadURL string   `json:"downloadUrl"`
-	AssetName   string   `json:"assetName"`
+	HasUpdate   bool   `json:"hasUpdate"`
+	Version     string `json:"version"`
+	Body        string `json:"body"`
+	ReleaseURL  string `json:"releaseUrl"`
+	DownloadURL string `json:"downloadUrl"`
+	AssetName   string `json:"assetName"`
 }
 
 var strictVersionRe = regexp.MustCompile(`(?i)(?:^|[^0-9])v?(\d+\.\d+(?:\.\d+)?(?:\.\d+)?)`)
@@ -77,7 +77,7 @@ func CheckAppUpdate(ctx context.Context, currentVersion string, strategy func() 
 
 	cmp, _ := CompareAppVersion(release.TagName, currentVersion)
 	assetName, downloadURL := selectWindowsAsset(release.Assets)
-	
+
 	return &AppUpdateInfo{
 		HasUpdate:   cmp > 0,
 		Version:     release.TagName,
@@ -151,20 +151,32 @@ func selectWindowsAsset(assets []struct {
 func CompareAppVersion(remote, current string) (int, error) {
 	aa := parseVersionParts(remote)
 	bb := parseVersionParts(current)
-	if len(aa) == 0 || len(bb) == 0 { return 0, nil }
+	if len(aa) == 0 || len(bb) == 0 {
+		return 0, nil
+	}
 	for i := 0; i < 3; i++ {
 		var a, b int
-		if i < len(aa) { a = aa[i] }
-		if i < len(bb) { b = bb[i] }
-		if a > b { return 1, nil }
-		if a < b { return -1, nil }
+		if i < len(aa) {
+			a = aa[i]
+		}
+		if i < len(bb) {
+			b = bb[i]
+		}
+		if a > b {
+			return 1, nil
+		}
+		if a < b {
+			return -1, nil
+		}
 	}
 	return 0, nil
 }
 
 func parseVersionParts(v string) []int {
 	m := strictVersionRe.FindStringSubmatch(v)
-	if len(m) < 2 { return nil }
+	if len(m) < 2 {
+		return nil
+	}
 	parts := strings.Split(m[1], ".")
 	out := make([]int, 0, len(parts))
 	for _, p := range parts {
@@ -203,12 +215,12 @@ func DownloadAppUpdate(
 
 	// 🚀 复用 grab/v3 下载机
 	err := DownloadLargeAssetAtomic(ctx, Options{
-		URLs:        []string{info.DownloadURL},
-		DestPath:    destPath,
-		UserAgent:   "GoclashZ-Updater",
-		MaxBytes:    300 << 20, // 限制 300MB
-		Strategy:    strategy,
-		OnProgress:  onProgress,
+		URLs:       []string{info.DownloadURL},
+		DestPath:   destPath,
+		UserAgent:  "GoclashZ-Updater",
+		MaxBytes:   300 << 20, // 限制 300MB
+		Strategy:   strategy,
+		OnProgress: onProgress,
 		Validator: func(tmpPath string) error {
 			return ValidateWindowsExecutable(tmpPath)
 		},

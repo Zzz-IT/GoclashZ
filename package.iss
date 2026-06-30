@@ -53,8 +53,8 @@ Source: ".\build\bin\GoclashZHelper.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; 3. --- 核心修改 3：修正打包源路径 ---
 ; 源码中内核存放在 .\data\core\bin，打包时我们把它塞进安装目录的 {app}\core\bin 中
-; 排除在开发运行时产生的临时下载文件和内核缓存数据库 (如 cache.db, geoip.metadb)
-Source: ".\data\core\bin\*"; DestDir: "{app}\core\bin"; Excludes: "*.tmp,*.zip,*.old,*.txt,*.json,*.db,*.metadb,*.meta.json"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 排除在开发运行时产生的临时下载文件和内核缓存数据库 (如 cache.db)
+Source: ".\data\core\bin\*"; DestDir: "{app}\core\bin"; Excludes: "*.tmp,*.zip,*.old,*.txt,*.json,*.db,*.meta.json"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

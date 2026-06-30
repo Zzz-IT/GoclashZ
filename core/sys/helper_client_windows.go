@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/Microsoft/go-winio"
@@ -228,24 +229,64 @@ func InstallHelperService(exePath string) error {
 // InstallOrRepairHelperServiceForUser 安装或修复 helper 服务并授权指定用户 SID
 // 服务已存在时跳过创建，继续补写 SID 和 DACL
 func InstallOrRepairHelperServiceForUser(exePath string, userSID string) error {
-	installed, err := isServiceInstalled(HelperServiceName)
-	if err != nil {
-		return fmt.Errorf("检查服务状态失败: %w", err)
+	if _, err := os.Stat(exePath); err != nil {
+		return fmt.Errorf("helper executable not found: %s: %w", exePath, err)
 	}
 
-	if !installed {
-		if err := installServiceSCM(HelperServiceName, exePath, HelperDescription); err != nil {
-			return err
-		}
+	if err := installOrUpdateServiceSCM(HelperServiceName, exePath, HelperDescription); err != nil {
+		return err
 	}
 
 	if userSID != "" {
 		if err := writeAllowedSidToRegistry(userSID); err != nil {
 			return fmt.Errorf("写入 AllowedSids 注册表失败: %w", err)
 		}
+
 		if err := grantServiceControlToUser(HelperServiceName, userSID); err != nil {
 			return fmt.Errorf("设置服务 DACL 失败: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// RecoverHelperServiceForUser 强修复 Helper 服务
+func RecoverHelperServiceForUser(exePath string, userSID string) error {
+	if !CheckAdmin() {
+		return fmt.Errorf("需要管理员权限修复 Helper 服务")
+	}
+
+	if _, err := os.Stat(exePath); err != nil {
+		return fmt.Errorf("helper 程序不存在: %s: %w", exePath, err)
+	}
+
+	// 先尽力停止旧服务
+	_ = StopHelperService()
+
+	// 幂等安装或更新
+	if err := InstallOrRepairHelperServiceForUser(exePath, userSID); err != nil {
+		return fmt.Errorf("安装/修复 Helper 服务失败: %w", err)
+	}
+
+	// 再次停止，确保旧实例不会继续占用 pipe
+	_ = StopHelperService()
+
+	if err := StartHelperService(); err != nil {
+		// 如果服务处于删除挂起或 SCM 卡住，尝试 delete + recreate
+		_ = UninstallHelperService()
+		time.Sleep(1200 * time.Millisecond)
+
+		if err2 := InstallOrRepairHelperServiceForUser(exePath, userSID); err2 != nil {
+			return fmt.Errorf("重建 Helper 服务失败: startErr=%v rebuildErr=%w", err, err2)
+		}
+
+		if err2 := StartHelperService(); err2 != nil {
+			return fmt.Errorf("启动 Helper 服务失败: first=%v retry=%w", err, err2)
+		}
+	}
+
+	if err := WaitForHelperReady(30, 300*time.Millisecond); err != nil {
+		return fmt.Errorf("Helper 服务启动后不可达: %w", err)
 	}
 
 	return nil

@@ -53,7 +53,7 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 	// 我们使用一个可中断的大循环来支持策略变更和失败重试
 	// 将尝试次数乘以 2，以便在代理切换时有足够的重试次数
 	maxAttempts := attempts * 2
-	
+
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		// 每次重试前，都动态获取最新的策略
 		if opt.Strategy != nil {
@@ -132,7 +132,7 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 
 				if err := resp.Err(); err != nil {
 					lastErr = err
-					
+
 					// 如果是因为策略改变导致的取消，我们不需要等待，直接跳出双层循环，立即触发外层的全新 attempt！
 					if strategyChanged {
 						goto NEXT_ATTEMPT
@@ -187,7 +187,7 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 				if err := ReplaceFile(tmpPath, opt.DestPath); err != nil {
 					_ = os.Remove(tmpPath)
 					lastErr = err
-					
+
 					select {
 					case <-time.After(2 * time.Second):
 					case <-ctx.Done():

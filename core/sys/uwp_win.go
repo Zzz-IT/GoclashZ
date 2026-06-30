@@ -4,14 +4,14 @@ package sys
 
 import (
 	"fmt"
+	"goclashz/core/utils"
+	"golang.org/x/sys/windows/registry"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
-	"goclashz/core/utils"
-	"golang.org/x/sys/windows/registry"
 )
 
 type UwpApp struct {
@@ -49,7 +49,7 @@ func GetUwpAppList() ([]UwpApp, error) {
 		if err != nil {
 			continue
 		}
-		
+
 		moniker, _, _ := subKey.GetStringValue("Moniker")
 		displayName, _, _ := subKey.GetStringValue("DisplayName")
 		subKey.Close()
@@ -83,7 +83,7 @@ func getExemptedSids() (map[string]bool, error) {
 	exemptMap := make(map[string]bool)
 	cmd := exec.Command("CheckNetIsolation.exe", "LoopbackExempt", "-s")
 	utils.HideCommandWindow(cmd, 0)
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		return exemptMap, nil // 即使失败也返回空表，不阻塞主流程
@@ -95,7 +95,7 @@ func getExemptedSids() (map[string]bool, error) {
 	for _, sid := range matches {
 		exemptMap[sid] = true
 	}
-	
+
 	return exemptMap, nil
 }
 
@@ -151,18 +151,17 @@ func SaveUwpExemptions(targetSids []string) error {
 	return nil
 }
 
-
 // ExemptAllUWP 兼容旧接口：一键豁免所有应用
 func ExemptAllUWP() error {
 	apps, err := GetUwpAppList()
 	if err != nil {
 		return err
 	}
-	
+
 	var sids []string
 	for _, app := range apps {
 		sids = append(sids, app.SID)
 	}
-	
+
 	return SaveUwpExemptions(sids)
 }
