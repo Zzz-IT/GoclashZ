@@ -197,6 +197,19 @@ func NewController(opts Options) *Controller {
 		Tasks:         tasks.NewManager(opts.Events),
 		Desired:       NewDesiredStateStore(),
 	}
+
+	// 🚀 核心修复：如果用户未开启“开机自启并恢复状态”，则在应用实例化时立即重置代理意图。
+	// 这保证了前端在第一时间拉取 GetAppState 时，拿到的是干净的 false 状态，
+	// 彻底杜绝每次启动页面都“先显示上次启动状态，然后才复位”的闪烁 Bug。
+	if !behavior.Get().RestoreOnStartup {
+		d := c.Desired.Get()
+		if d.SystemProxy || d.Tun || d.CoreRunning {
+			d.SystemProxy = false
+			d.Tun = false
+			d.CoreRunning = false
+			_ = c.Desired.SetAndSave(d)
+		}
+	}
 	c.appLogger = NewLogDispatcher(opts.Events, func() string {
 		return c.Behavior.Get().AppLogLevel
 	})
