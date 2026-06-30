@@ -7,7 +7,7 @@ import "strings"
 // AppVersion 是当前应用的版本号。
 // 建议在构建时通过 ldflags 注入，例如：
 // go build -ldflags "-X goclashz/core/version.AppVersion=v1.2.1"
-var AppVersion = "v1.2.1"
+var AppVersion = "v1.2.2"
 
 func NormalizeVersion(v string) string {
 	v = strings.TrimSpace(v)

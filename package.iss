@@ -3,7 +3,7 @@
 ; =========================================================
 
 #define MyAppName "GoclashZ"
-#define MyAppVersion "1.2.1"
+#define MyAppVersion "1.2.2"
 #define MyAppPublisher "Zzz"
 #define MyAppExeName "GoclashZ.exe"
 
@@ -12,7 +12,7 @@ AppMutex=Global\GoclashZ_Single_Instance_Mutex
 CloseApplications=yes
 RestartApplications=no
 WizardStyle=modern dynamic includetitlebar
-VersionInfoVersion=1.2.1.0
+VersionInfoVersion=1.2.2.0
 VersionInfoCompany=Zzz
 VersionInfoDescription=GoclashZ Installer
 VersionInfoCopyright=Copyright (C) 2026 Zzz
