@@ -138,6 +138,7 @@ export const globalState = reactive({
 
   // 跨页面 IP 状态缓存
   outboundIP: initialOutboundIP as OutboundIPResult | null,
+  outboundIPStale: false,
   ipDetecting: false,
   appUpdateProgress: null as {
     totalBytes: number;
@@ -185,6 +186,8 @@ const normalizeLogLevel = (level?: string) => {
 
 export function updateStateFromBackend(rawData: any) {
   if (!rawData) return;
+
+  const oldRunning = globalState.isRunning;
 
   if (rawData.isRunning !== undefined) globalState.isRunning = rawData.isRunning;
   else if (rawData.IsRunning !== undefined) globalState.isRunning = rawData.IsRunning;
@@ -248,29 +251,13 @@ export function updateStateFromBackend(rawData: any) {
     persistControlIntent();
   }
 
-  // IP 检测基于 actual 状态变化
+  // route-aware IP 刷新：基于 actual 状态变化
   const proxyChanged = newProxy !== undefined && oldActualProxy !== !!newProxy;
   const tunChanged = newTun !== undefined && oldActualTun !== !!newTun;
+  const runningChanged = oldRunning !== globalState.isRunning;
 
-  if (proxyChanged || tunChanged) {
-    const tunOn = !!newTun;
-    const tunOff = oldActualTun === true && newTun === false;
-
-    scheduleOutboundIPRefresh('state-change', {
-      force: true,
-      delay: tunOn ? 1200 : 500,
-      clearBeforeStart: true,
-      reason: tunOn ? 'tun-on' : tunOff ? 'tun-off' : 'proxy-change',
-      silent: false,
-    });
-
-    scheduleOutboundIPRefresh('state-confirm', {
-      force: true,
-      delay: tunOn ? 3000 : 1500,
-      clearBeforeStart: false,
-      reason: tunOn ? 'tun-on-confirm' : 'state-confirm',
-      silent: true,
-    });
+  if (proxyChanged || tunChanged || runningChanged) {
+    scheduleRouteAwareIPRefresh('state-change');
   }
 
   if (rawData.version !== undefined) globalState.version = rawData.version;
@@ -387,7 +374,7 @@ export function showConfirm(message: string, title: string = '操作确认', isD
 
 // IP 检测队列（latest-wins）
 let ipDetectSeq = 0;
-let pendingIPRefresh: { force?: boolean; clearBeforeStart?: boolean; reason?: string; silent?: boolean } | null = null;
+let pendingIPRefresh: { force?: boolean; clearBeforeStart?: boolean; reason?: string; silent?: boolean; expectedRoute?: string } | null = null;
 const ipRefreshTimers: Record<string, number> = {};
 
 /**
@@ -423,6 +410,64 @@ export function scheduleOutboundIPRefresh(
   }, opts.delay ?? 800);
 }
 
+type OutboundRoute = 'direct' | 'proxy' | 'tun-route' | 'switching';
+
+function getDesiredOutboundRoute(): OutboundRoute {
+  if (globalState.tun) return 'tun-route';
+  if (globalState.systemProxy) return 'proxy';
+  return 'direct';
+}
+
+function getActualOutboundRoute(): OutboundRoute {
+  if (globalState.actualTun) return 'tun-route';
+  if (globalState.actualSystemProxy && globalState.isRunning) return 'proxy';
+  return 'direct';
+}
+
+function getEffectiveOutboundRoute(): OutboundRoute {
+  const desired = getDesiredOutboundRoute();
+  const actual = getActualOutboundRoute();
+  if (desired !== 'direct' && actual !== desired) return 'switching';
+  return actual;
+}
+
+let lastEffectiveRoute: OutboundRoute | '' = '';
+let routeSettleTimer: number | null = null;
+
+function scheduleRouteAwareIPRefresh(reason: string) {
+  const route = getEffectiveOutboundRoute();
+
+  // 切换中：保留旧 IP，不测 direct，等 actual 稳定
+  if (route === 'switching') {
+    return;
+  }
+
+  // route 没变：不重复检测
+  if (route === lastEffectiveRoute) {
+    return;
+  }
+
+  lastEffectiveRoute = route;
+
+  if (routeSettleTimer) {
+    clearTimeout(routeSettleTimer);
+  }
+
+  const delay = route === 'tun-route' ? 1500 : route === 'proxy' ? 800 : 600;
+
+  routeSettleTimer = window.setTimeout(() => {
+    routeSettleTimer = null;
+    globalState.outboundIPStale = false;
+    refreshOutboundIP({
+      force: true,
+      clearBeforeStart: false,
+      reason: `route-${route}:${reason}`,
+      silent: false,
+      expectedRoute: route,
+    });
+  }, delay);
+}
+
 /**
  * 执行 IP 检测（latest-wins，不丢弃新请求）
  */
@@ -431,6 +476,7 @@ export async function refreshOutboundIP(options?: {
   clearBeforeStart?: boolean;
   reason?: string;
   silent?: boolean;
+  expectedRoute?: string;
 }) {
   if (globalState.ipDetecting) {
     pendingIPRefresh = {
@@ -438,6 +484,7 @@ export async function refreshOutboundIP(options?: {
       clearBeforeStart: options?.clearBeforeStart,
       reason: options?.reason,
       silent: options?.silent,
+      expectedRoute: options?.expectedRoute,
     };
     return;
   }
@@ -453,48 +500,68 @@ export async function refreshOutboundIP(options?: {
   }
 
   try {
-    const result = await (API as any).GetOutboundIP(!!options?.force);
+    const result = await (API as any).GetOutboundIPForRoute(
+      !!options?.force,
+      options?.expectedRoute || ''
+    );
 
     // 已有更新请求，丢弃旧结果
     if (seq !== ipDetectSeq) return;
 
+    // 路由切换中：保留旧 IP，不覆盖
+    if (result?.message?.includes('路由切换中')) {
+      if (!options?.silent && seq === ipDetectSeq) {
+        globalState.ipDetecting = false;
+      }
+      return;
+    }
+
     if (result && result.preferred) {
       const cleaned = normalizeOutboundIP(result);
       globalState.outboundIP = cleaned;
+      globalState.outboundIPStale = false;
       localStorage.setItem('goclashz_outboundIP', JSON.stringify(cleaned));
     } else if (!options?.silent) {
-      // 检测失败：清空旧结果，显示错误
-      globalState.outboundIP = {
-        preferred: '',
-        ipv4: '',
-        ipv6: '',
-        mode: '',
-        source: '',
-        source4: '',
-        source6: '',
-        message: result?.message || '检测失败',
-        message4: '',
-        message6: '',
-        complete: false,
-      };
+      // 检测失败：保留旧成功结果，标记 stale
+      if (globalState.outboundIP?.preferred) {
+        globalState.outboundIPStale = true;
+      } else {
+        globalState.outboundIP = {
+          preferred: '',
+          ipv4: '',
+          ipv6: '',
+          mode: '',
+          source: '',
+          source4: '',
+          source6: '',
+          message: result?.message || '检测失败',
+          message4: '',
+          message6: '',
+          complete: false,
+        };
+      }
     }
   } catch {
     if (seq !== ipDetectSeq) return;
 
     if (!options?.silent) {
-      globalState.outboundIP = {
-        preferred: '',
-        ipv4: '',
-        ipv6: '',
-        mode: '',
-        source: '',
-        source4: '',
-        source6: '',
-        message: '网络请求失败',
-        message4: '',
-        message6: '',
-        complete: false,
-      };
+      if (globalState.outboundIP?.preferred) {
+        globalState.outboundIPStale = true;
+      } else {
+        globalState.outboundIP = {
+          preferred: '',
+          ipv4: '',
+          ipv6: '',
+          mode: '',
+          source: '',
+          source4: '',
+          source6: '',
+          message: '网络请求失败',
+          message4: '',
+          message6: '',
+          complete: false,
+        };
+      }
     }
   } finally {
     if (!options?.silent && seq === ipDetectSeq) {

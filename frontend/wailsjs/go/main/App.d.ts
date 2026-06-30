@@ -83,6 +83,8 @@ export function GetNetworkConfig():Promise<clash.NetworkConfig>;
 
 export function GetOutboundIP(arg1:boolean):Promise<appcore.OutboundIPResult>;
 
+export function GetOutboundIPForRoute(arg1:boolean,arg2:string):Promise<appcore.OutboundIPResult>;
+
 export function GetProxyDelay(arg1:string,arg2:string):Promise<number>;
 
 export function GetRecentLogs():Promise<Array<logger.LogEntry>>;

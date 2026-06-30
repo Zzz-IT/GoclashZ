@@ -154,6 +154,10 @@ export function GetOutboundIP(arg1) {
   return window['go']['main']['App']['GetOutboundIP'](arg1);
 }
 
+export function GetOutboundIPForRoute(arg1, arg2) {
+  return window['go']['main']['App']['GetOutboundIPForRoute'](arg1, arg2);
+}
+
 export function GetProxyDelay(arg1, arg2) {
   return window['go']['main']['App']['GetProxyDelay'](arg1, arg2);
 }

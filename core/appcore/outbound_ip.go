@@ -129,22 +129,22 @@ func (c *Controller) outboundIPCacheKey() string {
 
 	mode := "direct"
 	switch {
-	case state.Tun:
+	case state.ActualTun:
 		mode = "tun-route"
-	case state.SystemProxy:
+	case state.ActualSystemProxy:
 		mode = "proxy"
 	}
 
-	if (mode == "proxy" || mode == "tun-route") && !clash.IsRunning() {
+	if (mode == "proxy" || mode == "tun-route") && !state.IsRunning {
 		mode = "direct"
 	}
 
 	return fmt.Sprintf(
-		"%s|proxy=%t|tun=%t|sys=%t|config=%s",
+		"%s|actualProxy=%t|actualTun=%t|running=%t|config=%s",
 		mode,
-		state.SystemProxy,
-		state.Tun,
-		false,
+		state.ActualSystemProxy,
+		state.ActualTun,
+		state.IsRunning,
 		state.ActiveConfig,
 	)
 }
@@ -184,6 +184,31 @@ func (c *Controller) GetOutboundIP(force bool) (OutboundIPResult, error) {
 	return v.(OutboundIPResult), nil
 }
 
+func (c *Controller) currentOutboundRoute() string {
+	state := c.GetAppState()
+	if state.ActualTun {
+		return "tun-route"
+	}
+	if state.ActualSystemProxy && state.IsRunning {
+		return "proxy"
+	}
+	return "direct"
+}
+
+// GetOutboundIPForRoute 检测出站 IP，带路由预期校验防止竞态
+func (c *Controller) GetOutboundIPForRoute(force bool, expectedRoute string) (OutboundIPResult, error) {
+	currentRoute := c.currentOutboundRoute()
+
+	if expectedRoute != "" && expectedRoute != currentRoute {
+		return OutboundIPResult{
+			Mode:    currentRoute,
+			Message: fmt.Sprintf("路由切换中: expected=%s current=%s", expectedRoute, currentRoute),
+		}, nil
+	}
+
+	return c.GetOutboundIP(force)
+}
+
 func (c *Controller) getOutboundIPInternal() (OutboundIPResult, error) {
 	state := c.GetAppState()
 
@@ -194,15 +219,15 @@ func (c *Controller) getOutboundIPInternal() (OutboundIPResult, error) {
 	useHTTPProxy := false
 
 	switch {
-	case state.Tun:
+	case state.ActualTun:
 		mode = "tun-route"
-		useHTTPProxy = false
-	case state.SystemProxy:
+		useHTTPProxy = true // 强制通过代理端口检测，避免 Wintun 路由表未就绪或 IPv6 泄漏导致直连
+	case state.ActualSystemProxy:
 		mode = "proxy"
 		useHTTPProxy = true
 	}
 
-	if useHTTPProxy && !clash.IsRunning() {
+	if useHTTPProxy && !state.IsRunning {
 		useHTTPProxy = false
 		mode = "direct"
 	}

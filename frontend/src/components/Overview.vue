@@ -104,8 +104,10 @@ const consoleServiceOn = computed(() => desiredActive.value || actualActive.valu
 
 const consoleServiceTitle = computed(() => {
   if (isRestarting.value) return '内核重启中...';
-  if (desiredActive.value && globalState.isRunning) return '接管中';
-  if (desiredActive.value) return '启动中...';
+  // TUN 开启时：用 actualTun 判断，与 IP 检测的 state.Tun 一致
+  if (globalState.tun && globalState.actualTun) return '接管中';
+  // 系统代理：用 isRunning 判断
+  if (globalState.systemProxy && globalState.isRunning) return '接管中';
   if (actualActive.value) return '运行中';
   return '服务停止';
 });
