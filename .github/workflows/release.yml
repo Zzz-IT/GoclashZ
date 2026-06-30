@@ -92,12 +92,15 @@ jobs:
         shell: pwsh
         run: |
           $root = "build/portable/GoclashZ"
-          New-Item -ItemType Directory -Force "$root/core/bin" | Out-Null
+          New-Item -ItemType Directory -Force "$root/seed/core/bin" | Out-Null
+          New-Item -ItemType File -Force "$root/.portable" | Out-Null
 
           Copy-Item "build/bin/GoclashZ.exe" "$root/GoclashZ.exe" -Force
           Copy-Item "build/bin/GoclashZHelper.exe" "$root/GoclashZHelper.exe" -Force
-          Copy-Item "build/runtime-assets/core/bin/*" "$root/core/bin" -Recurse -Force `
-            -Exclude *.tmp,*.zip,*.old,*.txt,*.json,*.db,*.metadb,*.meta.json
+          Copy-Item "build/runtime-assets/core/bin/*" "$root/seed/core/bin" -Recurse -Force
+          if (Test-Path "build/runtime-assets/core/asset-manifest.json") {
+            Copy-Item "build/runtime-assets/core/asset-manifest.json" "$root/seed/core/asset-manifest.json" -Force
+          }
 
       - name: Pack portable zip
         shell: pwsh
