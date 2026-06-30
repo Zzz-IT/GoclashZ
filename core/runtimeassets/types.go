@@ -64,6 +64,7 @@ var (
 	RequireCoreOnly = Requirement{NeedCore: true}
 	RequireTun      = Requirement{NeedCore: true, NeedWintun: true}
 	RequireAll      = Requirement{NeedCore: true, NeedWintun: true, NeedGeo: true}
+	RequireGeoOnly  = Requirement{NeedGeo: true}
 )
 
 func baseHealth(key AssetKey, label string, path string, required bool) AssetHealth {

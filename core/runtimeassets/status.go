@@ -89,15 +89,37 @@ func requirementSatisfied(status RuntimeAssetStatus, req Requirement) bool {
 	return true
 }
 
-func requirementNeedsAsset(req Requirement, key AssetKey) bool {
-	switch key {
-	case AssetCore:
-		return req.NeedCore
-	case AssetWintun:
-		return req.NeedWintun
-	case AssetGeoIP, AssetGeoSite, AssetMMDB, AssetASN:
-		return req.NeedGeo
-	default:
-		return false
+func MergeStatus(statuses ...RuntimeAssetStatus) RuntimeAssetStatus {
+	merged := RuntimeAssetStatus{
+		Assets: make(map[AssetKey]AssetHealth),
 	}
+
+	for _, s := range statuses {
+		if s.AppDir != "" {
+			merged.AppDir = s.AppDir
+		}
+		if s.DataDir != "" {
+			merged.DataDir = s.DataDir
+		}
+		if s.CoreBinDir != "" {
+			merged.CoreBinDir = s.CoreBinDir
+		}
+		if s.SeedCoreBinDir != "" {
+			merged.SeedCoreBinDir = s.SeedCoreBinDir
+		}
+
+		for k, v := range s.Assets {
+			merged.Assets[k] = v
+		}
+
+		if s.CoreReady {
+			merged.CoreReady = true
+		}
+		if s.WintunReady {
+			merged.WintunReady = true
+		}
+	}
+
+	merged.Ready = merged.CoreReady && merged.WintunReady
+	return merged
 }

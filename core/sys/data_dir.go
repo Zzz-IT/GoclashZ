@@ -17,6 +17,18 @@ type DataDirInfo struct {
 	SeedCoreBinDir     string `json:"seedCoreBinDir"`
 	SeedManifestExists bool   `json:"seedManifestExists"`
 
+	SeedManifestOK    bool   `json:"seedManifestOK"`
+	SeedManifestError string `json:"seedManifestError,omitempty"`
+	SeedCoreReady     bool   `json:"seedCoreReady"`
+	SeedWintunReady   bool   `json:"seedWintunReady"`
+	SeedGeoIPReady    bool   `json:"seedGeoipReady"`
+	SeedGeoSiteReady  bool   `json:"seedGeositeReady"`
+	SeedMMDBReady     bool   `json:"seedMmdbReady"`
+	SeedASNReady      bool   `json:"seedAsnReady"`
+
+	CanAutoRepairCore   bool `json:"canAutoRepairCore"`
+	CanAutoRepairWintun bool `json:"canAutoRepairWintun"`
+
 	CoreExePath  string `json:"coreExePath"`
 	CoreExists   bool   `json:"coreExists"`
 	CoreReady    bool   `json:"coreReady"`

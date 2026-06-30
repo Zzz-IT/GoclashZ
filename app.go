@@ -120,15 +120,24 @@ func NewApp() *App {
 func (a *App) runStartupRuntimeAssetMaintenance(ctx context.Context) {
 	runtimeassets.MigrateLegacyAssets()
 
-	status, err := runtimeassets.EnsureReady(ctx, runtimeassets.RequireAll, runtimeassets.RepairInvalid)
-	if err != nil {
-		logger.Errorf("启动期运行组件自修复失败: %v", err)
-		for _, asset := range status.Assets {
+	// 第一阶段：必须修好 core + wintun
+	coreStatus, coreErr := runtimeassets.EnsureReady(ctx, runtimeassets.RequireTun, runtimeassets.RepairInvalid)
+	if coreErr != nil {
+		logger.Errorf("核心运行组件自修复失败: %v", coreErr)
+		for _, asset := range coreStatus.Assets {
 			if !asset.Ready && asset.Error != "" {
 				logger.Errorf("组件不可用: %s path=%s error=%s", asset.Key, asset.Path, asset.Error)
 			}
 		}
 	}
+
+	// 第二阶段：尝试修 geo，失败不影响应用启动
+	geoStatus, geoErr := runtimeassets.EnsureReady(ctx, runtimeassets.RequireGeoOnly, runtimeassets.RepairMissingOnly)
+	if geoErr != nil {
+		logger.Warnf("Geo 数据组件自修复失败，可稍后由在线更新补齐: %v", geoErr)
+	}
+
+	status := runtimeassets.MergeStatus(coreStatus, geoStatus)
 
 	if a.ctx != nil {
 		runtime.EventsEmit(a.ctx, "runtime-assets-status", status)
@@ -516,6 +525,31 @@ func (a *App) GetDataDirInfo() sys.DataDirInfo {
 		info.WintunError = wintun.Error
 	}
 	info.LayoutOK = info.CoreExists
+
+	// seed 目录真实文件状态
+	seedStatus := runtimeassets.GetSeedCatalogStatus(context.Background())
+	info.SeedManifestOK = seedStatus.ManifestOK
+	info.SeedManifestError = seedStatus.ManifestError
+	for _, sa := range seedStatus.Assets {
+		switch sa.Key {
+		case runtimeassets.AssetCore:
+			info.SeedCoreReady = sa.Ready
+		case runtimeassets.AssetWintun:
+			info.SeedWintunReady = sa.Ready
+		case runtimeassets.AssetGeoIP:
+			info.SeedGeoIPReady = sa.Ready
+		case runtimeassets.AssetGeoSite:
+			info.SeedGeoSiteReady = sa.Ready
+		case runtimeassets.AssetMMDB:
+			info.SeedMMDBReady = sa.Ready
+		case runtimeassets.AssetASN:
+			info.SeedASNReady = sa.Ready
+		}
+	}
+
+	// 自动修复能力判断
+	info.CanAutoRepairCore = info.SeedCoreReady && !info.CoreReady
+	info.CanAutoRepairWintun = info.SeedWintunReady && !info.WintunReady
 
 	return info
 }
