@@ -68,11 +68,6 @@ jobs:
         run: |
           .\scripts\fetch_runtime_assets.ps1
 
-      - name: Validate core files
-        shell: pwsh
-        run: |
-          .\scripts\validate_assets.ps1 -AssetRoot .\build\runtime-assets\core\bin
-
       - name: Build Wails app
         shell: pwsh
         run: |
@@ -82,6 +77,11 @@ jobs:
         shell: pwsh
         run: |
           go build -ldflags "-s -w" -o build/bin/GoclashZHelper.exe ./cmd/goclashz-helper/
+
+      - name: Validate core files
+        shell: pwsh
+        run: |
+          .\scripts\validate_assets.ps1 -AssetRoot .\build\runtime-assets\core\bin
 
       - name: Build installer
         shell: pwsh
