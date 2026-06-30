@@ -58,6 +58,11 @@ func main() {
 		logger.Errorf("旧数据迁移失败: %v", err)
 	}
 
+	if hasFlag("--shutdown-existing") {
+		sys.RequestExistingInstanceQuit()
+		os.Exit(0)
+	}
+
 	if hasFlag("--repair-permissions") {
 		if !sys.CheckAdmin() {
 			err := sys.RequestAdmin()
@@ -254,6 +259,13 @@ func installEmergencyProxyCleanup() {
 	go func() {
 		<-sigCh
 		logger.Infof("检测到退出信号，正在清理 GoclashZ 设置的系统代理...")
+		sys.ClearOwnedSystemProxy()
+		os.Exit(0)
+	}()
+
+	go func() {
+		sys.ListenForShutdownEvent()
+		logger.Infof("检测到安装器请求退出信号，正在紧急清理并退出...")
 		sys.ClearOwnedSystemProxy()
 		os.Exit(0)
 	}()

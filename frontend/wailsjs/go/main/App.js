@@ -78,6 +78,10 @@ export function ExportConfig(arg1, arg2) {
   return window['go']['main']['App']['ExportConfig'](arg1, arg2);
 }
 
+export function ExportDiagnostics() {
+  return window['go']['main']['App']['ExportDiagnostics']();
+}
+
 export function FlushFakeIP() {
   return window['go']['main']['App']['FlushFakeIP']();
 }
@@ -120,6 +124,10 @@ export function GetDNSConfig() {
 
 export function GetDataDirInfo() {
   return window['go']['main']['App']['GetDataDirInfo']();
+}
+
+export function GetDiagnosticInfo() {
+  return window['go']['main']['App']['GetDiagnosticInfo']();
 }
 
 export function GetEditableConfigs() {

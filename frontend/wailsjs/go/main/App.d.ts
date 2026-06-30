@@ -44,6 +44,8 @@ export function ExportBackup():Promise<string>;
 
 export function ExportConfig(arg1:string,arg2:boolean):Promise<void>;
 
+export function ExportDiagnostics():Promise<void>;
+
 export function FlushFakeIP():Promise<void>;
 
 export function GetAppBehavior():Promise<appcore.AppBehavior>;
@@ -65,6 +67,8 @@ export function GetCustomRules(arg1:string):Promise<Array<string>>;
 export function GetDNSConfig():Promise<clash.DNSConfig>;
 
 export function GetDataDirInfo():Promise<sys.DataDirInfo>;
+
+export function GetDiagnosticInfo():Promise<appcore.DiagnosticInfo>;
 
 export function GetEditableConfigs():Promise<Array<clash.ConfigTextResult>>;
 

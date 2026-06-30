@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wailsapp/wails/v2/pkg/runtime"
+
 	"goclashz/core/clash"
 	"goclashz/core/downloader"
 	"goclashz/core/logger"
@@ -1773,4 +1775,24 @@ func proxyGroupContainsNode(group map[string]interface{}, nodeName string) bool 
 		}
 	}
 	return false
+}
+
+// GetDiagnosticInfo returns current diagnostic info
+func (c *Controller) GetDiagnosticInfo() DiagnosticInfo {
+	return GetDiagnosticInfo()
+}
+
+// ExportDiagnostics exports diagnostics to a user-selected path
+func (c *Controller) ExportDiagnostics() error {
+	path, err := runtime.SaveFileDialog(c.ctx, runtime.SaveDialogOptions{
+		DefaultFilename: "goclashz_diagnostics.json",
+		Title:           "导出诊断信息",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "JSON Files (*.json)", Pattern: "*.json"},
+		},
+	})
+	if err != nil || path == "" {
+		return err // cancelled or error
+	}
+	return ExportDiagnosticsToFile(path)
 }

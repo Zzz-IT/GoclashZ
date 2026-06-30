@@ -5,7 +5,6 @@ package clash
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -19,7 +18,7 @@ var configMu sync.Mutex
 
 // GetConfigPath 获取 config.yaml 的绝对路径（导出供 app.go 使用，确保路径一致）
 func GetConfigPath() string {
-	return filepath.Join(utils.GetDataDir(), "config.yaml")
+	return utils.GetRuntimeConfigPath()
 }
 
 // ClashConfig 映射完整的 YAML 结构

@@ -217,6 +217,78 @@ export namespace appcore {
 		    return a;
 		}
 	}
+	export class DiagnosticAssets {
+	    "clash.exe": boolean;
+	    "wintun.dll": boolean;
+	    "geoip.metadb": boolean;
+	    "geosite.dat": boolean;
+	    "country.mmdb": boolean;
+	    "asn.dat": boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiagnosticAssets(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this["clash.exe"] = source["clash.exe"];
+	        this["wintun.dll"] = source["wintun.dll"];
+	        this["geoip.metadb"] = source["geoip.metadb"];
+	        this["geosite.dat"] = source["geosite.dat"];
+	        this["country.mmdb"] = source["country.mmdb"];
+	        this["asn.dat"] = source["asn.dat"];
+	    }
+	}
+	export class DiagnosticInfo {
+	    appDir: string;
+	    dataDir: string;
+	    seedCoreBinDir: string;
+	    runtimeCoreBinDir: string;
+	    runtimeConfigPath: string;
+	    isAdmin: boolean;
+	    helperServiceStatus: string;
+	    helperBinaryPath: string;
+	    assets: DiagnosticAssets;
+	    seedManifest: any;
+	    assetState: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiagnosticInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.appDir = source["appDir"];
+	        this.dataDir = source["dataDir"];
+	        this.seedCoreBinDir = source["seedCoreBinDir"];
+	        this.runtimeCoreBinDir = source["runtimeCoreBinDir"];
+	        this.runtimeConfigPath = source["runtimeConfigPath"];
+	        this.isAdmin = source["isAdmin"];
+	        this.helperServiceStatus = source["helperServiceStatus"];
+	        this.helperBinaryPath = source["helperBinaryPath"];
+	        this.assets = this.convertValues(source["assets"], DiagnosticAssets);
+	        this.seedManifest = source["seedManifest"];
+	        this.assetState = source["assetState"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class OutboundIPResult {
 	    preferred: string;
 	    ipv4: string;

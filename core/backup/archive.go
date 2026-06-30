@@ -718,3 +718,5 @@ func rebuildIndexFromSubscriptions(stagingDir string) ([]clash.SubIndexItem, err
 
 	return items, nil
 }
+
+// triggered rebuild

@@ -63,17 +63,15 @@ jobs:
           $version = "${env:APP_VERSION}"
           ./scripts/set_version.ps1 -Version $version
 
+      - name: Fetch runtime assets
+        shell: pwsh
+        run: |
+          .\scripts\fetch_runtime_assets.ps1
+
       - name: Validate core files
         shell: pwsh
         run: |
-          if (!(Test-Path "data/core/bin")) {
-            throw "Missing data/core/bin"
-          }
-
-          $files = Get-ChildItem "data/core/bin" -File -Recurse -ErrorAction SilentlyContinue
-          if ($files.Count -eq 0) {
-            throw "data/core/bin is empty"
-          }
+          .\scripts\validate_assets.ps1 -AssetRoot .\build\runtime-assets\core\bin
 
       - name: Build Wails app
         shell: pwsh
@@ -98,7 +96,7 @@ jobs:
 
           Copy-Item "build/bin/GoclashZ.exe" "$root/GoclashZ.exe" -Force
           Copy-Item "build/bin/GoclashZHelper.exe" "$root/GoclashZHelper.exe" -Force
-          Copy-Item "data/core/bin/*" "$root/core/bin" -Recurse -Force `
+          Copy-Item "build/runtime-assets/core/bin/*" "$root/core/bin" -Recurse -Force `
             -Exclude *.tmp,*.zip,*.old,*.txt,*.json,*.db,*.metadb,*.meta.json
 
       - name: Pack portable zip

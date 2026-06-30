@@ -17,7 +17,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
 	"goclashz/core/downloader"
 	"goclashz/core/sys"
 	"goclashz/core/utils"
@@ -25,7 +24,6 @@ import (
 
 // PrepareEnv 检查内核并生成基础配置
 func PrepareEnv(ctx context.Context) error {
-	MigrateCoreAssetsToBin()
 	binDir := utils.GetCoreBinDir() // 取向安全的 DataDir
 
 	if _, err := os.Stat(filepath.Join(binDir, "clash.exe")); os.IsNotExist(err) {
@@ -43,7 +41,7 @@ func PrepareEnv(ctx context.Context) error {
 	os.MkdirAll(utils.GetSubscriptionsDir(), 0755)
 
 	// 初始化默认配置 (如果不存在)
-	defaultCfg := filepath.Join(utils.GetDataDir(), "config.yaml")
+	defaultCfg := utils.GetRuntimeConfigPath()
 	if _, err := os.Stat(defaultCfg); os.IsNotExist(err) {
 		_ = os.WriteFile(defaultCfg, []byte("mode: rule\n"), 0644)
 	}

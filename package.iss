@@ -8,6 +8,9 @@
 #define MyAppExeName "GoclashZ.exe"
 
 [Setup]
+AppMutex=Global\GoclashZ_Single_Instance_Mutex
+CloseApplications=yes
+RestartApplications=no
 WizardStyle=modern dynamic includetitlebar
 VersionInfoVersion=1.2.1.0
 VersionInfoCompany=Zzz
@@ -51,26 +54,137 @@ Source: ".\build\bin\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 ; 2. 打包 Helper 服务程序 (用于 TUN、内核更新等高权限操作)
 Source: ".\build\bin\GoclashZHelper.exe"; DestDir: "{app}"; Flags: ignoreversion
 
-; 3. --- 核心修改 3：修正打包源路径 ---
-; 源码中内核存放在 .\data\core\bin，打包时我们把它塞进安装目录的 {app}\core\bin 中
-; 排除在开发运行时产生的临时下载文件和内核缓存数据库 (如 cache.db)
-Source: ".\data\core\bin\*"; DestDir: "{app}\core\bin"; Excludes: "*.tmp,*.zip,*.old,*.txt,*.json,*.db,*.meta.json"; Flags: ignoreversion recursesubdirs createallsubdirs
+; CI 拉取的最新资产只作为 seed
+Source: ".\build\runtime-assets\core\bin\*"; DestDir: "{app}\seed\core\bin"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: ".\build\runtime-assets\core\asset-manifest.json"; DestDir: "{app}\seed\core"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Dirs]
-Name: "{app}\data"; Permissions: users-modify
-Name: "{app}\data\Settings"; Permissions: users-modify
-Name: "{app}\data\Subscriptions"; Permissions: users-modify
-Name: "{app}\data\profiles"; Permissions: users-modify
-
-Name: "{app}\core"; Permissions: users-readexec
-Name: "{app}\core\bin"; Permissions: users-readexec
+Name: "{app}"; Permissions: users-readexec
+Name: "{app}\seed"; Permissions: users-readexec
+Name: "{app}\seed\core"; Permissions: users-readexec
+Name: "{app}\seed\core\bin"; Permissions: users-readexec
 
 [INI]
 Filename: "{app}\.installed"; Section: "Install"; Key: "Status"; String: "Installed"
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent unchecked runasoriginaluser
+
+[Code]
+function EscapeString(S: string): string;
+begin
+  StringChangeEx(S, '\', '\\', True);
+  StringChangeEx(S, '"', '\"', True);
+  Result := S;
+end;
+
+function IsDefaultInstallDir(): Boolean;
+var
+  DefaultDir: string;
+begin
+  DefaultDir := ExpandConstant('{localappdata}\Programs\GoclashZ');
+  Result := CompareText(RemoveBackslashUnlessRoot(WizardDirValue), RemoveBackslashUnlessRoot(DefaultDir)) = 0;
+end;
+
+function GetInstallMode(): string;
+begin
+  if IsDefaultInstallDir() then
+    Result := 'standard'
+  else
+    Result := 'self-contained';
+end;
+
+function GetResolvedDataDir(): string;
+begin
+  if IsDefaultInstallDir() then
+    Result := ExpandConstant('{localappdata}\GoclashZ')
+  else
+    Result := AddBackslash(WizardDirValue) + 'data';
+end;
+
+procedure WriteInstallProfile();
+var
+  Mode, DataDir, Json, Path: string;
+begin
+  Mode := GetInstallMode();
+  DataDir := GetResolvedDataDir();
+
+  Json :=
+    '{' + #13#10 +
+    '  "mode": "' + Mode + '",' + #13#10 +
+    '  "appDir": "' + EscapeString(WizardDirValue) + '",' + #13#10 +
+    '  "dataDir": "' + EscapeString(DataDir) + '",' + #13#10 +
+    '  "createdBy": "installer"' + #13#10 +
+    '}';
+
+  Path := AddBackslash(WizardDirValue) + 'install-profile.json';
+  SaveStringToFile(Path, Json, False);
+end;
+
+procedure CreateDataDirs();
+var
+  DataDir: string;
+begin
+  DataDir := GetResolvedDataDir();
+
+  ForceDirectories(DataDir);
+  ForceDirectories(AddBackslash(DataDir) + 'Settings');
+  ForceDirectories(AddBackslash(DataDir) + 'Subscriptions');
+  ForceDirectories(AddBackslash(DataDir) + 'profiles');
+  ForceDirectories(AddBackslash(DataDir) + 'runtime');
+  ForceDirectories(AddBackslash(DataDir) + 'core\bin');
+  ForceDirectories(AddBackslash(DataDir) + 'updates');
+  ForceDirectories(AddBackslash(DataDir) + 'logs');
+  ForceDirectories(AddBackslash(DataDir) + 'backups');
+end;
+
+function IsDirWritable(Dir: string): Boolean;
+var
+  TestFile: string;
+begin
+  Result := False;
+  ForceDirectories(Dir);
+  TestFile := AddBackslash(Dir) + '.goclashz_write_test';
+  if SaveStringToFile(TestFile, 'test', False) then begin
+    DeleteFile(TestFile);
+    Result := True;
+  end;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  DataDir: string;
+begin
+  Result := True;
+
+  if CurPageID = wpSelectDir then begin
+    DataDir := GetResolvedDataDir();
+
+    if not IsDefaultInstallDir() then begin
+      if not IsDirWritable(WizardDirValue) then begin
+        MsgBox('当前自定义安装目录不可写。请选择普通用户可写目录，或使用默认安装目录。', mbError, MB_OK);
+        Result := False;
+        Exit;
+      end;
+    end;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  if CurStep = ssInstall then begin
+    Exec(ExpandConstant('{app}\GoclashZ.exe'), '--shutdown-existing', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec('taskkill.exe', '/IM GoclashZ.exe /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  end;
+
+  if CurStep = ssPostInstall then begin
+    CreateDataDirs();
+    WriteInstallProfile();
+  end;
+end;

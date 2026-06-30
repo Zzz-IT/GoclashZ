@@ -3,11 +3,38 @@
 package utils
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+type InstallProfile struct {
+	Mode      string `json:"mode"`
+	AppDir    string `json:"appDir"`
+	DataDir   string `json:"dataDir"`
+	CreatedBy string `json:"createdBy"`
+}
+
+func readInstallProfile(appDir string) (InstallProfile, bool) {
+	path := filepath.Join(appDir, "install-profile.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return InstallProfile{}, false
+	}
+
+	var p InstallProfile
+	if err := json.Unmarshal(data, &p); err != nil {
+		return InstallProfile{}, false
+	}
+
+	if strings.TrimSpace(p.DataDir) == "" {
+		return InstallProfile{}, false
+	}
+
+	return p, true
+}
 
 var (
 	appDir        string
@@ -26,10 +53,14 @@ func initDirs() {
 	dataDir = resolveStableDataDir(appDir)
 
 	_ = os.MkdirAll(dataDir, 0755)
-	_ = os.MkdirAll(filepath.Join(dataDir, "profiles"), 0755)      // 存放 index.json
-	_ = os.MkdirAll(filepath.Join(dataDir, "Subscriptions"), 0755) // 🎯 新增：存放 YAML 和 Rules
-	_ = os.MkdirAll(filepath.Join(dataDir, "Settings"), 0755)      // 🎯 新增：存放独立设置文件
-	_ = os.MkdirAll(filepath.Join(appDir, "core", "bin"), 0755)    // 提前建好内核目录
+	_ = os.MkdirAll(filepath.Join(dataDir, "profiles"), 0755)
+	_ = os.MkdirAll(filepath.Join(dataDir, "Subscriptions"), 0755)
+	_ = os.MkdirAll(filepath.Join(dataDir, "Settings"), 0755)
+	_ = os.MkdirAll(filepath.Join(dataDir, "runtime"), 0755)
+	_ = os.MkdirAll(filepath.Join(dataDir, "core", "bin"), 0755)
+	_ = os.MkdirAll(filepath.Join(dataDir, "logs"), 0755)
+	_ = os.MkdirAll(filepath.Join(dataDir, "updates"), 0755)
+	_ = os.MkdirAll(filepath.Join(dataDir, "backups"), 0755)
 }
 
 func resolveAppDir() string {
@@ -68,6 +99,24 @@ func resolveStableDataDir(appDir string) string {
 		return filepath.Clean(dir)
 	}
 
+	if p, ok := readInstallProfile(appDir); ok {
+		switch p.Mode {
+		case "standard":
+			return filepath.Clean(os.ExpandEnv(p.DataDir))
+		case "self-contained", "portable":
+			return filepath.Clean(p.DataDir)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(appDir, ".portable")); err == nil {
+		return filepath.Join(appDir, "data")
+	}
+
+	local, err := os.UserCacheDir()
+	if err == nil && strings.TrimSpace(local) != "" {
+		return filepath.Join(local, "GoclashZ")
+	}
+
 	return filepath.Join(appDir, "data")
 }
 
@@ -98,9 +147,29 @@ func GetAppDir() string {
 	return appDir
 }
 
-// GetCoreBinDir 返回 clash.exe 所在目录 (只读)
+func GetSeedCoreBinDir() string {
+	return filepath.Join(appDir, "seed", "core", "bin")
+}
+
+func GetSeedAssetManifestPath() string {
+	return filepath.Join(appDir, "seed", "core", "asset-manifest.json")
+}
+
+func GetRuntimeDir() string {
+	return filepath.Join(dataDir, "runtime")
+}
+
+func GetRuntimeConfigPath() string {
+	return filepath.Join(GetRuntimeDir(), "config.yaml")
+}
+
+func GetPidFilePath() string {
+	return filepath.Join(GetRuntimeDir(), "clash.pid")
+}
+
+// GetCoreBinDir 返回运行时 clash.exe 所在目录 (可写)
 func GetCoreBinDir() string {
-	return filepath.Join(appDir, "core", "bin")
+	return filepath.Join(dataDir, "core", "bin")
 }
 
 // GetLegacyDataCoreBinDir 返回旧的 clash.exe 所在目录 (只读，仅用于迁移)

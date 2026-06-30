@@ -99,9 +99,8 @@ func Start(ctx context.Context, tun bool) error {
 	exePath := filepath.Join(binDir, "clash.exe")
 	targetExeName := filepath.Base(exePath)
 
-	dataDir := utils.GetDataDir()
-	pidFile := filepath.Join(dataDir, "clash.pid")
-	runtimeConfig := filepath.Join(dataDir, "config.yaml")
+	pidFile := utils.GetPidFilePath()
+	runtimeConfig := utils.GetRuntimeConfigPath()
 
 	cleanupResidualClashProcess(pidFile, targetExeName)
 

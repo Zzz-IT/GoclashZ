@@ -105,6 +105,8 @@ func (a *App) logApp(level string, format string, args ...any) {
 
 func NewApp() *App {
 	appcore.MigrateLegacyRootSettings()
+	clash.MigrateCoreAssetsToBin()
+	_ = utils.SyncSeedAssetsToRuntime(false)
 
 	app := &App{}
 	app.core = appcore.NewController(appcore.Options{
@@ -263,6 +265,14 @@ func (a *App) ToggleTunMode(enable bool) error {
 
 func (a *App) UpdateClashMode(mode string) error {
 	return a.core.UpdateClashMode(a.ctx, mode)
+}
+
+func (a *App) GetDiagnosticInfo() appcore.DiagnosticInfo {
+	return a.core.GetDiagnosticInfo()
+}
+
+func (a *App) ExportDiagnostics() error {
+	return a.core.ExportDiagnostics()
 }
 
 func (a *App) RestartCore() error {

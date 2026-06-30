@@ -941,6 +941,16 @@
 
             <div class="setting-item">
               <div class="info">
+                <h4>应用诊断信息</h4>
+                <p>导出应用路径、资产及服务状态以供故障排查</p>
+              </div>
+              <button class="action-btn accent-btn" @click="handleExportDiagnostics">导出诊断</button>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="setting-item">
+              <div class="info">
                 <h4>GitHub 仓库</h4>
                 <a href="javascript:void(0)" @click="openLink('https://github.com/Zzz-IT/GoclashZ')" class="link-item">https://github.com/Zzz-IT/GoclashZ</a>
               </div>
@@ -1896,6 +1906,17 @@ const handleRepairCoreLayout = async () => {
     showAlert('内核布局修复请求已发送（可能需要通过 UAC 确认）。修复完成后请手动刷新状态。');
   } catch (error) {
     showAlert('修复内核布局失败: ' + error);
+  }
+};
+
+const handleExportDiagnostics = async () => {
+  try {
+    await API.ExportDiagnostics();
+    showAlert('诊断信息导出成功');
+  } catch (error) {
+    if (error && String(error).indexOf('User cancelled') === -1) {
+      showAlert('导出诊断信息失败: ' + error);
+    }
   }
 };
 
