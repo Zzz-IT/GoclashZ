@@ -770,13 +770,18 @@ export namespace sys {
 	    appDir: string;
 	    dataDir: string;
 	    coreBinDir: string;
+	    seedCoreBinDir: string;
+	    seedManifestExists: boolean;
 	    coreExePath: string;
 	    coreExists: boolean;
-	    coreExecutable: boolean;
-	    coreInDataDir: boolean;
-	    legacyCoreExists: boolean;
+	    coreReady: boolean;
+	    wintunExists: boolean;
+	    wintunReady: boolean;
+	    layoutMode: string;
+	    layoutOK: boolean;
 	    legacyDataDir: string;
 	    legacyExists: boolean;
+	    legacyCoreExists: boolean;
 	    migrated: boolean;
 	    lastError: string;
 	
@@ -789,13 +794,18 @@ export namespace sys {
 	        this.appDir = source["appDir"];
 	        this.dataDir = source["dataDir"];
 	        this.coreBinDir = source["coreBinDir"];
+	        this.seedCoreBinDir = source["seedCoreBinDir"];
+	        this.seedManifestExists = source["seedManifestExists"];
 	        this.coreExePath = source["coreExePath"];
 	        this.coreExists = source["coreExists"];
-	        this.coreExecutable = source["coreExecutable"];
-	        this.coreInDataDir = source["coreInDataDir"];
-	        this.legacyCoreExists = source["legacyCoreExists"];
+	        this.coreReady = source["coreReady"];
+	        this.wintunExists = source["wintunExists"];
+	        this.wintunReady = source["wintunReady"];
+	        this.layoutMode = source["layoutMode"];
+	        this.layoutOK = source["layoutOK"];
 	        this.legacyDataDir = source["legacyDataDir"];
 	        this.legacyExists = source["legacyExists"];
+	        this.legacyCoreExists = source["legacyCoreExists"];
 	        this.migrated = source["migrated"];
 	        this.lastError = source["lastError"];
 	    }

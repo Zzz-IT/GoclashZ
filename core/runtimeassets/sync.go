@@ -121,8 +121,11 @@ func labelForKey(key AssetKey) string {
 func RepairFromSeed(ctx context.Context, req Requirement, mode RepairMode) error {
 	manifest, err := LoadSeedManifest()
 	if err != nil {
-		log.Printf("[runtimeassets] 读取内置只读种子清单失败 (可能处于未打包开发模式): %v", err)
-		return nil // 如果无只读种子清单，跳过种子同步（允许无种子运行）
+		if utils.IsPackagedInstall() {
+			return fmt.Errorf("安装包内置资产清单缺失，无法执行自修复: %w", err)
+		}
+		log.Printf("[runtimeassets] 开发模式未找到 seed manifest，跳过 seed 自修复: %v", err)
+		return nil
 	}
 
 	state := LoadAssetState()

@@ -933,9 +933,9 @@
             <div class="setting-item">
               <div class="info">
                 <h4>数据目录诊断</h4>
-                <p>查看并修复应用数据存储路径问题</p>
+                <p>查看程序目录、数据目录、内置 seed 与运行组件状态</p>
               </div>
-              <button class="action-btn accent-btn" @click="openDataDirDiagnosticModal">检查状态</button>
+              <button class="action-btn" @click="openDataDirDiagnosticModal">查看状态</button>
             </div>
 
             <div class="divider"></div>
@@ -1138,47 +1138,57 @@
             <div v-if="dataDirInfo" class="diagnostic-results" style="max-height: 400px; overflow-y: auto;">
               <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
                 <div class="info">
-                  <h4>程序目录 (AppDir)</h4>
+                  <h4>程序目录</h4>
                   <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.appDir }}</p>
                 </div>
               </div>
               <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
                 <div class="info">
-                  <h4>当前数据目录 (DataDir)</h4>
+                  <h4>数据目录</h4>
                   <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.dataDir }}</p>
                 </div>
               </div>
               <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
                 <div class="info">
-                  <h4>旧 AppData 目录 (Legacy)</h4>
-                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.legacyDataDir }}</p>
-                  <p v-if="dataDirInfo.legacyExists" style="color: var(--accent); font-size: 0.8rem; margin-top: 4px;">状态: 仍存在未删除</p>
-                  <p v-else style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">状态: 不存在或已清理</p>
+                  <h4>内置种子目录</h4>
+                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.seedCoreBinDir }}</p>
+                  <p v-if="dataDirInfo.seedManifestExists" style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">seed 清单: 存在</p>
+                  <p v-else style="color: var(--red-text); font-size: 0.8rem; margin-top: 4px;">seed 清单: 缺失</p>
+                </div>
+              </div>
+              <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
+                <div class="info">
+                  <h4>运行组件目录</h4>
+                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.coreBinDir }}</p>
+                  <p v-if="dataDirInfo.layoutOK" style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">布局: 正常</p>
+                  <p v-else style="color: var(--accent); font-size: 0.8rem; margin-top: 4px;">布局: 异常，将在下次启动时自动修复</p>
+                </div>
+              </div>
+              <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
+                <div class="info">
+                  <h4>组件状态</h4>
+                  <p :style="{ color: dataDirInfo.coreReady ? 'var(--green-text)' : 'var(--red-text)', fontWeight: 600 }">
+                    Mihomo: {{ dataDirInfo.coreReady ? '就绪' : (dataDirInfo.coreExists ? '损坏' : '缺失') }}
+                  </p>
+                  <p :style="{ color: dataDirInfo.wintunReady ? 'var(--green-text)' : 'var(--accent)', fontWeight: 600 }">
+                    Wintun: {{ dataDirInfo.wintunReady ? '就绪' : (dataDirInfo.wintunExists ? '损坏' : '缺失') }}
+                  </p>
                 </div>
               </div>
               <div class="setting-item" style="padding: 6px 0; align-items: flex-start; border-bottom: none;">
                 <div class="info">
-                  <h4>迁移状态</h4>
-                  <p v-if="dataDirInfo.migrated" style="color: var(--green-text); font-weight: 600;">已完成迁移</p>
-                  <p v-else>未触发迁移或无旧数据</p>
-                  <p v-if="dataDirInfo.lastError" class="red-text" style="font-size: 0.8rem; margin-top: 4px;">错误: {{ dataDirInfo.lastError }}</p>
-                </div>
-              </div>
-              <div class="setting-item" style="padding: 6px 0; align-items: flex-start; border-bottom: none;">
-                <div class="info">
-                  <h4>内核位置布局 (Core Layout)</h4>
-                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.coreExePath }}</p>
-                  <p v-if="dataDirInfo.coreInDataDir" style="color: var(--red-text); font-weight: 600; margin-top: 4px;">警告: 检测到内核仍位于可写 data 目录下，这极易导致开机自启拦截！</p>
-                  <p v-else style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">状态: 正常隔离在程序组件区</p>
+                  <h4>旧版目录</h4>
+                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.legacyDataDir || '无' }}</p>
+                  <p v-if="dataDirInfo.legacyExists" style="color: var(--accent); font-size: 0.8rem; margin-top: 4px;">仍存在，将在启动时自动迁移</p>
+                  <p v-else style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">不存在或已清理</p>
                 </div>
               </div>
             </div>
             
             <div class="modal-footer" style="margin-top: 16px;">
-              <button class="action-btn flex-1" @click="showDataDirDiagnosticModal = false">关闭</button>
-              <button class="action-btn flex-1" @click="handleRepairDataDirMigration">尝试修复迁移</button>
-              <button class="primary-btn accent-btn flex-1" @click="handleRepairDataDirPermission">修复目录权限</button>
-              <button v-if="dataDirInfo?.coreInDataDir" class="primary-btn flex-1" style="background: var(--red-bg); color: var(--red-text);" @click="handleRepairCoreLayout">修复内核布局</button>
+              <button class="action-btn flex-1" @click="openDataDirDiagnosticModal">重新检测</button>
+              <button class="action-btn flex-1" @click="handleExportDiagnostics">导出诊断</button>
+              <button class="primary-btn accent-btn flex-1" @click="showDataDirDiagnosticModal = false">完成</button>
             </div>
           </div>
         </div>
@@ -1869,34 +1879,6 @@ const openDataDirDiagnosticModal = async () => {
     showDataDirDiagnosticModal.value = true;
   } catch (error) {
     showAlert('获取数据目录信息失败: ' + error);
-  }
-};
-
-const handleRepairDataDirMigration = async () => {
-  try {
-    await API.RepairDataDirMigration();
-    showAlert('迁移修复已执行，正在重新检查状态...');
-    dataDirInfo.value = await API.GetDataDirInfo();
-  } catch (error) {
-    showAlert('迁移修复失败: ' + error);
-  }
-};
-
-const handleRepairDataDirPermission = async () => {
-  try {
-    await API.RepairDataDirPermission();
-    showAlert('权限修复请求已发送（可能需要通过 UAC 确认）。修复完成后请手动刷新状态。');
-  } catch (error) {
-    showAlert('权限修复失败: ' + error);
-  }
-};
-
-const handleRepairCoreLayout = async () => {
-  try {
-    await API.RepairCoreLayout();
-    showAlert('内核布局修复请求已发送（可能需要通过 UAC 确认）。修复完成后请手动刷新状态。');
-  } catch (error) {
-    showAlert('修复内核布局失败: ' + error);
   }
 };
 

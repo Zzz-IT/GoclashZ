@@ -6,59 +6,83 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"goclashz/core/utils"
 )
 
 type DataDirInfo struct {
-	AppDir           string `json:"appDir"`
-	DataDir          string `json:"dataDir"`
-	CoreBinDir       string `json:"coreBinDir"`
-	CoreExePath      string `json:"coreExePath"`
-	CoreExists       bool   `json:"coreExists"`
-	CoreExecutable   bool   `json:"coreExecutable"`
-	CoreInDataDir    bool   `json:"coreInDataDir"`
-	LegacyCoreExists bool   `json:"legacyCoreExists"`
+	AppDir             string `json:"appDir"`
+	DataDir            string `json:"dataDir"`
+	CoreBinDir         string `json:"coreBinDir"`
+	SeedCoreBinDir     string `json:"seedCoreBinDir"`
+	SeedManifestExists bool   `json:"seedManifestExists"`
+
+	CoreExePath  string `json:"coreExePath"`
+	CoreExists   bool   `json:"coreExists"`
+	CoreReady    bool   `json:"coreReady"`
+	WintunExists bool   `json:"wintunExists"`
+	WintunReady  bool   `json:"wintunReady"`
+
+	LayoutMode string `json:"layoutMode"`
+	LayoutOK   bool   `json:"layoutOK"`
+
 	LegacyDataDir    string `json:"legacyDataDir"`
 	LegacyExists     bool   `json:"legacyExists"`
+	LegacyCoreExists bool   `json:"legacyCoreExists"`
 	Migrated         bool   `json:"migrated"`
 	LastError        string `json:"lastError"`
 }
 
 func GetDataDirInfo() DataDirInfo {
 	info := DataDirInfo{
-		AppDir:        utils.GetAppDir(),
-		DataDir:       utils.GetDataDir(),
-		CoreBinDir:    utils.GetCoreBinDir(),
-		LegacyDataDir: utils.GetLegacyDataDir(),
+		AppDir:         utils.GetAppDir(),
+		DataDir:        utils.GetDataDir(),
+		CoreBinDir:     utils.GetCoreBinDir(),
+		SeedCoreBinDir: utils.GetSeedCoreBinDir(),
+		LegacyDataDir:  utils.GetLegacyDataDir(),
 	}
 
+	// seed 清单
+	manifestPath := utils.GetSeedAssetManifestPath()
+	if _, err := os.Stat(manifestPath); err == nil {
+		info.SeedManifestExists = true
+	}
+
+	// core 状态
 	info.CoreExePath = filepath.Join(info.CoreBinDir, "clash.exe")
-
-	if st, err := os.Stat(info.CoreExePath); err == nil {
+	if st, err := os.Stat(info.CoreExePath); err == nil && !st.IsDir() && st.Size() > 0 {
 		info.CoreExists = true
-		if !st.IsDir() && st.Size() > 0 {
-			info.CoreExecutable = true
-		}
+		info.CoreReady = true
 	}
 
-	info.CoreInDataDir = strings.HasPrefix(
-		strings.ToLower(filepath.Clean(info.CoreExePath)),
-		strings.ToLower(filepath.Clean(info.DataDir))+string(filepath.Separator),
-	)
-
-	legacyCorePath := filepath.Join(utils.GetLegacyDataCoreBinDir(), "clash.exe")
-	if _, err := os.Stat(legacyCorePath); err == nil {
-		info.LegacyCoreExists = true
+	// wintun 状态
+	wintunPath := filepath.Join(info.CoreBinDir, "wintun.dll")
+	if st, err := os.Stat(wintunPath); err == nil && !st.IsDir() && st.Size() > 0 {
+		info.WintunExists = true
+		info.WintunReady = true
 	}
 
+	// 布局判断：DataDir 下有 core/bin 即正常
+	info.LayoutMode = "unknown"
+	if utils.IsPackagedInstall() {
+		info.LayoutMode = "standard"
+	} else {
+		info.LayoutMode = "dev"
+	}
+	info.LayoutOK = info.CoreExists
+
+	// 旧版目录
 	if info.LegacyDataDir != "" {
 		if _, err := os.Stat(info.LegacyDataDir); err == nil {
 			info.LegacyExists = true
 		}
 	}
+	legacyCorePath := filepath.Join(utils.GetLegacyDataCoreBinDir(), "clash.exe")
+	if _, err := os.Stat(legacyCorePath); err == nil {
+		info.LegacyCoreExists = true
+	}
 
+	// 迁移记录
 	metaPath := filepath.Join(info.DataDir, ".migration.json")
 	if data, err := os.ReadFile(metaPath); err == nil {
 		var meta struct {

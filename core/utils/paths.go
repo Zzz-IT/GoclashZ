@@ -229,3 +229,14 @@ func SaveGlobalTheme(theme string) error {
 	themeFile := filepath.Join(GetDataDir(), "theme_setting.txt")
 	return os.WriteFile(themeFile, []byte(theme), 0644)
 }
+
+// IsPackagedInstall 判断是否为安装包模式（非开发环境）
+func IsPackagedInstall() bool {
+	if _, err := os.Stat(filepath.Join(appDir, "install-profile.json")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(appDir, ".installed")); err == nil {
+		return true
+	}
+	return false
+}
