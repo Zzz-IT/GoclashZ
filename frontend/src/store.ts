@@ -2,6 +2,7 @@
 import { reactive } from 'vue';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 import * as API from '../wailsjs/go/main/App';
+import { runtimeassets } from '../wailsjs/go/models';
 
 export type UpdateTaskState = {
   key: string;
@@ -71,6 +72,7 @@ export const globalState = reactive({
   appLogLevel: 'info', // 👈 新增：软件日志等级
   isAdmin: false,
   tunStatus: { hasWintun: false, isAdmin: false },
+  assetStatus: null as runtimeassets.RuntimeAssetStatus | null,
   delayRetention: true,
   delayRetentionTime: 'long',
 

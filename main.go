@@ -12,8 +12,8 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
-	"goclashz/core/clash"
 	"goclashz/core/logger"
+	"goclashz/core/runtimeassets"
 	"goclashz/core/sys"
 	"goclashz/core/utils"
 	syswin "golang.org/x/sys/windows"
@@ -90,7 +90,7 @@ func main() {
 			os.Exit(0)
 		}
 
-		clash.MigrateCoreAssetsToBin()
+		runtimeassets.MigrateLegacyAssets()
 		err := utils.RepairCoreBinPermission()
 		if err != nil {
 			logger.Errorf("修复内核目录权限失败: %v", err)

@@ -108,10 +108,6 @@ func Start(ctx context.Context, tun bool) error {
 		return err
 	}
 
-	if err := validateCoreExecutable(exePath); err != nil {
-		return err
-	}
-
 	if tun {
 		// TUN 模式：必须通过 helper 启动
 		return startCoreViaHelper(ctx, exePath, binDir, runtimeConfig, pidFile)
@@ -246,22 +242,7 @@ func StartedViaHelper() bool {
 	return startedViaHelper.Load()
 }
 
-func validateCoreExecutable(exePath string) error {
-	st, err := os.Stat(exePath)
-	if err != nil {
-		return fmt.Errorf("内核文件不存在: %w", err)
-	}
 
-	if st.IsDir() {
-		return fmt.Errorf("内核路径不是文件: %s", exePath)
-	}
-
-	if st.Size() < 5*1024*1024 {
-		return fmt.Errorf("内核文件体积异常: %d bytes", st.Size())
-	}
-
-	return ValidateWindowsPE(exePath, 5*1024*1024)
-}
 
 func startCoreProcessWithRetry(ctx context.Context, exePath, binDir, runtimeConfig string) (*exec.Cmd, error) {
 	var lastErr error

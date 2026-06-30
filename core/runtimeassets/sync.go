@@ -1,0 +1,252 @@
+package runtimeassets
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+
+	"goclashz/core/utils"
+)
+
+type SeedManifest struct {
+	GeneratedAt string `json:"generatedAt"`
+	Assets      []struct {
+		Name    string `json:"name"`
+		Path    string `json:"path"`
+		Source  string `json:"source"`
+		Version string `json:"version"`
+		Size    int64  `json:"size"`
+		SHA256  string `json:"sha256"`
+	} `json:"assets"`
+}
+
+type AssetState struct {
+	SeedManifestSha256 string `json:"seedManifestSha256"`
+	CopiedAssets       map[string]struct {
+		SHA256 string `json:"sha256"`
+		Source string `json:"source"`
+	} `json:"copiedAssets"`
+}
+
+func getAssetStatePath() string {
+	return filepath.Join(utils.GetCoreBinDir(), "asset-state.json")
+}
+
+func LoadSeedManifest() (*SeedManifest, error) {
+	path := utils.GetSeedAssetManifestPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var manifest SeedManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, err
+	}
+	return &manifest, nil
+}
+
+func LoadAssetState() *AssetState {
+	path := getAssetStatePath()
+	data, err := os.ReadFile(path)
+	state := &AssetState{
+		CopiedAssets: make(map[string]struct {
+			SHA256 string `json:"sha256"`
+			Source string `json:"source"`
+		}),
+	}
+	if err == nil {
+		_ = json.Unmarshal(data, state)
+	}
+	if state.CopiedAssets == nil {
+		state.CopiedAssets = make(map[string]struct {
+			SHA256 string `json:"sha256"`
+			Source string `json:"source"`
+		})
+	}
+	return state
+}
+
+func saveAssetState(state *AssetState) error {
+	path := getAssetStatePath()
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	return utils.WriteFileAtomic(path, data, 0644)
+}
+
+func keyFromName(name string) AssetKey {
+	switch name {
+	case "clash.exe":
+		return AssetCore
+	case "wintun.dll":
+		return AssetWintun
+	case "geoip.metadb":
+		return AssetGeoIP
+	case "geosite.dat":
+		return AssetGeoSite
+	case "country.mmdb":
+		return AssetMMDB
+	case "asn.dat":
+		return AssetASN
+	default:
+		return ""
+	}
+}
+
+func minSizeForKey(key AssetKey) int64 {
+	switch key {
+	case AssetCore:
+		return 5 * 1024 * 1024
+	case AssetWintun:
+		return 32 * 1024
+	default:
+		return 64 * 1024 // geo data files
+	}
+}
+
+func labelForKey(key AssetKey) string {
+	switch key {
+	case AssetCore:
+		return "Mihomo 内核"
+	case AssetWintun:
+		return "Wintun 驱动"
+	case AssetGeoIP:
+		return "GeoIP"
+	case AssetGeoSite:
+		return "GeoSite"
+	case AssetMMDB:
+		return "MMDB"
+	case AssetASN:
+		return "ASN"
+	default:
+		return string(key)
+	}
+}
+
+func RepairFromSeed(ctx context.Context, mode RepairMode) error {
+	manifest, err := LoadSeedManifest()
+	if err != nil {
+		log.Printf("[runtimeassets] 读取内置只读种子清单失败 (可能处于未打包开发模式): %v", err)
+		return nil // 如果无只读种子清单，跳过种子同步（允许无种子运行）
+	}
+
+	state := LoadAssetState()
+	changed := false
+
+	manifestData, _ := os.ReadFile(utils.GetSeedAssetManifestPath())
+	manifestHash := ""
+	if len(manifestData) > 0 {
+		h := sha256.New()
+		h.Write(manifestData)
+		manifestHash = hex.EncodeToString(h.Sum(nil))
+	}
+	appUpdated := manifestHash != "" && manifestHash != state.SeedManifestSha256
+
+	for _, item := range manifest.Assets {
+		key := keyFromName(item.Name)
+		if key == "" {
+			continue
+		}
+
+		seedPath := filepath.Join(utils.GetSeedCoreBinDir(), item.Name)
+		runtimePath := filepath.Join(utils.GetCoreBinDir(), item.Name)
+
+		// 1. 验证 seed 是否可用
+		var seedHealth AssetHealth
+		if key == AssetCore {
+			seedHealth = checkCoreByPath(ctx, seedPath)
+		} else if key == AssetWintun {
+			seedHealth = checkWintunByPath(seedPath)
+		} else {
+			seedHealth = checkDataFileByPath(key, labelForKey(key), seedPath, minSizeForKey(key))
+		}
+
+		// 如果内置的核心资产 seed 坏了，说明安装包打包有致命问题
+		if !seedHealth.Ready && seedHealth.Required {
+			log.Printf("[runtimeassets] 内置核心种子不合格: %s path=%s err=%s", item.Name, seedPath, seedHealth.Error)
+			// 如果是 core，应该报严重错误
+			if key == AssetCore {
+				return fmt.Errorf("内置核心资产种子不可用: %s", seedHealth.Error)
+			}
+		}
+
+		// 2. 验证 runtime 是否可用
+		var runtimeHealth AssetHealth
+		if key == AssetCore {
+			runtimeHealth = CheckCore(ctx)
+		} else if key == AssetWintun {
+			runtimeHealth = CheckWintun()
+		} else {
+			runtimeHealth = CheckDataFile(key, labelForKey(key), item.Name, minSizeForKey(key))
+		}
+
+		shouldCopy := false
+		switch mode {
+		case RepairForce:
+			shouldCopy = true
+		case RepairInvalid:
+			shouldCopy = !runtimeHealth.Ready
+		case RepairMissingOnly:
+			shouldCopy = !runtimeHealth.Exists
+		}
+
+		// 3. 检查升级覆盖策略：如果 runtime 已经就绪，但在 app 升级时需要判断是否被用户魔改过
+		if shouldCopy && !forceMode(mode) && runtimeHealth.Ready && appUpdated {
+			// 如果记录中已拷过该资产，且当前的哈希等于记录的哈希，说明用户没有碰过它，可以被安全升级覆盖
+			if copied, exists := state.CopiedAssets[item.Name]; exists {
+				if runtimeHealth.SHA256 == copied.SHA256 {
+					shouldCopy = true
+				} else {
+					log.Printf("[runtimeassets] 资产 %s 已被用户手动更新修改，升级时跳过覆盖", item.Name)
+					shouldCopy = false
+				}
+			} else {
+				log.Printf("[runtimeassets] 资产 %s 存在且已就绪但无拷贝记录，升级时跳过覆盖", item.Name)
+				shouldCopy = false
+			}
+		}
+
+		if shouldCopy {
+			if _, err := os.Stat(seedPath); err == nil {
+				// 确保目标路径的父目录存在
+				_ = os.MkdirAll(filepath.Dir(runtimePath), 0755)
+
+				// 安全覆盖
+				if err := utils.CopyFile(seedPath, runtimePath); err != nil {
+					return fmt.Errorf("覆盖复制内置资产 %s 失败: %w", item.Name, err)
+				}
+				log.Printf("[runtimeassets] 成功自愈/同步资产: %s", item.Name)
+
+				state.CopiedAssets[item.Name] = struct {
+					SHA256 string `json:"sha256"`
+					Source string `json:"source"`
+				}{
+					SHA256: item.SHA256,
+					Source: "seed",
+				}
+				changed = true
+			} else {
+				log.Printf("[runtimeassets] 警告: 清单标明内置资产 %s 存在，但未找到实体文件", item.Name)
+			}
+		}
+	}
+
+	if changed || appUpdated {
+		state.SeedManifestSha256 = manifestHash
+		if err := saveAssetState(state); err != nil {
+			log.Printf("[runtimeassets] 保存资产记录状态失败: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func forceMode(mode RepairMode) bool {
+	return mode == RepairForce
+}

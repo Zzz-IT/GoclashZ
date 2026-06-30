@@ -9,6 +9,7 @@ import (
 	"goclashz/core/appcore"
 	"goclashz/core/clash"
 	"goclashz/core/logger"
+	"goclashz/core/runtimeassets"
 	"goclashz/core/sys"
 	"goclashz/core/utils"
 	"os"
@@ -105,8 +106,17 @@ func (a *App) logApp(level string, format string, args ...any) {
 
 func NewApp() *App {
 	appcore.MigrateLegacyRootSettings()
-	clash.MigrateCoreAssetsToBin()
-	_ = utils.SyncSeedAssetsToRuntime(false)
+	runtimeassets.MigrateLegacyAssets()
+	if status, err := runtimeassets.EnsureReady(context.Background(), runtimeassets.RepairInvalid); err != nil {
+		logger.Errorf("运行组件初始化失败: %v", err)
+		for _, asset := range status.Assets {
+			if !asset.Ready && asset.Error != "" {
+				logger.Errorf("组件不可用: %s path=%s error=%s", asset.Key, asset.Path, asset.Error)
+			}
+		}
+	}
+	// 异步清理旧资产（安全起见，非阻塞）
+	go runtimeassets.CleanupLegacyAssets()
 
 	app := &App{}
 	app.core = appcore.NewController(appcore.Options{
@@ -167,7 +177,6 @@ func (a *App) shutdown(ctx context.Context) {
 // --- AppState & Sync ---
 
 type AppState = appcore.AppState
-type ComponentFileInfo = appcore.ComponentFileInfo
 
 func (a *App) GetAppState() AppState {
 	return a.core.GetAppState()
@@ -481,18 +490,21 @@ func (a *App) RepairDataDirPermission() error {
 }
 
 func (a *App) RepairCoreLayout() error {
-	clash.MigrateCoreAssetsToBin()
+	runtimeassets.MigrateLegacyAssets()
 	if !sys.CheckAdmin() {
 		return sys.RunElevatedWithArgsWait("--repair-core-layout")
 	}
 	return utils.RepairCoreBinPermission()
 }
 
-func (a *App) CheckTunEnv() map[string]bool {
+func (a *App) CheckTunEnv() map[string]any {
+	status := runtimeassets.GetStatus(a.ctx)
 	helperStatus := sys.CheckHelperService()
-	return map[string]bool{
+
+	return map[string]any{
 		"isAdmin":       sys.CheckAdmin(),
-		"hasWintun":     sys.IsWintunInstalled(),
+		"hasWintun":     status.Assets[runtimeassets.AssetWintun].Ready,
+		"wintun":        status.Assets[runtimeassets.AssetWintun],
 		"helperRunning": helperStatus.Reachable,
 	}
 }
@@ -502,19 +514,29 @@ func (a *App) InstallTunDriverAsync(_ bool) {
 }
 
 func (a *App) GetWintunVersion() string {
-	path := filepath.Join(utils.GetCoreBinDir(), "wintun.dll")
-	if _, err := os.Stat(path); err != nil {
+	status := runtimeassets.GetStatus(a.ctx)
+	w := status.Assets[runtimeassets.AssetWintun]
+	if !w.Ready {
 		return "未安装"
 	}
-	v, err := sys.GetFileVersion(path)
-	if err != nil || strings.TrimSpace(v) == "" {
-		return "已安装，版本未知"
+	if w.Version != "" {
+		return w.Version
 	}
-	return v
+	return "已安装，版本未知"
 }
 
-func (a *App) GetComponentFileInfo() map[string]ComponentFileInfo {
-	return appcore.GetComponentFileInfo()
+func (a *App) GetComponentFileInfo() map[string]runtimeassets.AssetHealth {
+	status := runtimeassets.GetStatus(a.ctx)
+
+	return map[string]runtimeassets.AssetHealth{
+		"core":    status.Assets[runtimeassets.AssetCore],
+		"clash":   status.Assets[runtimeassets.AssetCore],
+		"wintun":  status.Assets[runtimeassets.AssetWintun],
+		"geoip":   status.Assets[runtimeassets.AssetGeoIP],
+		"geosite": status.Assets[runtimeassets.AssetGeoSite],
+		"mmdb":    status.Assets[runtimeassets.AssetMMDB],
+		"asn":     status.Assets[runtimeassets.AssetASN],
+	}
 }
 
 func (a *App) GetUwpApps() ([]sys.UwpApp, error) {
@@ -596,7 +618,27 @@ func (a *App) StartClash(id string) error {
 // --- Extra Utilities ---
 
 func (a *App) GetCoreVersion() string {
-	return a.core.GetCoreVersion(a.ctx)
+	status := runtimeassets.GetStatus(a.ctx)
+	core := status.Assets[runtimeassets.AssetCore]
+	if !core.Ready {
+		return "未安装"
+	}
+	if core.Version != "" {
+		return core.Version
+	}
+	return "已安装，版本未知"
+}
+
+func (a *App) GetRuntimeAssetStatus() runtimeassets.RuntimeAssetStatus {
+	return runtimeassets.GetStatus(a.ctx)
+}
+
+func (a *App) RepairRuntimeAssets() runtimeassets.RuntimeAssetStatus {
+	status, err := runtimeassets.EnsureReady(a.ctx, runtimeassets.RepairForce)
+	if err != nil {
+		a.core.LogApp("error", "修复运行组件失败: %v", err)
+	}
+	return status
 }
 
 func (a *App) GetProxyDelay(proxyName, testUrl string) (int, error) {

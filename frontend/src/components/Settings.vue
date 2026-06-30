@@ -160,9 +160,10 @@
                   <p class="link-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                     {{ behavior[db.behaviorKey] || '未配置下载链接' }}
                   </p>
-                  <p v-if="dbFileInfo[db.key]?.exists" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">
+                  <p v-if="dbFileInfo[db.key]?.ready" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">
                     大小: {{ formatBytes(dbFileInfo[db.key].size) }} | 更新于: {{ formatRelativeTime(dbFileInfo[db.key].modTime) }}
                   </p>
+                  <p v-else-if="dbFileInfo[db.key]?.error" style="font-size: 0.75rem; color: var(--red-text); margin-top: 2px;">{{ dbFileInfo[db.key].error }}</p>
                   <p v-else style="font-size: 0.75rem; color: var(--red-text); margin-top: 2px;">文件不存在，请点击更新同步</p>
                 </div>
                 <div class="btn-group" style="flex-shrink: 0;">
@@ -1328,22 +1329,37 @@ const updatedDbCount = computed(() => {
   ).length;
 });
 
-const refreshComponentFileInfo = async () => {
-  const info = await (API as any).GetComponentFileInfo();
-  componentFileInfo.value = info || {};
+const refreshRuntimeAssets = async () => {
+  const status = await (API as any).GetRuntimeAssetStatus();
+  globalState.assetStatus = status;
+
+  const core = status?.assets?.core;
+  const wintun = status?.assets?.wintun;
+
+  coreVersion.value = core?.ready
+    ? (core.version || '已安装，版本未知')
+    : '未安装';
+
+  wintunVersion.value = wintun?.ready
+    ? (wintun.version || '已安装，版本未知')
+    : '未安装';
+
+  tunStatus.value = {
+    ...tunStatus.value,
+    hasWintun: !!wintun?.ready,
+    wintun,
+  };
+
   dbFileInfo.value = {
-    geoip: info?.geoip || {},
-    geosite: info?.geosite || {},
-    mmdb: info?.mmdb || {},
-    asn: info?.asn || {},
+    geoip: status?.assets?.geoip || {},
+    geosite: status?.assets?.geosite || {},
+    mmdb: status?.assets?.mmdb || {},
+    asn: status?.assets?.asn || {},
   };
 };
 
-const refreshComponentInfo = async () => {
-  coreVersion.value = await (API as any).GetCoreVersion();
-  wintunVersion.value = await (API as any).GetWintunVersion();
-  await refreshComponentFileInfo();
-};
+const refreshComponentFileInfo = refreshRuntimeAssets;
+const refreshComponentInfo = refreshRuntimeAssets;
 
 const isUpdatingAnyDb = computed(() => {
   return ["geoip", "geosite", "mmdb", "asn"].some(isUpdatingDb);
@@ -1638,11 +1654,8 @@ const saveUwpChanges = async () => {
 
 const loadData = async () => {
   try {
-    const cv = await (API as any).GetCoreVersion();
-    if (cv) coreVersion.value = cv;
-
-    const wv = await (API as any).GetWintunVersion();
-    if (wv) wintunVersion.value = wv;
+    // 统一刷新所有运行资产状态（内核版本、wintun、geo文件信息）
+    await refreshRuntimeAssets();
 
     const status = await API.CheckTunEnv();
     tunStatus.value = status;
@@ -1659,17 +1672,6 @@ const loadData = async () => {
     if (behaviorConf) {
       behavior.value = behaviorConf;
       refreshHelperStatus();
-    }
-
-    const info = await (API as any).GetComponentFileInfo();
-    if (info) {
-      componentFileInfo.value = info;
-      dbFileInfo.value = {
-        geoip: info?.geoip || {},
-        geosite: info?.geosite || {},
-        mmdb: info?.mmdb || {},
-        asn: info?.asn || {},
-      };
     }
   } catch (e) {
     console.error('加载配置失败', e);

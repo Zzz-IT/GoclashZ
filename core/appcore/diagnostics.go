@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"goclashz/core/runtimeassets"
 	"goclashz/core/sys"
 	"goclashz/core/utils"
 )
@@ -78,10 +79,10 @@ func GetDiagnosticInfo() DiagnosticInfo {
 	info.Assets.CountryMmdb = fileExists(filepath.Join(info.RuntimeCoreBinDir, "country.mmdb"))
 	info.Assets.AsnDat = fileExists(filepath.Join(info.RuntimeCoreBinDir, "asn.dat"))
 
-	manifest, _ := utils.LoadSeedManifest()
+	manifest, _ := runtimeassets.LoadSeedManifest()
 	info.SeedManifest = manifest
 
-	info.AssetState = utils.LoadAssetState()
+	info.AssetState = runtimeassets.LoadAssetState()
 
 	return info
 }

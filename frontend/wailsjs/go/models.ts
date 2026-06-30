@@ -667,6 +667,93 @@ export namespace main {
 
 }
 
+export namespace runtimeassets {
+	
+	export class AssetHealth {
+	    key: string;
+	    label: string;
+	    path: string;
+	    exists: boolean;
+	    valid: boolean;
+	    ready: boolean;
+	    required: boolean;
+	    size: number;
+	    modTime: number;
+	    sha256?: string;
+	    version?: string;
+	    errorCode?: string;
+	    error?: string;
+	    hint?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AssetHealth(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.label = source["label"];
+	        this.path = source["path"];
+	        this.exists = source["exists"];
+	        this.valid = source["valid"];
+	        this.ready = source["ready"];
+	        this.required = source["required"];
+	        this.size = source["size"];
+	        this.modTime = source["modTime"];
+	        this.sha256 = source["sha256"];
+	        this.version = source["version"];
+	        this.errorCode = source["errorCode"];
+	        this.error = source["error"];
+	        this.hint = source["hint"];
+	    }
+	}
+	export class RuntimeAssetStatus {
+	    appDir: string;
+	    dataDir: string;
+	    coreBinDir: string;
+	    seedCoreBinDir: string;
+	    assets: Record<string, AssetHealth>;
+	    coreReady: boolean;
+	    wintunReady: boolean;
+	    ready: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RuntimeAssetStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.appDir = source["appDir"];
+	        this.dataDir = source["dataDir"];
+	        this.coreBinDir = source["coreBinDir"];
+	        this.seedCoreBinDir = source["seedCoreBinDir"];
+	        this.assets = this.convertValues(source["assets"], AssetHealth, true);
+	        this.coreReady = source["coreReady"];
+	        this.wintunReady = source["wintunReady"];
+	        this.ready = source["ready"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace sys {
 	
 	export class DataDirInfo {

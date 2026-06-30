@@ -18,91 +18,27 @@ import (
 	"sync"
 	"time"
 	"goclashz/core/downloader"
+	"goclashz/core/runtimeassets"
 	"goclashz/core/sys"
 	"goclashz/core/utils"
 )
 
 // PrepareEnv 检查内核并生成基础配置
 func PrepareEnv(ctx context.Context) error {
-	binDir := utils.GetCoreBinDir() // 取向安全的 DataDir
-
-	if _, err := os.Stat(filepath.Join(binDir, "clash.exe")); os.IsNotExist(err) {
-		// 优先触发一次下载（或者由前端引导）
-		// 初始化时如果不通代理，PrepareCoreUpdate 内部逻辑会处理
-		prepared, err := PrepareCoreUpdate(ctx, "https://github.com/MetaCubeX/mihomo/releases/download/v1.18.1/mihomo-windows-amd64-v1.18.1.zip", nil, nil)
-		if err == nil {
-			_, _ = CommitCoreUpdate(ctx, prepared)
-		} else {
-			return fmt.Errorf("内核文件缺失且自动下载失败: %v", err)
-		}
+	status, err := runtimeassets.EnsureReady(ctx, runtimeassets.RepairInvalid)
+	if err != nil {
+		core := status.Assets[runtimeassets.AssetCore]
+		return fmt.Errorf("内核不可用: %s (%s)", core.Error, core.Path)
 	}
 
-	// 提前创建配置文件夹
-	os.MkdirAll(utils.GetSubscriptionsDir(), 0755)
+	_ = os.MkdirAll(utils.GetSubscriptionsDir(), 0755)
 
-	// 初始化默认配置 (如果不存在)
 	defaultCfg := utils.GetRuntimeConfigPath()
 	if _, err := os.Stat(defaultCfg); os.IsNotExist(err) {
-		_ = os.WriteFile(defaultCfg, []byte("mode: rule\n"), 0644)
+		_ = utils.WriteFileAtomic(defaultCfg, []byte("mode: rule\n"), 0644)
 	}
 
 	return nil
-}
-
-// MigrateCoreAssetsToBin 将旧版遗留在 data 根目录及旧 core/bin 下的资产迁移到新的 core/bin 下
-func MigrateCoreAssetsToBin() {
-	targetDir := utils.GetCoreBinDir()
-	_ = os.MkdirAll(targetDir, 0755)
-
-	legacyDirs := []string{
-		utils.GetLegacyDataCoreBinDir(),
-		utils.GetDataDir(),
-	}
-
-	assets := []string{
-		"clash.exe", "wintun.dll",
-		"geoip.metadb", "geosite.dat", "country.mmdb", "asn.dat",
-	}
-
-	for _, name := range assets {
-		target := filepath.Join(targetDir, name)
-
-		targetExists := false
-		if st, err := os.Stat(target); err == nil && !st.IsDir() {
-			targetExists = true
-		}
-
-		for _, legacyDir := range legacyDirs {
-			oldPath := filepath.Join(legacyDir, name)
-			if _, err := os.Stat(oldPath); err != nil {
-				continue
-			}
-
-			if targetExists {
-				_ = os.Rename(oldPath, oldPath+".old")
-				continue
-			}
-
-			if err := os.Rename(oldPath, target); err == nil {
-				targetExists = true
-				if name == "clash.exe" {
-					_ = ValidateWindowsPE(target, 5*1024*1024)
-				}
-				break
-			}
-
-			if data, err := os.ReadFile(oldPath); err == nil {
-				if err := os.WriteFile(target, data, 0755); err == nil {
-					_ = os.Remove(oldPath)
-					targetExists = true
-					if name == "clash.exe" {
-						_ = ValidateWindowsPE(target, 5*1024*1024)
-					}
-					break
-				}
-			}
-		}
-	}
 }
 
 var localCoreVersionCache struct {
@@ -280,7 +216,7 @@ func PrepareCoreUpdate(ctx context.Context, assetURL string, strategy func() dow
 		return nil, err
 	}
 
-	if err := ValidateWindowsPE(stagedExe, 5*1024*1024); err != nil {
+	if err := utils.ValidateWindowsPE(stagedExe, 5*1024*1024, 300*1024*1024); err != nil {
 		_ = os.Remove(stagedExe)
 		return nil, err
 	}

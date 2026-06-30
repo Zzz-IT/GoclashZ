@@ -170,6 +170,10 @@ export function GetRulePageData(arg1) {
   return window['go']['main']['App']['GetRulePageData'](arg1);
 }
 
+export function GetRuntimeAssetStatus() {
+  return window['go']['main']['App']['GetRuntimeAssetStatus']();
+}
+
 export function GetStartupTaskInfo() {
   return window['go']['main']['App']['GetStartupTaskInfo']();
 }
@@ -224,6 +228,10 @@ export function RepairDataDirMigration() {
 
 export function RepairDataDirPermission() {
   return window['go']['main']['App']['RepairDataDirPermission']();
+}
+
+export function RepairRuntimeAssets() {
+  return window['go']['main']['App']['RepairRuntimeAssets']();
 }
 
 export function RepairStartupTask() {

@@ -2,7 +2,6 @@ package clash
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"time"
 )
@@ -85,32 +84,4 @@ func ReplaceFileWithBackup(newPath, destPath string) error {
 	return nil
 }
 
-// ValidateWindowsPE 简单校验文件是否为有效的 Windows 可执行文件或 DLL
-func ValidateWindowsPE(path string, minSize int64) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
 
-	// 检查 MZ 头
-	header := make([]byte, 2)
-	if _, err := io.ReadFull(f, header); err != nil {
-		return err
-	}
-
-	if header[0] != 'M' || header[1] != 'Z' {
-		return fmt.Errorf("不是有效的 Windows PE 文件")
-	}
-
-	info, err := f.Stat()
-	if err != nil {
-		return err
-	}
-
-	if info.Size() < minSize {
-		return fmt.Errorf("文件体积异常: %d bytes", info.Size())
-	}
-
-	return nil
-}

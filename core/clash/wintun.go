@@ -52,7 +52,7 @@ func PrepareWintunRuntime(ctx context.Context, strategy func() downloader.Downlo
 		return nil, err
 	}
 
-	if err := ValidateWindowsPE(stagedDLL, 32*1024); err != nil {
+	if err := utils.ValidateWindowsPE(stagedDLL, 32*1024, 5*1024*1024); err != nil {
 		_ = os.Remove(stagedDLL)
 		return nil, err
 	}
