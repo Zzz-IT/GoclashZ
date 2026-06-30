@@ -4,8 +4,8 @@
       <div class="status-core">
         <div class="restart-trigger" :class="{ 'is-loading': isRestarting }" @click="handleRestartCore" title="重启内核">
           <div class="orb-visual" v-show="!isRestarting">
-            <div class="orb" :class="{ 'active': globalState.isRunning }"></div>
-            <div class="orb-glow" v-if="globalState.isRunning"></div>
+            <div class="orb" :class="{ 'active': consoleServiceOn }"></div>
+            <div class="orb-glow" v-if="consoleServiceOn"></div>
           </div>
           <svg class="refresh-icon scanner-svg" :class="{ 'spin': isRestarting }" viewBox="0 0 24 24">
             <circle class="scanner-track" cx="12" cy="12" r="10"></circle>
@@ -14,7 +14,7 @@
         </div>
         <div class="status-meta">
           <span class="micro-title">服务状态</span>
-          <h2 class="status-heading">{{ isRestarting ? '内核重启中...' : (globalState.isRunning ? '接管中' : '服务停止') }}</h2>
+          <h2 class="status-heading">{{ consoleServiceTitle }}</h2>
           <span class="version-tag">Mihomo {{ globalState.version || 'Core' }}</span>
         </div>
       </div>
@@ -97,6 +97,17 @@ const sliderStyle = computed(() => ({
 }));
 
 const isRestarting = ref(false);
+
+const desiredActive = computed(() => globalState.systemProxy || globalState.tun);
+const actualActive = computed(() => globalState.actualSystemProxy || globalState.actualTun || globalState.isRunning);
+const consoleServiceOn = computed(() => desiredActive.value || actualActive.value);
+
+const consoleServiceTitle = computed(() => {
+  if (isRestarting.value) return '内核重启中...';
+  if (desiredActive.value) return '接管中';
+  if (actualActive.value) return '运行中';
+  return '服务停止';
+});
 
 const handleRestartCore = async () => {
   if (isRestarting.value) return;

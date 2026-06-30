@@ -20,8 +20,10 @@ type DataDirInfo struct {
 	CoreExePath  string `json:"coreExePath"`
 	CoreExists   bool   `json:"coreExists"`
 	CoreReady    bool   `json:"coreReady"`
+	CoreError    string `json:"coreError,omitempty"`
 	WintunExists bool   `json:"wintunExists"`
 	WintunReady  bool   `json:"wintunReady"`
+	WintunError  string `json:"wintunError,omitempty"`
 
 	LayoutMode string `json:"layoutMode"`
 	LayoutOK   bool   `json:"layoutOK"`
@@ -48,7 +50,7 @@ func GetDataDirInfo() DataDirInfo {
 		info.SeedManifestExists = true
 	}
 
-	// core 状态
+	// core 状态（基础 stat 检查，由调用方用 runtimeassets 状态覆盖）
 	info.CoreExePath = filepath.Join(info.CoreBinDir, "clash.exe")
 	if st, err := os.Stat(info.CoreExePath); err == nil && !st.IsDir() && st.Size() > 0 {
 		info.CoreExists = true
@@ -62,7 +64,7 @@ func GetDataDirInfo() DataDirInfo {
 		info.WintunReady = true
 	}
 
-	// 布局判断：DataDir 下有 core/bin 即正常
+	// 布局判断
 	info.LayoutMode = "unknown"
 	if utils.IsPackagedInstall() {
 		info.LayoutMode = "standard"

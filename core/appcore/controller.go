@@ -525,6 +525,20 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 		return nil
 	}
 
+	// 启动核心前强制兜底：从 seed 修补缺失/损坏的 core/wintun（在 activeConfig 检查之前）
+	assetReq := runtimeassets.RequireCoreOnly
+	if desired.Tun {
+		assetReq = runtimeassets.RequireTun
+	}
+	if assetStatus, assetErr := runtimeassets.EnsureReady(ctx, assetReq, runtimeassets.RepairInvalid); assetErr != nil {
+		for _, asset := range assetStatus.Assets {
+			if !asset.Ready && asset.Error != "" {
+				c.logWarn("运行组件不可用: %s path=%s error=%s", asset.Key, asset.Path, asset.Error)
+			}
+		}
+		return fmt.Errorf("运行组件不可用: %w", assetErr)
+	}
+
 	if desired.ActiveConfig == "" {
 		return ErrNoActiveConfig
 	}
@@ -541,20 +555,6 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 	err := clash.BuildRuntimeConfig(desired.ActiveConfig, desired.Mode, behavior.LogLevel, desired.Tun)
 	if err != nil {
 		return err
-	}
-
-	// 启动核心前强制兜底：从 seed 修补缺失/损坏的 core/wintun
-	assetReq := runtimeassets.RequireCoreOnly
-	if desired.Tun {
-		assetReq = runtimeassets.RequireTun
-	}
-	if assetStatus, assetErr := runtimeassets.EnsureReady(ctx, assetReq, runtimeassets.RepairInvalid); assetErr != nil {
-		for _, asset := range assetStatus.Assets {
-			if !asset.Ready && asset.Error != "" {
-				c.logWarn("运行组件不可用: %s path=%s error=%s", asset.Key, asset.Path, asset.Error)
-			}
-		}
-		return fmt.Errorf("运行组件不可用: %w", assetErr)
 	}
 
 	if err := EnsureRuntimeAssets(ctx, behavior); err != nil {

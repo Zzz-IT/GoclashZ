@@ -106,18 +106,6 @@ func (a *App) logApp(level string, format string, args ...any) {
 
 func NewApp() *App {
 	appcore.MigrateLegacyRootSettings()
-	runtimeassets.MigrateLegacyAssets()
-	// 每次启动检查：从 seed 修补缺失的运行时资产
-	if status, err := runtimeassets.EnsureReady(context.Background(), runtimeassets.RequireAll, runtimeassets.RepairMissingOnly); err != nil {
-		logger.Errorf("运行组件初始化失败: %v", err)
-		for _, asset := range status.Assets {
-			if !asset.Ready && asset.Error != "" {
-				logger.Errorf("组件不可用: %s path=%s error=%s", asset.Key, asset.Path, asset.Error)
-			}
-		}
-	}
-	// 异步清理旧资产（安全起见，非阻塞）
-	go runtimeassets.CleanupLegacyAssets()
 
 	app := &App{}
 	app.core = appcore.NewController(appcore.Options{
@@ -129,6 +117,26 @@ func NewApp() *App {
 	return app
 }
 
+func (a *App) runStartupRuntimeAssetMaintenance(ctx context.Context) {
+	runtimeassets.MigrateLegacyAssets()
+
+	status, err := runtimeassets.EnsureReady(ctx, runtimeassets.RequireAll, runtimeassets.RepairInvalid)
+	if err != nil {
+		logger.Errorf("启动期运行组件自修复失败: %v", err)
+		for _, asset := range status.Assets {
+			if !asset.Ready && asset.Error != "" {
+				logger.Errorf("组件不可用: %s path=%s error=%s", asset.Key, asset.Path, asset.Error)
+			}
+		}
+	}
+
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "runtime-assets-status", status)
+	}
+
+	go runtimeassets.CleanupLegacyAssets()
+}
+
 func (a *App) startup(ctx context.Context) {
 	cleanupAppliedUpdatePackage()
 
@@ -136,6 +144,9 @@ func (a *App) startup(ctx context.Context) {
 	if sink, ok := a.core.GetEvents().(*WailsEventSink); ok {
 		sink.SetContext(ctx)
 	}
+
+	a.runStartupRuntimeAssetMaintenance(ctx)
+
 	// 必须先加载订阅索引，再启动 appcore 的自动任务。
 	clash.LoadIndex()
 
@@ -490,7 +501,23 @@ func (a *App) RestartHelperService() error {
 }
 
 func (a *App) GetDataDirInfo() sys.DataDirInfo {
-	return sys.GetDataDirInfo()
+	info := sys.GetDataDirInfo()
+
+	// 用 runtimeassets 唯一权威状态覆盖 stat 判断
+	status := runtimeassets.GetStatus(context.Background())
+	if core, ok := status.Assets[runtimeassets.AssetCore]; ok {
+		info.CoreExists = core.Exists
+		info.CoreReady = core.Ready
+		info.CoreError = core.Error
+	}
+	if wintun, ok := status.Assets[runtimeassets.AssetWintun]; ok {
+		info.WintunExists = wintun.Exists
+		info.WintunReady = wintun.Ready
+		info.WintunError = wintun.Error
+	}
+	info.LayoutOK = info.CoreExists
+
+	return info
 }
 
 func (a *App) RepairDataDirMigration() error {

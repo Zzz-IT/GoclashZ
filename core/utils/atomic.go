@@ -57,20 +57,43 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 }
 
 func CopyFile(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
 
-	out, err := os.Create(dst)
+	tmp := dst + ".tmp"
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 
-	if _, err = io.Copy(out, in); err != nil {
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		_ = os.Remove(tmp)
 		return err
 	}
-	return out.Sync()
+
+	if err := out.Sync(); err != nil {
+		out.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("replace %s failed: %w", dst, err)
+	}
+
+	return nil
 }

@@ -775,8 +775,10 @@ export namespace sys {
 	    coreExePath: string;
 	    coreExists: boolean;
 	    coreReady: boolean;
+	    coreError?: string;
 	    wintunExists: boolean;
 	    wintunReady: boolean;
+	    wintunError?: string;
 	    layoutMode: string;
 	    layoutOK: boolean;
 	    legacyDataDir: string;
@@ -799,8 +801,10 @@ export namespace sys {
 	        this.coreExePath = source["coreExePath"];
 	        this.coreExists = source["coreExists"];
 	        this.coreReady = source["coreReady"];
+	        this.coreError = source["coreError"];
 	        this.wintunExists = source["wintunExists"];
 	        this.wintunReady = source["wintunReady"];
+	        this.wintunError = source["wintunError"];
 	        this.layoutMode = source["layoutMode"];
 	        this.layoutOK = source["layoutOK"];
 	        this.legacyDataDir = source["legacyDataDir"];

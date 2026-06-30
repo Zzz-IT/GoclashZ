@@ -236,7 +236,11 @@ func RepairFromSeed(ctx context.Context, req Requirement, mode RepairMode) error
 				}
 				changed = true
 			} else {
-				log.Printf("[runtimeassets] 警告: 清单标明内置资产 %s 存在，但未找到实体文件", item.Name)
+				msg := fmt.Sprintf("内置资产实体缺失: %s (%s)", item.Name, seedPath)
+				if utils.IsPackagedInstall() {
+					return fmt.Errorf(msg)
+				}
+				log.Printf("[runtimeassets] 警告: %s", msg)
 			}
 		}
 	}

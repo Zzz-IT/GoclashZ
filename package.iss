@@ -182,11 +182,6 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
 begin
-  if CurStep = ssInstall then begin
-    Exec(ExpandConstant('{app}\GoclashZ.exe'), '--shutdown-existing', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    Exec('taskkill.exe', '/IM GoclashZ.exe /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  end;
-
   if CurStep = ssPostInstall then begin
     CreateDataDirs();
     WriteInstallProfile();
