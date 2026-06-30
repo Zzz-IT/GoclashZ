@@ -67,16 +67,16 @@ try {
 // 存储全局倒计时 ID，不放在 reactive 中防止不必要的响应式开销
 const delayTimers: Record<string, number> = {};
 
-// intent 持久化：卡片状态只看 intent，不看后端 runtime
+// intent 持久化：卡片状态只看 intent，不看后端 runtime，使用 sessionStorage 确保应用关闭后重置
 function readControlIntent(): { systemProxy?: boolean; tun?: boolean } | null {
   try {
-    const raw = localStorage.getItem('goclashz_control_intent');
+    const raw = sessionStorage.getItem('goclashz_control_intent');
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
 }
 
 function persistControlIntent() {
-  localStorage.setItem('goclashz_control_intent', JSON.stringify({
+  sessionStorage.setItem('goclashz_control_intent', JSON.stringify({
     systemProxy: globalState.systemProxy,
     tun: globalState.tun,
   }));
