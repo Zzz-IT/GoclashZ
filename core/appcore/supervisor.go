@@ -87,14 +87,8 @@ func (s *CoreSupervisor) ReconcileAsync(reason string) {
 	req := reconcileRequest{Reason: reason, Ctx: ctx}
 	select {
 	case s.reconcileCh <- req:
-		go func() {
-			// 等请求被消费后 cancel
-			select {
-			case <-ctx.Done():
-			case <-time.After(10 * time.Second):
-				cancel()
-			}
-		}()
+		// cancel will be called by context timeout after 8s
+		_ = cancel
 	default:
 		cancel()
 	}

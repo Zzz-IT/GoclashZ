@@ -37,6 +37,13 @@ func (a *App) startHotkeyWorker(ctx context.Context) {
 		return
 	}
 
+	// Start a goroutine to unblock GetMessageW when context is cancelled
+	go func() {
+		<-ctx.Done()
+		unregHotkey.Call(0, hotkeyIDQuit)
+		user32.NewProc("PostThreadMessageW").Call(uintptr(tid), wmQuit, 0, 0)
+	}()
+
 	var msg struct {
 		hWnd    uintptr
 		message uint32
@@ -50,13 +57,6 @@ func (a *App) startHotkeyWorker(ctx context.Context) {
 		ret, _, _ := getMsg.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
 		if ret == 0 || ret == ^uintptr(0) {
 			return
-		}
-
-		select {
-		case <-ctx.Done():
-			unregHotkey.Call(0, hotkeyIDQuit)
-			return
-		default:
 		}
 
 		if msg.message == wmHotkey && msg.wParam == hotkeyIDQuit {

@@ -415,20 +415,26 @@ type AppState struct {
 	Theme       string `json:"theme"`
 	HideLogs    bool   `json:"hideLogs"`
 	AppLogLevel string `json:"appLogLevel"`
-	// 👇 新增以下字段，统一接管 UI
+	// 用户意图（卡片数据源）
+	DesiredSystemProxy bool `json:"desiredSystemProxy"`
+	DesiredTun         bool `json:"desiredTun"`
+	// 后端实际 runtime 状态（诊断/IP 检测用）
+	ActualSystemProxy bool `json:"actualSystemProxy"`
+	ActualTun         bool `json:"actualTun"`
+	// 兼容旧前端
 	SystemProxy bool   `json:"systemProxy"`
 	Tun         bool   `json:"tun"`
 	Version     string `json:"version"`
-	AppVersion  string `json:"appVersion"` // 👈 新增：应用版本
-	// 🚀 新增：让前端实时知道当前在跑哪个配置
+	AppVersion  string `json:"appVersion"`
+	// 让前端实时知道当前在跑哪个配置
 	ActiveConfig     string `json:"activeConfig"`
 	ActiveConfigName string `json:"activeConfigName"`
 	ActiveConfigType string `json:"activeConfigType"`
-	// 👇 新增：延迟保留相关
+	// 延迟保留相关
 	DelayRetention     bool   `json:"delayRetention"`
 	DelayRetentionTime string `json:"delayRetentionTime"`
 
-	// 👇 新增：应用更新相关
+	// 应用更新相关
 	UpdateReady      bool   `json:"updateReady"`
 	NewAppVersion    string `json:"newAppVersion"`
 	UpdateDownloaded bool   `json:"updateDownloaded"`
@@ -439,6 +445,7 @@ type AppState struct {
 func (c *Controller) GetAppState() AppState {
 	behavior := c.Behavior.Get()
 	activeConfig := behavior.ActiveConfig
+	desired := c.Desired.Get()
 
 	c.mu.RLock()
 	sysProxy := c.sysProxyActive
@@ -446,14 +453,17 @@ func (c *Controller) GetAppState() AppState {
 	userRunning := c.userCoreRunning
 	c.mu.RUnlock()
 
-	// 🚀 核心逻辑：将内核物理运行状态与 UI 业务接管状态解耦
-	// 只有用户主动开启代理时，才向前端汇报 true，屏蔽静默测速引发的闪烁
+	// 将内核物理运行状态与 UI 业务接管状态解耦
 	logicalIsRunning := clash.IsRunning() && userRunning
 
 	state := AppState{
 		IsRunning:          logicalIsRunning,
 		IsAdmin:            sys.CheckAdmin(),
 		Mode:               behavior.ActiveMode,
+		DesiredSystemProxy: desired.SystemProxy,
+		DesiredTun:         desired.Tun,
+		ActualSystemProxy:  sysProxy,
+		ActualTun:          tunActive,
 		SystemProxy:        sysProxy,
 		Tun:                tunActive,
 		Theme:              utils.GetGlobalTheme(),

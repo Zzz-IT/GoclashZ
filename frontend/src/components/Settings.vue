@@ -1016,20 +1016,22 @@
       </div>
     </Transition>
 
-    <div class="modal-overlay" v-if="showDbModal">
-      <div class="custom-modal-card">
-        <div class="modal-header">
-          <h3>编辑 {{ dbTitles[editingDb.type] }} 下载链接</h3>
-        </div>
-        <div class="modal-body">
-          <input type="text" class="modal-input" v-model="editingDb.link" style="text-align: left;" @keyup.enter="saveDbLink" />
-          <div class="modal-footer">
-            <button class="action-btn flex-1" @click="showDbModal = false">取消</button>
-            <button class="primary-btn accent-btn flex-1" @click="saveDbLink">保存更改</button>
+    <Transition name="pop">
+      <div class="modal-overlay" v-if="showDbModal" @click.self="showDbModal = false">
+        <div class="custom-modal-card" @click.stop>
+          <div class="modal-header">
+            <h3>编辑 {{ dbTitles[editingDb.type] }} 下载链接</h3>
+          </div>
+          <div class="modal-body">
+            <input type="text" class="modal-input" v-model="editingDb.link" style="text-align: left;" @keyup.enter="saveDbLink" />
+            <div class="modal-footer">
+              <button class="action-btn flex-1" @click="showDbModal = false">取消</button>
+              <button class="primary-btn accent-btn flex-1" @click="saveDbLink">保存更改</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Transition>
     <!-- 统一模态框系统 -->
     <Transition name="pop">
       <div v-if="showResetConfirm" class="modal-overlay" @click="showResetConfirm = false">
@@ -1195,7 +1197,6 @@ import { ICONS } from '../utils/icons';
 import appLogo from '../assets/logo.ico';
 import UpdateTaskPanel from './UpdateTaskPanel.vue';
 
-const emits = defineEmits(['close', 'restart']);
 import ModernSelect from './ModernSelect.vue';
 import ModernNumberInput from './ModernNumberInput.vue';
 
@@ -1649,20 +1650,19 @@ const saveUwpChanges = async () => {
 const loadData = async () => {
   try {
     // 统一刷新所有运行资产状态（内核版本、wintun、geo文件信息）
-    await refreshRuntimeAssets();
+    const [_, status, tunConf, dnsConf, netConf, behaviorConf] = await Promise.all([
+      refreshRuntimeAssets(),
+      API.CheckTunEnv(),
+      API.GetTunConfig(),
+      (API.GetDNSConfig as any)(),
+      (API.GetNetworkConfig as any)(),
+      (API.GetAppBehavior as any)(),
+    ]);
 
-    const status = await API.CheckTunEnv();
     tunStatus.value = status;
-    const tunConf = await API.GetTunConfig();
     if (tunConf) tunConfig.value = tunConf;
-
-    const dnsConf = await (API.GetDNSConfig as any)();
     if (dnsConf) dnsConfig.value = dnsConf;
-
-    const netConf = await (API.GetNetworkConfig as any)();
     if (netConf) netConfig.value = netConf;
-
-    const behaviorConf = await (API.GetAppBehavior as any)();
     if (behaviorConf) {
       behavior.value = behaviorConf;
       refreshHelperStatus();

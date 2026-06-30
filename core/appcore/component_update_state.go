@@ -68,7 +68,7 @@ func (s *ComponentUpdateTaskStore) ClearFinished() {
 	s.mu.Lock()
 	changed := false
 	for k, v := range s.tasks {
-		if v.Status == "success" {
+		if v.Status == "success" || v.Status == "error" || v.Status == "cancelled" {
 			delete(s.tasks, k)
 			changed = true
 		}

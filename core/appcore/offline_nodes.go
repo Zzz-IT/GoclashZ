@@ -69,7 +69,7 @@ func (s *OfflineNodeStore) Save() {
 	s.mu.RUnlock()
 
 	if err == nil {
-		os.WriteFile(s.path, data, 0644)
+		utils.WriteFileAtomic(s.path, data, 0644)
 	}
 }
 

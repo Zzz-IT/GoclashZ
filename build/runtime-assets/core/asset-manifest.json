@@ -1,0 +1,53 @@
+﻿{
+    "generatedAt":  "2026-06-30T15:00:25.3854888Z",
+    "assets":  [
+                   {
+                       "version":  "v1.19.27",
+                       "name":  "clash.exe",
+                       "source":  "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.27/mihomo-windows-amd64-compatible-v1.19.27.zip",
+                       "path":  "core/bin/clash.exe",
+                       "sha256":  "58a8136fdb87d4eee7e3518041b0769cc5e673a7ca98dfc030f99a47ff49588f",
+                       "size":  47213056
+                   },
+                   {
+                       "version":  "latest",
+                       "name":  "geoip.metadb",
+                       "source":  "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
+                       "path":  "core/bin/geoip.metadb",
+                       "sha256":  "c4d8046166e57713268753904f5c30fbc607279741415569e4fc89cf25dae500",
+                       "size":  9031662
+                   },
+                   {
+                       "version":  "latest",
+                       "name":  "geosite.dat",
+                       "source":  "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
+                       "path":  "core/bin/geosite.dat",
+                       "sha256":  "aff6b4ae278c819bec4cd3ddb68bffdaae7868169752a2f3858242c9613a7e3e",
+                       "size":  4211125
+                   },
+                   {
+                       "version":  "latest",
+                       "name":  "country.mmdb",
+                       "source":  "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
+                       "path":  "core/bin/country.mmdb",
+                       "sha256":  "39916e4e76af601ee66c52627e5d6b4136ff82cec1fadcb5df48285d685c3633",
+                       "size":  8250535
+                   },
+                   {
+                       "version":  "latest",
+                       "name":  "asn.dat",
+                       "source":  "https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
+                       "path":  "core/bin/asn.dat",
+                       "sha256":  "bd537d584db70b5051f4d948e6a588d562ccc411bf629946287601232e10b40e",
+                       "size":  12310749
+                   },
+                   {
+                       "version":  "0.14.1",
+                       "name":  "wintun.dll",
+                       "source":  "https://www.wintun.net/builds/wintun-0.14.1.zip",
+                       "path":  "core/bin/wintun.dll",
+                       "sha256":  "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce",
+                       "size":  427552
+                   }
+               ]
+}

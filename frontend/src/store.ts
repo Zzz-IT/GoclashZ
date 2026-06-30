@@ -25,7 +25,12 @@ export type OutboundIPResult = {
   ipv6: string;
   mode: string;
   source: string;
+  source4: string;
+  source6: string;
   message: string;
+  message4: string;
+  message6: string;
+  complete: boolean;
 };
 
 export function normalizeOutboundIP(raw: any): OutboundIPResult {
@@ -35,7 +40,12 @@ export function normalizeOutboundIP(raw: any): OutboundIPResult {
     ipv6: raw?.ipv6 || '',
     mode: raw?.mode || '',
     source: raw?.source || '',
+    source4: raw?.source4 || '',
+    source6: raw?.source6 || '',
     message: raw?.message || '',
+    message4: raw?.message4 || '',
+    message6: raw?.message6 || '',
+    complete: raw?.complete ?? false,
   };
 }
 
@@ -57,21 +67,54 @@ try {
 // 存储全局倒计时 ID，不放在 reactive 中防止不必要的响应式开销
 const delayTimers: Record<string, number> = {};
 
+// intent 持久化：卡片状态只看 intent，不看后端 runtime
+function readControlIntent(): { systemProxy?: boolean; tun?: boolean } | null {
+  try {
+    const raw = localStorage.getItem('goclashz_control_intent');
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function persistControlIntent() {
+  localStorage.setItem('goclashz_control_intent', JSON.stringify({
+    systemProxy: globalState.systemProxy,
+    tun: globalState.tun,
+  }));
+}
+
+export function setSystemProxyIntent(value: boolean) {
+  globalState.systemProxy = value;
+  persistControlIntent();
+}
+
+export function setTunIntent(value: boolean) {
+  globalState.tun = value;
+  persistControlIntent();
+}
+
+const cachedIntent = readControlIntent();
+
 // 定义全局响应式状态
 export const globalState = reactive({
   isRunning: false,
   mode: 'rule',
-  theme: cachedTheme,       // 👈 换成缓存初始化
-  hideLogs: cachedHideLogs, // 👈 换成缓存初始化
-  // 👇 新增这三个字段
-  systemProxy: false,
-  tun: false,
-  suppressSystemProxySync: false,  // 操作期间屏蔽后台 systemProxy 推送
-  suppressTunSync: false,          // 操作期间屏蔽后台 tun 推送
+  theme: cachedTheme,
+  hideLogs: cachedHideLogs,
+  // UI intent：卡片唯一数据源
+  systemProxy: cachedIntent?.systemProxy ?? false,
+  tun: cachedIntent?.tun ?? false,
+  // backend actual：后端实际状态，用于诊断/IP 检测
+  actualSystemProxy: false,
+  actualTun: false,
+  // pending：只控制重复点击，不影响亮灭
+  systemProxyPending: false,
+  tunPending: false,
+  // 首次 hydrate 标记
+  controlStateHydrated: false,
   version: '',
-  appVersion: '', // 👈 新增
-  logLevel: 'error', // 👈 新增：内核日志等级
-  appLogLevel: 'info', // 👈 新增：软件日志等级
+  appVersion: '',
+  logLevel: 'error',
+  appLogLevel: 'info',
   isAdmin: false,
   tunStatus: { hasWintun: false, isAdmin: false },
   assetStatus: null as runtimeassets.RuntimeAssetStatus | null,
@@ -172,22 +215,46 @@ export function updateStateFromBackend(rawData: any) {
     globalState.appLogLevel = normalizeLogLevel(newAppLogLevel || 'info');
   }
 
-  // 检测代理/TUN 状态变化，触发强制 IP 检测
-  const oldProxy = globalState.systemProxy;
-  const oldTun = globalState.tun;
-  const newProxy = rawData.systemProxy ?? rawData.SystemProxy;
-  const newTun = rawData.tun ?? rawData.Tun;
+  // 检测代理/TUN 状态变化，触发强制 IP 检测（基于 actual，不基于 intent）
+  const oldActualProxy = globalState.actualSystemProxy;
+  const oldActualTun = globalState.actualTun;
 
-  // 操作期间屏蔽后台中间态推送，防止卡片闪烁
-  if (newProxy !== undefined && !globalState.suppressSystemProxySync) globalState.systemProxy = newProxy;
-  if (newTun !== undefined && !globalState.suppressTunSync) globalState.tun = newTun;
+  const newProxy = rawData.actualSystemProxy ?? rawData.systemProxy ?? rawData.SystemProxy;
+  const newTun = rawData.actualTun ?? rawData.tun ?? rawData.Tun;
 
-  const proxyChanged = newProxy !== undefined && oldProxy !== newProxy;
-  const tunChanged = newTun !== undefined && oldTun !== newTun;
+  // 始终更新 actual（后端真实 runtime 状态）
+  if (newProxy !== undefined) globalState.actualSystemProxy = !!newProxy;
+  if (newTun !== undefined) globalState.actualTun = !!newTun;
+
+  // 首次 hydrate：用后端 desired 初始化 intent，之后不再由后端覆盖
+  if (!globalState.controlStateHydrated) {
+    const cached = readControlIntent();
+    const desiredProxy = rawData.desiredSystemProxy ?? rawData.DesiredSystemProxy;
+    const desiredTun = rawData.desiredTun ?? rawData.DesiredTun;
+
+    if (desiredProxy !== undefined) {
+      globalState.systemProxy = !!desiredProxy;
+    } else if (!cached && newProxy !== undefined) {
+      globalState.systemProxy = !!newProxy;
+    }
+
+    if (desiredTun !== undefined) {
+      globalState.tun = !!desiredTun;
+    } else if (!cached && newTun !== undefined) {
+      globalState.tun = !!newTun;
+    }
+
+    globalState.controlStateHydrated = true;
+    persistControlIntent();
+  }
+
+  // IP 检测基于 actual 状态变化
+  const proxyChanged = newProxy !== undefined && oldActualProxy !== !!newProxy;
+  const tunChanged = newTun !== undefined && oldActualTun !== !!newTun;
 
   if (proxyChanged || tunChanged) {
-    const tunOn = newTun === true;
-    const tunOff = oldTun === true && newTun === false;
+    const tunOn = !!newTun;
+    const tunOff = oldActualTun === true && newTun === false;
 
     scheduleOutboundIPRefresh('state-change', {
       force: true,
@@ -197,7 +264,6 @@ export function updateStateFromBackend(rawData: any) {
       silent: false,
     });
 
-    // 二次确认：TUN/路由/DNS 收敛可能慢
     scheduleOutboundIPRefresh('state-confirm', {
       force: true,
       delay: tunOn ? 3000 : 1500,
@@ -404,7 +470,12 @@ export async function refreshOutboundIP(options?: {
         ipv6: '',
         mode: '',
         source: '',
+        source4: '',
+        source6: '',
         message: result?.message || '检测失败',
+        message4: '',
+        message6: '',
+        complete: false,
       };
     }
   } catch {
@@ -417,7 +488,12 @@ export async function refreshOutboundIP(options?: {
         ipv6: '',
         mode: '',
         source: '',
+        source4: '',
+        source6: '',
         message: '网络请求失败',
+        message4: '',
+        message6: '',
+        complete: false,
       };
     }
   } finally {

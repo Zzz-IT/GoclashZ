@@ -67,9 +67,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { globalState, showAlert, showConfirm, updateStateFromBackend, scheduleOutboundIPRefresh } from '../store';
+import { globalState, showAlert, showConfirm, updateStateFromBackend, scheduleOutboundIPRefresh, setSystemProxyIntent, setTunIntent } from '../store';
 import { ICONS } from '../utils/icons';
 import TrafficCard from './TrafficCard.vue';
 
@@ -114,27 +114,10 @@ const handleRestartCore = async () => {
 };
 
 // ==========================================
-// 切换状态管理（乐观 UI）
+// 切换状态管理（三层模型：intent / actual / pending）
 // ==========================================
-const sysProxySwitching = ref(false);
-const optimisticSysProxy = ref<boolean | null>(null);
-
-const tunSwitching = ref(false);
-const optimisticTun = ref<boolean | null>(null);
-
-const sysProxyCardOn = computed(() => {
-  if (sysProxySwitching.value && optimisticSysProxy.value !== null) {
-    return optimisticSysProxy.value;
-  }
-  return globalState.systemProxy;
-});
-
-const tunCardOn = computed(() => {
-  if (tunSwitching.value && optimisticTun.value !== null) {
-    return optimisticTun.value;
-  }
-  return globalState.tun;
-});
+const sysProxyCardOn = computed(() => globalState.systemProxy);
+const tunCardOn = computed(() => globalState.tun);
 
 const sysProxyLabel = computed(() => {
   return sysProxyCardOn.value
@@ -149,19 +132,22 @@ const tunLabel = computed(() => {
 });
 
 const toggleSysProxy = async () => {
-  if (sysProxySwitching.value) return;
+  if (globalState.systemProxyPending) return;
 
-  const target = !sysProxyCardOn.value;
-  optimisticSysProxy.value = target;
-  sysProxySwitching.value = true;
-  globalState.systemProxy = target;
-  // 操作期间屏蔽 TUN 状态推送，防止 Reconcile 中间态导致 TUN 卡片闪烁
-  globalState.suppressTunSync = true;
+  const previous = globalState.systemProxy;
+  const target = !previous;
+
+  setSystemProxyIntent(target);
+  globalState.systemProxyPending = true;
 
   try {
     await API.ToggleSystemProxy(target);
+    const latest = await (API as any).GetAppState().catch(() => null);
+    if (latest) updateStateFromBackend(latest);
   } catch (err: any) {
-    globalState.systemProxy = !target;
+    // 只有明确失败才回滚
+    setSystemProxyIntent(previous);
+
     const msg = String(err?.message || err || '');
     if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
       showAlert('尚未添加配置\n\n启用系统代理前，请先添加并应用一个配置文件。', '提示');
@@ -169,31 +155,27 @@ const toggleSysProxy = async () => {
       showAlert('系统代理启用失败: ' + msg, '错误', true);
     }
   } finally {
-    sysProxySwitching.value = false;
-    optimisticSysProxy.value = null;
-    globalState.suppressTunSync = false;
+    globalState.systemProxyPending = false;
   }
 };
 
 const toggleTun = async () => {
-  if (tunSwitching.value) return;
+  if (globalState.tunPending) return;
 
-  const target = !tunCardOn.value;
-  optimisticTun.value = target;
-  tunSwitching.value = true;
-  globalState.tun = target;
-  // 操作期间屏蔽系统代理状态推送，防止 Reconcile 中间态导致系统代理卡片闪烁
-  globalState.suppressSystemProxySync = true;
+  const previous = globalState.tun;
+  const target = !previous;
+
+  setTunIntent(target);
+  globalState.tunPending = true;
 
   try {
     await API.ToggleTunMode(target);
+    const latest = await (API as any).GetAppState().catch(() => null);
+    if (latest) updateStateFromBackend(latest);
   } catch (err: any) {
-    globalState.tun = !target;
     const msg = String(err?.message || err || '');
 
-    if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
-      showAlert('尚未添加配置\n\n启用虚拟网卡前，请先添加并应用一个配置文件。', '提示');
-    } else if (msg.includes('helper_install_required') || msg.includes('helper_repair_required')) {
+    if (msg.includes('helper_install_required') || msg.includes('helper_repair_required')) {
       const confirmed = await showConfirm(
         'TUN 模式需要初始化后台服务 (GoclashZHelper)\n\n此操作只需管理员确认一次，之后可无感启用 TUN 和开机恢复。',
         '需要初始化后台服务'
@@ -201,26 +183,35 @@ const toggleTun = async () => {
 
       if (confirmed) {
         try {
-          optimisticTun.value = target;
-          globalState.tun = target;
+          setTunIntent(target);
           await (API as any).InstallHelperService();
           await API.ToggleTunMode(target);
+          const latest = await (API as any).GetAppState().catch(() => null);
+          if (latest) updateStateFromBackend(latest);
+          return;
         } catch (e: any) {
-          globalState.tun = !target;
+          setTunIntent(previous);
           showAlert('初始化后台服务失败: ' + String(e?.message || e), '错误', true);
+          return;
         }
-      } else {
-        globalState.tun = !target;
       }
+
+      setTunIntent(previous);
+      return;
+    }
+
+    // 其他明确失败：回滚
+    setTunIntent(previous);
+
+    if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
+      showAlert('尚未添加配置\n\n启用虚拟网卡前，请先添加并应用一个配置文件。', '提示');
     } else if (msg.includes('wintun_missing') || msg.includes('Wintun')) {
       showAlert('缺少 Wintun 驱动，请在「组件与库更新」页面安装 Wintun 驱动。', '缺少依赖', true);
     } else {
       showAlert('虚拟网卡启用失败: ' + msg, '错误', true);
     }
   } finally {
-    tunSwitching.value = false;
-    optimisticTun.value = null;
-    globalState.suppressSystemProxySync = false;
+    globalState.tunPending = false;
   }
 };
 
@@ -230,6 +221,13 @@ const toggleTun = async () => {
 let modeWorkerActive = false;
 let pendingModeTarget: string | null = null;
 let previousMode = globalState.mode;
+
+// Keep previousMode in sync with external mode changes (e.g., from backend events)
+watch(() => globalState.mode, (newVal, oldVal) => {
+  if (!modeWorkerActive) {
+    previousMode = oldVal;
+  }
+});
 
 const handleModeChange = (val: string) => {
   if (globalState.mode === val) return;

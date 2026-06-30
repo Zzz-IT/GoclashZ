@@ -134,7 +134,7 @@ func (a *App) startup(ctx context.Context) {
 
 	a.ctx = ctx
 	if sink, ok := a.core.GetEvents().(*WailsEventSink); ok {
-		sink.ctx = ctx
+		sink.SetContext(ctx)
 	}
 	// 必须先加载订阅索引，再启动 appcore 的自动任务。
 	clash.LoadIndex()
@@ -545,7 +545,6 @@ func (a *App) GetComponentFileInfo() map[string]runtimeassets.AssetHealth {
 
 	return map[string]runtimeassets.AssetHealth{
 		"core":    status.Assets[runtimeassets.AssetCore],
-		"clash":   status.Assets[runtimeassets.AssetCore],
 		"wintun":  status.Assets[runtimeassets.AssetWintun],
 		"geoip":   status.Assets[runtimeassets.AssetGeoIP],
 		"geosite": status.Assets[runtimeassets.AssetGeoSite],

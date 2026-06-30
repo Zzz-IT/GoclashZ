@@ -18,6 +18,45 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
+var (
+	proxyTransportIPv4 *http.Transport
+	proxyTransportIPv6 *http.Transport
+	directTransportIPv4 *http.Transport
+	directTransportIPv6 *http.Transport
+	transportOnce       sync.Once
+)
+
+func initTransports() {
+	transportOnce.Do(func() {
+		proxyTransportIPv4 = &http.Transport{
+			Proxy: func(r *http.Request) (*url.URL, error) {
+				port := clash.GetProxyPort()
+				return url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
+			},
+		}
+		proxyTransportIPv6 = &http.Transport{
+			Proxy: func(r *http.Request) (*url.URL, error) {
+				port := clash.GetProxyPort()
+				return url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
+			},
+		}
+		directTransportIPv4 = &http.Transport{
+			Proxy: nil,
+			DialContext: func(ctx context.Context, n, addr string) (net.Conn, error) {
+				dialer := &net.Dialer{Timeout: 3500 * time.Millisecond}
+				return dialer.DialContext(ctx, "tcp4", addr)
+			},
+		}
+		directTransportIPv6 = &http.Transport{
+			Proxy: nil,
+			DialContext: func(ctx context.Context, n, addr string) (net.Conn, error) {
+				dialer := &net.Dialer{Timeout: 3500 * time.Millisecond}
+				return dialer.DialContext(ctx, "tcp6", addr)
+			},
+		}
+	})
+}
+
 type OutboundIPResult struct {
 	Preferred string `json:"preferred"` // 最终显示 IP，IPv6 优先
 	IPv4      string `json:"ipv4"`
@@ -347,21 +386,21 @@ func detectIP(ctx context.Context, endpoints []string, network string, useProxy 
 }
 
 func fetchIPFromEndpoint(ctx context.Context, endpoint string, network string, useProxy bool) (string, error) {
+	initTransports()
+
 	var transport *http.Transport
 
 	if useProxy {
-		port := clash.GetProxyPort()
-		proxyURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
-		transport = &http.Transport{
-			Proxy: http.ProxyURL(proxyURL),
+		if network == "tcp6" {
+			transport = proxyTransportIPv6
+		} else {
+			transport = proxyTransportIPv4
 		}
 	} else {
-		dialer := &net.Dialer{Timeout: 3500 * time.Millisecond}
-		transport = &http.Transport{
-			Proxy: nil,
-			DialContext: func(ctx context.Context, n, addr string) (net.Conn, error) {
-				return dialer.DialContext(ctx, network, addr)
-			},
+		if network == "tcp6" {
+			transport = directTransportIPv6
+		} else {
+			transport = directTransportIPv4
 		}
 	}
 

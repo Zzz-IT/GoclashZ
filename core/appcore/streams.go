@@ -251,11 +251,10 @@ func isProxyConnection(conn traffic.RawConnection) bool {
 		return false
 	}
 
-	for _, chain := range conn.Chains {
-		c := strings.ToUpper(strings.TrimSpace(chain))
-		if c == "DIRECT" || c == "REJECT" || c == "REJECT-DROP" {
-			return false
-		}
+	// Check the first element in the chain (user-facing proxy)
+	firstChain := strings.ToUpper(strings.TrimSpace(conn.Chains[0]))
+	if firstChain == "DIRECT" || firstChain == "REJECT" || firstChain == "REJECT-DROP" {
+		return false
 	}
 
 	rule := strings.ToUpper(strings.TrimSpace(conn.Rule))

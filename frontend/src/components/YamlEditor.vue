@@ -53,7 +53,7 @@ import { closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirro
 import { searchKeymap } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
 import * as API from '../../wailsjs/go/main/App';
-import { globalState } from '../store';
+import { globalState, showConfirm, showAlert } from '../store';
 
 const props = defineProps<{
   configId: string;
@@ -297,9 +297,7 @@ const loadConfig = async () => {
     emit('status-change', { text: '加载失败', modified: false, error: true });
     
     // 如果读取配置失败（如严格路径校验不通过），弹出提示并返回
-    import('../store').then(({ showAlert }) => {
-      showAlert('配置文件读取失败: ' + errorMsg, '错误', true);
-    });
+    showAlert('配置文件读取失败: ' + errorMsg, '错误', true);
   } finally {
     loading.value = false;
   }
@@ -323,9 +321,7 @@ const handleSave = async () => {
     statusText.value = '保存失败: ' + errorMsg;
     emit('status-change', { text: '保存失败', modified: isModified.value, error: true });
     
-    import('../store').then(({ showAlert }) => {
-      showAlert('配置文件保存失败: ' + errorMsg, '错误', true);
-    });
+    showAlert('配置文件保存失败: ' + errorMsg, '错误', true);
   } finally {
     saving.value = false;
   }
@@ -350,9 +346,10 @@ const handleValidate = async () => {
   }
 };
 
-const handleReload = () => {
+const handleReload = async () => {
   if (isModified.value) {
-    if (!confirm('当前有未保存的修改，确定要重新加载吗？')) return;
+    const ok = await showConfirm('当前有未保存的修改，确定要重新加载吗？', '提示');
+    if (!ok) return;
   }
   loadConfig();
 };

@@ -71,6 +71,10 @@ export namespace appcore {
 	    theme: string;
 	    hideLogs: boolean;
 	    appLogLevel: string;
+	    desiredSystemProxy: boolean;
+	    desiredTun: boolean;
+	    actualSystemProxy: boolean;
+	    actualTun: boolean;
 	    systemProxy: boolean;
 	    tun: boolean;
 	    version: string;
@@ -97,6 +101,10 @@ export namespace appcore {
 	        this.theme = source["theme"];
 	        this.hideLogs = source["hideLogs"];
 	        this.appLogLevel = source["appLogLevel"];
+	        this.desiredSystemProxy = source["desiredSystemProxy"];
+	        this.desiredTun = source["desiredTun"];
+	        this.actualSystemProxy = source["actualSystemProxy"];
+	        this.actualTun = source["actualTun"];
 	        this.systemProxy = source["systemProxy"];
 	        this.tun = source["tun"];
 	        this.version = source["version"];

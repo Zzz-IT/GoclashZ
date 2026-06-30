@@ -162,7 +162,7 @@ import {
   WindowIsMaximised,
   Quit
 } from '../wailsjs/runtime/runtime';
-import { globalState, initStore } from './store';
+import { globalState, initStore, updateStateFromBackend } from './store';
 
 const currentTab = ref('home');
 const targetSettingsView = ref('main');
@@ -372,21 +372,6 @@ const watchTheme = watch(() => globalState.theme, (val) => {
 
 onMounted(async () => {
   initStore();
-
-  try {
-    const state = await (API as any).GetAppState();
-    if (state) {
-      globalState.isRunning = state.isRunning ?? state.IsRunning ?? false;
-      globalState.mode = state.mode ?? state.Mode ?? 'rule';
-      globalState.theme = state.theme ?? state.Theme ?? 'light';
-      globalState.systemProxy = state.systemProxy ?? state.SystemProxy ?? false;
-      globalState.tun = state.tun ?? state.Tun ?? false;
-      globalState.version = state.version ?? state.Version ?? '';
-      globalState.appVersion = state.appVersion ?? state.AppVersion ?? '';
-    }
-  } catch (e) {
-    console.error("获取初始状态失败:", e);
-  }
 
   try {
     if (!globalState.appVersion) {

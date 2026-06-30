@@ -26,12 +26,12 @@ const tasks = computed(() => {
   });
 });
 
-const hasFinishedTasks = computed(() => {
-  return tasks.value.some(t => t.status === 'success');
-});
-
 const clearFinishedTasks = async () => {
-  await (API as any).ClearFinishedUpdateTasks();
+  try {
+    await (API as any).ClearFinishedUpdateTasks();
+  } catch (e) {
+    console.error('Failed to clear finished tasks:', e);
+  }
 };
 
 import { watch } from 'vue';

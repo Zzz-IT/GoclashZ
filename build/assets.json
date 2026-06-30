@@ -1,0 +1,29 @@
+{
+  "mihomo": {
+    "provider": "github_latest_release",
+    "repo": "MetaCubeX/mihomo",
+    "assetPattern": "mihomo-windows-amd64.*\\.zip$",
+    "output": "clash.exe"
+  },
+  "geoip": {
+    "url": "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
+    "output": "geoip.metadb"
+  },
+  "geosite": {
+    "url": "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
+    "output": "geosite.dat"
+  },
+  "country": {
+    "url": "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
+    "output": "country.mmdb"
+  },
+  "asn": {
+    "url": "https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
+    "output": "asn.dat"
+  },
+  "wintun": {
+    "url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+    "innerPath": "wintun/bin/amd64/wintun.dll",
+    "output": "wintun.dll"
+  }
+}
