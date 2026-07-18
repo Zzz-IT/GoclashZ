@@ -580,8 +580,8 @@ func (t *TrayRuntime) showContextMenu() {
 
 	procAppendMenuW.Call(hMenu, MF_SEPARATOR, 0, 0)
 
-	t.appendMenu(hMenu, idSysProxy, "系统代理", state.SystemProxy)
-	t.appendMenu(hMenu, idTun, "TUN 模式", state.Tun)
+	t.appendMenu(hMenu, idSysProxy, "系统代理", state.DesiredSystemProxy)
+	t.appendMenu(hMenu, idTun, "TUN 模式", state.DesiredTun)
 
 	procAppendMenuW.Call(hMenu, MF_SEPARATOR, 0, 0)
 
@@ -674,7 +674,14 @@ func (t *TrayRuntime) reportTrayError(action string, err error) {
 		return
 	}
 	t.logf("error", "[Tray] %s failed: %v", action, err)
-	t.app.core.GetEvents().Emit("notify-error", fmt.Sprintf("%s失败: %v", action, err))
+	message := fmt.Sprintf("%s失败: %v", action, err)
+	t.app.core.GetEvents().Emit(appcore.EventNotification, appcore.Notification{
+		Level:   "error",
+		Code:    "TRAY_COMMAND_FAILED",
+		Message: message,
+		Source:  "tray",
+	})
+	t.app.core.GetEvents().Emit(appcore.EventNotifyError, message)
 }
 
 // handleCommand executes a tray command
@@ -690,13 +697,11 @@ func (t *TrayRuntime) handleCommand(cmd TrayCommand) {
 		t.app.safeShowMainWindow()
 
 	case TrayCmdToggleSystemProxy:
-		state := t.snapshot()
-		err := t.app.core.ToggleSystemProxy(t.ctx, !state.SystemProxy)
+		err := t.app.core.ToggleSystemProxyFromCurrentDesired(t.ctx)
 		t.reportTrayError("切换系统代理", err)
 
 	case TrayCmdToggleTun:
-		state := t.snapshot()
-		err := t.app.core.ToggleTunMode(t.ctx, !state.Tun)
+		err := t.app.core.ToggleTunFromCurrentDesired(t.ctx)
 		t.reportTrayError("切换 TUN", err)
 
 	case TrayCmdModeRule:

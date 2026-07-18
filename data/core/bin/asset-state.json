@@ -1,0 +1,29 @@
+{
+  "seedManifestSha256": "8efce6a35b62d2350c3c1f6d4d95240bd92deced0983daba71f221eb5a6b62b5",
+  "copiedAssets": {
+    "asn.dat": {
+      "sha256": "bd537d584db70b5051f4d948e6a588d562ccc411bf629946287601232e10b40e",
+      "source": "seed"
+    },
+    "clash.exe": {
+      "sha256": "58a8136fdb87d4eee7e3518041b0769cc5e673a7ca98dfc030f99a47ff49588f",
+      "source": "seed"
+    },
+    "country.mmdb": {
+      "sha256": "39916e4e76af601ee66c52627e5d6b4136ff82cec1fadcb5df48285d685c3633",
+      "source": "seed"
+    },
+    "geoip.metadb": {
+      "sha256": "c4d8046166e57713268753904f5c30fbc607279741415569e4fc89cf25dae500",
+      "source": "seed"
+    },
+    "geosite.dat": {
+      "sha256": "aff6b4ae278c819bec4cd3ddb68bffdaae7868169752a2f3858242c9613a7e3e",
+      "source": "seed"
+    },
+    "wintun.dll": {
+      "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce",
+      "source": "seed"
+    }
+  }
+}

@@ -67,32 +67,38 @@ try {
 // 存储全局倒计时 ID，不放在 reactive 中防止不必要的响应式开销
 const delayTimers: Record<string, number> = {};
 
-// intent 持久化：卡片状态只看 intent，不看后端 runtime，使用 sessionStorage 确保应用关闭后重置
-function readControlIntent(): { systemProxy?: boolean; tun?: boolean } | null {
-  try {
-    const raw = sessionStorage.getItem('goclashz_control_intent');
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-}
+// The backend owns persisted desired state. This overlay exists only while a
+// local command is in flight so control cards react immediately without
+// becoming an independent source of truth.
+const controlOverlay = {
+  systemProxy: null as boolean | null,
+  tun: null as boolean | null,
+};
 
-function persistControlIntent() {
-  sessionStorage.setItem('goclashz_control_intent', JSON.stringify({
-    systemProxy: globalState.systemProxy,
-    tun: globalState.tun,
-  }));
+function syncVisibleControls() {
+  globalState.systemProxy = controlOverlay.systemProxy ?? globalState.desiredSystemProxy;
+  globalState.tun = controlOverlay.tun ?? globalState.desiredTun;
 }
 
 export function setSystemProxyIntent(value: boolean) {
-  globalState.systemProxy = value;
-  persistControlIntent();
+  controlOverlay.systemProxy = value;
+  syncVisibleControls();
 }
 
 export function setTunIntent(value: boolean) {
-  globalState.tun = value;
-  persistControlIntent();
+  controlOverlay.tun = value;
+  syncVisibleControls();
 }
 
-const cachedIntent = readControlIntent();
+export function settleSystemProxyIntent() {
+  controlOverlay.systemProxy = null;
+  syncVisibleControls();
+}
+
+export function settleTunIntent() {
+  controlOverlay.tun = null;
+  syncVisibleControls();
+}
 
 // 定义全局响应式状态
 export const globalState = reactive({
@@ -100,17 +106,18 @@ export const globalState = reactive({
   mode: 'rule',
   theme: cachedTheme,
   hideLogs: cachedHideLogs,
-  // UI intent：卡片唯一数据源
-  systemProxy: cachedIntent?.systemProxy ?? false,
-  tun: cachedIntent?.tun ?? false,
+  // Visible control state is the optimistic target or backend desired state.
+  systemProxy: false,
+  tun: false,
+  desiredSystemProxy: false,
+  desiredTun: false,
   // backend actual：后端实际状态，用于诊断/IP 检测
   actualSystemProxy: false,
   actualTun: false,
   // pending：只控制重复点击，不影响亮灭
   systemProxyPending: false,
   tunPending: false,
-  // 首次 hydrate 标记
-  controlStateHydrated: false,
+  controlRevision: 0,
   version: '',
   appVersion: '',
   logLevel: 'error',
@@ -229,26 +236,14 @@ export function updateStateFromBackend(rawData: any) {
   if (newProxy !== undefined) globalState.actualSystemProxy = !!newProxy;
   if (newTun !== undefined) globalState.actualTun = !!newTun;
 
-  // 首次 hydrate：用后端 desired 初始化 intent，之后不再由后端覆盖
-  if (!globalState.controlStateHydrated) {
-    const cached = readControlIntent();
+  const revision = rawData.controlRevision ?? rawData.ControlRevision;
+  if (revision === undefined || revision >= globalState.controlRevision) {
+    if (revision !== undefined) globalState.controlRevision = revision;
     const desiredProxy = rawData.desiredSystemProxy ?? rawData.DesiredSystemProxy;
     const desiredTun = rawData.desiredTun ?? rawData.DesiredTun;
-
-    if (desiredProxy !== undefined) {
-      globalState.systemProxy = !!desiredProxy;
-    } else if (!cached && newProxy !== undefined) {
-      globalState.systemProxy = !!newProxy;
-    }
-
-    if (desiredTun !== undefined) {
-      globalState.tun = !!desiredTun;
-    } else if (!cached && newTun !== undefined) {
-      globalState.tun = !!newTun;
-    }
-
-    globalState.controlStateHydrated = true;
-    persistControlIntent();
+    if (desiredProxy !== undefined) globalState.desiredSystemProxy = !!desiredProxy;
+    if (desiredTun !== undefined) globalState.desiredTun = !!desiredTun;
+    syncVisibleControls();
   }
 
   // route-aware IP 刷新：基于 actual 状态变化
@@ -610,6 +605,18 @@ export async function initStore() {
   // 2. 保持事件监听，响应来自 Go (托盘或后台) 的实时更新
   EventsOn("app-state-sync", (newState: any) => {
     updateStateFromBackend(newState);
+  });
+
+  EventsOn("app-notification", (notification: { level?: string; message?: string; source?: string }) => {
+    // Page commands already render their returned errors. Tray failures have
+    // no local caller, so this is the one notification path that opens UI.
+    if (
+      ['tray', 'startup', 'deferred-action'].includes(notification?.source || '') &&
+      notification.level === 'error' &&
+      notification.message
+    ) {
+      showAlert(notification.message, '错误', true);
+    }
   });
 
   EventsOn("component-update-tasks-sync", (tasksList: UpdateTaskState[]) => {

@@ -11,7 +11,11 @@
         @click="refreshOutboundIPRouteAware('manual')"
       >
         <span class="ip-label">当前出站IP</span>
-        <span class="ip-value" :class="{ detecting: !outboundIPText || outboundIPText === '检测失败' }">
+        <span
+          class="ip-value"
+          :class="{ detecting: !outboundIPText || outboundIPText === '检测失败' }"
+          :aria-label="outboundIPText"
+        >
           {{ outboundIPText }}
         </span>
         <span v-if="globalState.ipDetecting && outboundIPHasValue" class="ip-refreshing">刷新中</span>
@@ -151,7 +155,7 @@ const handleReset = async () => {
 
 .traffic-head {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   margin-bottom: 20px;
 }
@@ -179,6 +183,7 @@ const handleReset = async () => {
   padding: 4px 10px;
   border-radius: 8px;
   transition: 0.2s;
+  min-width: 0;
 }
 
 .outbound-ip:hover {
@@ -200,9 +205,8 @@ const handleReset = async () => {
   color: var(--text-main);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  max-width: 360px;
+  overflow: visible;
   display: inline-block;
   vertical-align: bottom;
   font-synthesis-weight: none;
@@ -222,6 +226,27 @@ const handleReset = async () => {
   color: var(--text-muted);
   margin-left: 4px;
   font-synthesis-weight: none;
+}
+
+@media (max-width: 700px) {
+  .traffic-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 8px;
+  }
+
+  .outbound-ip {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    justify-content: center;
+  }
+
+  .ip-value {
+    max-width: none;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
 }
 
 .reset-btn {

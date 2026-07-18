@@ -545,6 +545,8 @@ func normalizeBackupEntry(name string) (destRel string, kind string, ok bool) {
 		return filepath.ToSlash(filepath.Join("Settings", "user_network.json")), "settings", true
 	case lower == "tun.json":
 		return filepath.ToSlash(filepath.Join("Settings", "user_tun.json")), "settings", true
+	case lower == "desired_state.json", lower == "user_desired_state.json", lower == "user_user_desired_state.json":
+		return filepath.ToSlash(filepath.Join("Settings", "user_desired_state.json")), "settings", true
 	case strings.HasPrefix(lower, "settings/"):
 		parts := strings.Split(n, "/")
 		rest := strings.Join(parts[1:], "/")
@@ -561,6 +563,8 @@ func normalizeBackupEntry(name string) (destRel string, kind string, ok bool) {
 			rest = "user_network.json"
 		case "tun.json":
 			rest = "user_tun.json"
+		case "desired_state.json", "user_user_desired_state.json":
+			rest = "user_desired_state.json"
 		}
 		return filepath.ToSlash(filepath.Join("Settings", rest)), "settings", true
 	case strings.HasPrefix(lower, "subscriptions/"):

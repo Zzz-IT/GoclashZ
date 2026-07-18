@@ -67,13 +67,28 @@ func (c *Controller) UpdateAllSubsAsync(ctx context.Context) {
 	})
 }
 
-func (c *Controller) DeleteConfig(id string) error {
+func (c *Controller) DeleteConfig(ctx context.Context, id string) error {
+	state := c.GetAppState()
+	if state.ActiveConfig == id {
+		// Deleting the active profile must leave no proxy endpoint pointing at a
+		// stopped core. Use the same control commands as every other entry point.
+		if err := c.ToggleSystemProxy(ctx, false); err != nil {
+			return err
+		}
+		if err := c.ToggleTunMode(ctx, false); err != nil {
+			return err
+		}
+	}
+
 	if err := clash.DeleteConfig(id); err != nil {
 		return err
 	}
-	state := c.GetAppState()
 	if state.ActiveConfig == id {
 		c.Behavior.SetActiveConfig("")
+		desired := c.Desired.Get()
+		desired.ActiveConfig = ""
+		desired.CoreRunning = false
+		_ = c.Desired.SetAndSave(desired)
 		if state.IsRunning {
 			c.StopCoreProcess()
 		}
@@ -92,9 +107,9 @@ func (c *Controller) SelectLocalConfig(ctx context.Context, id string) error {
 		return err
 	}
 
-	desired := c.Desired.Get()
-	c.fillDesiredTarget(&desired)
-	c.Desired.SetAndSave(desired)
+	_ = c.Desired.Update(func(d *DesiredState) {
+		c.fillDesiredTarget(d)
+	})
 
 	if state.IsRunning {
 		return c.RestartCoreWithReason(ctx, "config-switch")

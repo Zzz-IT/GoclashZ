@@ -71,6 +71,10 @@ func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode st
 		return fmt.Errorf("配置文件还原成功但重载失败: %v", err)
 	}
 
+	if err := c.Desired.Load(); err != nil {
+		c.SyncState()
+		return fmt.Errorf("配置文件还原成功但意图重载失败: %v", err)
+	}
 	// 5. 恢复运行态或重载配置
 	if shouldRestart {
 		err := c.EnsureCoreRunning(ctx)

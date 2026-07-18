@@ -69,7 +69,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { globalState, showAlert, showConfirm, updateStateFromBackend, scheduleOutboundIPRefresh, setSystemProxyIntent, setTunIntent } from '../store';
+import { globalState, showAlert, showConfirm, updateStateFromBackend, settleSystemProxyIntent, settleTunIntent, setSystemProxyIntent, setTunIntent } from '../store';
 import { ICONS } from '../utils/icons';
 import TrafficCard from './TrafficCard.vue';
 
@@ -104,11 +104,19 @@ const consoleServiceOn = computed(() => desiredActive.value || actualActive.valu
 
 const consoleServiceTitle = computed(() => {
   if (isRestarting.value) return '内核重启中...';
-  // TUN 开启时：用 actualTun 判断，与 IP 检测的 state.Tun 一致
-  if (globalState.tun && globalState.actualTun) return '接管中';
-  // 系统代理：用 isRunning 判断
-  if (globalState.systemProxy && globalState.isRunning) return '接管中';
-  if (actualActive.value) return '运行中';
+
+  const desiredMatched =
+    (!globalState.systemProxy || globalState.actualSystemProxy) &&
+    (!globalState.tun || globalState.actualTun);
+
+  // A single control command emits intermediate snapshots while the core,
+  // system proxy, and TUN settle. Desired state owns the headline so those
+  // transport frames cannot flash "服务停止" or "运行中" between endpoints.
+  if (desiredActive.value) {
+    return desiredMatched ? '接管中' : '启动中...';
+  }
+
+  if (actualActive.value) return '停止中...';
   return '服务停止';
 });
 
@@ -148,8 +156,7 @@ const tunLabel = computed(() => {
 const toggleSysProxy = async () => {
   if (globalState.systemProxyPending) return;
 
-  const previous = globalState.systemProxy;
-  const target = !previous;
+  const target = !globalState.systemProxy;
 
   setSystemProxyIntent(target);
   globalState.systemProxyPending = true;
@@ -159,9 +166,6 @@ const toggleSysProxy = async () => {
     const latest = await (API as any).GetAppState().catch(() => null);
     if (latest) updateStateFromBackend(latest);
   } catch (err: any) {
-    // 只有明确失败才回滚
-    setSystemProxyIntent(previous);
-
     const msg = String(err?.message || err || '');
     if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
       showAlert('尚未添加配置\n\n启用系统代理前，请先添加并应用一个配置文件。', '提示');
@@ -169,6 +173,7 @@ const toggleSysProxy = async () => {
       showAlert('系统代理启用失败: ' + msg, '错误', true);
     }
   } finally {
+    settleSystemProxyIntent();
     globalState.systemProxyPending = false;
   }
 };
@@ -176,8 +181,7 @@ const toggleSysProxy = async () => {
 const toggleTun = async () => {
   if (globalState.tunPending) return;
 
-  const previous = globalState.tun;
-  const target = !previous;
+  const target = !globalState.tun;
 
   setTunIntent(target);
   globalState.tunPending = true;
@@ -197,25 +201,19 @@ const toggleTun = async () => {
 
       if (confirmed) {
         try {
-          setTunIntent(target);
           await (API as any).InstallHelperService();
           await API.ToggleTunMode(target);
           const latest = await (API as any).GetAppState().catch(() => null);
           if (latest) updateStateFromBackend(latest);
           return;
         } catch (e: any) {
-          setTunIntent(previous);
           showAlert('初始化后台服务失败: ' + String(e?.message || e), '错误', true);
           return;
         }
       }
 
-      setTunIntent(previous);
       return;
     }
-
-    // 其他明确失败：回滚
-    setTunIntent(previous);
 
     if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
       showAlert('尚未添加配置\n\n启用虚拟网卡前，请先添加并应用一个配置文件。', '提示');
@@ -225,6 +223,7 @@ const toggleTun = async () => {
       showAlert('虚拟网卡启用失败: ' + msg, '错误', true);
     }
   } finally {
+    settleTunIntent();
     globalState.tunPending = false;
   }
 };
@@ -254,22 +253,6 @@ const runModeWorker = async (targetMode: string) => {
   modeWorkerActive = true;
   try {
     await API.UpdateClashMode(targetMode);
-    await API.FlushFakeIP().catch(() => {});
-    await API.CloseAllConnections().catch(() => {});
-    if (targetMode === 'global') {
-      const data: any = await API.GetInitialData();
-      if (data?.groups) {
-        const keys = data.groupOrder?.length > 0 ? data.groupOrder : Object.keys(data.groups);
-        for (const name of keys) {
-          const item = data.groups[name];
-          if (!item) continue;
-          if (item.type === 'Selector' && !['GLOBAL', 'DIRECT', 'REJECT'].includes(name)) {
-            if (item.now) await API.SelectProxy('GLOBAL', item.now).catch(() => {});
-            break;
-          }
-        }
-      }
-    }
     const latest = await (API as any).GetAppState();
     updateStateFromBackend(latest);
   } catch (err) {

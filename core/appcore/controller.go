@@ -111,6 +111,7 @@ type Controller struct {
 
 	Supervisor *CoreSupervisor
 	Desired    *DesiredStateStore
+	controls   *ControlCoordinator
 
 	mu                sync.RWMutex
 	coreLifecycleMu   sync.Mutex
@@ -214,6 +215,7 @@ func NewController(opts Options) *Controller {
 		return c.Behavior.Get().AppLogLevel
 	})
 	c.Supervisor = NewCoreSupervisor(c, c.Desired)
+	c.controls = NewControlCoordinator(c)
 	c.traffic = NewTrafficStreamManager(opts.Events, c.appLogger)
 	c.logs = NewLogStreamManager(c.appLogger)
 	c.Delay = NewDelayTestManager(opts.Events, c)
@@ -385,13 +387,13 @@ func (c *Controller) runStartupRestoreJob(ctx context.Context) {
 
 		switch {
 		case errors.Is(err, ErrNoActiveConfig):
-			c.events.Emit("notify-error", "启动恢复失败：尚未添加配置")
+			c.notify("error", "STARTUP_RESTORE_NO_CONFIG", "启动恢复失败：尚未添加配置", "startup")
 			return
 		case errors.Is(err, ErrHelperInstallRequired):
-			c.events.Emit("notify-error", "TUN 启动恢复需要初始化后台服务")
+			c.notify("error", "STARTUP_RESTORE_HELPER_REQUIRED", "TUN 启动恢复需要初始化后台服务", "startup")
 			return
 		case errors.Is(err, ErrWintunMissing):
-			c.events.Emit("notify-error", "TUN 启动恢复失败：缺少 Wintun 驱动")
+			c.notify("error", "STARTUP_RESTORE_WINTUN_MISSING", "TUN 启动恢复失败：缺少 Wintun 驱动", "startup")
 			return
 		default:
 			c.logWarn("启动恢复失败 attempt=%d: %v", i+1, err)
@@ -427,13 +429,15 @@ type AppState struct {
 	Mode        string `json:"mode"`
 	Theme       string `json:"theme"`
 	HideLogs    bool   `json:"hideLogs"`
+	LogLevel    string `json:"logLevel"`
 	AppLogLevel string `json:"appLogLevel"`
 	// 用户意图（卡片数据源）
 	DesiredSystemProxy bool `json:"desiredSystemProxy"`
 	DesiredTun         bool `json:"desiredTun"`
 	// 后端实际 runtime 状态（诊断/IP 检测用）
-	ActualSystemProxy bool `json:"actualSystemProxy"`
-	ActualTun         bool `json:"actualTun"`
+	ActualSystemProxy bool   `json:"actualSystemProxy"`
+	ActualTun         bool   `json:"actualTun"`
+	ControlRevision   uint64 `json:"controlRevision"`
 	// 兼容旧前端
 	SystemProxy bool   `json:"systemProxy"`
 	Tun         bool   `json:"tun"`
@@ -486,11 +490,15 @@ func (c *Controller) GetAppState() AppState {
 		DelayRetention:     behavior.DelayRetention,
 		DelayRetentionTime: behavior.DelayRetentionTime,
 		HideLogs:           behavior.HideLogs,
+		LogLevel:           behavior.LogLevel,
 		AppLogLevel:        behavior.AppLogLevel,
 		UpdateReady:        c.updateReady,
 		NewAppVersion:      c.newAppVersion,
 		UpdateDownloaded:   c.downloadedUpdatePath != "",
 		DownloadedPath:     c.downloadedUpdatePath,
+	}
+	if c.controls != nil {
+		state.ControlRevision = c.controls.Revision()
 	}
 
 	if activeConfig != "" {
@@ -809,7 +817,19 @@ func (c *Controller) setRuntimeStateFromPlan(plan RuntimePlan) {
 }
 
 func (c *Controller) setLastError(msg string) {
-	c.events.Emit("notify-error", msg)
+	c.notify("error", "RUNTIME_OPERATION_FAILED", msg, "appcore")
+}
+
+func (c *Controller) notify(level, code, message, source string) {
+	c.events.Emit(EventNotification, Notification{
+		Level:   level,
+		Code:    code,
+		Message: message,
+		Source:  source,
+	})
+	if level == "error" {
+		c.events.Emit(EventNotifyError, message)
+	}
 }
 
 // DisableAll 彻底清理并关闭所有功能
@@ -1102,28 +1122,13 @@ func (c *Controller) fillDesiredTarget(d *DesiredState) {
 
 // ToggleSystemProxy 开关：系统代理
 func (c *Controller) ToggleSystemProxy(ctx context.Context, enable bool) error {
-	previousDesired := c.Desired.Get()
+	return c.controls.SetSystemProxy(ctx, enable)
+}
 
-	desired := previousDesired
-	desired.SystemProxy = enable
-
-	if enable {
-		desired.CoreRunning = true
-	} else if !desired.Tun {
-		desired.CoreRunning = false
-	}
-
-	c.fillDesiredTarget(&desired)
-
-	c.Desired.SetAndSave(desired)
-
-	if err := c.Supervisor.Reconcile(ctx, "system-proxy-toggle"); err != nil {
-		// 回滚
-		c.Desired.SetAndSave(previousDesired)
-		c.SyncState()
-		return err
-	}
-	return nil
+// ToggleSystemProxyFromCurrentDesired is used by the tray so the target is
+// calculated under the same lock that commits the command.
+func (c *Controller) ToggleSystemProxyFromCurrentDesired(ctx context.Context) error {
+	return c.controls.ToggleSystemProxy(ctx)
 }
 
 // EnsureHelperReady 确保 helper 服务已安装并运行
@@ -1166,64 +1171,49 @@ func (c *Controller) ensureHelperReadySlow(reason string) error {
 
 // ToggleTunMode 开关：TUN 模式
 func (c *Controller) ToggleTunMode(ctx context.Context, enable bool) error {
-	if enable {
-		// 无配置检查
-		behavior := c.Behavior.Get()
-		if behavior.ActiveConfig == "" {
-			return ErrNoActiveConfig
+	return c.controls.SetTun(ctx, enable)
+}
+
+// prepareTunEnable contains the prerequisites shared by every TUN entry
+// point. It intentionally runs inside ControlCoordinator serialization so a
+// tray command cannot bypass validation or race a concurrent control change.
+func (c *Controller) prepareTunEnable(ctx context.Context) error {
+	behavior := c.Behavior.Get()
+	if behavior.ActiveConfig == "" {
+		return ErrNoActiveConfig
+	}
+
+	client := sys.NewHelperClient()
+	helperReachable := client.Ping() == nil
+	if !helperReachable && !sys.CheckAdmin() {
+		helperStatus := sys.CheckHelperService()
+		if !helperStatus.Installed {
+			return ErrHelperInstallRequired
 		}
+		return ErrHelperRepairRequired
+	}
 
-		// helper 检查（快速 ping，不启动服务）
-		client := sys.NewHelperClient()
-		helperReachable := client.Ping() == nil
-
-		if !helperReachable && !sys.CheckAdmin() {
-			// 非管理员且 helper 不可达
-			helperStatus := sys.CheckHelperService()
-			if !helperStatus.Installed {
-				return ErrHelperInstallRequired
-			}
-			// 已安装但不可达，需要修复
-			return ErrHelperRepairRequired
-		}
-
-		// 管理员模式下 helper 不可达，静默安装/修复
-		if !helperReachable && sys.CheckAdmin() {
-			if err := c.EnsureHelperReady("tun-first-install"); err != nil {
-				return fmt.Errorf("安装后台服务失败: %w", err)
-			}
-		}
-
-		// 使用统一资产模型检查 Wintun
-		assetStatus, assetErr := runtimeassets.EnsureReady(ctx, runtimeassets.RequireTun, runtimeassets.RepairInvalid)
-		if assetErr != nil {
-			w := assetStatus.Assets[runtimeassets.AssetWintun]
-			if !w.Ready {
-				return fmt.Errorf("缺少 Wintun 依赖: %s (%s)", w.Error, w.Path)
-			}
-			return assetErr
+	if !helperReachable && sys.CheckAdmin() {
+		if err := c.EnsureHelperReady("tun-first-install"); err != nil {
+			return fmt.Errorf("安装后台服务失败: %w", err)
 		}
 	}
 
-	previousDesired := c.Desired.Get()
-	desired := previousDesired
-	desired.Tun = enable
-
-	if enable {
-		desired.CoreRunning = true
-	} else if !desired.SystemProxy {
-		desired.CoreRunning = false
+	assetStatus, assetErr := runtimeassets.EnsureReady(ctx, runtimeassets.RequireTun, runtimeassets.RepairInvalid)
+	if assetErr != nil {
+		w := assetStatus.Assets[runtimeassets.AssetWintun]
+		if !w.Ready {
+			return fmt.Errorf("缺少 Wintun 依赖: %s (%s)", w.Error, w.Path)
+		}
+		return assetErr
 	}
 
-	c.fillDesiredTarget(&desired)
-	c.Desired.SetAndSave(desired)
-
-	if err := c.Supervisor.Reconcile(ctx, "tun-toggle"); err != nil {
-		c.Desired.SetAndSave(previousDesired)
-		c.SyncState()
-		return err
-	}
 	return nil
+}
+
+// ToggleTunFromCurrentDesired is the TUN equivalent of the tray-safe toggle.
+func (c *Controller) ToggleTunFromCurrentDesired(ctx context.Context) error {
+	return c.controls.ToggleTun(ctx)
 }
 
 // RestartCore 重启内核（默认为内部调用原因）
@@ -1293,10 +1283,10 @@ func (c *Controller) UpdateClashMode(ctx context.Context, mode string) error {
 		return err
 	}
 
-	desired := c.Desired.Get()
-	desired.Mode = mode
-	c.fillDesiredTarget(&desired)
-	c.Desired.SetAndSave(desired)
+	_ = c.Desired.Update(func(d *DesiredState) {
+		d.Mode = mode
+		c.fillDesiredTarget(d)
+	})
 
 	// 2. 如果内核正在运行，尝试通过 API 热切换
 	if clash.IsRunning() {
@@ -1482,6 +1472,10 @@ func (c *Controller) SaveAppBehavior(b AppBehavior) error {
 	}
 
 	if old.AppLogLevel != next.AppLogLevel {
+		c.SyncState()
+	}
+
+	if old.LogLevel != next.LogLevel {
 		c.SyncState()
 	}
 

@@ -169,12 +169,12 @@ func (c *Controller) queuePendingDisruptiveAction(reason string) {
 				return
 			case now := <-ticker.C:
 				if now.After(action.Deadline) {
-					c.events.Emit("notify-error", fmt.Sprintf("由于长连接一直存在，已放弃延迟执行的重启任务 (%s)", action.Reason))
+					c.notify("error", "DEFERRED_RESTART_ABANDONED", fmt.Sprintf("由于长连接一直存在，已放弃延迟执行的重启任务 (%s)", action.Reason), "deferred-action")
 					return
 				}
 
 				if !c.HasActiveLongConnection() {
-					c.events.Emit("notify-success", fmt.Sprintf("长连接已结束，正在执行延迟的任务 (%s)", action.Reason))
+					c.notify("success", "DEFERRED_RESTART_RESUMED", fmt.Sprintf("长连接已结束，正在执行延迟的任务 (%s)", action.Reason), "deferred-action")
 					_ = c.RestartCoreWithReason(c.ctx, action.Reason)
 					return
 				}

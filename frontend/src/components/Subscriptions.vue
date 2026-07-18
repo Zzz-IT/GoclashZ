@@ -446,14 +446,6 @@ const openDeleteModal = (config: clash.SubIndexItem) => {
 const confirmDelete = async () => {
   isDeleting.value = true;
   try {
-    if (isCurrentConfig(targetId.value)) {
-      // 停止代理并清理状态
-      await API.ToggleSystemProxy(false);
-      await API.ToggleTunMode(false);
-      globalState.activeConfigId = '';
-      globalState.activeConfigName = '';
-      globalState.activeConfigType = '';
-    }
     await API.DeleteConfig(targetId.value);
     await fetchConfigs();
     closeAllModals();

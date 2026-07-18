@@ -653,7 +653,7 @@ func (a *App) RenameConfig(id, newName string) error {
 }
 
 func (a *App) DeleteConfig(id string) error {
-	return a.core.DeleteConfig(id)
+	return a.core.DeleteConfig(a.ctx, id)
 }
 
 func (a *App) SelectLocalConfig(id string) error {
