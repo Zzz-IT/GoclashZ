@@ -117,7 +117,7 @@ func ValidateClashReferences(root map[string]interface{}) error {
 				if len(parts) >= 2 {
 					ruleType := strings.ToUpper(parts[0])
 
-					if ruleType == "MATCH" {
+					if ruleType == "MATCH" || ruleType == "FINAL" {
 						target := parts[1]
 						if !isValidPolicyTarget(target) {
 							return fmt.Errorf("规则 [%s] 引用了不存在的策略组/节点: %s", ruleStr, target)
@@ -171,9 +171,9 @@ func SanitizeRuleLine(rule string) (string, error) {
 	parts[0] = ruleType
 
 	switch ruleType {
-	case "MATCH":
+	case "MATCH", "FINAL":
 		if len(parts) != 2 {
-			return "", fmt.Errorf("MATCH 规则格式应为 MATCH,策略")
+			return "", fmt.Errorf("%s 规则格式应为 %s,策略", ruleType, ruleType)
 		}
 	case "AND", "OR", "NOT", "SUB-RULE":
 		if len(parts) < 2 {

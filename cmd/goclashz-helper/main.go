@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
@@ -29,10 +31,11 @@ const (
 )
 
 type helperService struct {
-	mu      sync.Mutex
-	coreCmd *exec.Cmd
-	corePID int
-	ln      net.Listener
+	mu        sync.Mutex
+	coreCmd   *exec.Cmd
+	corePID   int
+	parentPID uint32 // PID of the owning main process; watched for abnormal exit
+	ln        net.Listener
 }
 
 // getPathWhitelist 返回允许的文件操作白名单
@@ -138,24 +141,105 @@ func (s *helperService) Execute(args []string, r <-chan svc.ChangeRequest, chang
 	}
 	s.ln = ln
 
+	// ctx/cancel lets watchParent trigger a clean shutdown when the owning
+	// process disappears without sending an explicit "shutdown" command.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	changes <- svc.Status{
 		State:   svc.Running,
 		Accepts: svc.AcceptStop | svc.AcceptShutdown,
 	}
 
 	go s.serve(ln)
+	go s.watchParent(ctx, cancel)
 
-	for req := range r {
-		switch req.Cmd {
-		case svc.Stop, svc.Shutdown:
-			changes <- svc.Status{State: svc.StopPending}
-			ln.Close()
-			s.stopCore()
-			return false, 0
+loop:
+	for {
+		select {
+		case req, ok := <-r:
+			if !ok {
+				break loop
+			}
+			switch req.Cmd {
+			case svc.Stop, svc.Shutdown:
+				break loop
+			}
+		case <-ctx.Done():
+			// watchParent cancelled the context — parent process is gone.
+			break loop
 		}
 	}
 
+	changes <- svc.Status{State: svc.StopPending}
+	ln.Close()
+	s.stopCore()
 	return false, 0
+}
+
+// watchParent polls the registered parent-process PID every checkInterval.
+// If the process has been gone for at least graceTimeout it calls cancel(),
+// which causes Execute to exit and the Windows Service Manager to mark the
+// service as stopped.
+func (s *helperService) watchParent(ctx context.Context, cancel context.CancelFunc) {
+	const (
+		checkInterval = 5 * time.Second
+		graceTimeout  = 30 * time.Second
+	)
+
+	var deadSince time.Time
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		s.mu.Lock()
+		pid := s.parentPID
+		s.mu.Unlock()
+
+		if pid == 0 {
+			// No parent registered yet — nothing to watch.
+			deadSince = time.Time{}
+			continue
+		}
+
+		if isProcessAlive(pid) {
+			deadSince = time.Time{}
+			continue
+		}
+
+		// Parent appears to be gone.
+		if deadSince.IsZero() {
+			deadSince = time.Now()
+			continue
+		}
+		if time.Since(deadSince) >= graceTimeout {
+			cancel()
+			return
+		}
+	}
+}
+
+// isProcessAlive returns true if the process with the given PID is still
+// running. It uses PROCESS_QUERY_LIMITED_INFORMATION (0x1000) so that it
+// works even when the target runs at a higher integrity level.
+func isProcessAlive(pid uint32) bool {
+	const stillActive = 259 // Win32 STILL_ACTIVE / STATUS_PENDING
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(h)
+	var code uint32
+	if err := windows.GetExitCodeProcess(h, &code); err != nil {
+		return false
+	}
+	return code == stillActive
 }
 
 func createPipeListener(pipeName string) (net.Listener, error) {
@@ -215,6 +299,8 @@ func (s *helperService) handleConn(conn net.Conn) {
 			s.stopCore()
 			os.Exit(0)
 		}()
+	case "register-parent":
+		s.handleRegisterParent(conn, req.Params)
 	case "start-core":
 		s.handleStartCore(conn, req.Params)
 	case "stop-core":
@@ -272,6 +358,9 @@ func (s *helperService) handleStartCore(conn net.Conn, params json.RawMessage) {
 	cmd := exec.Command(p.CorePath, args...)
 	cmd.Dir = p.BinDir
 	cmd.Env = os.Environ()
+	cmd.SysProcAttr = &windows.SysProcAttr{
+		CreationFlags: windows.CREATE_NO_WINDOW | windows.CREATE_NEW_PROCESS_GROUP,
+	}
 
 	if err := cmd.Start(); err != nil {
 		s.writeResponse(conn, false, nil, fmt.Sprintf("start core failed: %v", err))
@@ -294,6 +383,24 @@ func (s *helperService) handleStartCore(conn net.Conn, params json.RawMessage) {
 	s.writeResponse(conn, true, nil, "")
 }
 
+func (s *helperService) handleRegisterParent(conn net.Conn, params json.RawMessage) {
+	var p struct {
+		PID int `json:"pid"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		s.writeResponse(conn, false, nil, fmt.Sprintf("invalid params: %v", err))
+		return
+	}
+	if p.PID <= 0 {
+		s.writeResponse(conn, false, nil, "invalid pid")
+		return
+	}
+	s.mu.Lock()
+	s.parentPID = uint32(p.PID)
+	s.mu.Unlock()
+	s.writeResponse(conn, true, nil, "")
+}
+
 func (s *helperService) handleStopCore(conn net.Conn, params json.RawMessage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -303,10 +410,7 @@ func (s *helperService) handleStopCore(conn net.Conn, params json.RawMessage) {
 		return
 	}
 
-	if err := s.coreCmd.Process.Kill(); err != nil {
-		s.writeResponse(conn, false, nil, fmt.Sprintf("kill core failed: %v", err))
-		return
-	}
+	_ = windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(s.corePID))
 
 	done := make(chan struct{})
 	go func() {
@@ -317,6 +421,7 @@ func (s *helperService) handleStopCore(conn net.Conn, params json.RawMessage) {
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
+		_ = s.coreCmd.Process.Kill()
 	}
 
 	s.coreCmd = nil
@@ -504,8 +609,19 @@ func (s *helperService) stopCore() {
 	defer s.mu.Unlock()
 
 	if s.coreCmd != nil && s.coreCmd.Process != nil {
-		s.coreCmd.Process.Kill()
-		s.coreCmd.Wait()
+		_ = s.coreCmd.Process.Kill()
+
+		done := make(chan struct{})
+		go func() {
+			s.coreCmd.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+		case <-time.After(1 * time.Second):
+		}
+
 		s.coreCmd = nil
 		s.corePID = 0
 	}

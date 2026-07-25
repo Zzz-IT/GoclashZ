@@ -150,13 +150,18 @@ func (s *CoreSupervisor) Reconcile(ctx context.Context, reason string) error {
 		return err
 	}
 
+	// Commit tunActive / userCoreRunning immediately after the core process is
+	// confirmed healthy, so that any SyncState call emitted during
+	// reconcileSystemProxy (or its error path) carries the correct runtime
+	// fields rather than potentially stale intermediate values.
+	s.controller.setRuntimeStateFromPlan(plan)
+
 	if err := s.controller.reconcileSystemProxy(plan); err != nil {
 		s.controller.setLastError(err.Error())
 		s.controller.SyncState()
 		return err
 	}
 
-	s.controller.setRuntimeStateFromPlan(plan)
 	s.controller.SyncState()
 	return nil
 }

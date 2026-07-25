@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.2.3
+
+**设置中心模块化重构与 UI 架构升级**
+1. **设置页全量解耦与模块化**：拆分原巨型 `Settings.vue` 组件为子页面路由体系（`SettingsHome` 首页导航、`SettingsNetwork` 基础网络、`SettingsTun` TUN 模式、`SettingsDns` DNS 覆写、`SettingsBehavior` 行为偏好、`SettingsUpdate` 组件更新、`SettingsUwp` UWP 免打扰工具及 `SettingsAbout` 关于）。
+2. **控制台与状态卡片优化**：`Overview.vue` 接入全新的状态调和机制，配合 400ms 平滑去抖防抖，彻底消除切换代理或 TUN 模式时的控制台闪烁与呼吸灯短暂停顿。
+3. **托盘菜单联动强化**：系统托盘 (Tray) 菜单深度绑定底层 `DesiredState`，确保右键托盘开关代理/TUN 模式与主界面保持毫秒级同步。
+
+**内核生命周期与控制协调器重构**
+1. **控制协调器 (ControlCoordinator) 引入**：重构意图存储引擎 (`desired_state.json`)，引入统一控制协调器，消除了多入口（UI 按钮、托盘、看门狗自愈）并发控制时的状态覆盖与脏读冲突。
+2. **解决短超时 RPC 误杀内核根因**：取消 `exec.CommandContext` 对短超时 RPC Request Context 的依赖，将内核守护进程生命周期与 RPC 调用的 context 彻底解耦，解决关闭虚拟网卡 / 系统代理时控制台显示“停止中...”及呼吸灯闪停的根本原因。
+3. **操作系统端口解锁与极速重载**：重构 Helper 服务停止内核逻辑，弃用带 120 秒 `TIME_WAIT` 端口占用锁的 `CTRL_BREAK_EVENT` 优雅等待，改用高效物理终止，彻底解决 Windows 端口被锁死导致的重启连带崩溃。
+4. **端口释放缓冲与自动自愈**：在重启通道增加 250ms 端口释放缓冲，并配合 `ensureCoreRunningWithDesiredState` 守护循环，确保内核在遭受外部意外干扰终止后能无感拉起。
+
+**外部控制器与局域网网络安全**
+1. **0.0.0.0 绑定 Dial 兼容修复**：修复当外部控制器监听地址设为 `0.0.0.0`（开放局域网控制）时 Windows 系统向 `0.0.0.0` 发起 connect 请求抛出 Socket Error 的 Bug，内部客户端自动映射为 `127.0.0.1` 保证 REST API 通信正常。
+2. **局域网代理控制完整补全**：开放 SOCKS5 专属端口设置、局域网代理身份验证（Username/Password）以及局域网 IP 允许/拒绝/免鉴权访问控制列表，并完美同步至 `config.yaml` 运行时注入器。
+3. **设置项小字与文案精细化**：重构外部控制器与局域网代理的界面提示，清晰界定 IP 绑定（`0.0.0.0` 决定局域网可达性）与自定义端口的功能职责。
+
+**配置校验与订阅管理健壮性**
+1. **订阅文件校验规则宽容度优化**：修复 `StrictVerifyClashConfig` 抽样校验硬性要求 `server` / `port` 导致的 `wireguard` / `direct` 等非 remote 节点误杀拒绝问题。
+2. **规则校验全面兼容 `FINAL` 语法**：在 `rule_validator` 中增加对 `FINAL` 匹配规则类型的解析与关联引用校验。
+3. **订阅更新流量丢失防护**：修复当订阅服务器在更新时未下发 `Subscription-Userinfo` 响应头时导致本地保存的已用流量与过期时间被清空 0 覆盖的问题。
+
 ## v1.2.2
 
 **网络探测与状态联动机制重构**

@@ -11,6 +11,10 @@
     </div>
 
     <div class="glass-card setting-group scrollable">
+      <div class="setting-item col-item" style="padding-bottom: 0; align-items: flex-start;">
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">基础</h3>
+      </div>
+      <div class="divider" style="margin-top: 10px;"></div>
       <div class="setting-item">
         <div class="info">
           <h4>IPv6 支持</h4>
@@ -113,38 +117,19 @@
 
       <div class="setting-item col-item">
         <div class="info">
-          <h4>外部控制地址 (External Controller)</h4>
-          <p>内核 REST API 的监听地址。默认只允许本机 127.0.0.1 访问，不建议修改。</p>
-        </div>
-        <input 
-          type="text" 
-          class="modern-input" 
-          style="text-align: left; width: 100%; margin-top: 12px; font-size: 0.95rem; padding: 12px 16px;" 
-          v-model="netConfig.externalController" 
-          @blur="saveNet" 
-          :disabled="loading"
-          placeholder="127.0.0.1:9090" 
-        />
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="setting-item col-item">
-        <div class="info">
           <h4>本地 Hosts 映射 (Hosts)</h4>
           <p>手动指定域名与 IP 的映射关系。对接 DNS 设置中的「使用 Hosts」选项。</p>
         </div>
         <div class="hosts-input-container">
-          <textarea 
-            class="modern-textarea" 
-            v-model="netConfig.hosts" 
-            @blur="saveNet" 
+          <textarea
+            class="modern-textarea"
+            v-model="netConfig.hosts"
+            @blur="saveNet"
             :disabled="loading"
-            rows="6" 
+            rows="6"
             placeholder="'example.com': 127.0.0.1 (请遵循 YAML 键值对格式)"
             style="margin-top: 10px; font-family: var(--font-mono); font-size: 0.85rem; width: 100%;"
           ></textarea>
-          
           <div v-show="hostsError" class="validation-error">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="warn-icon" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -152,6 +137,110 @@
             <span>{{ hostsError }}</span>
           </div>
         </div>
+      </div>
+
+      <!-- 端口设置 -->
+      <div class="setting-item col-item section-group-header">
+        <h3 class="section-group-title">端口设置</h3>
+        <p class="section-group-sub">配置代理服务监听端口，修改后重启内核生效</p>
+      </div>
+      <div class="divider" style="margin-top: 10px;"></div>
+
+      <div class="setting-item">
+        <div class="info">
+          <h4>混合端口 (HTTP + SOCKS5)</h4>
+          <p>同时支持 HTTP 和 SOCKS5 协议，推荐只使用此项。</p>
+        </div>
+        <ModernNumberInput
+          v-model="netConfig.mixedPort"
+          :min="1"
+          :max="65535"
+          @change="saveNet"
+          :disabled="loading"
+        />
+      </div>
+      <div class="divider"></div>
+
+      <div class="setting-item">
+        <div class="info">
+          <h4>SOCKS5 端口（可选）</h4>
+          <p>独立的 SOCKS5 代理端口。设置为 0 则不启用。</p>
+        </div>
+        <ModernNumberInput
+          v-model="netConfig.socksPort"
+          :min="0"
+          :max="65535"
+          @change="saveNet"
+          :disabled="loading"
+        />
+      </div>
+      <div class="divider"></div>
+
+      <div class="setting-item">
+        <div class="info">
+          <h4>HTTP(S) 端口（可选）</h4>
+          <p>独立的 HTTP 代理端口。设置为 0 则不启用。</p>
+        </div>
+        <ModernNumberInput
+          v-model="netConfig.port"
+          :min="0"
+          :max="65535"
+          @change="saveNet"
+          :disabled="loading"
+        />
+      </div>
+
+      <!-- 外部控制器 -->
+      <div class="setting-item col-item section-group-header">
+        <h3 class="section-group-title">外部控制器 (External Controller)</h3>
+        <p class="section-group-sub">允许外部第三方应用或局域网设备通过 REST API 远程管理和控制内核</p>
+      </div>
+      <div class="divider" style="margin-top: 10px;"></div>
+
+      <div class="setting-item">
+        <div class="info">
+          <h4>自定义外部控制器</h4>
+          <p>开启后可自定义 API 监听地址与鉴权密钥；关闭时内核仅监听本机默认接口 (127.0.0.1:9090)。</p>
+        </div>
+        <label class="modern-switch">
+          <input type="checkbox" v-model="netConfig.externalControllerEnabled" @change="saveNet" :disabled="loading">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="divider"></div>
+
+      <div class="setting-item col-item">
+        <div class="info">
+          <h4>监听地址与端口 (External Controller)</h4>
+          <p>REST API 的绑定监听地址与端口（如 127.0.0.1:9090）。将 IP 改为 0.0.0.0（如 0.0.0.0:9090 或任意自定义端口）即可允许局域网设备访问。</p>
+        </div>
+        <input
+          type="text"
+          class="modern-input"
+          style="text-align: left; width: 100%; margin-top: 12px; font-size: 0.95rem; padding: 12px 16px;"
+          v-model="netConfig.externalController"
+          @blur="saveNet"
+          :disabled="loading || !netConfig.externalControllerEnabled"
+          placeholder="127.0.0.1:9090"
+        />
+      </div>
+      <div class="divider"></div>
+
+      <div class="setting-item col-item">
+        <div class="info">
+          <h4>访问密钥 (Secret)</h4>
+          <p>REST API 鉴权令牌。开放局域网访问时建议设置密钥以防未授权操控，留空则不进行身份验证。</p>
+        </div>
+        <input
+          type="text"
+          class="modern-input"
+          style="text-align: left; width: 100%; margin-top: 12px; font-size: 0.95rem; padding: 12px 16px;"
+          v-model="netConfig.externalControllerSecret"
+          @blur="saveNet"
+          :disabled="loading || !netConfig.externalControllerEnabled"
+          placeholder="推荐设置访问密钥"
+          autocomplete="off"
+        />
       </div>
     </div>
   </div>
@@ -172,12 +261,17 @@ const netConfig = ref({
   ipv6: false,
   allowLan: false,
   externalController: '127.0.0.1:9090',
+  externalControllerEnabled: false,
+  externalControllerSecret: '',
   unifiedDelay: true,
   tcpConcurrent: true,
   tcpKeepAlive: true,
   tcpKeepAliveInterval: 15,
   testUrl: 'http://www.gstatic.com/generate_204',
-  hosts: ''
+  hosts: '',
+  mixedPort: 7890,
+  socksPort: 0,
+  port: 0,
 });
 
 const hostsError = ref('');
@@ -250,6 +344,24 @@ watch(() => props.resetKey, () => { void loadData(); });
   padding-bottom: 20px; 
   overflow: visible;
   max-height: none;
+}
+
+.section-group-header {
+  padding-top: 24px !important;
+  padding-bottom: 0 !important;
+  align-items: flex-start !important;
+  gap: 4px !important;
+}
+.section-group-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.section-group-sub {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-sub);
 }
 
 h3 { margin: 0 0 8px 0; color: var(--text-main); font-size: 1.25rem; padding-bottom: 4px; }

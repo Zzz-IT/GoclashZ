@@ -67,7 +67,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { globalState, showAlert, showConfirm, updateStateFromBackend, settleSystemProxyIntent, settleTunIntent, setSystemProxyIntent, setTunIntent } from '../store';
 import { ICONS } from '../utils/icons';
@@ -99,25 +99,76 @@ const sliderStyle = computed(() => ({
 const isRestarting = ref(false);
 
 const desiredActive = computed(() => globalState.systemProxy || globalState.tun);
-const actualActive = computed(() => globalState.actualSystemProxy || globalState.actualTun || globalState.isRunning);
-const consoleServiceOn = computed(() => desiredActive.value || actualActive.value);
+const actualActive  = computed(() => globalState.actualSystemProxy || globalState.actualTun);
 
-const consoleServiceTitle = computed(() => {
+// Raw computed — never used in the template directly.
+const consoleServiceOnRaw = computed(() => desiredActive.value || actualActive.value);
+
+// Stable refs with debounce so transient intermediate backend frames
+// (produced by watchdog / restart cycles) don't cause a single-frame flicker.
+// "on → off" transitions are deferred 200 ms; "off → on" are instant.
+const stableServiceOn = ref(consoleServiceOnRaw.value);
+let orbOffTimer: ReturnType<typeof setTimeout> | null = null;
+watch(consoleServiceOnRaw, (val) => {
+  if (val) {
+    if (orbOffTimer !== null) { clearTimeout(orbOffTimer); orbOffTimer = null; }
+    stableServiceOn.value = true;
+  } else {
+    if (orbOffTimer !== null) return;
+    orbOffTimer = setTimeout(() => { orbOffTimer = null; stableServiceOn.value = false; }, 200);
+  }
+});
+const consoleServiceOn = stableServiceOn;
+
+const consoleServiceTitleRaw = computed(() => {
   if (isRestarting.value) return '内核重启中...';
 
-  const desiredMatched =
-    (!globalState.systemProxy || globalState.actualSystemProxy) &&
-    (!globalState.tun || globalState.actualTun);
+  const wantTun   = globalState.tun;
+  const wantProxy = globalState.systemProxy;
+  const hasTun    = globalState.actualTun;
+  const hasProxy  = globalState.actualSystemProxy;
 
-  // A single control command emits intermediate snapshots while the core,
-  // system proxy, and TUN settle. Desired state owns the headline so those
-  // transport frames cannot flash "服务停止" or "运行中" between endpoints.
-  if (desiredActive.value) {
-    return desiredMatched ? '接管中' : '启动中...';
+  if (wantTun) {
+    if (hasTun) return '接管中';
+    // Guard: if nothing is actually active and the core is not running (and
+    // no API call is in flight), the desired state is almost certainly stale
+    // from a shutdown. Show "停止中..." rather than the misleading "启动中...".
+    // In all other cases (startup-restore, config restart, watchdog reconcile
+    // with a momentary actualTun=false flash) fall through to "启动中..." so
+    // we don't produce a false "停止中..." during legitimate TUN start-up.
+    if (!hasProxy && !globalState.isRunning && !globalState.tunPending) return '停止中...';
+    return '启动中...';
   }
 
-  if (actualActive.value) return '停止中...';
+  if (wantProxy) {
+    if (hasProxy) return '代理中';
+    if (!globalState.isRunning && !globalState.systemProxyPending) return '停止中...';
+    return '启动中...';
+  }
+
+  if (hasTun || hasProxy) return '停止中...';
   return '服务停止';
+});
+
+// Stable title: "停止中..." and "启动中..." (transient transition labels) are
+// deferred 200 ms so a watchdog-induced momentary flip doesn't reach the DOM.
+// Stable target states ('接管中', '代理中', '服务停止') are applied instantly.
+const stableTitle = ref(consoleServiceTitleRaw.value);
+let titleTimer: ReturnType<typeof setTimeout> | null = null;
+const TRANSIENT_TITLES = new Set(['停止中...', '启动中...']);
+watch(consoleServiceTitleRaw, (newTitle) => {
+  if (titleTimer !== null) { clearTimeout(titleTimer); titleTimer = null; }
+  if (TRANSIENT_TITLES.has(newTitle)) {
+    titleTimer = setTimeout(() => { titleTimer = null; stableTitle.value = newTitle; }, 200);
+  } else {
+    stableTitle.value = newTitle;
+  }
+});
+const consoleServiceTitle = stableTitle;
+
+onUnmounted(() => {
+  if (orbOffTimer !== null) clearTimeout(orbOffTimer);
+  if (titleTimer !== null) clearTimeout(titleTimer);
 });
 
 const handleRestartCore = async () => {
@@ -143,8 +194,8 @@ const tunCardOn = computed(() => globalState.tun);
 
 const sysProxyLabel = computed(() => {
   return sysProxyCardOn.value
-    ? '已修改系统网络层设置'
-    : '未接管系统 HTTP 流量';
+    ? 'HTTP/HTTPS 流量已代理'
+    : '未启用 HTTP/HTTPS 代理';
 });
 
 const tunLabel = computed(() => {
@@ -173,8 +224,9 @@ const toggleSysProxy = async () => {
       showAlert('系统代理启用失败: ' + msg, '错误', true);
     }
   } finally {
-    settleSystemProxyIntent();
     globalState.systemProxyPending = false;
+    if (target === false) globalState.desiredSystemProxy = false;
+    settleSystemProxyIntent();
   }
 };
 
@@ -223,8 +275,9 @@ const toggleTun = async () => {
       showAlert('虚拟网卡启用失败: ' + msg, '错误', true);
     }
   } finally {
-    settleTunIntent();
     globalState.tunPending = false;
+    if (target === false) globalState.desiredTun = false;
+    settleTunIntent();
   }
 };
 

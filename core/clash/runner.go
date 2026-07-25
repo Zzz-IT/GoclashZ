@@ -164,7 +164,8 @@ func startCoreDirect(ctx context.Context, exePath, binDir, runtimeConfig, pidFil
 		c.Wait()
 
 		mu.Lock()
-		if clashCmd == c {
+		isCurrent := (clashCmd == c)
+		if isCurrent {
 			isRunning.Store(false)
 			clashCmd = nil
 			os.Remove(pidFile)
@@ -174,7 +175,7 @@ func startCoreDirect(ctx context.Context, exePath, binDir, runtimeConfig, pidFil
 
 		close(ch)
 
-		if !isIntentionalStop.Load() && cb != nil {
+		if isCurrent && !isIntentionalStop.Load() && cb != nil {
 			cb(ExitEvent{Intentional: false, Message: "内核已异常退出"})
 		}
 	}(cmd, localExitCh)
@@ -212,8 +213,10 @@ func Stop() error {
 	mu.Unlock()
 
 	if proc != nil {
-		if err := proc.Kill(); err != nil {
-			logger.Errorf("停止内核进程失败: %v", err)
+		// clash.exe 以 CREATE_NO_WINDOW 启动，没有控制台句柄，
+		// GenerateConsoleCtrlEvent 无法送达，直接 Kill 即可（< 10ms）。
+		if killErr := proc.Kill(); killErr != nil {
+			logger.Errorf("停止内核进程失败: %v", killErr)
 			if pid > 0 {
 				killProcessIfClash(pid, targetExeName)
 			}
@@ -223,7 +226,8 @@ func Stop() error {
 	if exitCh != nil {
 		select {
 		case <-exitCh:
-		case <-time.After(3 * time.Second):
+		case <-time.After(500 * time.Millisecond):
+			// 兜底：正常 Kill 后进程应在 100ms 内退出；超时则强制清理
 			if pid > 0 {
 				killProcessIfClash(pid, targetExeName)
 			}
@@ -242,15 +246,15 @@ func StartedViaHelper() bool {
 	return startedViaHelper.Load()
 }
 
-
-
 func startCoreProcessWithRetry(ctx context.Context, exePath, binDir, runtimeConfig string) (*exec.Cmd, error) {
 	var lastErr error
 
 	for i := 0; i < 8; i++ {
-		cmd := exec.CommandContext(ctx, exePath, "-d", binDir, "-f", runtimeConfig)
+		// ⚠️ 内核是长期驻留后台的 Daemon 进程，切不可使用 request 级的 timeout ctx (如 15s 的 ToggleTunMode ctx)！
+		// 否则 RPC 函数一返回 defer cancel() 就会立刻杀掉刚拉起的 clash.exe 进程！
+		cmd := exec.Command(exePath, "-d", binDir, "-f", runtimeConfig)
 		cmd.Dir = binDir
-		utils.HideCommandWindow(cmd, 0) // 不使用 CREATE_BREAKAWAY_FROM_JOB
+		utils.HideCommandWindow(cmd, windows.CREATE_NEW_PROCESS_GROUP)
 
 		err := cmd.Start()
 		if err == nil {

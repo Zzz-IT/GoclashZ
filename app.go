@@ -170,6 +170,14 @@ func (a *App) startup(ctx context.Context) {
 		Silent:          isSilent,
 	})
 
+	// Best-effort: if the helper service was left running from a previous
+	// session, register this process so its watchdog tracks the new PID.
+	// Errors are intentionally ignored — helper may not be installed.
+	go func() {
+		client := sys.NewHelperClient()
+		_ = client.RegisterParent(os.Getpid())
+	}()
+
 	if !isSilent {
 		runtime.WindowShow(ctx)
 		a.setWindowVisible(true)

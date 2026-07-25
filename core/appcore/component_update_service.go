@@ -27,16 +27,30 @@ func (c *Controller) runComponentUpdateTransaction(
 	taskName string,
 	opt ComponentUpdateOptions,
 ) {
+	// Guard: if a task with this name is already "running", do not launch a
+	// second one.  Setting the initial state *here* (synchronously, before the
+	// goroutine starts) closes the race window where a rapid second call would
+	// see no active entry in UpdateTasks and proceed to cancel the first task.
+	if existing, ok := c.UpdateTasks.Get(taskName); ok && existing.Status == "running" {
+		return
+	}
+	c.UpdateTasks.Set(taskName, UpdateTaskState{
+		Key:       taskName,
+		Title:     opt.Name,
+		Status:    "running",
+		Stage:     "preparing",
+		StartedAt: time.Now().Unix(),
+	})
+
 	c.Tasks.Run(ctx, taskName, true, func(ctx context.Context) error {
 		c.events.Emit(taskName + "-start")
+		// Refresh the state entry that was pre-registered above; preserve
+		// StartedAt so the UI doesn't reset the elapsed-time counter.
 		state, _ := c.UpdateTasks.Get(taskName)
 		state.Key = taskName
 		state.Title = opt.Name
 		state.Status = "running"
 		state.Stage = "preparing"
-		if state.StartedAt == 0 {
-			state.StartedAt = time.Now().Unix()
-		}
 		state.Error = ""
 		c.UpdateTasks.Set(taskName, state)
 

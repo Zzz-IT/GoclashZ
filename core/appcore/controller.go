@@ -298,12 +298,19 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 	clash.SetOnExitCallback(func(e clash.ExitEvent) {
 		if !e.Intentional {
 			c.mu.Lock()
+			wasCoreRunning := c.userCoreRunning
 			wasSysProxy := c.sysProxyActive
 			c.sysProxyActive = false
 			c.tunActive = false
 			c.userCoreRunning = false
 			c.coreStartedAt = time.Time{}
 			c.mu.Unlock()
+
+			if !wasCoreRunning {
+				// 如果在拉起过程（尚未设置为运行态）中遭遇临时挂掉，静默忽略，
+				// 交由 ensureCoreRunningWithDesiredState 内部的探活重试逻辑处理，避免 UI 假闪。
+				return
+			}
 
 			c.runtimeState.Clear()
 
@@ -600,6 +607,19 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 		default:
 		}
 
+		if !clash.IsRunning() {
+			// 如果在探活期间内核进程挂掉（如遭遇残存的 TIME_WAIT 端口冲突），
+			// 避免原地等待 10 秒，而是等待缓冲后自动原地重试拉起。
+			clash.Stop()
+			if i < 90 {
+				time.Sleep(150 * time.Millisecond)
+				if err := clash.Start(ctx, desired.Tun); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+
 		if err := clash.PingAPIWithContext(ctx); err == nil {
 			apiReady = true
 			break
@@ -670,6 +690,12 @@ func (c *Controller) stopCoreProcessLocked() {
 	clash.Stop()
 	c.mu.Lock()
 	c.userCoreRunning = false
+	// TUN routing ceases the moment the core stops, even though the Wintun
+	// adapter may linger in the Windows network stack for a few seconds.
+	// Clearing tunActive here avoids emitting a stale actualTun=true snapshot
+	// during restart/shutdown, which would mislead the frontend into showing
+	// "启动中..." when TUN is actually winding down.
+	c.tunActive = false
 	c.coreStartedAt = time.Time{}
 	c.mu.Unlock()
 	c.runtimeState.Clear()
@@ -766,7 +792,10 @@ func (c *Controller) reconcileSystemProxy(plan RuntimePlan) error {
 func (c *Controller) ensureSystemProxyEnabled() error {
 	port := clash.GetProxyPort()
 	current, err := sys.GetSystemProxyState()
-	if err == nil && current.Enabled && current.Server == fmt.Sprintf("127.0.0.1:%d", port) {
+	// Windows 10/11 有时将注册表代理写成 "http=127.0.0.1:7890;https=..." 格式，
+	// 严格相等会误判失效；用 Contains 兼容两种格式。
+	expectedAddr := fmt.Sprintf("127.0.0.1:%d", port)
+	if err == nil && current.Enabled && strings.Contains(current.Server, expectedAddr) {
 		c.mu.Lock()
 		c.sysProxyActive = true
 		c.mu.Unlock()
@@ -1144,6 +1173,9 @@ func (c *Controller) ensureHelperReadySlow(reason string) error {
 	client := sys.NewHelperClient()
 
 	if err := client.Ping(); err == nil {
+		// Helper already reachable — register this process so the watchdog
+		// can detect a future abnormal exit.
+		_ = client.RegisterParent(os.Getpid())
 		return nil
 	}
 
@@ -1165,6 +1197,8 @@ func (c *Controller) ensureHelperReadySlow(reason string) error {
 		return fmt.Errorf("修复后台服务失败: %w", err)
 	}
 
+	// Register after successful recovery so the watchdog starts immediately.
+	_ = client.RegisterParent(os.Getpid())
 	c.logInfo("Helper 服务已自愈并就绪 (reason: %s)", reason)
 	return nil
 }
@@ -1199,6 +1233,11 @@ func (c *Controller) prepareTunEnable(ctx context.Context) error {
 		}
 	}
 
+	if helperReachable {
+		// Refresh the watchdog registration so helper always tracks the live PID.
+		_ = client.RegisterParent(os.Getpid())
+	}
+
 	assetStatus, assetErr := runtimeassets.EnsureReady(ctx, runtimeassets.RequireTun, runtimeassets.RepairInvalid)
 	if assetErr != nil {
 		w := assetStatus.Assets[runtimeassets.AssetWintun]
@@ -1231,7 +1270,14 @@ func (c *Controller) RestartCoreWithReason(ctx context.Context, reason string) e
 	c.coreLifecycleMu.Lock()
 	defer c.coreLifecycleMu.Unlock()
 
+	wasRunning := clash.IsRunning()
 	c.stopCoreProcessLocked()
+
+	if wasRunning {
+		// 留出 250ms 缓冲期，确保 Windows 操作系统完成对旧内核 9090 和 7890 端口的 TCP TIME_WAIT 状态回收，
+		// 避免新内核瞬间拉起时遭遇 bind: address already in use 从而直接崩溃。
+		time.Sleep(250 * time.Millisecond)
+	}
 
 	desired := c.Desired.Get()
 	if desired.ActiveConfig == "" {
@@ -1283,10 +1329,16 @@ func (c *Controller) UpdateClashMode(ctx context.Context, mode string) error {
 		return err
 	}
 
-	_ = c.Desired.Update(func(d *DesiredState) {
+	if err := c.Desired.Update(func(d *DesiredState) {
 		d.Mode = mode
 		c.fillDesiredTarget(d)
-	})
+	}); err != nil {
+		// Behavior is already persisted; a desired-state save failure leaves
+		// Behavior, kernel and desired state inconsistent.  Surface the error
+		// so the caller can retry rather than silently diverging.
+		c.SyncState()
+		return fmt.Errorf("模式切换 desired state 保存失败: %w", err)
+	}
 
 	// 2. 如果内核正在运行，尝试通过 API 热切换
 	if clash.IsRunning() {

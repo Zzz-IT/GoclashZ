@@ -25,6 +25,8 @@ func getMethodTimeout(method string) time.Duration {
 		return 200 * time.Millisecond
 	case "core-status":
 		return 500 * time.Millisecond
+	case "register-parent":
+		return 500 * time.Millisecond
 	case "start-core", "stop-core":
 		return 3 * time.Second
 	default:
@@ -64,6 +66,21 @@ func (c *HelperClient) Shutdown() error {
 	}
 	if !resp.OK {
 		return fmt.Errorf("helper shutdown error: %s", resp.Error)
+	}
+	return nil
+}
+
+// RegisterParent 向 helper 注册当前进程的 PID。Helper 会周期性轮询该进程，
+// 若主进程被强行终止且超过宽限期（30s）未恢复，helper 将自动退出。
+// 错误不影响功能，调用方可忽略。
+func (c *HelperClient) RegisterParent(pid int) error {
+	data, _ := json.Marshal(map[string]int{"pid": pid})
+	resp, err := c.sendRequest("register-parent", data)
+	if err != nil {
+		return fmt.Errorf("helper register-parent failed: %w", err)
+	}
+	if !resp.OK {
+		return fmt.Errorf("helper register-parent error: %s", resp.Error)
 	}
 	return nil
 }

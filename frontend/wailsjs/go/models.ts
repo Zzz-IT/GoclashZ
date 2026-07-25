@@ -467,6 +467,14 @@ export namespace clash {
 	    externalController: string;
 	    allowLan: boolean;
 	    hosts: string;
+	    lanAuthUser: string;
+	    lanAuthPass: string;
+	    lanAllowedIPs: string;
+	    lanDisallowedIPs: string;
+	    lanSkipAuthIPs: string;
+	    socksPort: number;
+	    externalControllerEnabled: boolean;
+	    externalControllerSecret: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new NetworkConfig(source);
@@ -485,6 +493,14 @@ export namespace clash {
 	        this.externalController = source["externalController"];
 	        this.allowLan = source["allowLan"];
 	        this.hosts = source["hosts"];
+	        this.lanAuthUser = source["lanAuthUser"];
+	        this.lanAuthPass = source["lanAuthPass"];
+	        this.lanAllowedIPs = source["lanAllowedIPs"];
+	        this.lanDisallowedIPs = source["lanDisallowedIPs"];
+	        this.lanSkipAuthIPs = source["lanSkipAuthIPs"];
+	        this.socksPort = source["socksPort"];
+	        this.externalControllerEnabled = source["externalControllerEnabled"];
+	        this.externalControllerSecret = source["externalControllerSecret"];
 	    }
 	}
 	export class PolicyOption {

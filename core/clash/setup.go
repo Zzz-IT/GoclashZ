@@ -7,6 +7,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"goclashz/core/downloader"
+	"goclashz/core/runtimeassets"
+	"goclashz/core/sys"
+	"goclashz/core/utils"
 	"io"
 	"net/http"
 	"os"
@@ -17,10 +21,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"goclashz/core/downloader"
-	"goclashz/core/runtimeassets"
-	"goclashz/core/sys"
-	"goclashz/core/utils"
 )
 
 // PrepareEnv 检查内核并生成基础配置

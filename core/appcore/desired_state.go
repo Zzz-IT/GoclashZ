@@ -42,15 +42,45 @@ func (s *DesiredStateStore) Get() DesiredState {
 func (s *DesiredStateStore) SetAndSave(d DesiredState) error {
 	d.UpdatedAt = time.Now().Unix()
 
+	// Hold the write lock for the entire disk-write + cache-update so that
+	// concurrent callers cannot produce a state where disk and cache diverge
+	// (e.g. write-A finishes disk, write-B finishes disk and cache, write-A
+	// then overwrites cache with stale value).
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := utils.SaveSetting(desiredStateSettingName, &d); err != nil {
 		return err
 	}
+	s.cache = d
+	return nil
+}
+
+// SetAndSaveIf is a compare-and-swap variant of SetAndSave. It only commits
+// next if the current in-memory cache matches expected (UpdatedAt is excluded
+// from the comparison so callers need not track the timestamp). Returns
+// (false, nil) when the swap is skipped due to a mismatch, (true, err) on
+// attempt.
+func (s *DesiredStateStore) SetAndSaveIf(expected, next DesiredState) (bool, error) {
+	next.UpdatedAt = time.Now().Unix()
 
 	s.mu.Lock()
-	s.cache = d
-	s.mu.Unlock()
+	defer s.mu.Unlock()
 
-	return nil
+	// Compare every field except the bookkeeping timestamp.
+	cur := s.cache
+	cur.UpdatedAt = 0
+	exp := expected
+	exp.UpdatedAt = 0
+	if cur != exp {
+		return false, nil
+	}
+
+	if err := utils.SaveSetting(desiredStateSettingName, &next); err != nil {
+		return false, err
+	}
+	s.cache = next
+	return true, nil
 }
 
 func (s *DesiredStateStore) Update(fn func(d *DesiredState)) error {

@@ -7,6 +7,7 @@
         <SettingsTun v-else-if="view === 'tun'" :reset-key="resetVersions.tun" @navigate="view = $event" @reset="confirmReset" />
         <SettingsDns v-else-if="view === 'dns'" :reset-key="resetVersions.dns" @navigate="view = $event" @reset="confirmReset" />
         <SettingsNetwork v-else-if="view === 'network'" :reset-key="resetVersions.network" @navigate="view = $event" @reset="confirmReset" />
+        <SettingsLan v-else-if="view === 'lan'" :reset-key="resetVersions.lan" @navigate="view = $event" @reset="confirmReset" />
         <SettingsBehavior v-else-if="view === 'behavior'" :behavior="behavior" :reset-key="resetVersions.behavior" @navigate="view = $event" @reset="confirmReset" @save="saveBehavior" @startup-change="handleStartupWithOSChange" />
         <SettingsAbout v-else-if="view === 'about'" :behavior="behavior" @navigate="view = $event" @save="saveBehavior" />
         <SettingsUwp v-else-if="view === 'uwp'" :entry="uwpEntry" @navigate="view = $event" />
@@ -25,18 +26,19 @@ import SettingsBehavior from './SettingsBehavior.vue';
 import SettingsDns from './SettingsDns.vue';
 import SettingsHome from './SettingsHome.vue';
 import SettingsNetwork from './SettingsNetwork.vue';
+import SettingsLan from './SettingsLan.vue';
 import SettingsTun from './SettingsTun.vue';
 import SettingsUpdate from './SettingsUpdate.vue';
 import SettingsUwp from './SettingsUwp.vue';
 
 const props = defineProps({ initialView: { type: String, default: 'main' } });
-const view = ref(props.initialView as 'main' | 'uwp' | 'tun' | 'dns' | 'network' | 'behavior' | 'update' | 'about');
+const view = ref(props.initialView as 'main' | 'uwp' | 'tun' | 'dns' | 'network' | 'lan' | 'behavior' | 'update' | 'about');
 const uwpEntry = ref(0);
 const showResetConfirm = ref(false);
 const resetModule = ref('');
 const resetModuleName = ref('');
-const resetVersions = ref({ tun: 0, dns: 0, network: 0, behavior: 0 });
-const modules: Record<string, string> = { network: '基础网络设置', dns: 'DNS 服务器设置', tun: '虚拟网卡设置', behavior: '应用行为设置' };
+const resetVersions = ref({ tun: 0, dns: 0, network: 0, lan: 0, behavior: 0 });
+const modules: Record<string, string> = { network: '基础网络设置', dns: 'DNS 服务器设置', tun: '虚拟网卡设置', lan: '局域网代理设置', behavior: '应用行为设置' };
 const behavior = ref<any>({ silentStart: false, closeToTray: true, startupWithOS: false, restoreOnStartup: false, colorDelay: false, delayRetention: false, delayRetentionTime: 'long', proxyTrafficOnly: false, logLevel: 'info', appLogLevel: 'info', hideLogs: false, subUA: '', activeConfig: '', activeMode: '', geoIpLink: '', geoSiteLink: '', mmdbLink: '', asnLink: '', autoUpdate: true, updateMethod: 'startup', updateInterval: 3 });
 
 const loadBehavior = async () => { try { const value = await API.GetAppBehavior(); if (value) behavior.value = value; } catch (error) { console.error('加载配置失败', error); } };
@@ -45,7 +47,9 @@ const handleStartupWithOSChange = async () => { if (!behavior.value.startupWithO
 const confirmReset = (module: string) => { resetModule.value = module; resetModuleName.value = modules[module]; showResetConfirm.value = true; };
 const handleReset = async () => {
   try {
-    await API.ResetComponentSettings(resetModule.value);
+    // 'lan' settings are stored in NetworkConfig — reuse the network reset endpoint.
+    const apiModule = resetModule.value === 'lan' ? 'network' : resetModule.value;
+    await API.ResetComponentSettings(apiModule);
     showResetConfirm.value = false;
     resetVersions.value[resetModule.value as keyof typeof resetVersions.value] += 1;
     if (resetModule.value === 'behavior') await loadBehavior();

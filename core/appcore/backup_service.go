@@ -76,6 +76,12 @@ func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode st
 		return fmt.Errorf("配置文件还原成功但意图重载失败: %v", err)
 	}
 	// 5. 恢复运行态或重载配置
+	// Re-derive shouldRestart from the freshly loaded desired state rather
+	// than the snapshot taken before the restore.  The backup may contain a
+	// different desired state (e.g. core was stopped in the backup but was
+	// running before the restore, or vice-versa).
+	newDesired := c.Desired.Get()
+	shouldRestart = newDesired.CoreRunning || newDesired.SystemProxy || newDesired.Tun
 	if shouldRestart {
 		err := c.EnsureCoreRunning(ctx)
 		if err != nil {

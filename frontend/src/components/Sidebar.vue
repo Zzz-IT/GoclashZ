@@ -34,15 +34,16 @@
 
       <div class="status-indicator">
         <div class="icon-box">
-          <div :class="['dot', { online: globalState.isRunning }]"></div>
+          <div :class="['dot', { online: coreActive }]"></div>
         </div>
-        <span :class="['status-text', { online: globalState.isRunning }]">{{ globalState.isRunning ? '内核已启动' : '服务未运行' }}</span>
+        <span :class="['status-text', { online: coreActive }]">{{ coreActive ? '内核已启动' : '服务未运行' }}</span>
       </div>
     </div>
   </aside>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import { globalState } from '../store';
 import * as API from '../../wailsjs/go/main/App';
 
@@ -73,6 +74,12 @@ const toggleTheme = () => {
   globalState.theme = newTheme;
   API.SaveThemePreference(newTheme === 'dark');
 };
+
+// 呼吸灯与状态文字：结合内核运行、系统代理、TUN 三者状态，
+// 避免仅依赖 isRunning（仅绑定 userCoreRunning）导致的顿挫闪烁。
+const coreActive = computed(() =>
+  globalState.isRunning || globalState.actualSystemProxy || globalState.actualTun
+);
 </script>
 
 <style scoped>

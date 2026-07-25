@@ -39,6 +39,20 @@ type NetworkConfig struct {
 	ExternalController   string `yaml:"external-controller" json:"externalController"`
 	AllowLan             bool   `yaml:"allow-lan" json:"allowLan"`
 	Hosts                string `yaml:"-" json:"hosts"`
+
+	// LAN proxy access control & authentication (injected into runtime config manually)
+	LanAuthUser      string `yaml:"-" json:"lanAuthUser"`
+	LanAuthPass      string `yaml:"-" json:"lanAuthPass"`
+	LanAllowedIPs    string `yaml:"-" json:"lanAllowedIPs"`    // newline-separated IP/CIDR list
+	LanDisallowedIPs string `yaml:"-" json:"lanDisallowedIPs"` // newline-separated IP/CIDR list
+	LanSkipAuthIPs   string `yaml:"-" json:"lanSkipAuthIPs"`   // newline-separated IP/CIDR list
+
+	// Port settings
+	SocksPort int `yaml:"socks-port" json:"socksPort"` // SOCKS5-only proxy port (0 = disabled)
+
+	// External controller
+	ExternalControllerEnabled bool   `yaml:"-" json:"externalControllerEnabled"` // expose controller externally
+	ExternalControllerSecret  string `yaml:"-" json:"externalControllerSecret"`  // API bearer token
 }
 
 // OfflineGroup 专供前端在“未启动”状态下展示的节点组结构
@@ -241,17 +255,20 @@ func UpdateDNSConfig(newDNS *DNSConfig) error {
 // ================= 基础网络设置 =================
 func GetDefaultNetworkConfig() NetworkConfig {
 	return NetworkConfig{
-		Port:                 0,
-		MixedPort:            7890,
-		IPv6:                 false,
-		UnifiedDelay:         true,
-		TCPConcurrent:        true,
-		TCPKeepAlive:         true,
-		TCPKeepAliveInterval: 30,
-		TestURL:              "http://www.g.cn/generate_204",
-		ExternalController:   "127.0.0.1:9090", // 🚀 默认值
-		AllowLan:             false,
-		Hosts:                "",
+		Port:                      0,
+		SocksPort:                 0,
+		MixedPort:                 7890,
+		IPv6:                      false,
+		UnifiedDelay:              true,
+		TCPConcurrent:             true,
+		TCPKeepAlive:              true,
+		TCPKeepAliveInterval:      30,
+		TestURL:                   "http://www.g.cn/generate_204",
+		ExternalController:        "127.0.0.1:9090",
+		ExternalControllerEnabled: false,
+		ExternalControllerSecret:  "",
+		AllowLan:                  false,
+		Hosts:                     "",
 	}
 }
 
@@ -419,12 +436,22 @@ func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool
 	// 确保在不启用 TUN 时，系统代理能够将流量送入内核
 	if userNet != nil && userNet.MixedPort != 0 {
 		root["mixed-port"] = userNet.MixedPort
+		// 清除订阅 YAML 里可能残留的 port / socks-port，防止与 mixed-port 同号冲突
+		delete(root, "port")
 	} else if userNet != nil && userNet.Port != 0 {
 		// 如果只有 Port 没有 MixedPort，优先保证连通性
 		root["port"] = userNet.Port
 		delete(root, "mixed-port")
 	} else {
 		root["mixed-port"] = 7890
+		delete(root, "port")
+	}
+
+	// SOCKS-only proxy port (optional)
+	if userNet != nil && userNet.SocksPort > 0 {
+		root["socks-port"] = userNet.SocksPort
+	} else {
+		delete(root, "socks-port")
 	}
 	allowLan := false
 	if userNet != nil {
@@ -432,16 +459,48 @@ func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool
 	}
 	root["allow-lan"] = allowLan
 
+	// LAN proxy authentication: only injected when a username is configured.
+	if userNet != nil && strings.TrimSpace(userNet.LanAuthUser) != "" {
+		root["authentication"] = []string{userNet.LanAuthUser + ":" + userNet.LanAuthPass}
+	} else {
+		delete(root, "authentication")
+	}
+
+	// LAN IP access control lists.
+	if userNet != nil {
+		if list := splitIPLines(userNet.LanAllowedIPs); len(list) > 0 {
+			root["lan-allowed-ips"] = list
+		} else {
+			delete(root, "lan-allowed-ips")
+		}
+		if list := splitIPLines(userNet.LanDisallowedIPs); len(list) > 0 {
+			root["lan-disallowed-ips"] = list
+		} else {
+			delete(root, "lan-disallowed-ips")
+		}
+		if list := splitIPLines(userNet.LanSkipAuthIPs); len(list) > 0 {
+			root["skip-auth-prefixes"] = list
+		} else {
+			delete(root, "skip-auth-prefixes")
+		}
+	}
+
 	// 👇 核心注入：控制端口动态化
+	// When ExternalControllerEnabled is true, use the user-configured address;
+	// otherwise fall back to localhost-only so GoclashZ itself always has API access.
 	controller := "127.0.0.1:9090"
-	if userNet != nil && strings.TrimSpace(userNet.ExternalController) != "" {
+	secret := ""
+	if userNet != nil && userNet.ExternalControllerEnabled &&
+		strings.TrimSpace(userNet.ExternalController) != "" {
 		controller = NormalizeControllerHostPort(userNet.ExternalController)
+		secret = userNet.ExternalControllerSecret
 	}
 	root["external-controller"] = controller
-	root["secret"] = "" // 确保没有意外的密码阻挡前端 WebSocket
+	root["secret"] = secret
 
-	// 同步更新 Go API Client 的基准地址
+	// Keep the Go API client in sync with the active controller address and secret.
 	UpdateAPIBaseURL(controller)
+	UpdateAPISecret(secret)
 
 	// 👇 核心注入：规则接管：local 使用 working.rules；remote 使用 overlay.add + (working.rules - overlay.delete)
 	root["rules"] = runtimeRules
@@ -491,4 +550,18 @@ func ExtractGroupOrder(yamlData []byte) []string {
 		}
 	}
 	return order
+}
+
+// splitIPLines 将换行分隔的 IP/CIDR 文本拆分为字符串切片，
+// 自动过滤空行和以 # 开头的注释行。
+func splitIPLines(s string) []string {
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
 }

@@ -87,10 +87,14 @@ func (cc *ControlCoordinator) setLocked(ctx context.Context, enable, tun bool, r
 	cc.controller.SyncState()
 
 	if err := cc.controller.Supervisor.Reconcile(ctx, reason); err != nil {
-		// The coordinator serializes writers, so this rollback cannot overwrite
-		// a newer control command.
-		if rollbackErr := cc.controller.Desired.SetAndSave(previous); rollbackErr != nil {
+		// Use SetAndSaveIf (CAS) instead of an unconditional SetAndSave.
+		// Config and mode switches may write desired state outside the
+		// coordinator's mutex boundary; a blind overwrite would silently
+		// discard those concurrent changes.
+		if ok, rollbackErr := cc.controller.Desired.SetAndSaveIf(desired, previous); rollbackErr != nil {
 			cc.controller.logError("控制状态回滚失败: %v", rollbackErr)
+		} else if !ok {
+			cc.controller.logError("控制状态回滚已跳过：检测到并发写入，保留更新后的状态")
 		}
 		cc.revision.Add(1)
 		cc.controller.SyncState()

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -262,6 +263,10 @@ func grantServiceControlToUser(serviceName string, userSID string) error {
 		userSID,
 	)
 	cmd := exec.Command("sc", "sdset", serviceName, sddl)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("set service DACL failed: %w, output: %s", err, string(output))

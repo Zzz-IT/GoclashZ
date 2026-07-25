@@ -107,9 +107,15 @@ func (c *Controller) SelectLocalConfig(ctx context.Context, id string) error {
 		return err
 	}
 
-	_ = c.Desired.Update(func(d *DesiredState) {
+	if err := c.Desired.Update(func(d *DesiredState) {
 		c.fillDesiredTarget(d)
-	})
+	}); err != nil {
+		// Behavior (active config) is already persisted; a desired-state save
+		// failure would leave the UI showing config B while the kernel restarts
+		// with config A on the next run.
+		c.SyncState()
+		return fmt.Errorf("配置切换 desired state 保存失败: %w", err)
+	}
 
 	if state.IsRunning {
 		return c.RestartCoreWithReason(ctx, "config-switch")

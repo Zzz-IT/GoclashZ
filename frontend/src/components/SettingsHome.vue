@@ -26,6 +26,14 @@
         </div>
         <span class="arrow">➔</span>
       </div>
+
+      <div class="setting-item clickable" @click="$emit('navigate', 'lan')">
+        <div class="info">
+          <h4>局域网代理配置</h4>
+          <p>设置局域网共享代理、访问认证及 IP 白名单 / 黑名单。</p>
+        </div>
+        <span class="arrow">➔</span>
+      </div>
     </div>
 
     <div class="glass-card setting-group">
@@ -68,7 +76,7 @@
 
 <script setup lang="ts">
 defineEmits<{
-  navigate: [view: 'network' | 'dns' | 'tun' | 'behavior' | 'update' | 'about'];
+  navigate: [view: 'network' | 'dns' | 'tun' | 'lan' | 'behavior' | 'update' | 'about'];
   'enter-uwp': [];
 }>();
 </script>

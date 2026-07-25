@@ -158,10 +158,12 @@ func DownloadSub(ctx context.Context, name, url, existingId, userAgent string) (
 	found := false
 	for i, item := range SubIndex {
 		if item.ID == safeId {
-			SubIndex[i].Upload = upload // 更新流量和时间
-			SubIndex[i].Download = download
-			SubIndex[i].Total = total
-			SubIndex[i].Expire = expire
+			if upload > 0 || download > 0 || total > 0 || expire > 0 {
+				SubIndex[i].Upload = upload // 仅在响应头包含流量信息时更新，避免空头覆盖旧数据
+				SubIndex[i].Download = download
+				SubIndex[i].Total = total
+				SubIndex[i].Expire = expire
+			}
 			SubIndex[i].Updated = time.Now().Unix()
 			found = true
 			break
@@ -289,11 +291,11 @@ func StrictVerifyClashConfig(data []byte) error {
 				return fmt.Errorf("语法结构致命错误：[proxies] 列表内的元素必须是节点对象 (Object)")
 			}
 
-			// Clash 节点的刚性必备属性，缺一不可
-			requiredKeys := []string{"name", "type", "server", "port"}
+			// Clash 节点的必备属性 (必须包含名称与类型)
+			requiredKeys := []string{"name", "type"}
 			for _, key := range requiredKeys {
 				if _, exists := firstProxy[key]; !exists {
-					return fmt.Errorf("语义合规拒绝：代理节点缺失 Clash 必备底层属性 [%s]", key)
+					return fmt.Errorf("语义合规拒绝：代理节点缺失 Clash 必备属性 [%s]", key)
 				}
 			}
 		}

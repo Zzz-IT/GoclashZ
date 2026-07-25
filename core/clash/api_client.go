@@ -55,6 +55,29 @@ var apiBase = struct {
 	value: "http://127.0.0.1:9090", // 默认兜底
 }
 
+// apiSecret stores the bearer token for the external controller API.
+var apiSecret = struct {
+	sync.RWMutex
+	value string
+}{}
+
+// UpdateAPISecret updates the bearer token used in all API requests.
+func UpdateAPISecret(secret string) {
+	apiSecret.Lock()
+	apiSecret.value = secret
+	apiSecret.Unlock()
+}
+
+// addAPIAuth adds an Authorization header when a secret is configured.
+func addAPIAuth(req *http.Request) {
+	apiSecret.RLock()
+	s := apiSecret.value
+	apiSecret.RUnlock()
+	if s != "" {
+		req.Header.Set("Authorization", "Bearer "+s)
+	}
+}
+
 func NormalizeControllerHostPort(controller string) string {
 	controller = strings.TrimSpace(controller)
 	if controller == "" {
@@ -85,6 +108,15 @@ func NormalizeControllerHostPort(controller string) string {
 
 func normalizeAPIBaseURL(controller string) string {
 	controller = NormalizeControllerHostPort(controller)
+
+	// 0.0.0.0 或 :: 是全网卡监听地址，Go 客户端在发起 HTTP 连接时必须替换为 127.0.0.1 本地回环地址，
+	// 避免 Windows 系统下向 0.0.0.0 发起 connect 请求时抛出 socket error。
+	if host, port, err := net.SplitHostPort(controller); err == nil {
+		cleanHost := strings.Trim(host, "[]")
+		if cleanHost == "0.0.0.0" || cleanHost == "::" || cleanHost == "" {
+			controller = net.JoinHostPort("127.0.0.1", port)
+		}
+	}
 
 	// 补全协议头
 	if !strings.HasPrefix(controller, "http://") && !strings.HasPrefix(controller, "https://") {
@@ -184,7 +216,6 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 		apiURL := APIURL("/logs?level=" + url.QueryEscape(level))
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err != nil {
-			// 👇 核心修复 1：使用显式的 Timer 替代 time.After
 			timer := time.NewTimer(2 * time.Second)
 			select {
 			case <-ctx.Done():
@@ -195,9 +226,9 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 			continue
 		}
 
+		addAPIAuth(req)
 		resp, err := streamClient.Do(req)
 		if err != nil {
-			// 👇 核心修复 2：使用显式的 Timer 替代 time.After
 			timer := time.NewTimer(2 * time.Second)
 			select {
 			case <-ctx.Done():
@@ -290,6 +321,7 @@ func GetProxyDelay(ctx context.Context, proxyName string, testUrl string, timeou
 	}
 
 	// 🚀 使用已移除强行 Timeout 的 client，全权交由 reqCtx 控制
+	addAPIAuth(req)
 	resp, err := speedTestClient.Do(req)
 	if err != nil {
 		return -1, err
@@ -355,6 +387,7 @@ func doKernelGetWithContext[T any](ctx context.Context, path string) (T, error) 
 	if err != nil {
 		return result, err
 	}
+	addAPIAuth(req)
 
 	resp, err := localAPIClient.Do(req)
 	if err != nil {
@@ -389,6 +422,7 @@ func doKernelRequest(ctx context.Context, method, path string, body any, okStatu
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	addAPIAuth(req)
 
 	resp, err := localAPIClient.Do(req)
 	if err != nil {
