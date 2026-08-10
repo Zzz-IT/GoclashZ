@@ -31,7 +31,7 @@
         <div class="card-content">
           <div class="icon-ring" v-html="ICONS.sysProxy"></div>
           <div class="text-group">
-            <span class="card-title">系统代理</span>
+            <span class="card-title">{{ globalState.portProxyMode ? '端口代理' : '系统代理' }}</span>
             <span class="card-hint">{{ sysProxyLabel }}</span>
           </div>
         </div>
@@ -98,7 +98,7 @@ const sliderStyle = computed(() => ({
 
 const isRestarting = ref(false);
 
-const desiredActive = computed(() => globalState.systemProxy || globalState.tun);
+const desiredActive = computed(() => globalState.systemProxy || globalState.tun || globalState.desiredPortProxy);
 const actualActive  = computed(() => globalState.actualSystemProxy || globalState.actualTun);
 
 // Raw computed — never used in the template directly.
@@ -146,6 +146,12 @@ const consoleServiceTitleRaw = computed(() => {
     return '启动中...';
   }
 
+  // 仅端口代理模式：desiredPortProxy=true 时显示对应状态
+  if (globalState.portProxyMode && globalState.desiredPortProxy) {
+    if (globalState.isRunning) return '端口代理中';
+    return '启动中...';
+  }
+
   if (hasTun || hasProxy) return '停止中...';
   return '服务停止';
 });
@@ -189,10 +195,13 @@ const handleRestartCore = async () => {
 // ==========================================
 // 切换状态管理（三层模型：intent / actual / pending）
 // ==========================================
-const sysProxyCardOn = computed(() => globalState.systemProxy);
+const sysProxyCardOn = computed(() => globalState.portProxyMode ? globalState.desiredPortProxy : globalState.systemProxy);
 const tunCardOn = computed(() => globalState.tun);
 
 const sysProxyLabel = computed(() => {
+  if (globalState.portProxyMode) {
+    return sysProxyCardOn.value ? '代理端口已开放，可配置浏览器使用' : '端口代理未启动';
+  }
   return sysProxyCardOn.value
     ? 'HTTP/HTTPS 流量已代理'
     : '未启用 HTTP/HTTPS 代理';
@@ -207,7 +216,9 @@ const tunLabel = computed(() => {
 const toggleSysProxy = async () => {
   if (globalState.systemProxyPending) return;
 
-  const target = !globalState.systemProxy;
+  // 端口代理模式用 sysProxyCardOn（反映 desiredPortProxy），
+  // 普通模式用 globalState.systemProxy，避免端口代理模式下 target 永远为 true
+  const target = !sysProxyCardOn.value;
 
   setSystemProxyIntent(target);
   globalState.systemProxyPending = true;
@@ -225,7 +236,13 @@ const toggleSysProxy = async () => {
     }
   } finally {
     globalState.systemProxyPending = false;
-    if (target === false) globalState.desiredSystemProxy = false;
+    if (target === false) {
+      if (globalState.portProxyMode) {
+        globalState.desiredPortProxy = false;
+      } else {
+        globalState.desiredSystemProxy = false;
+      }
+    }
     settleSystemProxyIntent();
   }
 };

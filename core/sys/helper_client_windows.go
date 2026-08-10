@@ -207,6 +207,12 @@ func (c *HelperClient) sendRequest(method string, params json.RawMessage) (*Help
 }
 
 // CheckHelperService 检查 helper 服务状态（安装 + 运行 + 可达）
+//
+// 设计原则：
+//   - isServiceInstalled 在 ACCESS_DENIED 时返回 (true, nil)，服务视为已安装
+//   - isServiceRunning 在 ACCESS_DENIED 时返回 (true, nil)，让 Ping 继续验证
+//   - 只要 installed == true，无论 SCM 运行状态是否可确认，都尝试 Ping
+//   - Ping 成功则以 Ping 结果为准，修正 Running/Reachable
 func CheckHelperService() HelperStatusData {
 	status := HelperStatusData{}
 
@@ -221,24 +227,27 @@ func CheckHelperService() HelperStatusData {
 		return status
 	}
 
-	running, err := isServiceRunning(HelperServiceName)
-	if err != nil {
-		status.Error = fmt.Sprintf("检查服务状态失败: %v", err)
-		return status
+	// 查询运行状态；ACCESS_DENIED 时已返回 (true, nil)，其他错误时 running=false
+	running, runErr := isServiceRunning(HelperServiceName)
+	if runErr == nil {
+		status.Running = running
 	}
-	status.Running = running
+	// runErr != nil（非 ACCESS_DENIED 的其他错误）时 Running 保持 false，
+	// 但仍继续尝试 Ping，因为服务可能确实在运行
 
-	if !running {
-		return status
-	}
-
+	// 只要已安装，无论是否能从 SCM 确认运行，都尝试 Ping
 	client := NewHelperClient()
 	if err := client.Ping(); err != nil {
-		status.Error = fmt.Sprintf("服务可达性检查失败: %v", err)
+		// Ping 失败时，若有 SCM 查询错误一并记录
+		if runErr != nil {
+			status.Error = fmt.Sprintf("服务状态查询受限: %v", runErr)
+		}
 		return status
 	}
-	status.Reachable = true
 
+	// Ping 成功 → 服务确实在运行
+	status.Running = true
+	status.Reachable = true
 	return status
 }
 

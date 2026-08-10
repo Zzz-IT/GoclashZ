@@ -88,6 +88,7 @@ func (c *Controller) DeleteConfig(ctx context.Context, id string) error {
 		desired := c.Desired.Get()
 		desired.ActiveConfig = ""
 		desired.CoreRunning = false
+		desired.PortProxy = false
 		_ = c.Desired.SetAndSave(desired)
 		if state.IsRunning {
 			c.StopCoreProcess()

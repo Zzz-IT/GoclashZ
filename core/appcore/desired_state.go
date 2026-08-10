@@ -15,6 +15,9 @@ const desiredStateSettingName = "desired_state"
 
 type DesiredState struct {
 	CoreRunning  bool   `json:"coreRunning"`
+	// PortProxy 独立跟踪端口代理激活状态，与 CoreRunning/SystemProxy/Tun 完全解耦
+	// TUN 开关永远不会修改此字段，系统代理开关也不会修改此字段
+	PortProxy    bool   `json:"portProxy"`
 	SystemProxy  bool   `json:"systemProxy"`
 	Tun          bool   `json:"tun"`
 	ActiveConfig string `json:"activeConfig"`
@@ -163,6 +166,7 @@ func loadLegacyDesiredState(defaults DesiredState) (DesiredState, bool) {
 func (s *DesiredStateStore) Default() DesiredState {
 	return DesiredState{
 		CoreRunning:  false,
+		PortProxy:    false,
 		SystemProxy:  false,
 		Tun:          false,
 		ActiveConfig: "",

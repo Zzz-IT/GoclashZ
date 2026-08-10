@@ -37,6 +37,18 @@
 
       <div class="setting-item">
         <div class="info">
+          <h4>仅端口代理</h4>
+          <p>开启后，系统代理按钮变为"端口代理"，点击时仅启动内核监听代理端口，不修改系统全局代理设置。浏览器可手动配置本地代理地址使用。</p>
+        </div>
+        <label class="modern-switch">
+          <input type="checkbox" v-model="behavior.portProxyMode" @change="$emit('save')">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="divider"></div>
+
+      <div class="setting-item">
+        <div class="info">
           <h4>开机自启</h4>
           <p>登录 Windows 时自动启动 GoclashZ。</p>
         </div>

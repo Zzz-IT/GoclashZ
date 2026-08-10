@@ -5,8 +5,6 @@ package sys
 import (
 	"errors"
 	"fmt"
-	"os/exec"
-	"syscall"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -44,6 +42,11 @@ func isServiceInstalledSCM(name string) (bool, error) {
 		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
 			return false, nil
 		}
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+			// 服务存在但当前用户暂无查询权限（DACL 尚未生效或被覆盖）
+			// 视为已安装，后续由 Ping 来确认可达性
+			return true, nil
+		}
 		return false, fmt.Errorf("open service failed: %w", err)
 	}
 	defer s.Close()
@@ -60,6 +63,10 @@ func isServiceRunningSCM(name string) (bool, error) {
 
 	s, err := openServiceWithAccess(m, name, windows.SERVICE_QUERY_STATUS)
 	if err != nil {
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+			// 无权查询运行状态，返回 true 让调用方继续尝试 Ping 验证
+			return true, nil
+		}
 		return false, nil
 	}
 	defer s.Close()
@@ -250,11 +257,14 @@ func stopServiceSCM(name string) error {
 	return fmt.Errorf("service did not stop within timeout")
 }
 
-// grantServiceControlToUser 设置服务 DACL，允许指定用户 query/start/stop/interrogate
+// grantServiceControlToUser 使用 Win32 SetSecurityInfo API 直接设置服务 DACL，
+// 授权指定用户 SID 对服务进行 query/start/stop/interrogate 操作。
+// 不依赖 sc.exe 子进程，在各种安全策略环境下更可靠。
 func grantServiceControlToUser(serviceName string, userSID string) error {
 	adminRights := "CCDCLCSWRPWPDTLOCRSDRCWDWO"
 	userRights := "LCRPWPLOCRRC"
 
+	// 构造与原来等价的 SDDL，但通过 Win32 API 写入，不走 sc.exe 子进程
 	sddl := fmt.Sprintf(
 		"D:(A;;%s;;;SY)(A;;%s;;;BA)(A;;%s;;;%s)",
 		adminRights,
@@ -262,14 +272,38 @@ func grantServiceControlToUser(serviceName string, userSID string) error {
 		userRights,
 		userSID,
 	)
-	cmd := exec.Command("sc", "sdset", serviceName, sddl)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow:    true,
-		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
-	}
-	output, err := cmd.CombinedOutput()
+
+	// 将 SDDL 字符串解析为安全描述符
+	sd, err := windows.SecurityDescriptorFromString(sddl)
 	if err != nil {
-		return fmt.Errorf("set service DACL failed: %w, output: %s", err, string(output))
+		return fmt.Errorf("parse SDDL failed: %w", err)
 	}
-	return nil
+
+	// 提取 DACL
+	dacl, _, err := sd.DACL()
+	if err != nil {
+		return fmt.Errorf("extract DACL from security descriptor failed: %w", err)
+	}
+
+	m, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("SCM connect failed: %w", err)
+	}
+	defer m.Disconnect()
+
+	// 需要 READ_CONTROL + WRITE_DAC 权限来写入 DACL
+	s, err := openServiceWithAccess(m, serviceName,
+		windows.READ_CONTROL|windows.WRITE_DAC)
+	if err != nil {
+		return fmt.Errorf("open service for DACL write failed: %w", err)
+	}
+	defer s.Close()
+
+	// 通过 Win32 SetSecurityInfo 写入新 DACL
+	return windows.SetSecurityInfo(
+		windows.Handle(s.Handle),
+		windows.SE_SERVICE,
+		windows.DACL_SECURITY_INFORMATION,
+		nil, nil, dacl, nil,
+	)
 }

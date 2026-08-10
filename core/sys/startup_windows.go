@@ -32,19 +32,21 @@ const (
 )
 
 type StartupTaskInfo struct {
-	Exists          bool        `json:"exists"`
-	Enabled         bool        `json:"enabled"`
-	Mode            StartupMode `json:"mode"`
-	Path            string      `json:"path"`
-	Arguments       string      `json:"arguments"`
-	RunLevel        int         `json:"runLevel"`
-	LastError       string      `json:"lastError"`
-	ExpectedPath    string      `json:"expectedPath"`
-	ActualPath      string      `json:"actualPath"`
-	ActualArgs      string      `json:"actualArgs"`
-	ExpectedDataDir string      `json:"expectedDataDir"`
-	ActualDataDir   string      `json:"actualDataDir"`
-	IsHealthy       bool        `json:"isHealthy"`
+	Exists           bool        `json:"exists"`
+	Enabled          bool        `json:"enabled"`
+	// SchedulerEnabled 记录任务计划器中的原始启用状态（健康检查前，不被 pathMismatch 等条件覆盖）
+	SchedulerEnabled bool        `json:"schedulerEnabled"`
+	Mode             StartupMode `json:"mode"`
+	Path             string      `json:"path"`
+	Arguments        string      `json:"arguments"`
+	RunLevel         int         `json:"runLevel"`
+	LastError        string      `json:"lastError"`
+	ExpectedPath     string      `json:"expectedPath"`
+	ActualPath       string      `json:"actualPath"`
+	ActualArgs       string      `json:"actualArgs"`
+	ExpectedDataDir  string      `json:"expectedDataDir"`
+	ActualDataDir    string      `json:"actualDataDir"`
+	IsHealthy        bool        `json:"isHealthy"`
 }
 
 // initCOM initializes COM and returns a cleanup function.
@@ -207,6 +209,8 @@ func CheckStartupTask() (StartupTaskInfo, error) {
 	if err == nil {
 		if b, ok := enabledV.Value().(bool); ok {
 			info.Enabled = b
+			// 在健康检查修改 Enabled 之前，先记录任务计划器中的原始启用状态
+			info.SchedulerEnabled = b
 		}
 	}
 

@@ -105,7 +105,9 @@ func (s *CoreSupervisor) loop() {
 			}
 		case <-s.watchdogTick.C:
 			desired := s.desired.Get()
-			if desired.CoreRunning {
+			// 检查任意一个需要内核的条件，包括端口代理模式（PortProxy）
+			// 原来只检查 CoreRunning，导致端口代理模式下内核崩溃后不会自动重启
+			if desired.CoreRunning || desired.SystemProxy || desired.Tun || desired.PortProxy {
 				ctx, cancel := context.WithTimeout(s.ctx, 8*time.Second)
 				if err := s.Reconcile(ctx, "watchdog"); err != nil {
 					logger.Warnf("Reconcile(watchdog) failed: %v", err)
@@ -174,7 +176,7 @@ func (s *CoreSupervisor) ShutdownRuntime(reason string) {
 
 func (s *CoreSupervisor) buildRuntimePlan(desired DesiredState, _ AppBehavior, reason string) RuntimePlan {
 	plan := RuntimePlan{
-		NeedCore:     desired.CoreRunning || desired.SystemProxy || desired.Tun,
+		NeedCore:     desired.CoreRunning || desired.SystemProxy || desired.Tun || desired.PortProxy,
 		NeedTun:      desired.Tun,
 		NeedSysProxy: desired.SystemProxy,
 		ActiveConfig: desired.ActiveConfig,

@@ -410,7 +410,13 @@ func (s *helperService) handleStopCore(conn net.Conn, params json.RawMessage) {
 		return
 	}
 
-	_ = windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(s.corePID))
+	// 直接 Kill，不发 CTRL_BREAK_EVENT：
+	// 1. core 以 CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP 运行，
+	//    CTRL_BREAK_EVENT 会触发 Mihomo 的优雅关闭流程（清理 TUN 路由/DNS），
+	//    需要 1-3 秒才能完成，导致关闭缓慢。
+	// 2. Wintun 驱动在进程退出时由 Windows 内核自动回收，无需等待优雅关闭。
+	// 3. 与非 helper 路径（runner.go）保持一致：直接 Kill < 10ms 完成。
+	_ = s.coreCmd.Process.Kill()
 
 	done := make(chan struct{})
 	go func() {
@@ -420,8 +426,8 @@ func (s *helperService) handleStopCore(conn net.Conn, params json.RawMessage) {
 
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
-		_ = s.coreCmd.Process.Kill()
+	case <-time.After(500 * time.Millisecond):
+		// 兜底：Kill 后进程通常 100ms 内退出，超时直接继续
 	}
 
 	s.coreCmd = nil

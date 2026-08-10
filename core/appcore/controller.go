@@ -204,10 +204,11 @@ func NewController(opts Options) *Controller {
 	// 彻底杜绝每次启动页面都“先显示上次启动状态，然后才复位”的闪烁 Bug。
 	if !behavior.Get().RestoreOnStartup {
 		d := c.Desired.Get()
-		if d.SystemProxy || d.Tun || d.CoreRunning {
+		if d.SystemProxy || d.Tun || d.CoreRunning || d.PortProxy {
 			d.SystemProxy = false
 			d.Tun = false
 			d.CoreRunning = false
+			d.PortProxy = false
 			_ = c.Desired.SetAndSave(d)
 		}
 	}
@@ -346,6 +347,7 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 		desired.SystemProxy = false
 		desired.Tun = false
 		desired.CoreRunning = false
+		desired.PortProxy = false
 		c.Desired.SetAndSave(desired)
 
 		c.SyncState()
@@ -373,7 +375,7 @@ func (c *Controller) runStartupRestoreJob(ctx context.Context) {
 		}
 
 		desired := c.Desired.Get()
-		if !desired.CoreRunning && !desired.SystemProxy && !desired.Tun {
+		if !desired.CoreRunning && !desired.SystemProxy && !desired.Tun && !desired.PortProxy {
 			return
 		}
 
@@ -419,10 +421,38 @@ func (c *Controller) syncStartupTaskStateSafe() {
 
 	behavior := c.Behavior.Get()
 
-	// 只有明确检测到任务不存在/禁用，才更新为 false，避免错误覆盖
-	behavior.StartupWithOS = info.Exists && info.Enabled
+	// ① 任务根本不存在 → 确实需要同步为 false
+	if !info.Exists {
+		if behavior.StartupWithOS {
+			behavior.StartupWithOS = false
+			_ = c.Behavior.SetAndSave(behavior)
+		}
+		return
+	}
 
-	_ = c.Behavior.SetAndSave(behavior)
+	// ② 任务存在，但用户在任务计划器里手动关掉了
+	//    （SchedulerEnabled=false 且无错误，说明是用户主动禁用而非健康检查失败）
+	if !info.SchedulerEnabled && info.LastError == "" {
+		if behavior.StartupWithOS {
+			behavior.StartupWithOS = false
+			_ = c.Behavior.SetAndSave(behavior)
+		}
+		return
+	}
+
+	// ③ 任务存在且 SchedulerEnabled=true，但健康检查失败
+	//    （路径/参数不匹配、旧管理员任务等）
+	//    → 不覆盖用户配置，仅通过事件通知前端需要修复
+	if !info.IsHealthy {
+		c.events.Emit("startup-task-unhealthy", info.LastError)
+		return
+	}
+
+	// ④ 任务存在且健康 → 双向同步（防止外部改动漏同步）
+	if behavior.StartupWithOS != info.SchedulerEnabled {
+		behavior.StartupWithOS = info.SchedulerEnabled
+		_ = c.Behavior.SetAndSave(behavior)
+	}
 }
 
 func (c *Controller) GetEvents() EventSink {
@@ -441,6 +471,7 @@ type AppState struct {
 	// 用户意图（卡片数据源）
 	DesiredSystemProxy bool `json:"desiredSystemProxy"`
 	DesiredTun         bool `json:"desiredTun"`
+	DesiredPortProxy   bool `json:"desiredPortProxy"`
 	// 后端实际 runtime 状态（诊断/IP 检测用）
 	ActualSystemProxy bool   `json:"actualSystemProxy"`
 	ActualTun         bool   `json:"actualTun"`
@@ -463,6 +494,9 @@ type AppState struct {
 	NewAppVersion    string `json:"newAppVersion"`
 	UpdateDownloaded bool   `json:"updateDownloaded"`
 	DownloadedPath   string `json:"downloadedPath"`
+
+	// 仅端口代理模式（从 behavior 读取，传给前端以驱动按钮文字和行为）
+	PortProxyMode bool `json:"portProxyMode"`
 }
 
 // GetAppState 获取应用运行状态快照
@@ -486,6 +520,7 @@ func (c *Controller) GetAppState() AppState {
 		Mode:               behavior.ActiveMode,
 		DesiredSystemProxy: desired.SystemProxy,
 		DesiredTun:         desired.Tun,
+		DesiredPortProxy:   desired.PortProxy,
 		ActualSystemProxy:  sysProxy,
 		ActualTun:          tunActive,
 		SystemProxy:        sysProxy,
@@ -503,6 +538,7 @@ func (c *Controller) GetAppState() AppState {
 		NewAppVersion:      c.newAppVersion,
 		UpdateDownloaded:   c.downloadedUpdatePath != "",
 		DownloadedPath:     c.downloadedUpdatePath,
+		PortProxyMode:      behavior.PortProxyMode,
 	}
 	if c.controls != nil {
 		state.ControlRevision = c.controls.Revision()
@@ -1539,6 +1575,15 @@ func (c *Controller) SaveAppBehavior(b AppBehavior) error {
 
 	if old.StartupWithOS != next.StartupWithOS {
 		c.handleStartupWithOSChange(next.StartupWithOS)
+	}
+
+	// 端口代理模式被关闭时，清零 desired.PortProxy 并触发 reconcile，
+	// 防止 desired.PortProxy=true 残留导致内核无法停止
+	if old.PortProxyMode && !next.PortProxyMode {
+		_ = c.Desired.Update(func(d *DesiredState) {
+			d.PortProxy = false
+		})
+		c.Supervisor.ReconcileAsync("port-proxy-mode-disabled")
 	}
 
 	c.SyncState()

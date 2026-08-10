@@ -36,7 +36,15 @@ func (cc *ControlCoordinator) SetTun(ctx context.Context, enable bool) error {
 func (cc *ControlCoordinator) ToggleSystemProxy(ctx context.Context) error {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
-	target := !cc.controller.Desired.Get().SystemProxy
+	// 端口代理模式下，切换目标取自 PortProxy 而非 SystemProxy，
+	// 否则 SystemProxy 永远是 false，target 永远是 true，关不掉
+	behavior := cc.controller.Behavior.Get()
+	var target bool
+	if behavior.PortProxyMode {
+		target = !cc.controller.Desired.Get().PortProxy
+	} else {
+		target = !cc.controller.Desired.Get().SystemProxy
+	}
 	return cc.setLocked(ctx, target, false, "system-proxy-toggle")
 }
 
@@ -62,15 +70,35 @@ func (cc *ControlCoordinator) setLocked(ctx context.Context, enable, tun bool, r
 
 	previous := cc.controller.Desired.Get()
 	desired := previous
+	behavior := cc.controller.Behavior.Get()
+
 	if tun {
+		// TUN 逻辑：永远不触碰 PortProxy
 		desired.Tun = enable
+		if enable {
+			desired.CoreRunning = true
+		} else if !desired.SystemProxy && !desired.Tun {
+			desired.CoreRunning = false
+		}
+	} else if behavior.PortProxyMode {
+		// 仅端口代理模式：使用独立的 PortProxy 字段，与 CoreRunning/SystemProxy/Tun 完全解耦
+		// TUN 开关不会触碰 PortProxy，因此两者互不影响
+		desired.PortProxy = enable
+		desired.SystemProxy = false
+		// 关闭端口代理时，若 TUN 也未启用，则同步清零 CoreRunning
+		// 防止之前由系统代理设置的 CoreRunning=true 残留，导致内核无法停止
+		if !enable && !desired.Tun {
+			desired.CoreRunning = false
+		}
+		// 不在 enable=true 时主动设置 CoreRunning，由 NeedCore=PortProxy 驱动即可
 	} else {
+		// 正常系统代理逻辑：永远不触碰 PortProxy
 		desired.SystemProxy = enable
-	}
-	if enable {
-		desired.CoreRunning = true
-	} else if !desired.SystemProxy && !desired.Tun {
-		desired.CoreRunning = false
+		if enable {
+			desired.CoreRunning = true
+		} else if !desired.SystemProxy && !desired.Tun {
+			desired.CoreRunning = false
+		}
 	}
 	cc.controller.fillDesiredTarget(&desired)
 

@@ -580,7 +580,12 @@ func (t *TrayRuntime) showContextMenu() {
 
 	procAppendMenuW.Call(hMenu, MF_SEPARATOR, 0, 0)
 
-	t.appendMenu(hMenu, idSysProxy, "系统代理", state.DesiredSystemProxy)
+	// 仅端口代理模式下，菜单项文字改为"端口代理"，勾选状态反映 DesiredPortProxy
+	if state.PortProxyMode {
+		t.appendMenu(hMenu, idSysProxy, "端口代理", state.DesiredPortProxy)
+	} else {
+		t.appendMenu(hMenu, idSysProxy, "系统代理", state.DesiredSystemProxy)
+	}
 	t.appendMenu(hMenu, idTun, "TUN 模式", state.DesiredTun)
 
 	procAppendMenuW.Call(hMenu, MF_SEPARATOR, 0, 0)

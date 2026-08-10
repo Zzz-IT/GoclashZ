@@ -111,6 +111,7 @@ export const globalState = reactive({
   tun: false,
   desiredSystemProxy: false,
   desiredTun: false,
+  desiredPortProxy: false,
   // backend actual：后端实际状态，用于诊断/IP 检测
   actualSystemProxy: false,
   actualTun: false,
@@ -134,6 +135,9 @@ export const globalState = reactive({
   updateDownloaded: false,
   downloadedPath: '',
   appUpdateChecking: false, // 👈 新增：跟踪软件更新检查状态
+
+  // 仅端口代理模式（由后端 behavior 驱动）
+  portProxyMode: false,
 
   // 🚀 核心：使用缓存初始化消除渲染空窗期的闪烁
   activeConfigId: cachedActiveConfigId,
@@ -241,8 +245,10 @@ export function updateStateFromBackend(rawData: any) {
     if (revision !== undefined) globalState.controlRevision = revision;
     const desiredProxy = rawData.desiredSystemProxy ?? rawData.DesiredSystemProxy;
     const desiredTun = rawData.desiredTun ?? rawData.DesiredTun;
+    const desiredPortProxy = rawData.desiredPortProxy ?? rawData.DesiredPortProxy;
     if (desiredProxy !== undefined) globalState.desiredSystemProxy = !!desiredProxy;
     if (desiredTun !== undefined) globalState.desiredTun = !!desiredTun;
+    if (desiredPortProxy !== undefined) globalState.desiredPortProxy = !!desiredPortProxy;
     syncVisibleControls();
   }
 
@@ -295,6 +301,9 @@ export function updateStateFromBackend(rawData: any) {
 
   if (rawData.downloadedPath !== undefined) globalState.downloadedPath = rawData.downloadedPath;
   else if (rawData.DownloadedPath !== undefined) globalState.downloadedPath = rawData.DownloadedPath;
+
+  const newPortProxyMode = rawData.portProxyMode ?? rawData.PortProxyMode;
+  if (newPortProxyMode !== undefined) globalState.portProxyMode = !!newPortProxyMode;
 }
 
 type DelayRetentionTime = 'long' | '30' | '60' | '300' | string;

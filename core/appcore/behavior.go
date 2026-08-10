@@ -44,6 +44,9 @@ type AppBehavior struct {
 	StartupWithOS    bool `json:"startupWithOS"`
 	RestoreOnStartup bool `json:"restoreOnStartup"`
 
+	// 👇 新增：仅端口代理模式（开启后系统代理按钮变为端口代理，只启动内核不设置全局代理）
+	PortProxyMode bool `json:"portProxyMode"`
+
 	// 👇 新增：长连接保护
 	LongConnectionProtection bool `json:"longConnectionProtection"`
 	DeferRestartWhenActive   bool `json:"deferRestartWhenActive"`
@@ -210,6 +213,8 @@ func (s *BehaviorStore) Default() AppBehavior {
 
 		StartupWithOS:    false,
 		RestoreOnStartup: false,
+
+		PortProxyMode: false,
 
 		LongConnectionProtection: true,
 		DeferRestartWhenActive:   true,

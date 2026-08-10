@@ -25,6 +25,7 @@ export namespace appcore {
 	    proxyTrafficOnly: boolean;
 	    startupWithOS: boolean;
 	    restoreOnStartup: boolean;
+	    portProxyMode: boolean;
 	    longConnectionProtection: boolean;
 	    deferRestartWhenActive: boolean;
 	    longConnectionMinSeconds: number;
@@ -59,6 +60,7 @@ export namespace appcore {
 	        this.proxyTrafficOnly = source["proxyTrafficOnly"];
 	        this.startupWithOS = source["startupWithOS"];
 	        this.restoreOnStartup = source["restoreOnStartup"];
+	        this.portProxyMode = source["portProxyMode"];
 	        this.longConnectionProtection = source["longConnectionProtection"];
 	        this.deferRestartWhenActive = source["deferRestartWhenActive"];
 	        this.longConnectionMinSeconds = source["longConnectionMinSeconds"];
@@ -74,6 +76,7 @@ export namespace appcore {
 	    appLogLevel: string;
 	    desiredSystemProxy: boolean;
 	    desiredTun: boolean;
+	    desiredPortProxy: boolean;
 	    actualSystemProxy: boolean;
 	    actualTun: boolean;
 	    controlRevision: number;
@@ -90,6 +93,7 @@ export namespace appcore {
 	    newAppVersion: string;
 	    updateDownloaded: boolean;
 	    downloadedPath: string;
+	    portProxyMode: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppState(source);
@@ -106,6 +110,7 @@ export namespace appcore {
 	        this.appLogLevel = source["appLogLevel"];
 	        this.desiredSystemProxy = source["desiredSystemProxy"];
 	        this.desiredTun = source["desiredTun"];
+	        this.desiredPortProxy = source["desiredPortProxy"];
 	        this.actualSystemProxy = source["actualSystemProxy"];
 	        this.actualTun = source["actualTun"];
 	        this.controlRevision = source["controlRevision"];
@@ -122,6 +127,7 @@ export namespace appcore {
 	        this.newAppVersion = source["newAppVersion"];
 	        this.updateDownloaded = source["updateDownloaded"];
 	        this.downloadedPath = source["downloadedPath"];
+	        this.portProxyMode = source["portProxyMode"];
 	    }
 	}
 	export class ConnectionMetadataDTO {
@@ -875,6 +881,7 @@ export namespace sys {
 	export class StartupTaskInfo {
 	    exists: boolean;
 	    enabled: boolean;
+	    schedulerEnabled: boolean;
 	    mode: string;
 	    path: string;
 	    arguments: string;
@@ -895,6 +902,7 @@ export namespace sys {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.exists = source["exists"];
 	        this.enabled = source["enabled"];
+	        this.schedulerEnabled = source["schedulerEnabled"];
 	        this.mode = source["mode"];
 	        this.path = source["path"];
 	        this.arguments = source["arguments"];
