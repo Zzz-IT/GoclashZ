@@ -59,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { globalState, refreshOutboundIPRouteAware, showAlert, showConfirm } from '../store';
 import { t } from '../locales';
@@ -67,6 +67,7 @@ import {
   waveState,
   resetWaveState,
   buildMonotoneAreaPath,
+  updateLatestTraffic,
 } from '../trafficWaveState';
 
 type TrafficSnapshot = {
@@ -83,6 +84,14 @@ type TrafficSnapshot = {
 const props = defineProps<{
   traffic: TrafficSnapshot;
 }>();
+
+watch(
+  () => [props.traffic?.upRaw, props.traffic?.downRaw],
+  ([up, down]) => {
+    updateLatestTraffic(Number(up || 0), Number(down || 0));
+  },
+  { immediate: true }
+);
 
 const outboundIPHasValue = computed(() => {
   return !!(globalState.outboundIP?.preferred);
@@ -224,27 +233,27 @@ const handleReset = async () => {
 }
 
 .reset-btn {
-  justify-self: end;
-  background: var(--surface-hover);
   border: none;
-  color: var(--text-sub);
-  font-size: 0.8rem;
-  padding: 6px 14px;
+  background: var(--text-main);
+  color: var(--accent-fg);
   border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: 0.2s ease;
+  justify-self: end;
   white-space: nowrap;
 }
 
 .reset-btn:hover {
-  background: var(--text-main);
-  color: var(--accent-fg);
+  opacity: 0.85;
 }
 
 .wave-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  gap: 16px;
 }
 
 .wave-col {
@@ -255,28 +264,31 @@ const handleReset = async () => {
 
 .wave-label-row {
   display: flex;
-  justify-content: space-between;
   align-items: baseline;
+  justify-content: space-between;
 }
 
 .speed-label {
-  font-size: 0.8rem;
-  color: var(--text-sub);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: 0.05em;
 }
 
 .speed-val {
   font-family: var(--font-mono);
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 700;
   color: var(--text-main);
+  font-variant-numeric: tabular-nums;
 }
 
 .wave-box {
   width: 100%;
-  height: 52px;
-  background: var(--surface-panel);
-  border-radius: 10px;
+  height: 128px;
   overflow: hidden;
+  border-radius: 10px;
+  background: var(--surface-panel);
 }
 
 .wave-svg {
@@ -286,14 +298,37 @@ const handleReset = async () => {
 }
 
 .wave-area {
+  opacity: 1;
   fill: var(--text-main);
-  opacity: 0.08;
 }
 
 .total-label {
-  font-size: 0.75rem;
-  color: var(--text-sub);
-  margin-top: 2px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 700px) {
+  .traffic-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 8px;
+  }
+
+  .outbound-ip {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    justify-content: center;
+  }
+
+  .ip-value {
+    max-width: none;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
 }
 
 @keyframes pulse {
