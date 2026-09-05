@@ -552,13 +552,145 @@ func (t *TrayRuntime) wndProc(hwnd windows.HWND, msg uint32, wparam uintptr, lpa
 	return ret
 }
 
+type trayTexts struct {
+	show       string
+	portProxy  string
+	sysProxy   string
+	tun        string
+	modeRule   string
+	modeGlobal string
+	modeDirect string
+	outbound   string
+	restart    string
+	quit       string
+	noConfig   string
+}
+
+func getTrayTexts(lang string) trayTexts {
+	switch lang {
+	case "zh-TW":
+		return trayTexts{
+			show:       "顯示介面",
+			portProxy:  "連接埠代理",
+			sysProxy:   "系統代理",
+			tun:        "TUN 模式",
+			modeRule:   "規則 (Rule)",
+			modeGlobal: "全域 (Global)",
+			modeDirect: "直連 (Direct)",
+			outbound:   "出站模式",
+			restart:    "重啟核心",
+			quit:       "結束程式",
+			noConfig:   "未選擇設定檔",
+		}
+	case "zh-HK":
+		return trayTexts{
+			show:       "顯示介面",
+			portProxy:  "端口代理",
+			sysProxy:   "系統代理",
+			tun:        "TUN 模式",
+			modeRule:   "規則 (Rule)",
+			modeGlobal: "全局 (Global)",
+			modeDirect: "直連 (Direct)",
+			outbound:   "出站模式",
+			restart:    "重啟核心",
+			quit:       "退出程式",
+			noConfig:   "未選擇配置文件",
+		}
+	case "en-US":
+		return trayTexts{
+			show:       "Show Window",
+			portProxy:  "Port Proxy",
+			sysProxy:   "System Proxy",
+			tun:        "TUN Mode",
+			modeRule:   "Rule",
+			modeGlobal: "Global",
+			modeDirect: "Direct",
+			outbound:   "Outbound Mode",
+			restart:    "Restart Core",
+			quit:       "Quit",
+			noConfig:   "No Profile Selected",
+		}
+	case "ja-JP":
+		return trayTexts{
+			show:       "ウィンドウを表示",
+			portProxy:  "ポートプロキシ",
+			sysProxy:   "システムプロキシ",
+			tun:        "TUN モード",
+			modeRule:   "ルール (Rule)",
+			modeGlobal: "グローバル (Global)",
+			modeDirect: "ダイレクト (Direct)",
+			outbound:   "ルーティングモード",
+			restart:    "コア再起動",
+			quit:       "終了",
+			noConfig:   "プロファイル未選択",
+		}
+	case "ru-RU":
+		return trayTexts{
+			show:       "Показать окно",
+			portProxy:  "Прокси порта",
+			sysProxy:   "Системный прокси",
+			tun:        "Режим TUN",
+			modeRule:   "По правилам (Rule)",
+			modeGlobal: "Глобальный (Global)",
+			modeDirect: "Прямой (Direct)",
+			outbound:   "Режим маршрутизации",
+			restart:    "Перезагрузить ядро",
+			quit:       "Выход",
+			noConfig:   "Профиль не выбран",
+		}
+	case "fr-FR":
+		return trayTexts{
+			show:       "Afficher la fenêtre",
+			portProxy:  "Proxy de port",
+			sysProxy:   "Proxy système",
+			tun:        "Mode TUN",
+			modeRule:   "Règle (Rule)",
+			modeGlobal: "Global",
+			modeDirect: "Direct",
+			outbound:   "Mode de sortie",
+			restart:    "Redémarrer le noyau",
+			quit:       "Quitter",
+			noConfig:   "Aucun profil sélectionné",
+		}
+	case "de-DE":
+		return trayTexts{
+			show:       "Fenster anzeigen",
+			portProxy:  "Port-Proxy",
+			sysProxy:   "System-Proxy",
+			tun:        "TUN-Modus",
+			modeRule:   "Regel (Rule)",
+			modeGlobal: "Global",
+			modeDirect: "Direkt",
+			outbound:   "Ausgangsmodus",
+			restart:    "Kernel neu starten",
+			quit:       "Beenden",
+			noConfig:   "Kein Profil ausgewählt",
+		}
+	default:
+		return trayTexts{
+			show:       "显示界面",
+			portProxy:  "端口代理",
+			sysProxy:   "系统代理",
+			tun:        "TUN 模式",
+			modeRule:   "规则 (Rule)",
+			modeGlobal: "全局 (Global)",
+			modeDirect: "直连 (Direct)",
+			outbound:   "出站模式",
+			restart:    "重启内核",
+			quit:       "退出程序",
+			noConfig:   "未选择配置",
+		}
+	}
+}
+
 // renderOnTrayThread updates the tray state (must be called from tray thread)
 func (t *TrayRuntime) renderOnTrayThread(state appcore.AppState) {
 	if !t.ready.Load() || !t.iconAdded.Load() {
 		return
 	}
 
-	tooltip := "GoclashZ - 未选择配置"
+	txt := getTrayTexts(state.Language)
+	tooltip := "GoclashZ - " + txt.noConfig
 	if state.ActiveConfigName != "" {
 		tooltip = "GoclashZ - " + state.ActiveConfigName
 	}
@@ -569,6 +701,7 @@ func (t *TrayRuntime) renderOnTrayThread(state appcore.AppState) {
 // showContextMenu creates and shows the context menu (called from tray thread)
 func (t *TrayRuntime) showContextMenu() {
 	state := t.snapshot()
+	txt := getTrayTexts(state.Language)
 
 	hMenu, _, _ := procCreatePopupMenu.Call()
 	if hMenu == 0 {
@@ -576,34 +709,34 @@ func (t *TrayRuntime) showContextMenu() {
 	}
 	defer procDestroyMenu.Call(hMenu)
 
-	t.appendMenu(hMenu, idShow, "显示界面", false)
+	t.appendMenu(hMenu, idShow, txt.show, false)
 
 	procAppendMenuW.Call(hMenu, MF_SEPARATOR, 0, 0)
 
 	// 仅端口代理模式下，菜单项文字改为"端口代理"，勾选状态反映 DesiredPortProxy
 	if state.PortProxyMode {
-		t.appendMenu(hMenu, idSysProxy, "端口代理", state.DesiredPortProxy)
+		t.appendMenu(hMenu, idSysProxy, txt.portProxy, state.DesiredPortProxy)
 	} else {
-		t.appendMenu(hMenu, idSysProxy, "系统代理", state.DesiredSystemProxy)
+		t.appendMenu(hMenu, idSysProxy, txt.sysProxy, state.DesiredSystemProxy)
 	}
-	t.appendMenu(hMenu, idTun, "TUN 模式", state.DesiredTun)
+	t.appendMenu(hMenu, idTun, txt.tun, state.DesiredTun)
 
 	procAppendMenuW.Call(hMenu, MF_SEPARATOR, 0, 0)
 
 	hModeMenu, _, _ := procCreatePopupMenu.Call()
 	if hModeMenu != 0 {
-		t.appendMenu(hModeMenu, idModeRule, "规则 (Rule)", state.Mode == "rule")
-		t.appendMenu(hModeMenu, idModeGlobal, "全局 (Global)", state.Mode == "global")
-		t.appendMenu(hModeMenu, idModeDirect, "直连 (Direct)", state.Mode == "direct")
+		t.appendMenu(hModeMenu, idModeRule, txt.modeRule, state.Mode == "rule")
+		t.appendMenu(hModeMenu, idModeGlobal, txt.modeGlobal, state.Mode == "global")
+		t.appendMenu(hModeMenu, idModeDirect, txt.modeDirect, state.Mode == "direct")
 
-		modeText, _ := windows.UTF16PtrFromString("出站模式")
+		modeText, _ := windows.UTF16PtrFromString(txt.outbound)
 		procAppendMenuW.Call(hMenu, MF_POPUP, hModeMenu, uintptr(unsafe.Pointer(modeText)))
 	}
 
 	procAppendMenuW.Call(hMenu, MF_SEPARATOR, 0, 0)
 
-	t.appendMenu(hMenu, idRestart, "重启内核", false)
-	t.appendMenu(hMenu, idQuit, "退出程序", false)
+	t.appendMenu(hMenu, idRestart, txt.restart, false)
+	t.appendMenu(hMenu, idQuit, txt.quit, false)
 
 	var pt POINT
 	procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))

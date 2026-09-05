@@ -1,72 +1,72 @@
 <template>
   <div class="settings-page">
     <div class="glass-card setting-group">
-      <h3>网络设置</h3>
+      <h3>{{ t('settings.home.networkGroup') }}</h3>
 
       <div class="setting-item clickable" @click="$emit('navigate', 'network')">
         <div class="info">
-          <h4>基础网络设置</h4>
-          <p>配置内核底层的 TCP 并发、超时以及连接测速逻辑。</p>
+          <h4>{{ t('settings.home.network') }}</h4>
+          <p>{{ t('settings.home.networkDesc') }}</p>
         </div>
         <span class="arrow">➔</span>
       </div>
 
       <div class="setting-item clickable" @click="$emit('navigate', 'dns')">
         <div class="info">
-          <h4>DNS 服务器配置</h4>
-          <p>管理防污染解析、Fake-IP 策略以及分流专用的 DNS 群组。</p>
+          <h4>{{ t('settings.home.dns') }}</h4>
+          <p>{{ t('settings.home.dnsDesc') }}</p>
         </div>
         <span class="arrow">➔</span>
       </div>
 
       <div class="setting-item clickable" @click="$emit('navigate', 'tun')">
         <div class="info">
-          <h4>虚拟网卡设置 (TUN 模式)</h4>
-          <p>管理 Wintun 驱动并开启全局透明代理，接管所有软件流量。</p>
+          <h4>{{ t('settings.home.tun') }}</h4>
+          <p>{{ t('settings.home.tunDesc') }}</p>
         </div>
         <span class="arrow">➔</span>
       </div>
 
       <div class="setting-item clickable" @click="$emit('navigate', 'lan')">
         <div class="info">
-          <h4>局域网代理配置</h4>
-          <p>设置局域网共享代理、访问认证及 IP 白名单 / 黑名单。</p>
+          <h4>{{ t('settings.home.lan') }}</h4>
+          <p>{{ t('settings.home.lanDesc') }}</p>
         </div>
         <span class="arrow">➔</span>
       </div>
     </div>
 
     <div class="glass-card setting-group">
-      <h3>应用设置</h3>
+      <h3>{{ t('settings.home.appGroup') }}</h3>
 
       <div class="setting-item clickable" @click="$emit('navigate', 'behavior')">
         <div class="info">
-          <h4>应用行为设置</h4>
-          <p>定制软件启动模式、托盘图标逻辑及订阅请求 User-Agent。</p>
+          <h4>{{ t('settings.home.behavior') }}</h4>
+          <p>{{ t('settings.home.behaviorDesc') }}</p>
         </div>
         <span class="arrow">➔</span>
       </div>
 
       <div class="setting-item clickable" @click="$emit('enter-uwp')">
         <div class="info">
-          <h4>UWP 环回免除工具</h4>
-          <p>赋予 Windows UWP 应用（如微软商店、邮件）访问本地代理的权限。</p>
+          <h4>{{ t('settings.home.uwp') }}</h4>
+          <p>{{ t('settings.home.uwpDesc') }}</p>
         </div>
         <span class="arrow">➔</span>
       </div>
 
       <div class="setting-item clickable" @click="$emit('navigate', 'update')">
         <div class="info">
-          <h4>组件与库更新</h4>
-          <p>管理并同步 Mihomo 内核、Wintun 驱动以及 GeoIP/GeoSite 规则数据库。</p>
+          <h4>{{ t('settings.home.update') }}</h4>
+          <p>{{ t('settings.home.updateDesc') }}</p>
         </div>
         <span class="arrow">➔</span>
       </div>
 
       <div class="setting-item clickable" @click="$emit('navigate', 'about')">
         <div class="info">
-          <h4>关于应用</h4>
-          <p>查看软件版本、进行配置备份还原以及访问 GitHub 开源仓库。</p>
+          <h4>{{ t('settings.home.about') }}</h4>
+          <p>{{ t('settings.home.aboutDesc') }}</p>
         </div>
         <span class="arrow">➔</span>
       </div>
@@ -75,6 +75,8 @@
 </template>
 
 <script setup lang="ts">
+import { t } from '../locales';
+
 defineEmits<{
   navigate: [view: 'network' | 'dns' | 'tun' | 'lan' | 'behavior' | 'update' | 'about'];
   'enter-uwp': [];

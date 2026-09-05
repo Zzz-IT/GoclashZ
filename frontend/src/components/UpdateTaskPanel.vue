@@ -2,7 +2,7 @@
   <transition name="panel-fade">
     <div class="update-task-panel" v-if="tasks.length > 0">
       <div class="panel-header">
-        <h3>后台更新任务</h3>
+        <h3>{{ t('updateTask.panelTitle') }}</h3>
       </div>
       <transition-group name="task-fade" tag="div" class="task-list">
         <UpdateTaskRow v-for="task in tasks" :key="task.key" :task="task" />
@@ -12,10 +12,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import { globalState } from '../store';
 import UpdateTaskRow from './UpdateTaskRow.vue';
 import * as API from '../../wailsjs/go/main/App';
+import { t } from '../locales';
 
 const tasks = computed(() => {
   return Object.values(globalState.componentUpdate.tasks).sort((a, b) => {
@@ -33,8 +34,6 @@ const clearFinishedTasks = async () => {
     console.error('Failed to clear finished tasks:', e);
   }
 };
-
-import { watch } from 'vue';
 
 watch(tasks, (newTasks) => {
   const hasFinished = newTasks.some(t => t.status === 'success');

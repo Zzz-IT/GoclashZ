@@ -1,11 +1,11 @@
 <template>
-  <div class="app-shell" :class="{ dark: globalState.theme === 'dark' }">
+  <div class="app-shell" :class="{ dark: globalState.theme === 'dark' }" :data-lang="currentLocale">
     <div class="drag-bar" style="--wails-draggable:drag">
       <div class="top-actions" style="--wails-draggable:none">
         <div class="window-controls">
-          <button @click="WindowMinimise" class="ctrl-btn" title="最小化" v-html="ICONS.min"></button>
-          <button @click="handleToggleMaximise" class="ctrl-btn" title="最大化/还原" v-html="isMaximized ? ICONS.restore : ICONS.max"></button>
-          <button @click="handleClose" class="ctrl-btn close-btn" title="关闭" v-html="ICONS.close"></button>
+          <button @click="WindowMinimise" class="ctrl-btn" :title="t('window.min')" v-html="ICONS.min"></button>
+          <button @click="handleToggleMaximise" class="ctrl-btn" :title="t('window.max')" v-html="isMaximized ? ICONS.restore : ICONS.max"></button>
+          <button @click="handleClose" class="ctrl-btn close-btn" :title="t('window.close')" v-html="ICONS.close"></button>
         </div>
       </div>
     </div>
@@ -73,9 +73,9 @@
               <div class="logs-header" style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0px;">
                 <div class="conn-tabs-viewport" style="flex: none;">
                   <div class="conn-tabs-track" ref="logsTabsTrackRef">
-                    <button :ref="(el) => { if (logSourceFilter === 'all') logsTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: logSourceFilter === 'all' }]" @click="logSourceFilter = 'all'">全部</button>
-                    <button :ref="(el) => { if (logSourceFilter === 'core') logsTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: logSourceFilter === 'core' }]" @click="logSourceFilter = 'core'">内核</button>
-                    <button :ref="(el) => { if (logSourceFilter === 'app') logsTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: logSourceFilter === 'app' }]" @click="logSourceFilter = 'app'">主程序</button>
+                    <button :ref="(el) => { if (logSourceFilter === 'all') logsTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: logSourceFilter === 'all' }]" @click="logSourceFilter = 'all'">{{ t('logs.all') }}</button>
+                    <button :ref="(el) => { if (logSourceFilter === 'core') logsTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: logSourceFilter === 'core' }]" @click="logSourceFilter = 'core'">{{ t('logs.core') }}</button>
+                    <button :ref="(el) => { if (logSourceFilter === 'app') logsTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: logSourceFilter === 'app' }]" @click="logSourceFilter = 'app'">{{ t('logs.app') }}</button>
                     <div class="conn-tab-slider" :class="{ animated: logsSliderReady }" v-show="logsSliderVisible" :style="logsSliderStyle"></div>
                   </div>
                 </div>
@@ -88,9 +88,9 @@
                 </div>
               </div>
               <div class="logs-footer" style="display: flex; justify-content: flex-end;">
-                <button class="action-btn" title="清空日志" @click="handleClearLogs">
+                <button class="action-btn" :title="t('logs.clear')" @click="handleClearLogs">
                   <span class="btn-icon" v-html="ICONS.trash"></span>
-                  清空日志
+                  {{ t('logs.clear') }}
                 </button>
               </div>
             </div>
@@ -119,12 +119,12 @@
             
             <div class="modal-footer">
               <template v-if="globalState.modal.type === 'confirm'">
-                <button class="action-btn flex-1" @click="handleModalCancel">取消</button>
-                <button class="primary-btn accent-btn flex-1" :class="{ 'red-text-btn': globalState.modal.isDanger }" @click="handleModalConfirm">确定</button>
+                <button class="action-btn flex-1" @click="handleModalCancel">{{ t('common.cancel') }}</button>
+                <button class="primary-btn accent-btn flex-1" :class="{ 'red-text-btn': globalState.modal.isDanger }" @click="handleModalConfirm">{{ t('common.confirm') }}</button>
               </template>
               
               <template v-else>
-                <button class="primary-btn accent-btn flex-1" style="width: 100%" @click="handleModalConfirm">我知道了</button>
+                <button class="primary-btn accent-btn flex-1" style="width: 100%" @click="handleModalConfirm">{{ t('common.gotIt') }}</button>
               </template>
             </div>
           </div>
@@ -138,6 +138,7 @@
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import * as API from '../wailsjs/go/main/App';
 import { ICONS } from './utils/icons';
+import { t, currentLocale } from './locales';
 import Sidebar from './components/Sidebar.vue';
 import Overview from './components/Overview.vue';
 import Proxies from './components/Proxies.vue';
@@ -171,7 +172,7 @@ const editingConfigName = ref('');
 const editingConfigType = ref<'local' | 'remote'>('local');
 const isMaximized = ref(false);
 const viewScroller = ref<HTMLElement | null>(null);
-const yamlEditorStatus = ref('已保存');
+const yamlEditorStatus = ref(t('yamlEditor.saved'));
 const yamlEditorModified = ref(false);
 const yamlEditorHasError = ref(false);
 const yamlEditorCursor = ref('');
@@ -282,19 +283,19 @@ let unsubUpdateDownloaded: (() => void) | null = null;
 let unsubUpdateNone: (() => void) | null = null;
 let unsubUpdateError: (() => void) | null = null;
 
-const menu = [
-  { id: 'home', label: '控制台', icon: ICONS.home },
-  { id: 'proxies', label: '代理节点', icon: ICONS.proxies },
-  { id: 'connections', label: '当前连接', icon: ICONS.connections },
-  { id: 'logs', label: '实时日志', icon: ICONS.logs },
-  { id: 'rules', label: '配置规则', icon: ICONS.rules },
-  { id: 'subs', label: '订阅管理', icon: ICONS.subs },
-  { id: 'settings', label: '软件设置', icon: ICONS.settings }
-];
+const menu = computed(() => [
+  { id: 'home', label: t('menu.home'), icon: ICONS.home },
+  { id: 'proxies', label: t('menu.proxies'), icon: ICONS.proxies },
+  { id: 'connections', label: t('menu.connections'), icon: ICONS.connections },
+  { id: 'logs', label: t('menu.logs'), icon: ICONS.logs },
+  { id: 'rules', label: t('menu.rules'), icon: ICONS.rules },
+  { id: 'subs', label: t('menu.subs'), icon: ICONS.subs },
+  { id: 'settings', label: t('menu.settings'), icon: ICONS.settings }
+]);
 
 const activeMenuLabel = computed(() => {
-  if (currentTab.value === 'yaml-editor') return '配置编辑';
-  return menu.find(m => m.id === currentTab.value)?.label;
+  if (currentTab.value === 'yaml-editor') return t('menu.yamlEditor');
+  return menu.value.find(m => m.id === currentTab.value)?.label;
 });
 
 const openYamlEditor = (id: string, name: string, type: 'local' | 'remote') => {
@@ -312,7 +313,7 @@ watch(currentTab, (newVal) => {
   if (newVal !== 'yaml-editor') {
     editingConfigId.value = '';
     editingConfigName.value = '';
-    yamlEditorStatus.value = '已保存';
+    yamlEditorStatus.value = t('yamlEditor.saved');
     yamlEditorModified.value = false;
     yamlEditorHasError.value = false;
     yamlEditorCursor.value = '';
@@ -326,7 +327,7 @@ const handleYamlStatusChange = (payload: { text: string; modified: boolean; erro
 };
 
 const handleYamlCursorChange = (payload: { line: number; col: number }) => {
-  yamlEditorCursor.value = `行 ${payload.line}，列 ${payload.col}`;
+  yamlEditorCursor.value = t('yamlEditor.cursorStatus', { line: payload.line, col: payload.col });
 };
 
 const handleResize = async () => {
@@ -368,6 +369,11 @@ const watchTheme = watch(() => globalState.theme, (val) => {
     WindowSetLightTheme();
     WindowSetBackgroundColour(242, 242, 242, 255);
   }
+}, { immediate: true });
+
+watch(currentLocale, (lang) => {
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('data-lang', lang);
 }, { immediate: true });
 
 onMounted(async () => {
@@ -438,8 +444,8 @@ onMounted(async () => {
 
     globalState.modal = {
       show: true,
-      title: "发现新版本",
-      message: `发现 GoclashZ 新版本 ${version}。\n\n是否现在下载更新？`,
+      title: t('appUpdate.foundTitle'),
+      message: t('appUpdate.foundMsg', { version }),
       detail: '',
       type: "confirm",
       isDanger: false,
@@ -450,8 +456,8 @@ onMounted(async () => {
         } catch (e: any) {
           globalState.modal = {
             show: true,
-            title: "开始下载失败",
-            message: String(e?.message || e || "未知错误"),
+            title: t('appUpdate.startDownloadFailed'),
+            message: String(e?.message || e || t('common.error')),
             detail: '',
             type: "alert",
             isDanger: true,
@@ -475,11 +481,8 @@ onMounted(async () => {
 
     globalState.modal = {
       show: true,
-      title: "新版本已下载完成",
-      message:
-        `GoclashZ ${version} 已下载完成。\n\n` +
-        `是否现在关闭程序并启动安装程序？\n\n` +
-        `安装完成后会自动清理临时安装包。`,
+      title: t('appUpdate.downloadCompleteTitle'),
+      message: t('appUpdate.downloadCompleteMsg', { version }),
       detail: '',
       type: "confirm",
       isDanger: false,
@@ -488,8 +491,8 @@ onMounted(async () => {
         if (!fullPath) {
           globalState.modal = {
             show: true,
-            title: "无法启动安装程序",
-            message: "安装包路径为空，请重新检查更新。",
+            title: t('appUpdate.installPathEmptyTitle'),
+            message: t('appUpdate.installPathEmptyMsg'),
             detail: '',
             type: "alert",
             isDanger: true,
@@ -503,8 +506,8 @@ onMounted(async () => {
         } catch (e: any) {
           globalState.modal = {
             show: true,
-            title: "启动安装程序失败",
-            message: String(e?.message || e || "未知错误"),
+            title: t('appUpdate.startInstallerFailed'),
+            message: String(e?.message || e || t('common.error')),
             detail: '',
             type: "alert",
             isDanger: true,
@@ -521,8 +524,8 @@ onMounted(async () => {
     globalState.appUpdateChecking = false;
     globalState.modal = {
       show: true,
-      title: "已是最新版本",
-      message: payload?.message || "当前已经是最新版本。",
+      title: t('appUpdate.latestTitle'),
+      message: payload?.message || t('appUpdate.latestMsg'),
       detail: '',
       type: "alert",
       isDanger: false,
@@ -533,12 +536,12 @@ onMounted(async () => {
 
   unsubUpdateError = EventsOn("app-update-error", (err: string) => {
     globalState.appUpdateChecking = false;
-    const s = String(err || "未知错误");
-    const msg = s.length > 120 ? "操作失败，请检查网络或稍后重试。" : s;
+    const s = String(err || t('common.error'));
+    const msg = s.length > 120 ? t('appUpdate.networkOrRetryMsg') : s;
 
     globalState.modal = {
       show: true,
-      title: "软件更新失败",
+      title: t('appUpdate.updateFailedTitle'),
       message: msg,
       detail: '',
       type: "alert",

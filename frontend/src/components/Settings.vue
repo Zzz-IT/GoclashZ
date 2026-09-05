@@ -13,14 +13,15 @@
         <SettingsUwp v-else-if="view === 'uwp'" :entry="uwpEntry" @navigate="view = $event" />
       </div>
     </Transition>
-    <Transition name="pop"><div v-if="showResetConfirm" class="modal-overlay" @click="showResetConfirm = false"><div class="custom-modal-card" @click.stop><div class="modal-header"><h3 class="danger-text">确认重置</h3></div><div class="modal-body"><p class="global-modal-msg">确定要将 <strong>{{ resetModuleName }}</strong> 恢复为默认设置吗？此操作不可撤销，程序将重新加载配置。</p><div class="modal-footer"><button class="action-btn flex-1" @click="showResetConfirm = false">取消</button><button class="primary-btn accent-btn red-text-btn flex-1" @click="handleReset">确认重置</button></div></div></div></div></Transition>
+    <Transition name="pop"><div v-if="showResetConfirm" class="modal-overlay" @click="showResetConfirm = false"><div class="custom-modal-card" @click.stop><div class="modal-header"><h3 class="danger-text">{{ t('settings.resetConfirmTitle') }}</h3></div><div class="modal-body"><p class="global-modal-msg">{{ t('settings.resetConfirmMsg', { name: resetModuleName }) }}</p><div class="modal-footer"><button class="action-btn flex-1" @click="showResetConfirm = false">{{ t('common.cancel') }}</button><button class="primary-btn accent-btn red-text-btn flex-1" @click="handleReset">{{ t('common.confirm') }}</button></div></div></div></div></Transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { globalState, showAlert } from '../store';
+import { t, setLocale, currentLocale, SupportedLocale } from '../locales';
 import SettingsAbout from './SettingsAbout.vue';
 import SettingsBehavior from './SettingsBehavior.vue';
 import SettingsDns from './SettingsDns.vue';
@@ -38,13 +39,44 @@ const showResetConfirm = ref(false);
 const resetModule = ref('');
 const resetModuleName = ref('');
 const resetVersions = ref({ tun: 0, dns: 0, network: 0, lan: 0, behavior: 0 });
-const modules: Record<string, string> = { network: '基础网络设置', dns: 'DNS 服务器设置', tun: '虚拟网卡设置', lan: '局域网代理设置', behavior: '应用行为设置' };
-const behavior = ref<any>({ silentStart: false, closeToTray: true, startupWithOS: false, restoreOnStartup: false, colorDelay: false, delayRetention: false, delayRetentionTime: 'long', proxyTrafficOnly: false, logLevel: 'info', appLogLevel: 'info', hideLogs: false, subUA: '', activeConfig: '', activeMode: '', geoIpLink: '', geoSiteLink: '', mmdbLink: '', asnLink: '', autoUpdate: true, updateMethod: 'startup', updateInterval: 3 });
+const modules = computed<Record<string, string>>(() => ({
+  network: t('settings.home.network'),
+  dns: t('settings.home.dns'),
+  tun: t('settings.home.tun'),
+  lan: t('settings.home.lan'),
+  behavior: t('settings.home.behavior'),
+}));
+const behavior = ref<any>({ language: currentLocale.value, silentStart: false, closeToTray: true, startupWithOS: false, restoreOnStartup: false, colorDelay: false, delayRetention: false, delayRetentionTime: 'long', proxyTrafficOnly: false, logLevel: 'info', appLogLevel: 'info', hideLogs: false, subUA: '', activeConfig: '', activeMode: '', geoIpLink: '', geoSiteLink: '', mmdbLink: '', asnLink: '', autoUpdate: true, updateMethod: 'startup', updateInterval: 3 });
 
-const loadBehavior = async () => { try { const value = await API.GetAppBehavior(); if (value) behavior.value = value; } catch (error) { console.error('加载配置失败', error); } };
-const saveBehavior = async () => { try { await API.SaveAppBehavior(behavior.value); if (behavior.value.appLogLevel) globalState.appLogLevel = behavior.value.appLogLevel; if (behavior.value.logLevel) globalState.logLevel = behavior.value.logLevel; } catch (error) { console.error('应用行为保存失败', error); } };
+const loadBehavior = async () => {
+  try {
+    const value = await API.GetAppBehavior();
+    if (value) {
+      behavior.value = value;
+      if (value.language) {
+        setLocale(value.language as SupportedLocale);
+      }
+    }
+  } catch (error) {
+    console.error('加载配置失败', error);
+  }
+};
+const saveBehavior = async () => {
+  try {
+    await API.SaveAppBehavior(behavior.value);
+    if (behavior.value.language) {
+      setLocale(behavior.value.language as SupportedLocale);
+    }
+    if (behavior.value.appLogLevel) globalState.appLogLevel = behavior.value.appLogLevel;
+    if (behavior.value.logLevel) globalState.logLevel = behavior.value.logLevel;
+  } catch (error: any) {
+    console.error('应用行为保存失败', error);
+    showAlert(t('settings.saveFailed', { error: error?.message || error }), t('common.error'));
+    await loadBehavior();
+  }
+};
 const handleStartupWithOSChange = async () => { if (!behavior.value.startupWithOS) behavior.value.restoreOnStartup = false; await saveBehavior(); };
-const confirmReset = (module: string) => { resetModule.value = module; resetModuleName.value = modules[module]; showResetConfirm.value = true; };
+const confirmReset = (module: string) => { resetModule.value = module; resetModuleName.value = modules.value[module] || module; showResetConfirm.value = true; };
 const handleReset = async () => {
   try {
     // 'lan' settings are stored in NetworkConfig — reuse the network reset endpoint.
@@ -53,10 +85,10 @@ const handleReset = async () => {
     showResetConfirm.value = false;
     resetVersions.value[resetModule.value as keyof typeof resetVersions.value] += 1;
     if (resetModule.value === 'behavior') await loadBehavior();
-    showAlert(`${resetModuleName.value} 已重置为默认值`, '成功');
+    showAlert(t('settings.resetSuccess', { name: resetModuleName.value }), t('common.success'));
   } catch (error) {
     console.error('重置失败:', error);
-    showAlert('重置失败: ' + error, '错误');
+    showAlert(t('settings.resetFailed', { error: String(error) }), t('common.error'));
   }
 };
 

@@ -175,7 +175,12 @@ func (a *App) startup(ctx context.Context) {
 	// Errors are intentionally ignored — helper may not be installed.
 	go func() {
 		client := sys.NewHelperClient()
-		_ = client.RegisterParent(os.Getpid())
+		for i := 0; i < 5; i++ {
+			if err := client.RegisterParent(os.Getpid()); err == nil {
+				break
+			}
+			time.Sleep(1 * time.Second)
+		}
 	}()
 
 	if !isSilent {

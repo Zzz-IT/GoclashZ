@@ -5,15 +5,15 @@
       <div class="task-actions">
         <span class="task-status" :class="task.status">{{ statusText }}</span>
         
-        <button class="icon-btn cancel-btn" @click="handleTogglePause" :title="task.status === 'running' ? '暂停任务' : '继续任务'" :disabled="task.status === 'success'">
+        <button class="icon-btn cancel-btn" @click="handleTogglePause" :title="task.status === 'running' ? t('updateTask.pauseTask') : t('updateTask.resumeTask')" :disabled="task.status === 'success'">
           <span class="icon" v-html="task.status === 'running' ? ICONS.pause : ICONS.play"></span>
         </button>
 
-        <button class="icon-btn retry-btn" @click="handleForceRetry" title="重新下载 (清空缓存)" :disabled="task.status === 'running' || task.status === 'success'">
+        <button class="icon-btn retry-btn" @click="handleForceRetry" :title="t('updateTask.retryTask')" :disabled="task.status === 'running' || task.status === 'success'">
           <span class="icon" v-html="ICONS.refresh"></span>
         </button>
 
-        <button class="icon-btn cancel-btn" @click="handleRemove" title="关闭任务">
+        <button class="icon-btn cancel-btn" @click="handleRemove" :title="t('updateTask.closeTask')">
           <span class="icon" v-html="ICONS.close"></span>
         </button>
       </div>
@@ -42,6 +42,7 @@ import type { UpdateTaskState } from '../store';
 import { ICONS } from '../utils/icons';
 import { formatBytes, formatSpeed, formatEtaTime } from '../utils/format';
 import * as API from '../../wailsjs/go/main/App';
+import { t } from '../locales';
 
 const props = defineProps<{
   task: UpdateTaskState
@@ -55,11 +56,11 @@ const progressPercent = computed(() => {
 
 const statusText = computed(() => {
   switch (props.task.status) {
-    case 'running': return '下载中...';
-    case 'success': return '已完成';
-    case 'error': return '失败';
-    case 'cancelled': return '已暂停';
-    default: return '等待中';
+    case 'running': return t('updateTask.statusDownloading');
+    case 'success': return t('updateTask.statusFinished');
+    case 'error': return t('updateTask.statusFailed');
+    case 'cancelled': return t('updateTask.statusPaused');
+    default: return t('updateTask.statusWaiting');
   }
 });
 

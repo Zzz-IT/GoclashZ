@@ -98,10 +98,10 @@ textarea,
 }
 
 :root {
-    --font-sans: 'JetBrains Mono', 'MiSans', 'Microsoft YaHei', sans-serif;
-    --font-mono: 'JetBrains Mono', 'MiSans', monospace;
+    --font-sans: 'JetBrains Mono', 'Segoe UI', 'MiSans', 'Yu Gothic UI', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Segoe UI Mono', monospace;
 
-    /* 将侧边栏宽度从 180px 进一步缩减到 160px */
+    /* 将侧边栏宽度从 180px 进一步缩减到 160px（中文基准） */
     --sidebar-width: 160px;
 
     --layout-padding: 10px;
@@ -133,6 +133,44 @@ textarea,
 
     --status-online: #1A1A1A;
     /* 呼吸灯使用纯黑，通过动画而非颜色表达 */
+}
+
+/* 🌍 国际化适配：当语言为外语（英文/日文/俄文/法文/德文）时，动态自适应侧边栏宽度，为 Subscriptions、サブスクリプション、Verbindungen、Соединения 等长单词提供充裕空间 */
+:root[data-lang="en-US"],
+html[lang="en-US"],
+.app-shell[data-lang="en-US"],
+:root[data-lang="ja-JP"],
+html[lang="ja-JP"],
+.app-shell[data-lang="ja-JP"],
+:root[data-lang="ru-RU"],
+html[lang="ru-RU"],
+.app-shell[data-lang="ru-RU"],
+:root[data-lang="fr-FR"],
+html[lang="fr-FR"],
+.app-shell[data-lang="fr-FR"],
+:root[data-lang="de-DE"],
+html[lang="de-DE"],
+.app-shell[data-lang="de-DE"] {
+    --sidebar-width: 205px;
+}
+
+/* 🛡️ 全局防挤压：确保长英文标签下，右侧按钮、下拉框、Switch 等控件决不被压缩变形 */
+.setting-item {
+    gap: 16px;
+}
+.setting-item > .info {
+    flex: 1 1 auto;
+    min-width: 0;
+    word-break: break-word;
+}
+.setting-item > *:not(.info) {
+    flex-shrink: 0;
+}
+.setting-item button,
+.setting-item .action-btn,
+.setting-item .primary-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 /* 🌙 暗色模式：深沉纯黑灰，层次靠明度递进 */

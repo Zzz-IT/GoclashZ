@@ -36,6 +36,7 @@ type helperService struct {
 	corePID   int
 	parentPID uint32 // PID of the owning main process; watched for abnormal exit
 	ln        net.Listener
+	cancel    context.CancelFunc
 }
 
 // getPathWhitelist 返回允许的文件操作白名单
@@ -146,6 +147,10 @@ func (s *helperService) Execute(args []string, r <-chan svc.ChangeRequest, chang
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	s.mu.Lock()
+	s.cancel = cancel
+	s.mu.Unlock()
+
 	changes <- svc.Status{
 		State:   svc.Running,
 		Accepts: svc.AcceptStop | svc.AcceptShutdown,
@@ -183,8 +188,8 @@ loop:
 // service as stopped.
 func (s *helperService) watchParent(ctx context.Context, cancel context.CancelFunc) {
 	const (
-		checkInterval = 5 * time.Second
-		graceTimeout  = 30 * time.Second
+		checkInterval = 2 * time.Second
+		graceTimeout  = 8 * time.Second
 	)
 
 	var deadSince time.Time
@@ -219,7 +224,13 @@ func (s *helperService) watchParent(ctx context.Context, cancel context.CancelFu
 			continue
 		}
 		if time.Since(deadSince) >= graceTimeout {
+			// 主进程已退出/异常终止：停止代理内核并触发服务退出
+			s.stopCore()
 			cancel()
+			go func() {
+				time.Sleep(1 * time.Second)
+				os.Exit(0)
+			}()
 			return
 		}
 	}
@@ -293,11 +304,21 @@ func (s *helperService) handleConn(conn net.Conn) {
 		// 延迟退出，让响应先发出去
 		go func() {
 			time.Sleep(200 * time.Millisecond)
-			if s.ln != nil {
-				s.ln.Close()
+			s.mu.Lock()
+			cancel := s.cancel
+			s.mu.Unlock()
+			if cancel != nil {
+				cancel()
+				// 等待 Execute 正常通过 SCM 退出，若超时则强制退出兜底
+				time.Sleep(1 * time.Second)
+				os.Exit(0)
+			} else {
+				if s.ln != nil {
+					s.ln.Close()
+				}
+				s.stopCore()
+				os.Exit(0)
 			}
-			s.stopCore()
-			os.Exit(0)
 		}()
 	case "register-parent":
 		s.handleRegisterParent(conn, req.Params)
@@ -663,11 +684,32 @@ func runDebug() {
 	}
 	defer ln.Close()
 
-	s := &helperService{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s := &helperService{
+		cancel: cancel,
+		ln:     ln,
+	}
+
+	go s.watchParent(ctx, cancel)
+
+	go func() {
+		<-ctx.Done()
+		ln.Close()
+		s.stopCore()
+		os.Exit(0)
+	}()
+
 	fmt.Println("Waiting for connections...")
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 			fmt.Fprintf(os.Stderr, "accept error: %v\n", err)
 			continue
 		}

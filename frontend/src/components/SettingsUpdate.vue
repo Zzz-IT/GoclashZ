@@ -4,38 +4,38 @@
       <button class="back-btn" @click="$emit('navigate', 'main')">
         <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>
       </button>
-      <h3>组件与库更新</h3>
+      <h3>{{ t('settings.update.title') }}</h3>
     </div>
 
     <UpdateTaskPanel />
 
     <div class="glass-card setting-group scrollable">
-      <div class="setting-item col-item" style="padding-bottom: 0; align-items: flex-start;"><h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">内核与驱动</h3></div>
+      <div class="setting-item col-item" style="padding-bottom: 0; align-items: flex-start;"><h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">{{ t('settings.update.coreAndDriver') }}</h3></div>
       <div class="divider" style="margin-top: 10px;"></div>
       <div class="setting-item">
-        <div class="info"><h4>Mihomo 内核 <span style="color: var(--accent); margin-left: 8px; font-style: italic; font-size: 0.8rem; font-weight: normal;">(更新会短暂断开代理)</span></h4><p>当前版本: {{ coreVersion }}</p></div>
+        <div class="info"><h4>{{ t('settings.update.mihomoCore') }} <span style="color: var(--accent); margin-left: 8px; font-style: italic; font-size: 0.8rem; font-weight: normal;">{{ t('settings.update.updateNotice') }}</span></h4><p>{{ t('settings.update.currentVersion', { version: coreVersion }) }}</p></div>
         <button class="action-btn" :class="{ 'accent-btn': globalState.componentUpdate.pendingCoreUpdate }" @click="globalState.componentUpdate.pendingCoreUpdate ? executeCoreUpdate() : handleUpdateCore()" :disabled="globalState.componentUpdate.checkingCoreUpdate || globalState.componentUpdate.updatingCore">
-          <template v-if="globalState.componentUpdate.checkingCoreUpdate">正在检查...</template><template v-else-if="globalState.componentUpdate.updatingCore">正在处理...</template><template v-else-if="globalState.componentUpdate.pendingCoreUpdate">更新到 {{ globalState.componentUpdate.coreUpdateInfo.remote }}</template><template v-else>检查更新</template>
+          <template v-if="globalState.componentUpdate.checkingCoreUpdate">{{ t('settings.update.checking') }}</template><template v-else-if="globalState.componentUpdate.updatingCore">{{ t('settings.update.processing') }}</template><template v-else-if="globalState.componentUpdate.pendingCoreUpdate">{{ t('settings.update.updateTo', { version: globalState.componentUpdate.coreUpdateInfo.remote }) }}</template><template v-else>{{ t('settings.update.checkUpdate') }}</template>
         </button>
       </div>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>Wintun 驱动 (DLL)</h4><p>当前版本: {{ wintunVersion || '获取中...' }}</p></div><div class="btn-group"><button class="action-btn" @click="installDriver(true)" :disabled="isInstalling">{{ isInstalling ? '处理中...' : '重新安装' }}</button></div></div>
+      <div class="setting-item"><div class="info"><h4>{{ t('settings.update.wintunDriver') }}</h4><p>{{ t('settings.update.currentVersion', { version: wintunVersion || t('settings.update.reading') }) }}</p></div><div class="btn-group"><button class="action-btn" @click="installDriver(true)" :disabled="isInstalling">{{ isInstalling ? t('settings.update.processing') : t('settings.update.reinstall') }}</button></div></div>
       <div class="divider"></div>
       <div class="setting-item">
-        <div class="info"><h4>后台服务 (GoclashZHelper)</h4><p>状态: <span :style="{ color: helperStatus.reachable ? 'var(--green-text)' : (helperStatus.installed ? 'var(--yellow-text)' : 'var(--text-muted)') }">{{ helperStatus.reachable ? '运行中' : (helperStatus.installed ? (helperStatus.running ? '连接失败' : '已停止') : '未安装') }}</span><span v-if="!helperStatus.installed" style="color: var(--text-muted); font-size: 0.75rem;"> · TUN 自启需要此服务</span></p></div>
-        <div class="btn-group"><button class="action-btn" @click="restartHelper" :disabled="helperLoading" v-if="helperStatus.installed">{{ helperLoading ? '...' : '重新启动' }}</button><button class="action-btn" @click="installHelper" :disabled="helperLoading">{{ helperLoading ? '...' : (helperStatus.installed ? '重新安装' : '安装') }}</button></div>
+        <div class="info"><h4>{{ t('settings.update.helperService') }}</h4><p>{{ t('settings.update.helperStatus', { status: '' }) }}<span :style="{ color: helperStatus.reachable ? 'var(--green-text)' : (helperStatus.installed ? 'var(--yellow-text)' : 'var(--text-muted)') }">{{ helperStatus.reachable ? t('settings.update.helperRunning') : (helperStatus.installed ? (helperStatus.running ? t('settings.update.helperFailed') : t('settings.update.helperStopped')) : t('settings.update.helperNotInstalled')) }}</span><span v-if="!helperStatus.installed" style="color: var(--text-muted); font-size: 0.75rem;">{{ t('settings.update.helperTunNotice') }}</span></p></div>
+        <div class="btn-group"><button class="action-btn" @click="restartHelper" :disabled="helperLoading" v-if="helperStatus.installed">{{ helperLoading ? '...' : t('settings.update.restart') }}</button><button class="action-btn" @click="installHelper" :disabled="helperLoading">{{ helperLoading ? '...' : (helperStatus.installed ? t('settings.update.reinstall') : t('settings.update.install')) }}</button></div>
       </div>
       <div class="divider"></div>
-      <div class="setting-item col-item" style="flex-direction: row; justify-content: space-between; align-items: center; padding-bottom: 0; margin-top: 10px;"><div class="info"><h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">路由规则数据库</h3></div><button class="action-btn primary-btn accent-btn" @click="handleUpdateAllDbs" :disabled="isUpdatingAnyDb">{{ isUpdatingAnyDb ? '更新中' : '更新全部' }}</button></div>
+      <div class="setting-item col-item" style="flex-direction: row; justify-content: space-between; align-items: center; padding-bottom: 0; margin-top: 10px;"><div class="info"><h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">{{ t('settings.update.geoDbGroup') }}</h3></div><button class="action-btn primary-btn accent-btn" @click="handleUpdateAllDbs" :disabled="isUpdatingAnyDb">{{ isUpdatingAnyDb ? t('settings.update.updating') : t('settings.update.updateAllDbs') }}</button></div>
       <div class="divider" style="margin-top: 14px;"></div>
       <template v-for="(db, idx) in dbList" :key="db.key">
-        <div class="setting-item"><div class="info" style="overflow: hidden;"><h4>{{ db.title }} 文件</h4><p class="link-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ behavior[db.behaviorKey] || '未配置下载链接' }}</p><p v-if="dbFileInfo[db.key]?.ready" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">大小: {{ formatBytes(dbFileInfo[db.key].size) }} | 更新于: {{ formatRelativeTime(dbFileInfo[db.key].modTime) }}</p><p v-else-if="dbFileInfo[db.key]?.error" style="font-size: 0.75rem; color: var(--red-text); margin-top: 2px;">{{ dbFileInfo[db.key].error }}</p><p v-else style="font-size: 0.75rem; color: var(--red-text); margin-top: 2px;">文件不存在，请点击更新同步</p></div><div class="btn-group" style="flex-shrink: 0;"><button class="action-btn" @click="openDbEditModal(db.key, behavior[db.behaviorKey])" :disabled="isUpdatingDb(db.key)">编辑链接</button><button class="action-btn" @click="handleUpdateDb(db.key)" :disabled="isUpdatingDb(db.key)">{{ isUpdatingDb(db.key) ? '同步中...' : '更新同步' }}</button></div></div>
+        <div class="setting-item"><div class="info" style="overflow: hidden;"><h4>{{ t('settings.update.dbFile', { name: db.title }) }}</h4><p class="link-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ behavior[db.behaviorKey] || t('settings.update.noDbLink') }}</p><p v-if="dbFileInfo[db.key]?.ready" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">{{ t('settings.update.dbFileSize', { size: formatBytes(dbFileInfo[db.key].size), time: formatRelativeTime(dbFileInfo[db.key].modTime) }) }}</p><p v-else-if="dbFileInfo[db.key]?.error" style="font-size: 0.75rem; color: var(--red-text); margin-top: 2px;">{{ dbFileInfo[db.key].error }}</p><p v-else style="font-size: 0.75rem; color: var(--red-text); margin-top: 2px;">{{ t('settings.update.fileNotExists') }}</p></div><div class="btn-group" style="flex-shrink: 0;"><button class="action-btn" @click="openDbEditModal(db.key, behavior[db.behaviorKey])" :disabled="isUpdatingDb(db.key)">{{ t('settings.update.editLink') }}</button><button class="action-btn" @click="handleUpdateDb(db.key)" :disabled="isUpdatingDb(db.key)">{{ isUpdatingDb(db.key) ? t('settings.update.syncing') : t('settings.update.syncUpdate') }}</button></div></div>
         <div class="divider" v-if="idx < dbList.length - 1"></div>
       </template>
     </div>
 
-    <Transition name="pop"><div class="modal-overlay" v-if="showDbModal" @click.self="showDbModal = false"><div class="custom-modal-card" @click.stop><div class="modal-header"><h3>编辑 {{ dbTitles[editingDb.type] }} 下载链接</h3></div><div class="modal-body"><input type="text" class="modal-input" v-model="editingDb.link" style="text-align: left;" @keyup.enter="saveDbLink" /><div class="modal-footer"><button class="action-btn flex-1" @click="showDbModal = false">取消</button><button class="primary-btn accent-btn flex-1" @click="saveDbLink">保存更改</button></div></div></div></div></Transition>
-    <Transition name="pop"><div v-if="showCoreUpdateConfirm" class="modal-overlay" @click="cancelCoreUpdateConfirm"><div class="custom-modal-card" @click.stop><div class="modal-header"><h3>发现新版本</h3></div><div class="modal-body"><p class="global-modal-msg">检测到 Mihomo 内核新版本 <strong>{{ globalState.componentUpdate.coreUpdateInfo.remote }}</strong>，当前版本为 <strong>{{ globalState.componentUpdate.coreUpdateInfo.local }}</strong>。<br/><br/>更新内核将会短暂断开代理连接。是否立即更新？</p><div class="modal-footer"><button class="action-btn flex-1" @click="cancelCoreUpdateConfirm">取消</button><button class="primary-btn accent-btn flex-1" @click="executeCoreUpdate">立即更新</button></div></div></div></div></Transition>
+    <Transition name="pop"><div class="modal-overlay" v-if="showDbModal" @click.self="showDbModal = false"><div class="custom-modal-card" @click.stop><div class="modal-header"><h3>{{ t('settings.update.editModalTitle', { name: dbTitles[editingDb.type] || '' }) }}</h3></div><div class="modal-body"><input type="text" class="modal-input" v-model="editingDb.link" style="text-align: left;" @keyup.enter="saveDbLink" /><div class="modal-footer"><button class="action-btn flex-1" @click="showDbModal = false">{{ t('common.cancel') }}</button><button class="primary-btn accent-btn flex-1" @click="saveDbLink">{{ t('common.save') }}</button></div></div></div></div></Transition>
+    <Transition name="pop"><div v-if="showCoreUpdateConfirm" class="modal-overlay" @click="cancelCoreUpdateConfirm"><div class="custom-modal-card" @click.stop><div class="modal-header"><h3>{{ t('settings.update.newVersionFound') }}</h3></div><div class="modal-body"><p class="global-modal-msg" v-html="t('settings.update.newVersionMsg', { remote: globalState.componentUpdate.coreUpdateInfo.remote, local: globalState.componentUpdate.coreUpdateInfo.local })"></p><div class="modal-footer"><button class="action-btn flex-1" @click="cancelCoreUpdateConfirm">{{ t('common.cancel') }}</button><button class="primary-btn accent-btn flex-1" @click="executeCoreUpdate">{{ t('settings.update.updateNow') }}</button></div></div></div></div></Transition>
   </div>
 </template>
 
@@ -47,11 +47,12 @@ import { globalState, showAlert, showConfirm } from '../store';
 import { formatBytes, formatRelativeTime } from '../utils/format';
 import { ICONS } from '../utils/icons';
 import UpdateTaskPanel from './UpdateTaskPanel.vue';
+import { t } from '../locales';
 
 const props = defineProps<{ behavior: Record<string, any> }>();
 const emit = defineEmits<{ navigate: [view: 'main']; 'save-behavior': [] }>();
-const coreVersion = ref('读取中...');
-const wintunVersion = ref('读取中...');
+const coreVersion = ref(t('settings.update.reading'));
+const wintunVersion = ref(t('settings.update.reading'));
 const isInstalling = computed(() => globalState.componentUpdate.tasks['driver-install']?.status === 'running');
 const helperStatus = ref<any>({ installed: false, running: false, reachable: false });
 const helperLoading = ref(false);
@@ -70,8 +71,8 @@ const refreshRuntimeAssets = async () => {
   globalState.assetStatus = status;
   const core = status?.assets?.core;
   const wintun = status?.assets?.wintun;
-  coreVersion.value = core?.ready ? (core.version || '已安装，版本未知') : (core?.error || core?.hint || '未安装');
-  wintunVersion.value = wintun?.ready ? (wintun.version || '已安装，版本未知') : (wintun?.error || wintun?.hint || '未安装');
+  coreVersion.value = core?.ready ? (core.version || t('settings.update.installedUnknownVersion')) : (core?.error || core?.hint || t('settings.update.notInstalled'));
+  wintunVersion.value = wintun?.ready ? (wintun.version || t('settings.update.installedUnknownVersion')) : (wintun?.error || wintun?.hint || t('settings.update.notInstalled'));
   dbFileInfo.value = { geoip: status?.assets?.geoip || {}, geosite: status?.assets?.geosite || {}, mmdb: status?.assets?.mmdb || {}, asn: status?.assets?.asn || {} };
 };
 const refreshHelperStatus = async () => { helperLoading.value = true; try { helperStatus.value = await (API as any).GetHelperServiceStatus(); } catch (e) { console.error('获取 Helper 服务状态失败', e); } finally { helperLoading.value = false; } };
@@ -94,23 +95,23 @@ const formatUpdateError = (err: any) => {
 const handleUpdateCore = () => { if (!globalState.componentUpdate.checkingCoreUpdate && !globalState.componentUpdate.updatingCore) (API as any).CheckCoreUpdateAsync().catch(() => {}); };
 const cancelCoreUpdateConfirm = () => { showCoreUpdateConfirm.value = false; globalState.componentUpdate.pendingCoreUpdate = false; globalState.componentUpdate.checkingCoreUpdate = false; };
 const executeCoreUpdate = () => { showCoreUpdateConfirm.value = false; if (!globalState.componentUpdate.updatingCore) (API as any).UpdateCoreComponentAsync().catch(() => {}); };
-const installDriver = async (force = true) => { if (isInstalling.value) return; if (!(await showConfirm('安装过程中，应用网络将会短暂断开。如果正在使用 TUN 模式，系统将自动重启代理内核。', '确定要重新安装 Wintun 驱动吗？', false))) return; (API as any).InstallTunDriverAsync(force).catch(() => {}); };
-const installHelper = async () => { helperLoading.value = true; try { await (API as any).InstallHelperService(); await refreshHelperStatus(); if (helperStatus.value.installed) { showAlert('后台服务安装成功', '完成'); } else { showAlert('安装命令已执行，但服务状态验证未通过，请稍后重试。' + (helperStatus.value.error ? '\n详细信息：' + helperStatus.value.error : ''), '提示', true); } } catch (e) { showAlert('安装后台服务失败: ' + e, '错误', true); } finally { helperLoading.value = false; } };
-const restartHelper = async () => { helperLoading.value = true; try { await (API as any).RestartHelperService(); await refreshHelperStatus(); showAlert('后台服务已重启', '完成'); } catch (e) { showAlert('重启后台服务失败: ' + e, '错误', true); } finally { helperLoading.value = false; } };
+const installDriver = async (force = true) => { if (isInstalling.value) return; if (!(await showConfirm(t('settings.update.reinstallConfirmMsg'), t('settings.update.reinstallConfirmTitle'), false))) return; (API as any).InstallTunDriverAsync(force).catch(() => {}); };
+const installHelper = async () => { helperLoading.value = true; try { await (API as any).InstallHelperService(); await refreshHelperStatus(); if (helperStatus.value.installed) { showAlert(t('settings.update.helperInstallSuccess'), t('common.confirm')); } else { showAlert(t('settings.update.helperInstallPending') + (helperStatus.value.error ? '\n' + helperStatus.value.error : ''), t('common.confirm'), true); } } catch (e) { showAlert(t('common.error') + ': ' + e, t('common.error'), true); } finally { helperLoading.value = false; } };
+const restartHelper = async () => { helperLoading.value = true; try { await (API as any).RestartHelperService(); await refreshHelperStatus(); showAlert(t('settings.update.helperRestartSuccess'), t('common.confirm')); } catch (e) { showAlert(t('common.error') + ': ' + e, t('common.error'), true); } finally { helperLoading.value = false; } };
 const openDbEditModal = (type: string, link: string) => { editingDb.value = { type, link }; showDbModal.value = true; };
 const saveDbLink = async () => { const db = dbList.find(item => item.key === editingDb.value.type); if (db) props.behavior[db.behaviorKey] = editingDb.value.link; showDbModal.value = false; emit('save-behavior'); };
-const handleUpdateDb = async (key: string) => { try { await (API as any).UpdateGeoDatabaseAsync(key); } catch (e) { void showAlert(`${key} 更新启动失败：${formatUpdateError(e)}`, '错误', true); } };
-const handleUpdateAllDbs = async () => { try { await API.UpdateAllGeoDatabasesAsync(); } catch (e) { void showAlert(`更新启动失败：${formatUpdateError(e)}`, '错误', true); } };
+const handleUpdateDb = async (key: string) => { try { await (API as any).UpdateGeoDatabaseAsync(key); } catch (e) { void showAlert(t('settings.update.updateStartFailed', { name: key, error: formatUpdateError(e) }), t('common.error'), true); } };
+const handleUpdateAllDbs = async () => { try { await API.UpdateAllGeoDatabasesAsync(); } catch (e) { void showAlert(t('settings.update.updateStartFailed', { name: '', error: formatUpdateError(e) }), t('common.error'), true); } };
 
 onMounted(() => {
   void refresh();
-  unsubs.push(EventsOn('core-version-updated', (payload: any) => { coreVersion.value = payload?.version || coreVersion.value; void showAlert(`内核更新成功，当前版本: ${coreVersion.value}`, '更新成功'); }));
-  unsubs.push(EventsOn('core-update-none', () => { void showAlert('当前已是最新版本，无需更新。', '检查更新'); }));
+  unsubs.push(EventsOn('core-version-updated', (payload: any) => { coreVersion.value = payload?.version || coreVersion.value; void showAlert(t('settings.update.coreUpdateSuccess', { version: coreVersion.value }), t('common.confirm')); }));
+  unsubs.push(EventsOn('core-update-none', () => { void showAlert(t('settings.update.coreUpdateAlreadyLatest'), t('settings.update.checkUpdate')); }));
   unsubs.push(EventsOn('wintun-version-updated', (payload: any) => { wintunVersion.value = payload?.version || wintunVersion.value; }));
   unsubs.push(EventsOn('driver-install-success', () => { void refreshRuntimeAssets(); }));
   unsubs.push(EventsOn('app-update-busy', () => {
     globalState.appUpdateChecking = false;
-    void showAlert('已有软件更新任务正在进行，请稍后再试。', '提示');
+    void showAlert(t('settings.update.appUpdateBusy'), t('common.confirm'));
   }));
   ['geoip', 'geosite', 'mmdb', 'asn'].forEach(key => unsubs.push(EventsOn(`geo-update-${key}-success`, refreshRuntimeAssets)));
 });

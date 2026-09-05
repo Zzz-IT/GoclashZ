@@ -2,7 +2,7 @@
   <div class="yaml-editor-view">
     <div class="yaml-toolbar">
       <div class="editor-left">
-        <button class="back-btn" @click="$emit('back')" title="返回">
+        <button class="back-btn" @click="$emit('back')" :title="t('common.back')">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
                stroke="currentColor" stroke-width="2">
             <line x1="19" y1="12" x2="5" y2="12"></line>
@@ -11,18 +11,18 @@
         </button>
 
         <div class="file-meta">
-          <div class="file-name">{{ configName || '配置文件' }}</div>
+          <div class="file-name">{{ configName || t('yamlEditor.defaultConfigName') }}</div>
           <div class="file-path">{{ fileName }}</div>
         </div>
       </div>
 
       <div class="editor-actions">
         <button class="action-btn" @click="handleValidate" :disabled="validating">
-          {{ validating ? '校验中...' : '检查语法' }}
+          {{ validating ? t('yamlEditor.validating') : t('yamlEditor.validateBtn') }}
         </button>
-        <button class="action-btn" @click="handleReload" :disabled="loading">重新加载</button>
+        <button class="action-btn" @click="handleReload" :disabled="loading">{{ t('yamlEditor.reloadBtn') }}</button>
         <button class="primary-btn accent-btn mini-btn" @click="handleSave" :disabled="!isModified || saving">
-          {{ saving ? '保存中...' : '保存' }}
+          {{ saving ? t('yamlEditor.saving') : t('yamlEditor.saveBtn') }}
         </button>
       </div>
     </div>
@@ -30,12 +30,12 @@
     <div class="editor-body" ref="editorContainer"></div>
 
     <div v-if="props.configType === 'remote'" class="remote-warning">
-      <span>当前为远程订阅配置。建议通过【规则页】的附加规则修改。在此修改将在下次订阅更新时被覆盖。</span>
+      <span>{{ t('yamlEditor.remoteWarning') }}</span>
     </div>
 
     <div class="editor-summary-bar">
-      <span>共 {{ totalLines }} 行</span>
-      <span>{{ totalChars }} 字符</span>
+      <span>{{ t('yamlEditor.totalLines', { count: totalLines }) }}</span>
+      <span>{{ t('yamlEditor.totalChars', { count: totalChars }) }}</span>
     </div>
   </div>
 </template>
@@ -54,6 +54,7 @@ import { searchKeymap } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
 import * as API from '../../wailsjs/go/main/App';
 import { globalState, showConfirm, showAlert } from '../store';
+import { t } from '../locales';
 
 const props = defineProps<{
   configId: string;
@@ -81,7 +82,7 @@ const cursorLine = ref(1);
 const cursorCol = ref(1);
 const totalLines = ref(1);
 const totalChars = ref(0);
-const statusText = ref('已保存');
+const statusText = ref(t('yamlEditor.saved'));
 const yamlError = ref('');
 
 // 自定义 editor setup：不引入 basicSetup / highlightSelectionMatches / drawSelection
@@ -248,10 +249,10 @@ const createExtensions = () => [
 
     if (update.docChanged) {
       isModified.value = update.state.doc.toString() !== originalContent.value;
-      statusText.value = isModified.value ? '未保存' : '已保存';
+      statusText.value = isModified.value ? t('yamlEditor.unsaved') : t('yamlEditor.saved');
 
       emit('status-change', {
-        text: isModified.value ? '未保存' : '已保存',
+        text: isModified.value ? t('yamlEditor.unsaved') : t('yamlEditor.saved'),
         modified: isModified.value,
         error: false,
       });
@@ -266,10 +267,10 @@ const loadConfig = async () => {
     fileName.value = result.name;
     originalContent.value = result.content;
     isModified.value = false;
-    statusText.value = '已保存';
+    statusText.value = t('yamlEditor.saved');
     yamlError.value = '';
 
-    emit('status-change', { text: '已保存', modified: false, error: false });
+    emit('status-change', { text: t('yamlEditor.saved'), modified: false, error: false });
 
     if (editorView.value) {
       editorView.value.dispatch({
@@ -293,11 +294,11 @@ const loadConfig = async () => {
     }
   } catch (e: any) {
     const errorMsg = e.message || String(e);
-    statusText.value = '加载失败: ' + errorMsg;
-    emit('status-change', { text: '加载失败', modified: false, error: true });
+    statusText.value = t('yamlEditor.loadFailed', { error: errorMsg });
+    emit('status-change', { text: t('common.error'), modified: false, error: true });
     
     // 如果读取配置失败（如严格路径校验不通过），弹出提示并返回
-    showAlert('配置文件读取失败: ' + errorMsg, '错误', true);
+    showAlert(t('yamlEditor.readError', { error: errorMsg }), t('common.error'), true);
   } finally {
     loading.value = false;
   }
@@ -306,22 +307,22 @@ const loadConfig = async () => {
 const handleSave = async () => {
   if (!isModified.value) return;
   saving.value = true;
-  statusText.value = '保存中...';
+  statusText.value = t('yamlEditor.saving');
   try {
     const content = editorView.value?.state.doc.toString() || '';
     await API.SaveConfigText(props.configId, content);
     originalContent.value = content;
     isModified.value = false;
-    statusText.value = '已保存';
+    statusText.value = t('yamlEditor.saved');
     yamlError.value = '';
 
-    emit('status-change', { text: '已保存', modified: false, error: false });
+    emit('status-change', { text: t('yamlEditor.saved'), modified: false, error: false });
   } catch (e: any) {
     const errorMsg = e.message || String(e);
-    statusText.value = '保存失败: ' + errorMsg;
-    emit('status-change', { text: '保存失败', modified: isModified.value, error: true });
+    statusText.value = t('yamlEditor.saveError', { error: errorMsg });
+    emit('status-change', { text: t('yamlEditor.saveError', { error: errorMsg }), modified: isModified.value, error: true });
     
-    showAlert('配置文件保存失败: ' + errorMsg, '错误', true);
+    showAlert(t('yamlEditor.saveFileError', { error: errorMsg }), t('common.error'), true);
   } finally {
     saving.value = false;
   }
@@ -333,14 +334,14 @@ const handleValidate = async () => {
     const content = editorView.value?.state.doc.toString() || '';
     await API.ValidateConfigText(content);
     yamlError.value = '';
-    statusText.value = 'YAML 语法正确';
+    statusText.value = t('yamlEditor.syntaxValid');
 
-    emit('status-change', { text: 'YAML 语法正确', modified: isModified.value, error: false });
+    emit('status-change', { text: t('yamlEditor.syntaxValid'), modified: isModified.value, error: false });
   } catch (e: any) {
     yamlError.value = e.message || String(e);
-    statusText.value = 'YAML 错误: ' + yamlError.value;
+    statusText.value = t('yamlEditor.syntaxInvalid', { error: yamlError.value });
 
-    emit('status-change', { text: 'YAML 错误', modified: isModified.value, error: true });
+    emit('status-change', { text: t('yamlEditor.formatError'), modified: isModified.value, error: true });
   } finally {
     validating.value = false;
   }
@@ -348,7 +349,7 @@ const handleValidate = async () => {
 
 const handleReload = async () => {
   if (isModified.value) {
-    const ok = await showConfirm('当前有未保存的修改，确定要重新加载吗？', '提示');
+    const ok = await showConfirm(t('yamlEditor.reloadConfirmMsg'), t('common.notice'));
     if (!ok) return;
   }
   loadConfig();

@@ -71,7 +71,7 @@ func (c *HelperClient) Shutdown() error {
 }
 
 // RegisterParent 向 helper 注册当前进程的 PID。Helper 会周期性轮询该进程，
-// 若主进程被强行终止且超过宽限期（30s）未恢复，helper 将自动退出。
+// 若主进程被强行终止且超过宽限期（8s）未恢复，helper 将自动退出。
 // 错误不影响功能，调用方可忽略。
 func (c *HelperClient) RegisterParent(pid int) error {
 	data, _ := json.Marshal(map[string]int{"pid": pid})
@@ -248,6 +248,7 @@ func CheckHelperService() HelperStatusData {
 	// Ping 成功 → 服务确实在运行
 	status.Running = true
 	status.Reachable = true
+	_ = client.RegisterParent(os.Getpid())
 	return status
 }
 

@@ -29,6 +29,7 @@ export namespace appcore {
 	    longConnectionProtection: boolean;
 	    deferRestartWhenActive: boolean;
 	    longConnectionMinSeconds: number;
+	    language: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppBehavior(source);
@@ -64,6 +65,7 @@ export namespace appcore {
 	        this.longConnectionProtection = source["longConnectionProtection"];
 	        this.deferRestartWhenActive = source["deferRestartWhenActive"];
 	        this.longConnectionMinSeconds = source["longConnectionMinSeconds"];
+	        this.language = source["language"];
 	    }
 	}
 	export class AppState {
@@ -94,6 +96,7 @@ export namespace appcore {
 	    updateDownloaded: boolean;
 	    downloadedPath: string;
 	    portProxyMode: boolean;
+	    language: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppState(source);
@@ -128,6 +131,7 @@ export namespace appcore {
 	        this.updateDownloaded = source["updateDownloaded"];
 	        this.downloadedPath = source["downloadedPath"];
 	        this.portProxyMode = source["portProxyMode"];
+	        this.language = source["language"];
 	    }
 	}
 	export class ConnectionMetadataDTO {

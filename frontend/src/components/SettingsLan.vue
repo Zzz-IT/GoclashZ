@@ -7,9 +7,9 @@
           <polyline points="12 19 5 12 12 5"></polyline>
         </svg>
       </button>
-      <h3>局域网代理配置</h3>
+      <h3>{{ t('settings.lan.title') }}</h3>
       <button class="action-btn accent-btn mini-btn-reset" @click="$emit('reset', 'network')">
-        <span class="btn-icon" v-html="ICONS.refresh"></span> 重置
+        <span class="btn-icon" v-html="ICONS.refresh"></span> {{ t('settings.lan.resetBtn') }}
       </button>
     </div>
 
@@ -17,8 +17,8 @@
       <!-- 总开关 -->
       <div class="setting-item">
         <div class="info">
-          <h4>允许局域网连接</h4>
-          <p>开启后监听所有网卡（0.0.0.0），局域网内其他设备可将本机作为代理服务器使用。</p>
+          <h4>{{ t('settings.lan.allowLan') }}</h4>
+          <p>{{ t('settings.lan.allowLanDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="lanConfig.allowLan" @change="save" :disabled="loading">
@@ -30,13 +30,13 @@
 
         <!-- 认证配置 -->
         <div class="section-label">
-          <span class="section-label-text">局域网认证</span>
-          <span class="section-label-sub">为代理设置用户名和密码，防止未授权设备连接</span>
+          <span class="section-label-text">{{ t('settings.lan.authSection') }}</span>
+          <span class="section-label-sub">{{ t('settings.lan.authSectionSub') }}</span>
         </div>
 
         <div class="setting-item col-item">
           <div class="info">
-            <h4>用户名</h4>
+            <h4>{{ t('settings.lan.userLabel') }}</h4>
           </div>
           <input
             type="text"
@@ -44,7 +44,7 @@
             v-model="lanConfig.lanAuthUser"
             @blur="save"
             :disabled="loading"
-            placeholder="留空则不启用认证"
+            :placeholder="t('settings.lan.authPlaceholder')"
             autocomplete="off"
           />
         </div>
@@ -52,7 +52,7 @@
 
         <div class="setting-item col-item">
           <div class="info">
-            <h4>密码</h4>
+            <h4>{{ t('settings.lan.passLabel') }}</h4>
           </div>
           <div class="password-wrap">
             <input
@@ -61,7 +61,7 @@
               v-model="lanConfig.lanAuthPass"
               @blur="save"
               :disabled="loading"
-              placeholder="留空则不启用认证"
+              :placeholder="t('settings.lan.authPlaceholder')"
               autocomplete="new-password"
             />
             <button class="eye-btn" @click="showPassword = !showPassword" type="button" tabindex="-1">
@@ -83,9 +83,9 @@
         <!-- 允许连接的 IP -->
         <div class="setting-item col-item">
           <div class="info">
-            <h4>允许连接的 IP</h4>
-            <p>仅允许指定 IP/CIDR 访问代理，每行一个。留空则允许所有 IP 连接。</p>
-            <p class="example-hint">例如：192.168.1.0/24</p>
+            <h4>{{ t('settings.lan.allowedIPs') }}</h4>
+            <p>{{ t('settings.lan.allowedIPsDesc') }}</p>
+            <p class="example-hint">{{ t('settings.lan.exampleHint', { example: '192.168.1.0/24' }) }}</p>
           </div>
           <div class="textarea-wrap">
             <textarea
@@ -110,9 +110,9 @@
         <!-- 禁止连接的 IP -->
         <div class="setting-item col-item">
           <div class="info">
-            <h4>禁止连接的 IP</h4>
-            <p>禁止指定 IP/CIDR 访问代理，每行一个。</p>
-            <p class="example-hint">例如：192.168.1.100/32</p>
+            <h4>{{ t('settings.lan.disallowedIPs') }}</h4>
+            <p>{{ t('settings.lan.disallowedIPsDesc') }}</p>
+            <p class="example-hint">{{ t('settings.lan.exampleHint', { example: '192.168.1.100/32' }) }}</p>
           </div>
           <div class="textarea-wrap">
             <textarea
@@ -137,9 +137,9 @@
         <!-- 跳过认证的 IP -->
         <div class="setting-item col-item">
           <div class="info">
-            <h4>跳过认证的 IP</h4>
-            <p>来自这些 IP/CIDR 的连接无需输入用户名密码即可使用代理。</p>
-            <p class="example-hint">例如：127.0.0.1/8</p>
+            <h4>{{ t('settings.lan.skipAuthIPs') }}</h4>
+            <p>{{ t('settings.lan.skipAuthIPsDesc') }}</p>
+            <p class="example-hint">{{ t('settings.lan.exampleHint', { example: '127.0.0.1/8' }) }}</p>
           </div>
           <div class="textarea-wrap">
             <textarea
@@ -167,6 +167,7 @@
 import { onMounted, reactive, ref, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { ICONS } from '../utils/icons';
+import { t } from '../locales';
 
 const props = defineProps<{ resetKey: number }>();
 defineEmits<{ navigate: [view: 'main']; reset: [module: 'network'] }>();
@@ -202,7 +203,7 @@ function validateCIDR(text: string, key: string): boolean {
     const line = lines[i].trim();
     if (line === '' || line.startsWith('#')) continue;
     if (!CIDR_RE.test(line)) {
-      errors[key] = `第 ${i + 1} 行格式错误：请填写有效的 IP 或 CIDR（如 192.168.1.0/24）`;
+      errors[key] = t('settings.lan.cidrError', { line: i + 1, text: line });
       return false;
     }
   }

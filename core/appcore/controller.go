@@ -398,7 +398,7 @@ func (c *Controller) runStartupRestoreJob(ctx context.Context) {
 		case errors.Is(err, ErrNoActiveConfig):
 			c.notify("error", "STARTUP_RESTORE_NO_CONFIG", "启动恢复失败：尚未添加配置", "startup")
 			return
-		case errors.Is(err, ErrHelperInstallRequired):
+		case errors.Is(err, ErrHelperInstallRequired), errors.Is(err, ErrHelperRepairRequired):
 			c.notify("error", "STARTUP_RESTORE_HELPER_REQUIRED", "TUN 启动恢复需要初始化后台服务", "startup")
 			return
 		case errors.Is(err, ErrWintunMissing):
@@ -497,6 +497,9 @@ type AppState struct {
 
 	// 仅端口代理模式（从 behavior 读取，传给前端以驱动按钮文字和行为）
 	PortProxyMode bool `json:"portProxyMode"`
+
+	// 界面语言 ("zh-CN", "zh-TW", "en-US")
+	Language string `json:"language"`
 }
 
 // GetAppState 获取应用运行状态快照
@@ -539,6 +542,7 @@ func (c *Controller) GetAppState() AppState {
 		UpdateDownloaded:   c.downloadedUpdatePath != "",
 		DownloadedPath:     c.downloadedUpdatePath,
 		PortProxyMode:      behavior.PortProxyMode,
+		Language:           behavior.Language,
 	}
 	if c.controls != nil {
 		state.ControlRevision = c.controls.Revision()
@@ -1215,6 +1219,16 @@ func (c *Controller) ensureHelperReadySlow(reason string) error {
 		return nil
 	}
 
+	// 1. 如果 Helper 已安装但处于停止状态，尝试直接通过 SCM 启动（当前用户 SID 已由 DACL 授权 SERVICE_START）
+	if err := sys.StartHelperService(); err == nil {
+		if err := sys.WaitForHelperReady(15, 200*time.Millisecond); err == nil {
+			_ = client.RegisterParent(os.Getpid())
+			c.logInfo("Helper 服务已通过 SCM 成功启动并就绪 (reason: %s)", reason)
+			return nil
+		}
+	}
+
+	// 2. 普通权限：无法直接启动时检查服务是否安装，返回对应引导错误
 	if !sys.CheckAdmin() {
 		helperStatus := sys.CheckHelperService()
 		if !helperStatus.Installed {
@@ -1223,6 +1237,7 @@ func (c *Controller) ensureHelperReadySlow(reason string) error {
 		return ErrHelperRepairRequired
 	}
 
+	// 3. 管理员权限：执行强修复/安装
 	helperExe := filepath.Join(utils.GetAppDir(), "GoclashZHelper.exe")
 	sid, err := sys.CurrentUserSID()
 	if err != nil {
@@ -1253,25 +1268,8 @@ func (c *Controller) prepareTunEnable(ctx context.Context) error {
 		return ErrNoActiveConfig
 	}
 
-	client := sys.NewHelperClient()
-	helperReachable := client.Ping() == nil
-	if !helperReachable && !sys.CheckAdmin() {
-		helperStatus := sys.CheckHelperService()
-		if !helperStatus.Installed {
-			return ErrHelperInstallRequired
-		}
-		return ErrHelperRepairRequired
-	}
-
-	if !helperReachable && sys.CheckAdmin() {
-		if err := c.EnsureHelperReady("tun-first-install"); err != nil {
-			return fmt.Errorf("安装后台服务失败: %w", err)
-		}
-	}
-
-	if helperReachable {
-		// Refresh the watchdog registration so helper always tracks the live PID.
-		_ = client.RegisterParent(os.Getpid())
+	if err := c.EnsureHelperReady("tun-prepare"); err != nil {
+		return err
 	}
 
 	assetStatus, assetErr := runtimeassets.EnsureReady(ctx, runtimeassets.RequireTun, runtimeassets.RepairInvalid)
@@ -1559,7 +1557,7 @@ func (c *Controller) SaveAppBehavior(b AppBehavior) error {
 		c.StartLogStream(c.ctx)
 	}
 
-	if old.AppLogLevel != next.AppLogLevel {
+	if old.AppLogLevel != next.AppLogLevel || old.Language != next.Language {
 		c.SyncState()
 	}
 
@@ -1574,7 +1572,13 @@ func (c *Controller) SaveAppBehavior(b AppBehavior) error {
 	}
 
 	if old.StartupWithOS != next.StartupWithOS {
-		c.handleStartupWithOSChange(next.StartupWithOS)
+		if err := c.handleStartupWithOSChange(next.StartupWithOS); err != nil {
+			// 操作失败，回滚内存和持久化配置
+			next.StartupWithOS = old.StartupWithOS
+			_ = c.Behavior.SetAndSave(next)
+			c.SyncState()
+			return fmt.Errorf("配置开机自启失败: %w", err)
+		}
 	}
 
 	// 端口代理模式被关闭时，清零 desired.PortProxy 并触发 reconcile，
@@ -1590,26 +1594,28 @@ func (c *Controller) SaveAppBehavior(b AppBehavior) error {
 	return nil
 }
 
-func (c *Controller) handleStartupWithOSChange(enable bool) {
+func (c *Controller) handleStartupWithOSChange(enable bool) error {
 	exePath, err := os.Executable()
 	if err != nil {
 		c.events.Emit("app-state-sync", c.GetAppState())
-		return
+		return fmt.Errorf("无法获取程序执行路径: %w", err)
 	}
-
-	// Always delete existing task before creating a new one to ensure clean update
-	_ = sys.DeleteStartupTask()
 
 	if enable {
 		if createTaskErr := sys.CreateStartupTask(exePath); createTaskErr != nil {
-			// Roll back on failure
-			behavior := c.Behavior.Get()
-			behavior.StartupWithOS = false
-			_ = c.Behavior.SetAndSave(behavior)
 			c.setLastError("设置开机自启失败: " + createTaskErr.Error())
 			c.events.Emit("app-state-sync", c.GetAppState())
+			return createTaskErr
+		}
+	} else {
+		if deleteTaskErr := sys.DeleteStartupTask(); deleteTaskErr != nil {
+			c.setLastError("关闭开机自启失败: " + deleteTaskErr.Error())
+			c.events.Emit("app-state-sync", c.GetAppState())
+			return deleteTaskErr
 		}
 	}
+
+	return nil
 }
 
 func (c *Controller) StopTrafficStream() {

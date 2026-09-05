@@ -4,36 +4,36 @@
       <button class="back-btn" @click="$emit('navigate', 'main')">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
       </button>
-      <h3>虚拟网卡配置</h3>
+      <h3>{{ t('settings.tun.title') }}</h3>
       <button class="action-btn accent-btn mini-btn-reset" @click="$emit('reset', 'tun')">
-        <span class="btn-icon" v-html="ICONS.refresh"></span> 重置
+        <span class="btn-icon" v-html="ICONS.refresh"></span> {{ t('settings.tun.resetBtn') }}
       </button>
     </div>
 
     <div class="glass-card setting-group scrollable">
       <div class="setting-item">
-        <div class="info"><h4>开启 TUN 模式</h4></div>
+        <div class="info"><h4>{{ t('settings.tun.enableTun') }}</h4></div>
         <label class="modern-switch"><input type="checkbox" :checked="globalState.tun" @change="handleTunToggle"><span class="slider"></span></label>
       </div>
       <div class="divider"></div>
       <div class="setting-item">
-        <div class="info"><h4>网卡驱动安装</h4><p class="status-msg">检测状态: <span :class="tunStatus.hasWintun ? 'green-text' : 'red-text'">{{ tunStatus.hasWintun ? 'wintun 已就绪' : (tunStatus.wintunError || 'wintun 不可用') }}</span></p></div>
-        <button class="action-btn" @click="installDriver(true)" :disabled="isInstalling || tunStatus.hasWintun">{{ isInstalling ? '处理中...' : (tunStatus.hasWintun ? '已安装' : '安装驱动') }}</button>
+        <div class="info"><h4>{{ t('settings.tun.driverInstall') }}</h4><p class="status-msg">{{ t('settings.tun.statusLabel') }}<span :class="tunStatus.hasWintun ? 'green-text' : 'red-text'">{{ tunStatus.hasWintun ? t('settings.tun.driverReady') : (tunStatus.wintunError || t('settings.tun.driverUnavailable')) }}</span></p></div>
+        <button class="action-btn" @click="installDriver(true)" :disabled="isInstalling || tunStatus.hasWintun">{{ isInstalling ? t('settings.tun.processing') : (tunStatus.hasWintun ? t('settings.tun.driverInstalled') : t('settings.tun.driverInstallBtn')) }}</button>
       </div>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>堆栈 (Stack)</h4></div><ModernSelect v-model="tunConfig.stack" :options="stackOptions" @change="saveTun" :disabled="!tunStatus.hasWintun || loading" /></div>
+      <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.stack') }}</h4></div><ModernSelect v-model="tunConfig.stack" :options="stackOptions" @change="saveTun" :disabled="!tunStatus.hasWintun || loading" /></div>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>指定网卡名称 (Device)</h4></div><input type="text" class="modern-input" v-model="tunConfig.device" placeholder="留空则自动" @blur="saveTun" :disabled="!tunStatus.hasWintun || loading" /></div>
+      <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.device') }}</h4></div><input type="text" class="modern-input" v-model="tunConfig.device" :placeholder="t('settings.tun.devicePlaceholder')" @blur="saveTun" :disabled="!tunStatus.hasWintun || loading" /></div>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>自动设置路由 (Auto Route)</h4></div><label class="modern-switch"><input type="checkbox" v-model="tunConfig.autoRoute" @change="saveTun" :disabled="!tunStatus.hasWintun || loading"><span class="slider"></span></label></div>
+      <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.autoRoute') }}</h4></div><label class="modern-switch"><input type="checkbox" v-model="tunConfig.autoRoute" @change="saveTun" :disabled="!tunStatus.hasWintun || loading"><span class="slider"></span></label></div>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>自动包含接口 (Auto Detect Interface)</h4></div><label class="modern-switch"><input type="checkbox" v-model="tunConfig.autoDetect" @change="saveTun" :disabled="!tunStatus.hasWintun || loading"><span class="slider"></span></label></div>
+      <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.autoDetect') }}</h4></div><label class="modern-switch"><input type="checkbox" v-model="tunConfig.autoDetect" @change="saveTun" :disabled="!tunStatus.hasWintun || loading"><span class="slider"></span></label></div>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>DNS 劫持 (DNS Hijack)</h4></div><input type="text" class="modern-input" :value="tunConfig.dnsHijack.join(', ')" @blur="updateTunDnsHijack" placeholder="如 any:53" :disabled="!tunStatus.hasWintun || loading" /></div>
+      <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.dnsHijack') }}</h4></div><input type="text" class="modern-input" :value="tunConfig.dnsHijack.join(', ')" @blur="updateTunDnsHijack" :placeholder="t('settings.tun.dnsHijackPlaceholder')" :disabled="!tunStatus.hasWintun || loading" /></div>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>严格路由 (Strict Route)</h4></div><label class="modern-switch"><input type="checkbox" v-model="tunConfig.strictRoute" @change="saveTun" :disabled="!tunStatus.hasWintun || loading"><span class="slider"></span></label></div>
+      <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.strictRoute') }}</h4></div><label class="modern-switch"><input type="checkbox" v-model="tunConfig.strictRoute" @change="saveTun" :disabled="!tunStatus.hasWintun || loading"><span class="slider"></span></label></div>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>最大传输单元 (MTU)</h4></div><ModernNumberInput v-model="tunConfig.mtu" :min="576" :max="1500" @change="saveTun" :disabled="!tunStatus.hasWintun || loading" /></div>
+      <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.mtu') }}</h4></div><ModernNumberInput v-model="tunConfig.mtu" :min="576" :max="1500" @change="saveTun" :disabled="!tunStatus.hasWintun || loading" /></div>
     </div>
   </div>
 </template>
@@ -46,6 +46,7 @@ import { globalState, settleTunIntent, setTunIntent, showAlert, showConfirm } fr
 import { ICONS } from '../utils/icons';
 import ModernNumberInput from './ModernNumberInput.vue';
 import ModernSelect from './ModernSelect.vue';
+import { t } from '../locales';
 
 const props = defineProps<{ resetKey: number }>();
 
@@ -82,19 +83,19 @@ const handleTunToggle = async (e: Event) => {
   if (newState && !tunStatus.value.hasWintun) {
     e.preventDefault();
     target.checked = false;
-    await showAlert('无法开启 TUN 模式：\n请先点击下方的“安装驱动”按钮下载并配置 wintun.dll。', '缺少依赖');
+    await showAlert(t('settings.tun.missingDriverMsg'), t('settings.tun.missingDriverTitle'));
     return;
   }
   setTunIntent(newState);
   try { await API.ToggleTunMode(newState); } catch (err) {
     target.checked = !newState;
-    await showAlert('操作内核 TUN 失败: ' + err, '错误');
+    await showAlert(t('settings.tun.tunError', { error: String(err) }), t('common.error'));
   } finally { settleTunIntent(); }
 };
 
 const installDriver = async (force: boolean = true) => {
   if (isInstalling.value) return;
-  const ok = await showConfirm('安装过程中，应用网络将会短暂断开。如果正在使用 TUN 模式，系统将自动重启代理内核。', '确定要重新安装 Wintun 驱动吗？', false);
+  const ok = await showConfirm(t('settings.tun.reinstallConfirmMsg'), t('settings.tun.reinstallConfirmTitle'), false);
   if (!ok) return;
   (API as any).InstallTunDriverAsync(force).catch(() => {});
 };

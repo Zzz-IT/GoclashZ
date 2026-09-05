@@ -6,6 +6,10 @@
 
 ![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v2.12-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
 
+<p align="center">
+  <b>简体中文</b> | <a href="README_zh-TW.md">繁體中文（台灣）</a> | <a href="README_zh-HK.md">繁體中文（香港）</a> | <a href="README_en.md">English</a> | <a href="README_ja.md">日本語</a> | <a href="README_ru.md">Русский</a>
+</p>
+
 ---
 
 GoclashZ 诞生于对现代桌面应用过度臃肿的抗拒。本项目摒弃传统的 Electron 架构，利用 Go 语言的系统级并发能力与 Wails 的原生渲染特性，将内存足迹与系统资源占用压缩至物理极限。视觉层面坚持高对比度、黑白实色的极简工业美学，剔除一切无意义的渐变与装饰。它不仅是一个控制界面，更是一套经过严苛加固的网络状态管理系统。
@@ -45,9 +49,16 @@ GoclashZ 诞生于对现代桌面应用过度臃肿的抗拒。本项目摒弃�
 * **多源并发更新引擎**：彻底重构的组件与 Geo 数据库更新调度器。内建工业级断点续传下载机制，全面支持网络异常中断后的进度保留与无缝续传。任务流支持并行、暂停、销毁等全生命周期控制。
 * **原子级事务保护**：关键配置写入与内核升级强制实施 “.tmp 写入 -> 校验 -> 重命名覆盖” 的原子替换策略，根绝断电或杀进程导致的配置文件损坏死局。
 
+### 全面国际化与多语系支持 (i18n)
+
+* **自研零依赖响应式引擎**：基于 Vue 3 响应式系统与本地存储预热机制，实现秒级无刷新切换，零第三方重型包负担。
+* **支持 8 大常用国际语系**：简体中文、繁體中文（台灣）、繁體中文（香港）、English、日本語、Русский、Français、Deutsch 达成 100% 页面与控制字段全量对齐。
+* **智能自适应排版防御**：外语长单词场景下侧边栏宽度动态自适应拓展至 205px，配合全局 Windows 原生字体回退栈与表单防挤压弹性布局，彻底根绝文本截断与组件变形。
+* **全链路系统托盘联动**：Windows 原生系统托盘右键菜单实时联动多语言切换，实现从桌面系统级交互到控制面板的全方位本土化体验。
+
 ### 开机自启与系统集成
 
-* **Task Scheduler 2.0 集成**：通过 COM 接口注册 Windows 计划任务，实现用户登录时自动启动，无需管理员权限。
+* **原生注册表自启集成**：通过 Windows 原生 Run 注册表键实现极速、高可靠的用户登录自动启动，无需管理员权限，彻底告别 Task Scheduler 在精简系统下的 COM 异常与超时问题。
 * **全局热键退出**：注册系统级全局热键 (Ctrl+Alt+Q)，当系统托盘无响应时仍可安全退出程序。
 
 ## 部署与使用

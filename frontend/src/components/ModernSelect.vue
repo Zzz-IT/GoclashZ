@@ -101,6 +101,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
   color: var(--text-main);
   padding: 8px 12px;
   border-radius: 8px; 
@@ -109,6 +110,14 @@ onUnmounted(() => {
   height: 100%;
   box-sizing: border-box;
   background-color: var(--surface-hover);
+  min-width: 120px;
+}
+
+.select-trigger span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
 }
 
 /* 禁用状态 */
@@ -122,6 +131,7 @@ onUnmounted(() => {
 .arrow {
   width: 16px;
   height: 16px;
+  flex-shrink: 0;
   transition: transform 0.3s ease;
 }
 .arrow-up {
@@ -131,8 +141,10 @@ onUnmounted(() => {
 .select-dropdown {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
   right: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: 340px;
   background-color: var(--surface);
   border: 1px solid var(--glass-border);
   border-radius: 8px;

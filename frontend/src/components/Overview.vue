@@ -2,7 +2,7 @@
   <div class="overview-layout">
     <section class="hero-panel card-panel">
       <div class="status-core">
-        <div class="restart-trigger" :class="{ 'is-loading': isRestarting }" @click="handleRestartCore" title="重启内核">
+        <div class="restart-trigger" :class="{ 'is-loading': isRestarting }" @click="handleRestartCore" :title="t('overview.restartCoreTitle')">
           <div class="orb-visual" v-show="!isRestarting">
             <div class="orb" :class="{ 'active': consoleServiceOn }"></div>
             <div class="orb-glow" v-if="consoleServiceOn"></div>
@@ -13,15 +13,15 @@
           </svg>
         </div>
         <div class="status-meta">
-          <span class="micro-title">服务状态</span>
+          <span class="micro-title">{{ t('overview.serviceStatus') }}</span>
           <h2 class="status-heading">{{ consoleServiceTitle }}</h2>
-          <span class="version-tag">Mihomo {{ globalState.version || 'Core' }}</span>
+          <span class="version-tag">{{ t('overview.coreVersion', { version: globalState.version || 'Core' }) }}</span>
         </div>
       </div>
       <div class="active-config-display">
-        <span class="micro-title">活动配置</span>
+        <span class="micro-title">{{ t('overview.activeConfig') }}</span>
         <div class="config-name truncate" :title="globalState.activeConfigName">
-          {{ globalState.activeConfigName || '未选定' }}
+          {{ globalState.activeConfigName || t('overview.unselected') }}
         </div>
       </div>
     </section>
@@ -31,7 +31,7 @@
         <div class="card-content">
           <div class="icon-ring" v-html="ICONS.sysProxy"></div>
           <div class="text-group">
-            <span class="card-title">{{ globalState.portProxyMode ? '端口代理' : '系统代理' }}</span>
+            <span class="card-title">{{ globalState.portProxyMode ? t('overview.portProxy') : t('overview.sysProxy') }}</span>
             <span class="card-hint">{{ sysProxyLabel }}</span>
           </div>
         </div>
@@ -42,7 +42,7 @@
         <div class="card-content">
           <div class="icon-ring" v-html="ICONS.tun"></div>
           <div class="text-group">
-            <span class="card-title">虚拟网卡 (TUN)</span>
+            <span class="card-title">{{ t('overview.tunCard') }}</span>
             <span class="card-hint">{{ tunLabel }}</span>
           </div>
         </div>
@@ -52,7 +52,7 @@
 
     <section class="mode-section rules-card">
       <div class="rules-head">
-        <h3 class="section-heading">出站路由规则</h3>
+        <h3 class="section-heading">{{ t('overview.outboundRules') }}</h3>
       </div>
       <div class="segmented-control">
         <div v-for="m in modes" :key="m.val" class="seg-item" :class="{ active: globalState.mode === m.val }" @click="handleModeChange(m.val)">
@@ -71,6 +71,7 @@ import { ref, computed, watch, onUnmounted } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { globalState, showAlert, showConfirm, updateStateFromBackend, settleSystemProxyIntent, settleTunIntent, setSystemProxyIntent, setTunIntent } from '../store';
 import { ICONS } from '../utils/icons';
+import { t } from '../locales';
 import TrafficCard from './TrafficCard.vue';
 
 defineProps<{
@@ -86,14 +87,14 @@ defineProps<{
   }
 }>();
 
-const modes = [
-  { label: '规则分流', val: 'rule' },
-  { label: '全局代理', val: 'global' },
-  { label: '直接连接', val: 'direct' }
-];
+const modes = computed(() => [
+  { label: t('overview.modeRule'), val: 'rule' },
+  { label: t('overview.modeGlobal'), val: 'global' },
+  { label: t('overview.modeDirect'), val: 'direct' }
+]);
 
 const sliderStyle = computed(() => ({
-  left: `${(modes.findIndex(m => m.val === globalState.mode) * 100) / 3}%`
+  left: `${(modes.value.findIndex(m => m.val === globalState.mode) * 100) / 3}%`
 }));
 
 const isRestarting = ref(false);
@@ -121,7 +122,7 @@ watch(consoleServiceOnRaw, (val) => {
 const consoleServiceOn = stableServiceOn;
 
 const consoleServiceTitleRaw = computed(() => {
-  if (isRestarting.value) return '内核重启中...';
+  if (isRestarting.value) return t('overview.statusRestarting');
 
   const wantTun   = globalState.tun;
   const wantProxy = globalState.systemProxy;
@@ -129,31 +130,31 @@ const consoleServiceTitleRaw = computed(() => {
   const hasProxy  = globalState.actualSystemProxy;
 
   if (wantTun) {
-    if (hasTun) return '接管中';
+    if (hasTun) return t('overview.statusIntercepting');
     // Guard: if nothing is actually active and the core is not running (and
     // no API call is in flight), the desired state is almost certainly stale
     // from a shutdown. Show "停止中..." rather than the misleading "启动中...".
     // In all other cases (startup-restore, config restart, watchdog reconcile
     // with a momentary actualTun=false flash) fall through to "启动中..." so
     // we don't produce a false "停止中..." during legitimate TUN start-up.
-    if (!hasProxy && !globalState.isRunning && !globalState.tunPending) return '停止中...';
-    return '启动中...';
+    if (!hasProxy && !globalState.isRunning && !globalState.tunPending) return t('overview.statusStopping');
+    return t('overview.statusStarting');
   }
 
   if (wantProxy) {
-    if (hasProxy) return '代理中';
-    if (!globalState.isRunning && !globalState.systemProxyPending) return '停止中...';
-    return '启动中...';
+    if (hasProxy) return t('overview.statusProxying');
+    if (!globalState.isRunning && !globalState.systemProxyPending) return t('overview.statusStopping');
+    return t('overview.statusStarting');
   }
 
   // 仅端口代理模式：desiredPortProxy=true 时显示对应状态
   if (globalState.portProxyMode && globalState.desiredPortProxy) {
-    if (globalState.isRunning) return '端口代理中';
-    return '启动中...';
+    if (globalState.isRunning) return t('overview.statusPortProxying');
+    return t('overview.statusStarting');
   }
 
-  if (hasTun || hasProxy) return '停止中...';
-  return '服务停止';
+  if (hasTun || hasProxy) return t('overview.statusStopping');
+  return t('overview.statusStopped');
 });
 
 // Stable title: "停止中..." and "启动中..." (transient transition labels) are
@@ -161,14 +162,9 @@ const consoleServiceTitleRaw = computed(() => {
 // Stable target states ('接管中', '代理中', '服务停止') are applied instantly.
 const stableTitle = ref(consoleServiceTitleRaw.value);
 let titleTimer: ReturnType<typeof setTimeout> | null = null;
-const TRANSIENT_TITLES = new Set(['停止中...', '启动中...']);
 watch(consoleServiceTitleRaw, (newTitle) => {
   if (titleTimer !== null) { clearTimeout(titleTimer); titleTimer = null; }
-  if (TRANSIENT_TITLES.has(newTitle)) {
-    titleTimer = setTimeout(() => { titleTimer = null; stableTitle.value = newTitle; }, 200);
-  } else {
-    stableTitle.value = newTitle;
-  }
+  stableTitle.value = newTitle;
 });
 const consoleServiceTitle = stableTitle;
 
@@ -179,16 +175,16 @@ onUnmounted(() => {
 
 const handleRestartCore = async () => {
   if (isRestarting.value) return;
-  const ok = await showConfirm("确定要重新启动内核服务吗？这可能会导致短暂的网络中断。", "重启内核");
+  const ok = await showConfirm(t('overview.restartConfirmMsg'), t('overview.restartConfirmTitle'));
   if (!ok) return;
   isRestarting.value = true;
   try {
     await (API as any).RestartCore();
     isRestarting.value = false;
-    await showAlert("内核服务已成功重启", '成功');
+    await showAlert(t('overview.restartSuccess'), t('common.success'));
   } catch (e) {
     isRestarting.value = false;
-    await showAlert("重启失败: " + e, '错误');
+    await showAlert(t('overview.restartError', { error: String(e) }), t('common.error'));
   }
 };
 
@@ -200,17 +196,17 @@ const tunCardOn = computed(() => globalState.tun);
 
 const sysProxyLabel = computed(() => {
   if (globalState.portProxyMode) {
-    return sysProxyCardOn.value ? '代理端口已开放，可配置浏览器使用' : '端口代理未启动';
+    return sysProxyCardOn.value ? t('overview.portProxyHintOn') : t('overview.portProxyHintOff');
   }
   return sysProxyCardOn.value
-    ? 'HTTP/HTTPS 流量已代理'
-    : '未启用 HTTP/HTTPS 代理';
+    ? t('overview.sysProxyHintOn')
+    : t('overview.sysProxyHintOff');
 });
 
 const tunLabel = computed(() => {
   return tunCardOn.value
-    ? '高优先级虚拟设备已挂载'
-    : '透明代理驱动未加载';
+    ? t('overview.tunHintOn')
+    : t('overview.tunHintOff');
 });
 
 const toggleSysProxy = async () => {
@@ -230,9 +226,9 @@ const toggleSysProxy = async () => {
   } catch (err: any) {
     const msg = String(err?.message || err || '');
     if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
-      showAlert('尚未添加配置\n\n启用系统代理前，请先添加并应用一个配置文件。', '提示');
+      showAlert(`${t('overview.errNoConfigTitle')}\n\n${t('overview.errNoConfigMsg')}`, t('common.notice'));
     } else {
-      showAlert('系统代理启用失败: ' + msg, '错误', true);
+      showAlert(t('overview.errToggleProxy', { error: msg }), t('common.error'), true);
     }
   } finally {
     globalState.systemProxyPending = false;
@@ -264,8 +260,8 @@ const toggleTun = async () => {
 
     if (msg.includes('helper_install_required') || msg.includes('helper_repair_required')) {
       const confirmed = await showConfirm(
-        'TUN 模式需要初始化后台服务 (GoclashZHelper)\n\n此操作只需管理员确认一次，之后可无感启用 TUN 和开机恢复。',
-        '需要初始化后台服务'
+        t('overview.tunHelperConfirm'),
+        t('overview.tunHelperTitle')
       );
 
       if (confirmed) {
@@ -276,7 +272,7 @@ const toggleTun = async () => {
           if (latest) updateStateFromBackend(latest);
           return;
         } catch (e: any) {
-          showAlert('初始化后台服务失败: ' + String(e?.message || e), '错误', true);
+          showAlert(t('overview.errInstallHelper', { error: String(e?.message || e) }), t('common.error'), true);
           return;
         }
       }
@@ -285,11 +281,11 @@ const toggleTun = async () => {
     }
 
     if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
-      showAlert('尚未添加配置\n\n启用虚拟网卡前，请先添加并应用一个配置文件。', '提示');
+      showAlert(`${t('overview.errNoConfigTitle')}\n\n${t('overview.errNoConfigMsg')}`, t('common.notice'));
     } else if (msg.includes('wintun_missing') || msg.includes('Wintun')) {
-      showAlert('缺少 Wintun 驱动，请在「组件与库更新」页面安装 Wintun 驱动。', '缺少依赖', true);
+      showAlert(t('overview.errWintunMissing'), t('common.error'), true);
     } else {
-      showAlert('虚拟网卡启用失败: ' + msg, '错误', true);
+      showAlert(t('overview.errToggleTun', { error: msg }), t('common.error'), true);
     }
   } finally {
     globalState.tunPending = false;
@@ -327,7 +323,7 @@ const runModeWorker = async (targetMode: string) => {
     updateStateFromBackend(latest);
   } catch (err) {
     globalState.mode = previousMode;
-    await showAlert("模式切换失败: " + err, '错误');
+    await showAlert(t('overview.errSwitchMode', { error: String(err) }), t('common.error'));
   } finally {
     if (pendingModeTarget !== null && pendingModeTarget !== targetMode) {
       const next = pendingModeTarget;

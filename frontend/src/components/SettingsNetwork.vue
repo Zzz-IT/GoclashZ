@@ -4,21 +4,21 @@
       <button class="back-btn" @click="$emit('navigate', 'main')">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
       </button>
-      <h3>基础网络配置</h3>
+      <h3>{{ t('settings.network.title') }}</h3>
       <button class="action-btn accent-btn mini-btn-reset" @click="$emit('reset', 'network')">
-        <span class="btn-icon" v-html="ICONS.refresh"></span> 重置
+        <span class="btn-icon" v-html="ICONS.refresh"></span> {{ t('settings.network.resetBtn') }}
       </button>
     </div>
 
     <div class="glass-card setting-group scrollable">
       <div class="setting-item col-item" style="padding-bottom: 0; align-items: flex-start;">
-        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">基础</h3>
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">{{ t('settings.network.basicGroup') }}</h3>
       </div>
       <div class="divider" style="margin-top: 10px;"></div>
       <div class="setting-item">
         <div class="info">
-          <h4>IPv6 支持</h4>
-          <p>开启后内核将解析并接管 IPv6 流量。若网络环境不支持可能导致卡顿。</p>
+          <h4>{{ t('settings.network.ipv6') }}</h4>
+          <p>{{ t('settings.network.ipv6Desc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="netConfig.ipv6" @change="saveNet" :disabled="loading">
@@ -29,8 +29,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>允许局域网连接 (Allow LAN)</h4>
-          <p>开启后将允许局域网内其他设备通过此代理上网。</p>
+          <h4>{{ t('settings.network.allowLan') }}</h4>
+          <p>{{ t('settings.network.allowLanDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="netConfig.allowLan" @change="saveNet" :disabled="loading">
@@ -41,8 +41,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>统一延迟测试 (Unified Delay)</h4>
-          <p>开启后将去除握手损耗，显示更真实的节点响应延迟。</p>
+          <h4>{{ t('settings.network.unifiedDelay') }}</h4>
+          <p>{{ t('settings.network.unifiedDelayDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="netConfig.unifiedDelay" @change="saveNet" :disabled="loading">
@@ -53,8 +53,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>TCP 并发连接</h4>
-          <p>同时向所有解析出的 IP 发起连接，取最快响应者。大幅提升首屏加载速度。</p>
+          <h4>{{ t('settings.network.tcpConcurrent') }}</h4>
+          <p>{{ t('settings.network.tcpConcurrentDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="netConfig.tcpConcurrent" @change="saveNet" :disabled="loading">
@@ -65,8 +65,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>TCP 保持活动 (Keep Alive)</h4>
-          <p>降低在某些防火墙下的断连概率，保持长连接存活。</p>
+          <h4>{{ t('settings.network.tcpKeepAlive') }}</h4>
+          <p>{{ t('settings.network.tcpKeepAliveDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="netConfig.tcpKeepAlive" @change="saveNet" :disabled="loading">
@@ -79,8 +79,8 @@
           <div class="divider"></div>
           <div class="setting-item">
             <div class="info">
-              <h4>发送时间间隔 (Interval)</h4>
-              <p>单位为秒，建议值 15-30s</p>
+              <h4>{{ t('settings.network.keepAliveInterval') }}</h4>
+              <p>{{ t('settings.network.keepAliveIntervalDesc') }}</p>
             </div>
             <div class="input-with-unit">
               <ModernNumberInput 
@@ -100,8 +100,8 @@
 
       <div class="setting-item col-item">
         <div class="info">
-          <h4>延迟测试网址 (Delay Test URL)</h4>
-          <p>内核进行连接可用性测试时使用的 URL。建议使用 Google 或 Cloudflare 的测速地址。</p>
+          <h4>{{ t('settings.network.delayTestUrl') }}</h4>
+          <p>{{ t('settings.network.delayTestUrlDesc') }}</p>
         </div>
         <input 
           type="text" 
@@ -117,8 +117,8 @@
 
       <div class="setting-item col-item">
         <div class="info">
-          <h4>本地 Hosts 映射 (Hosts)</h4>
-          <p>手动指定域名与 IP 的映射关系。对接 DNS 设置中的「使用 Hosts」选项。</p>
+          <h4>{{ t('settings.network.hosts') }}</h4>
+          <p>{{ t('settings.network.hostsDesc') }}</p>
         </div>
         <div class="hosts-input-container">
           <textarea
@@ -127,7 +127,7 @@
             @blur="saveNet"
             :disabled="loading"
             rows="6"
-            placeholder="'example.com': 127.0.0.1 (请遵循 YAML 键值对格式)"
+            :placeholder="t('settings.network.hostsPlaceholder')"
             style="margin-top: 10px; font-family: var(--font-mono); font-size: 0.85rem; width: 100%;"
           ></textarea>
           <div v-show="hostsError" class="validation-error">
@@ -141,15 +141,15 @@
 
       <!-- 端口设置 -->
       <div class="setting-item col-item section-group-header">
-        <h3 class="section-group-title">端口设置</h3>
-        <p class="section-group-sub">配置代理服务监听端口，修改后重启内核生效</p>
+        <h3 class="section-group-title">{{ t('settings.network.portGroup') }}</h3>
+        <p class="section-group-sub">{{ t('settings.network.portGroupDesc') }}</p>
       </div>
       <div class="divider" style="margin-top: 10px;"></div>
 
       <div class="setting-item">
         <div class="info">
-          <h4>混合端口 (HTTP + SOCKS5)</h4>
-          <p>同时支持 HTTP 和 SOCKS5 协议，推荐只使用此项。</p>
+          <h4>{{ t('settings.network.mixedPort') }}</h4>
+          <p>{{ t('settings.network.mixedPortDesc') }}</p>
         </div>
         <ModernNumberInput
           v-model="netConfig.mixedPort"
@@ -163,8 +163,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>SOCKS5 端口（可选）</h4>
-          <p>独立的 SOCKS5 代理端口。设置为 0 则不启用。</p>
+          <h4>{{ t('settings.network.socksPort') }}</h4>
+          <p>{{ t('settings.network.socksPortDesc') }}</p>
         </div>
         <ModernNumberInput
           v-model="netConfig.socksPort"
@@ -178,8 +178,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>HTTP(S) 端口（可选）</h4>
-          <p>独立的 HTTP 代理端口。设置为 0 则不启用。</p>
+          <h4>{{ t('settings.network.httpPort') }}</h4>
+          <p>{{ t('settings.network.httpPortDesc') }}</p>
         </div>
         <ModernNumberInput
           v-model="netConfig.port"
@@ -192,15 +192,15 @@
 
       <!-- 外部控制器 -->
       <div class="setting-item col-item section-group-header">
-        <h3 class="section-group-title">外部控制器 (External Controller)</h3>
-        <p class="section-group-sub">允许外部第三方应用或局域网设备通过 REST API 远程管理和控制内核</p>
+        <h3 class="section-group-title">{{ t('settings.network.extControllerGroup') }}</h3>
+        <p class="section-group-sub">{{ t('settings.network.extControllerGroupDesc') }}</p>
       </div>
       <div class="divider" style="margin-top: 10px;"></div>
 
       <div class="setting-item">
         <div class="info">
-          <h4>自定义外部控制器</h4>
-          <p>开启后可自定义 API 监听地址与鉴权密钥；关闭时内核仅监听本机默认接口 (127.0.0.1:9090)。</p>
+          <h4>{{ t('settings.network.customExtController') }}</h4>
+          <p>{{ t('settings.network.customExtControllerDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="netConfig.externalControllerEnabled" @change="saveNet" :disabled="loading">
@@ -211,8 +211,8 @@
 
       <div class="setting-item col-item">
         <div class="info">
-          <h4>监听地址与端口 (External Controller)</h4>
-          <p>REST API 的绑定监听地址与端口（如 127.0.0.1:9090）。将 IP 改为 0.0.0.0（如 0.0.0.0:9090 或任意自定义端口）即可允许局域网设备访问。</p>
+          <h4>{{ t('settings.network.extControllerAddress') }}</h4>
+          <p>{{ t('settings.network.extControllerAddressDesc') }}</p>
         </div>
         <input
           type="text"
@@ -228,8 +228,8 @@
 
       <div class="setting-item col-item">
         <div class="info">
-          <h4>访问密钥 (Secret)</h4>
-          <p>REST API 鉴权令牌。开放局域网访问时建议设置密钥以防未授权操控，留空则不进行身份验证。</p>
+          <h4>{{ t('settings.network.extControllerSecret') }}</h4>
+          <p>{{ t('settings.network.extControllerSecretDesc') }}</p>
         </div>
         <input
           type="text"
@@ -238,7 +238,7 @@
           v-model="netConfig.externalControllerSecret"
           @blur="saveNet"
           :disabled="loading || !netConfig.externalControllerEnabled"
-          placeholder="推荐设置访问密钥"
+          :placeholder="t('settings.network.secretPlaceholder')"
           autocomplete="off"
         />
       </div>
@@ -251,6 +251,7 @@ import { onMounted, ref, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { ICONS } from '../utils/icons';
 import ModernNumberInput from './ModernNumberInput.vue';
+import { t } from '../locales';
 
 const props = defineProps<{ resetKey: number }>();
 
@@ -292,7 +293,7 @@ const validateHosts = (val: string) => {
 
     // 正则解析：必须是 "键: 值" 的形式 (至少包含一个冒号，且冒号后面要有内容)
     if (!/^[^:]+:\s*.+$/.test(line)) {
-      hostsError.value = `第 ${i + 1} 行格式错误：请使用 "域名: IP" 的格式 (注意冒号为英文且要有值)`;
+      hostsError.value = t('settings.network.hostsLineError', { line: i + 1 });
       return false;
     }
   }

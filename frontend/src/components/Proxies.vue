@@ -25,20 +25,20 @@
             :disabled="isTesting || !activeGroupData"
           >
             <span class="btn-icon" v-html="ICONS.zap"></span>
-            {{ isTesting ? '测速中...' : '测速当前组' }}
+            {{ isTesting ? t('proxies.testing') : t('proxies.speedTestGroup') }}
           </button>
         </div>
       </div>
 
       <div v-if="activeGroupData" class="proxy-sub-toolbar">
         <div class="sub-toolbar-actions">
-          <button class="tool-btn" :class="{ 'active': sortState === 1 }" @click="toggleSort" title="按延迟排序">
+          <button class="tool-btn" :class="{ 'active': sortState === 1 }" @click="toggleSort" :title="t('proxies.sortByLatency')">
             <span class="btn-icon" v-html="ICONS.sort"></span>
           </button>
-          <button class="tool-btn" @click="locateActiveNode" title="定位当前节点">
+          <button class="tool-btn" @click="locateActiveNode" :title="t('proxies.locateActiveNode')">
             <span class="btn-icon" v-html="ICONS.target"></span>
           </button>
-          <button class="tool-btn" :class="{ 'active': showSearch || searchQuery }" @click="toggleSearch" title="搜索节点">
+          <button class="tool-btn" :class="{ 'active': showSearch || searchQuery }" @click="toggleSearch" :title="t('proxies.searchProxies')">
             <span class="btn-icon" v-html="ICONS.search"></span>
           </button>
           <div class="search-wrapper" :class="{ 'is-active': showSearch }">
@@ -47,7 +47,7 @@
               v-model="searchQuery" 
               type="text" 
               class="search-input" 
-              placeholder="搜索节点..." 
+              :placeholder="t('proxies.searchPlaceholder')" 
               @keyup.esc="toggleSearch"
             />
           </div>
@@ -99,7 +99,7 @@
         </div>
       </div>
       <div v-else class="empty-state">
-        <p>暂无代理组数据，请检查内核状态或订阅配置。</p>
+        <p>{{ t('proxies.noGroupsHint') }}</p>
       </div>
     </div>
   </div>
@@ -111,6 +111,7 @@ import * as API from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { showAlert, globalState, scheduleOutboundIPRefresh } from '../store';
 import { ICONS } from '../utils/icons';
+import { t } from '../locales';
 
 const localGroups = ref<any[]>([]);
 const currentGroup = ref<string>(localStorage.getItem('goclashz_proxyGroup') || '');
@@ -319,7 +320,7 @@ const selectNode = async (groupName: string, nodeName: string) => {
       reason: 'node-switch',
     });
   } catch (e) {
-    await showAlert("切换失败: " + e, '错误');
+    await showAlert(t('proxies.switchError', { error: String(e) }), t('common.error'));
   }
 };
 
@@ -394,9 +395,9 @@ const formatDelay = (delayInfo: any) => {
   // 🚀 核心优化：只要存在大于 0 的历史有效延迟，就优先展示数字，避免测速波动导致的结果瞬间消失
   if (delay > 0) return `${delay}ms`;
   
-  if (status === 'timeout') return '超时';
-  if (status === 'connect-error') return '连接失败';
-  return '失败';
+  if (status === 'timeout') return t('proxies.timeout');
+  if (status === 'connect-error') return t('proxies.testError');
+  return t('proxies.testError');
 };
 
 // 👇 改写颜色计算逻辑

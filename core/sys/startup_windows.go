@@ -3,26 +3,25 @@
 package sys
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"unsafe"
 
-	"github.com/go-ole/go-ole"
 	"goclashz/core/utils"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 const (
-	tsActionExec     = 0 // TASK_ACTION_EXEC
-	tsTriggerLogon   = 9 // TASK_TRIGGER_LOGON
-	tsCreateOrUpdate = 6 // TASK_CREATE_OR_UPDATE
+	runRegistryKey = `Software\Microsoft\Windows\CurrentVersion\Run`
+	runValueName   = "GoclashZ"
+	tsTaskName     = "GoclashZ Startup"
 )
-
-var clsidTaskScheduler = ole.NewGUID("{0F87369F-A4E5-4CFC-BD3E-73E6154572DD}")
-
-const tsTaskName = "GoclashZ Startup"
 
 type StartupMode string
 
@@ -34,7 +33,7 @@ const (
 type StartupTaskInfo struct {
 	Exists           bool        `json:"exists"`
 	Enabled          bool        `json:"enabled"`
-	// SchedulerEnabled 记录任务计划器中的原始启用状态（健康检查前，不被 pathMismatch 等条件覆盖）
+	// SchedulerEnabled 兼容旧前端和 controller 状态字段
 	SchedulerEnabled bool        `json:"schedulerEnabled"`
 	Mode             StartupMode `json:"mode"`
 	Path             string      `json:"path"`
@@ -49,110 +48,52 @@ type StartupTaskInfo struct {
 	IsHealthy        bool        `json:"isHealthy"`
 }
 
-// initCOM initializes COM and returns a cleanup function.
-func initCOM() (func(), error) {
-	err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED)
+func parseCommandLine(cmdline string) (exePath string, args string, argList []string) {
+	trimmed := strings.TrimSpace(cmdline)
+	if trimmed == "" {
+		return "", "", nil
+	}
+
+	argv, err := windows.UTF16PtrFromString(trimmed)
 	if err != nil {
-		if oleErr, ok := err.(*ole.OleError); ok {
-			code := oleErr.Code()
-			// 1 (S_FALSE) 表示已作为相同模式初始化
-			// 0x80010106 (RPC_E_CHANGED_MODE) 表示已作为不同模式初始化 (Wails 主线程)
-			if code == 1 || code == 0x80010106 {
-				return func() {}, nil
-			}
-		}
-		errStr := err.Error()
-		if strings.Contains(errStr, "函数不正确") || strings.Contains(errStr, "Incorrect function") {
-			return func() {}, nil
-		}
-		return nil, fmt.Errorf("COM 初始化失败: %w", err)
-	}
-	return ole.CoUninitialize, nil
-}
-
-// newTaskScheduler creates a Task Scheduler IDispatch connected to the local service.
-func newTaskScheduler() (*ole.IDispatch, error) {
-	unk, err := ole.CreateInstance(clsidTaskScheduler, nil)
-	if err != nil {
-		return nil, fmt.Errorf("创建 TaskScheduler 实例失败: %w", err)
-	}
-
-	disp, err := unk.QueryInterface(ole.IID_IDispatch)
-	unk.Release()
-	if err != nil {
-		return nil, fmt.Errorf("获取 IDispatch 接口失败: %w", err)
-	}
-
-	if _, err := disp.CallMethod("Connect"); err != nil {
-		disp.Release()
-		return nil, fmt.Errorf("连接 Task Scheduler 服务失败: %w", err)
-	}
-
-	return disp, nil
-}
-
-func variantInt(v any) int {
-	if v == nil {
-		return 0
-	}
-	switch x := v.(type) {
-	case int:
-		return x
-	case int32:
-		return int(x)
-	case int16:
-		return int(x)
-	case int64:
-		return int(x)
-	case uint32:
-		return int(x)
-	case float64:
-		return int(x)
-	default:
-		return 0
-	}
-}
-
-func variantString(v any) string {
-	if v == nil {
-		return ""
-	}
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return ""
-}
-
-func splitCommandLine(args string) []string {
-	if strings.TrimSpace(args) == "" {
-		return nil
-	}
-
-	cmdline := `GoclashZ.exe ` + args
-	argv, err := windows.UTF16PtrFromString(cmdline)
-	if err != nil {
-		return nil
+		return "", "", nil
 	}
 
 	var argc int32
 	ptr, err := windows.CommandLineToArgv(argv, &argc)
 	if err != nil {
-		return nil
+		return "", "", nil
 	}
 	defer windows.LocalFree(windows.Handle(unsafe.Pointer(ptr)))
 
-	argsArr := (*[(1 << 29) - 1]*uint16)(unsafe.Pointer(ptr))[:argc:argc]
-	out := make([]string, 0, argc-1)
-	for i := int32(1); i < argc; i++ {
-		out = append(out, windows.UTF16PtrToString(argsArr[i]))
+	if argc <= 0 {
+		return "", "", nil
 	}
-	return out
+
+	argsArr := (*[(1 << 29) - 1]*uint16)(unsafe.Pointer(ptr))[:argc:argc]
+	exePath = windows.UTF16PtrToString(argsArr[0])
+	argList = make([]string, 0, argc-1)
+	for i := int32(1); i < argc; i++ {
+		argList = append(argList, windows.UTF16PtrToString(argsArr[i]))
+	}
+
+	if strings.HasPrefix(trimmed, "\"") {
+		closeIdx := strings.Index(trimmed[1:], "\"")
+		if closeIdx != -1 {
+			args = strings.TrimSpace(trimmed[closeIdx+2:])
+		}
+	} else {
+		fields := strings.Fields(trimmed)
+		if len(fields) > 1 {
+			args = strings.TrimSpace(strings.TrimPrefix(trimmed, fields[0]))
+		}
+	}
+
+	return exePath, args, argList
 }
 
-func extractArgValue(args string, key string) string {
-	fields := splitCommandLine(args)
+func extractArgValue(fields []string, key string) string {
 	prefix := key + "="
-
 	for i := 0; i < len(fields); i++ {
 		if fields[i] == key && i+1 < len(fields) {
 			return fields[i+1]
@@ -164,137 +105,117 @@ func extractArgValue(args string, key string) string {
 	return ""
 }
 
+func hasLegacyTaskSchedulerTask() bool {
+	cmd := exec.Command("schtasks", "/Query", "/TN", tsTaskName)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	return cmd.Run() == nil
+}
+
+func deleteLegacyTaskSchedulerTask() {
+	cmd := exec.Command("schtasks", "/Delete", "/TN", tsTaskName, "/F")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	_ = cmd.Run()
+}
+
+func checkAndMigrateLegacyTask(info StartupTaskInfo, expected string) (StartupTaskInfo, error) {
+	if hasLegacyTaskSchedulerTask() {
+		// 发现存在旧版任务计划程序自启，无感迁移至注册表 Run 项
+		if err := CreateStartupTask(expected); err == nil {
+			info.Exists = true
+			info.Enabled = true
+			info.SchedulerEnabled = true
+			info.IsHealthy = true
+			info.Mode = StartupNormal
+			info.Path = expected
+			info.ActualPath = expected
+			info.ActualDataDir = info.ExpectedDataDir
+			info.Arguments = fmt.Sprintf(`--startup --silent --data-dir "%s"`, info.ExpectedDataDir)
+			info.ActualArgs = info.Arguments
+			return info, nil
+		}
+	}
+
+	info.Exists = false
+	info.Enabled = false
+	info.SchedulerEnabled = false
+	info.IsHealthy = false
+	info.LastError = "startup task not found"
+	return info, nil
+}
+
 func CheckStartupTask() (StartupTaskInfo, error) {
 	exe, _ := os.Executable()
 	expected, _ := filepath.Abs(exe)
-	info := StartupTaskInfo{Mode: StartupDisabled, ExpectedPath: expected}
+	expectedDataDir := filepath.Clean(utils.GetDataDir())
 
-	cleanup, err := initCOM()
+	info := StartupTaskInfo{
+		Mode:            StartupDisabled,
+		ExpectedPath:    expected,
+		ExpectedDataDir: expectedDataDir,
+		RunLevel:        0,
+	}
+
+	key, err := registry.OpenKey(registry.CURRENT_USER, runRegistryKey, registry.QUERY_VALUE)
 	if err != nil {
-		info.LastError = "COM init failed"
+		if errors.Is(err, registry.ErrNotExist) {
+			return checkAndMigrateLegacyTask(info, expected)
+		}
+		info.LastError = fmt.Sprintf("打开注册表失败: %v", err)
 		return info, err
 	}
-	defer cleanup()
+	defer key.Close()
 
-	sched, err := newTaskScheduler()
+	val, _, err := key.GetStringValue(runValueName)
 	if err != nil {
-		info.LastError = "TaskScheduler connect failed"
+		if errors.Is(err, registry.ErrNotExist) {
+			return checkAndMigrateLegacyTask(info, expected)
+		}
+		info.LastError = fmt.Sprintf("读取注册表失败: %v", err)
 		return info, err
 	}
-	defer sched.Release()
 
-	rootV, err := sched.CallMethod("GetFolder", `\`)
-	if err != nil {
-		info.LastError = "GetFolder failed"
-		return info, err
-	}
-	root := rootV.ToIDispatch()
-	defer root.Release()
-
-	taskV, err := root.CallMethod("GetTask", tsTaskName)
-	if err != nil {
-		// Task doesn't exist
-		info.Exists = false
-		info.Enabled = false
-		info.IsHealthy = false
-		info.LastError = "startup task not found"
-		return info, nil
-	}
 	info.Exists = true
-	task := taskV.ToIDispatch()
-	defer task.Release()
+	info.Enabled = true
+	info.SchedulerEnabled = true
+	info.Mode = StartupNormal
 
-	// Check if enabled
-	enabledV, err := task.GetProperty("Enabled")
-	if err == nil {
-		if b, ok := enabledV.Value().(bool); ok {
-			info.Enabled = b
-			// 在健康检查修改 Enabled 之前，先记录任务计划器中的原始启用状态
-			info.SchedulerEnabled = b
+	actualExe, rawArgs, argList := parseCommandLine(val)
+	actualAbs, _ := filepath.Abs(actualExe)
+
+	info.Path = actualExe
+	info.Arguments = rawArgs
+	info.ActualPath = actualExe
+	info.ActualArgs = rawArgs
+
+	actualDataDir := ""
+	if rawDir := strings.TrimSpace(extractArgValue(argList, "--data-dir")); rawDir != "" {
+		actualDataDir = filepath.Clean(rawDir)
+	}
+	info.ActualDataDir = actualDataDir
+
+	hasStartup := false
+	hasSilent := false
+	for _, arg := range argList {
+		if arg == "--startup" {
+			hasStartup = true
+		}
+		if arg == "--silent" {
+			hasSilent = true
 		}
 	}
 
-	// Check definition
-	defV, err := task.GetProperty("Definition")
-	if err == nil {
-		def := defV.ToIDispatch()
-		defer def.Release()
+	pathMismatch := !strings.EqualFold(filepath.Clean(actualAbs), filepath.Clean(expected))
+	dataDirMismatch := actualDataDir == "" || !strings.EqualFold(actualDataDir, expectedDataDir)
+	argsMismatch := !hasStartup || !hasSilent || dataDirMismatch
 
-		// Get Principal for RunLevel
-		prinV, err := def.GetProperty("Principal")
-		if err == nil {
-			prin := prinV.ToIDispatch()
-			runLevelV, err := prin.GetProperty("RunLevel")
-			if err == nil {
-				info.RunLevel = variantInt(runLevelV.Value())
-			}
-			prin.Release()
-		}
-
-		// Get Actions
-		actionsV, err := def.GetProperty("Actions")
-		if err == nil {
-			actions := actionsV.ToIDispatch()
-			actionCountV, err := actions.GetProperty("Count")
-			if err == nil && variantInt(actionCountV.Value()) > 0 {
-				actionV, err := actions.GetProperty("Item", 1) // 1-indexed in COM collections
-				if err == nil {
-					action := actionV.ToIDispatch()
-					pathV, err := action.GetProperty("Path")
-					if err == nil {
-						info.Path = variantString(pathV.Value())
-					}
-					argsV, err := action.GetProperty("Arguments")
-					if err == nil {
-						info.Arguments = variantString(argsV.Value())
-					}
-					action.Release()
-				}
-			}
-			actions.Release()
-		}
-
-		info.Mode = StartupNormal
-
-		// Validation
-		actualPath := strings.Trim(info.Path, "\"")
-		actualPath = strings.TrimSpace(actualPath)
-		actual, _ := filepath.Abs(actualPath)
-
-		info.ActualPath = actualPath
-		info.ActualArgs = info.Arguments
-
-		expectedDataDir := filepath.Clean(utils.GetDataDir())
-		rawDataDir := strings.TrimSpace(extractArgValue(info.Arguments, "--data-dir"))
-		actualDataDir := ""
-		if rawDataDir != "" {
-			actualDataDir = filepath.Clean(rawDataDir)
-		}
-
-		hasStartup := strings.Contains(info.Arguments, "--startup")
-		hasSilent := strings.Contains(info.Arguments, "--silent")
-		hasDataDir := actualDataDir != ""
-		dataDirMismatch := !hasDataDir || !strings.EqualFold(actualDataDir, expectedDataDir)
-
-		info.ExpectedDataDir = expectedDataDir
-		info.ActualDataDir = actualDataDir
-
-		pathMismatch := !strings.EqualFold(filepath.Clean(actual), filepath.Clean(expected))
-		argsMismatch := !hasStartup || !hasSilent || dataDirMismatch
-
-		// 旧的 elevated 任务 (RunLevel=1) 视为不健康，需要修复为普通任务
-		if info.RunLevel == 1 {
-			info.LastError = "旧的管理员自启任务已不再支持，请重新设置开机自启"
-			info.Enabled = false
-		} else if pathMismatch || argsMismatch {
-			info.Enabled = false
-			info.LastError = "path mismatch or incomplete arguments"
-		}
-
-		info.Mode = StartupNormal
+	if pathMismatch || argsMismatch {
+		info.Enabled = false
+		info.LastError = "path mismatch or incomplete arguments"
+		info.IsHealthy = false
+	} else {
+		info.IsHealthy = true
+		info.LastError = ""
 	}
-
-	info.IsHealthy = info.Exists && info.Enabled && info.LastError == ""
 
 	return info, nil
 }
@@ -307,130 +228,41 @@ func CreateStartupTask(exePath string) error {
 	if _, err := os.Stat(absPath); err != nil {
 		return fmt.Errorf("可执行文件不存在: %s", absPath)
 	}
-	workDir := filepath.Dir(absPath)
 
-	cleanup, err := initCOM()
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, runRegistryKey, registry.SET_VALUE)
 	if err != nil {
-		return err
+		return fmt.Errorf("打开注册表自启动项失败: %w", err)
 	}
-	defer cleanup()
+	defer key.Close()
 
-	sched, err := newTaskScheduler()
-	if err != nil {
-		return err
+	cmd := fmt.Sprintf(`"%s" --startup --silent --data-dir "%s"`, absPath, utils.GetDataDir())
+	if err := key.SetStringValue(runValueName, cmd); err != nil {
+		return fmt.Errorf("写入注册表自启动项失败: %w", err)
 	}
-	defer sched.Release()
 
-	defV, err := sched.CallMethod("NewTask", 0)
-	if err != nil {
-		return fmt.Errorf("创建任务定义失败: %w", err)
-	}
-	def := defV.ToIDispatch()
-	defer def.Release()
-
-	settingsV, err := def.GetProperty("Settings")
-	if err != nil {
-		return fmt.Errorf("获取 Settings 失败: %w", err)
-	}
-	settings := settingsV.ToIDispatch()
-	settings.PutProperty("DisallowStartIfOnBatteries", false)
-	settings.PutProperty("StopIfGoingOnBatteries", false)
-	settings.PutProperty("AllowStartIfOnBatteries", true)
-	settings.PutProperty("ExecutionTimeLimit", "PT0S")
-	settings.Release()
-
-	actionsV, err := def.GetProperty("Actions")
-	if err != nil {
-		return fmt.Errorf("获取 Actions 失败: %w", err)
-	}
-	actions := actionsV.ToIDispatch()
-	actionV, err := actions.CallMethod("Create", tsActionExec)
-	actions.Release()
-	if err != nil {
-		return fmt.Errorf("创建 Action 失败: %w", err)
-	}
-	action := actionV.ToIDispatch()
-	action.PutProperty("Path", absPath)
-	args := fmt.Sprintf("--startup --silent --data-dir \"%s\"", utils.GetDataDir())
-	action.PutProperty("Arguments", args)
-	action.PutProperty("WorkingDirectory", workDir)
-	action.Release()
-
-	triggersV, err := def.GetProperty("Triggers")
-	if err != nil {
-		return fmt.Errorf("获取 Triggers 失败: %w", err)
-	}
-	triggers := triggersV.ToIDispatch()
-	triggerV, err := triggers.CallMethod("Create", tsTriggerLogon)
-	triggers.Release()
-	if err != nil {
-		return fmt.Errorf("创建 Trigger 失败: %w", err)
-	}
-	trigger := triggerV.ToIDispatch()
-	trigger.PutProperty("Enabled", true)
-	// 统一延迟 15 秒以避开系统启动高峰，防止 explorer.exe 未加载完成导致托盘图标空白
-	trigger.PutProperty("Delay", "PT15S")
-	trigger.Release()
-
-	principalV, err := def.GetProperty("Principal")
-	if err != nil {
-		return fmt.Errorf("获取 Principal 失败: %w", err)
-	}
-	principal := principalV.ToIDispatch()
-	principal.PutProperty("LogonType", 3) // TASK_LOGON_TOKEN
-	principal.PutProperty("RunLevel", 0)  // TASK_RUNLEVEL_LUA (normal user)
-	principal.Release()
-
-	def.PutProperty("DisplayName", tsTaskName)
-	def.PutProperty("Description", "开机自启 GoclashZ 代理客户端")
-
-	rootV, err := sched.CallMethod("GetFolder", `\`)
-	if err != nil {
-		return fmt.Errorf("获取根文件夹失败: %w", err)
-	}
-	root := rootV.ToIDispatch()
-	defer root.Release()
-
-	logonType := int32(3) // TASK_LOGON_TOKEN
-
-	_, err = root.CallMethod("RegisterTaskDefinition",
-		tsTaskName,
-		def,
-		tsCreateOrUpdate,
-		"",  // userId: current user
-		nil, // password
-		logonType,
-	)
-	if err != nil {
-		return fmt.Errorf("注册计划任务失败: %w", err)
-	}
+	// 尽力清理旧版任务计划程序残留（若无权限则忽略，不阻断主流程）
+	go deleteLegacyTaskSchedulerTask()
 
 	return nil
 }
 
-// DeleteStartupTask removes the GoclashZ startup task.
-// Returns nil if the task does not exist.
+// DeleteStartupTask removes the GoclashZ startup entry from registry Run key.
+// Returns nil if the value does not exist.
 func DeleteStartupTask() error {
-	cleanup, err := initCOM()
+	key, err := registry.OpenKey(registry.CURRENT_USER, runRegistryKey, registry.SET_VALUE)
 	if err != nil {
-		return err
+		if !errors.Is(err, registry.ErrNotExist) {
+			return fmt.Errorf("打开注册表自启动项失败: %w", err)
+		}
+	} else {
+		defer key.Close()
+		if err := key.DeleteValue(runValueName); err != nil && !errors.Is(err, registry.ErrNotExist) {
+			return fmt.Errorf("删除注册表自启动项失败: %w", err)
+		}
 	}
-	defer cleanup()
 
-	sched, err := newTaskScheduler()
-	if err != nil {
-		return err
-	}
-	defer sched.Release()
+	// 尽力清理旧版任务计划程序残留
+	go deleteLegacyTaskSchedulerTask()
 
-	rootV, err := sched.CallMethod("GetFolder", `\`)
-	if err != nil {
-		return fmt.Errorf("获取根文件夹失败: %w", err)
-	}
-	root := rootV.ToIDispatch()
-	defer root.Release()
-
-	// Ignore errors (task may not exist)
-	_, _ = root.CallMethod("DeleteTask", tsTaskName, 0)
 	return nil
 }

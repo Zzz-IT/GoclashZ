@@ -4,7 +4,7 @@
       <button class="back-btn" @click="$emit('navigate', 'main')">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
       </button>
-      <h3>关于应用</h3>
+      <h3>{{ t('settings.about.title') }}</h3>
     </div>
 
     <div class="glass-card setting-group scrollable">
@@ -41,11 +41,24 @@
       <div class="divider"></div>
       <div class="setting-item">
         <div class="info">
-          <h4>软件版本</h4>
-          <p>{{ globalState.appVersion || '获取中...' }}</p>
+          <h4>{{ t('settings.about.language') }}</h4>
+          <p>{{ t('settings.about.languageDesc') }}</p>
+        </div>
+        <ModernSelect
+          :modelValue="behavior.language || currentLocale"
+          :options="SUPPORTED_LOCALES"
+          @update:modelValue="handleLanguageChange"
+        />
+      </div>
+
+      <div class="divider"></div>
+      <div class="setting-item">
+        <div class="info">
+          <h4>{{ t('settings.about.version') }}</h4>
+          <p>{{ globalState.appVersion || t('settings.about.fetchingVersion') }}</p>
         </div>
         <button class="action-btn accent-btn" @click="handleCheckUpdate" :disabled="globalState.appUpdateChecking">
-          {{ globalState.appUpdateChecking ? '检查中...' : '检查更新' }}
+          {{ globalState.appUpdateChecking ? t('settings.about.checking') : t('settings.about.checkUpdate') }}
         </button>
       </div>
 
@@ -53,8 +66,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>自动更新</h4>
-          <p>允许软件自动检查并提示新版本。</p>
+          <h4>{{ t('settings.about.autoUpdate') }}</h4>
+          <p>{{ t('settings.about.autoUpdateDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="behavior.autoUpdate" @change="$emit('save')" />
@@ -67,13 +80,13 @@
           <div class="divider"></div>
           <div class="setting-item">
             <div class="info">
-              <h4>检查更新方式</h4>
+              <h4>{{ t('settings.about.updateMethod') }}</h4>
             </div>
             <ModernSelect
               v-model="behavior.updateMethod"
               :options="[
-                { label: '每次启动', value: 'startup' },
-                { label: '定时', value: 'scheduled' }
+                { label: t('settings.about.startup'), value: 'startup' },
+                { label: t('settings.about.scheduled'), value: 'scheduled' }
               ]"
               @change="$emit('save')"
             />
@@ -82,7 +95,7 @@
           <div class="divider"></div>
           <div class="setting-item" :class="{ 'disabled-fade': behavior.updateMethod !== 'scheduled' }">
             <div class="info">
-              <h4>检查间隔时间</h4>
+              <h4>{{ t('settings.about.updateInterval') }}</h4>
             </div>
             <div class="input-with-unit">
               <ModernNumberInput
@@ -92,7 +105,7 @@
                 :disabled="behavior.updateMethod !== 'scheduled'"
                 @change="$emit('save')"
               />
-              <span class="unit">天</span>
+              <span class="unit">{{ t('settings.about.daysUnit') }}</span>
             </div>
           </div>
         </div>
@@ -102,104 +115,83 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>本地配置备份</h4>
-          <p>将订阅、应用设置及主题打包导出为 .gocz 文件</p>
+          <h4>{{ t('settings.about.exportBackup') }}</h4>
+          <p>{{ t('settings.about.exportBackupDesc') }}</p>
         </div>
-        <button class="action-btn accent-btn" @click="handleExportBackup">导出备份</button>
+        <button class="action-btn accent-btn" @click="handleExportBackup">{{ t('settings.about.exportBtn') }}</button>
       </div>
 
       <div class="divider"></div>
 
       <div class="setting-item">
         <div class="info">
-          <h4>还原备份</h4>
-          <p>从 .gocz 文件恢复数据，订阅配置将采用智能合并模式</p>
+          <h4>{{ t('settings.about.restoreBackup') }}</h4>
+          <p>{{ t('settings.about.restoreBackupDesc') }}</p>
         </div>
-        <button class="action-btn accent-btn" @click="openRestoreModal">还原备份</button>
+        <button class="action-btn accent-btn" @click="openRestoreModal">{{ t('settings.about.restoreBtn') }}</button>
       </div>
 
       <div class="divider"></div>
 
       <div class="setting-item">
         <div class="info">
-          <h4>数据目录诊断</h4>
-          <p>查看程序目录、数据目录、内置 seed 与运行组件状态</p>
+          <h4>{{ t('settings.about.dataDirDiagnostic') }}</h4>
+          <p>{{ t('settings.about.dataDirDiagnosticDesc') }}</p>
         </div>
-        <button class="action-btn" @click="openDataDirDiagnosticModal">查看状态</button>
+        <button class="action-btn" @click="openDataDirDiagnosticModal">{{ t('settings.about.viewStatusBtn') }}</button>
       </div>
 
       <div class="divider"></div>
 
       <div class="setting-item">
         <div class="info">
-          <h4>应用诊断信息</h4>
-          <p>导出应用路径、资产及服务状态以供故障排查</p>
+          <h4>{{ t('settings.about.appDiagnosticInfo') }}</h4>
+          <p>{{ t('settings.about.appDiagnosticDesc') }}</p>
         </div>
-        <button class="action-btn accent-btn" @click="handleExportDiagnostics">导出诊断</button>
+        <button class="action-btn accent-btn" @click="handleExportDiagnostics">{{ t('settings.about.diagnosticsExport') }}</button>
       </div>
 
       <div class="divider"></div>
 
       <div class="setting-item">
         <div class="info">
-          <h4>GitHub 仓库</h4>
+          <h4>{{ t('settings.about.githubRepo') }}</h4>
           <a href="javascript:void(0)" @click="openLink('https://github.com/Zzz-IT/GoclashZ')" class="link-item">https://github.com/Zzz-IT/GoclashZ</a>
         </div>
       </div>
     </div>
 
-    <!-- 还原备份弹窗 (复用订阅管理的卡片样式) -->
+    <!-- 还原备份弹窗 -->
     <Transition name="pop">
       <div v-if="showRestoreModal" class="modal-overlay" @click.self="showRestoreModal = false">
         <div class="custom-modal-card" @click.stop>
           <div class="modal-header">
-            <h3>还原本地数据</h3>
+            <h3>{{ t('settings.about.restoreTitle') }}</h3>
           </div>
           <div class="modal-body">
-            <p class="global-modal-msg">请选择备份文件并设置还原模式：</p>
+            <p class="global-modal-msg">{{ t('settings.about.restorePrompt') }}</p>
 
             <div class="restore-actions" style="width: 100%; display: flex; flex-direction: column; gap: 4px;">
               <button class="action-btn w-full-btn hover-accent" @click="handleSelectFile" :class="{'active-border': selectedPath}" style="width: 100%; box-sizing: border-box;">
                 <span class="btn-icon" v-html="ICONS.folder" style="margin-right: 4px;"></span>
                 <span class="truncate" style="flex: 1; text-align: center;">
-                  {{ selectedPath ? '已选择: ' + selectedPath.split('\\').pop() : '浏览备份文件 (.gocz)' }}
+                  {{ selectedPath ? t('settings.about.selectedFile', { name: selectedPath.split('\\').pop() || '' }) : t('settings.about.browseBackupFile') }}
                 </span>
               </button>
 
-              <div class="divider-text" style="margin: 12px 0">配置还原模式</div>
+              <div class="divider-text" style="margin: 12px 0">{{ t('settings.about.restoreModeTitle') }}</div>
 
               <div class="mode-selector-group" style="width: 100%;">
                 <ModernSelect
                   v-model="restoreMode"
-                  :options="[
-                    {
-                      label: '全部恢复（替换设置与订阅）',
-                      value: 'all',
-                      description: '完整还原软件设置、订阅列表及主配置，当前数据将被完全覆盖。'
-                    },
-                    {
-                      label: '恢复订阅配置（替换现有列表）',
-                      value: 'subs',
-                      description: '用备份中的订阅列表替换当前列表，当前多余订阅将被移除。'
-                    },
-                    {
-                      label: '恢复订阅配置（合并入现有列表）',
-                      value: 'subs-merge',
-                      description: '保留当前订阅，并将备份中的新订阅合并进来。同 ID 项将被覆盖。'
-                    },
-                    {
-                      label: '恢复软件设置（包含主题/日志）',
-                      value: 'settings',
-                      description: '仅还原应用行为、DNS、网络及主题设置，不影响订阅列表。'
-                    }
-                  ]"
+                  :options="restoreModeOptions"
                 />
               </div>
             </div>
 
             <div class="modal-footer">
-              <button class="action-btn flex-1" @click="showRestoreModal = false">取消</button>
-              <button class="primary-btn accent-btn flex-1" :disabled="!selectedPath" @click="confirmRestore">执行还原</button>
+              <button class="action-btn flex-1" @click="showRestoreModal = false">{{ t('common.cancel') }}</button>
+              <button class="primary-btn accent-btn flex-1" :disabled="!selectedPath" @click="confirmRestore">{{ t('settings.about.executeRestore') }}</button>
             </div>
           </div>
         </div>
@@ -210,63 +202,63 @@
       <div v-if="showDataDirDiagnosticModal" class="modal-overlay" @click.self="showDataDirDiagnosticModal = false">
         <div class="custom-modal-card" @click.stop style="max-width: 500px;">
           <div class="modal-header">
-            <h3>数据目录诊断</h3>
+            <h3>{{ t('settings.about.diagnosticsTitle') }}</h3>
           </div>
           <div class="modal-body">
             <div v-if="dataDirInfo" class="diagnostic-results" style="max-height: 400px; overflow-y: auto;">
               <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
                 <div class="info">
-                  <h4>程序目录</h4>
+                  <h4>{{ t('settings.about.diagnosticsAppDir') }}</h4>
                   <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.appDir }}</p>
                 </div>
               </div>
               <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
                 <div class="info">
-                  <h4>数据目录</h4>
+                  <h4>{{ t('settings.about.diagnosticsDataDir') }}</h4>
                   <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.dataDir }}</p>
                 </div>
               </div>
               <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
                 <div class="info">
-                  <h4>内置种子目录</h4>
+                  <h4>{{ t('settings.about.diagnosticsSeedDir') }}</h4>
                   <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.seedCoreBinDir }}</p>
-                  <p v-if="dataDirInfo.seedManifestExists" style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">seed 清单: 存在</p>
-                  <p v-else style="color: var(--red-text); font-size: 0.8rem; margin-top: 4px;">seed 清单: 缺失</p>
+                  <p v-if="dataDirInfo.seedManifestExists" style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">{{ t('settings.about.seedManifestLabel', { status: t('settings.about.diagnosticsReady') }) }}</p>
+                  <p v-else style="color: var(--red-text); font-size: 0.8rem; margin-top: 4px;">{{ t('settings.about.seedManifestLabel', { status: t('settings.about.diagnosticsMissing') }) }}</p>
                 </div>
               </div>
               <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
                 <div class="info">
-                  <h4>运行组件目录</h4>
+                  <h4>{{ t('settings.about.diagnosticsCoreDir') }}</h4>
                   <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.coreBinDir }}</p>
-                  <p v-if="dataDirInfo.layoutOK" style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">布局: 正常</p>
-                  <p v-else style="color: var(--accent); font-size: 0.8rem; margin-top: 4px;">布局: 异常，将在下次启动时自动修复</p>
+                  <p v-if="dataDirInfo.layoutOK" style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">{{ t('settings.about.layoutNormal') }}</p>
+                  <p v-else style="color: var(--accent); font-size: 0.8rem; margin-top: 4px;">{{ t('settings.about.layoutAbnormal') }}</p>
                 </div>
               </div>
               <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
                 <div class="info">
-                  <h4>组件状态</h4>
+                  <h4>{{ t('settings.about.diagnosticsCompStatus') }}</h4>
                   <p :style="{ color: dataDirInfo.coreReady ? 'var(--green-text)' : 'var(--red-text)', fontWeight: 600 }">
-                    Mihomo: {{ dataDirInfo.coreReady ? '就绪' : (dataDirInfo.coreExists ? '损坏' : '缺失') }}
+                    Mihomo: {{ dataDirInfo.coreReady ? t('settings.about.diagnosticsReady') : (dataDirInfo.coreExists ? t('settings.about.diagnosticsCorrupted') : t('settings.about.diagnosticsMissing')) }}
                   </p>
                   <p :style="{ color: dataDirInfo.wintunReady ? 'var(--green-text)' : 'var(--accent)', fontWeight: 600 }">
-                    Wintun: {{ dataDirInfo.wintunReady ? '就绪' : (dataDirInfo.wintunExists ? '损坏' : '缺失') }}
+                    Wintun: {{ dataDirInfo.wintunReady ? t('settings.about.diagnosticsReady') : (dataDirInfo.wintunExists ? t('settings.about.diagnosticsCorrupted') : t('settings.about.diagnosticsMissing')) }}
                   </p>
                 </div>
               </div>
               <div class="setting-item" style="padding: 6px 0; align-items: flex-start; border-bottom: none;">
                 <div class="info">
-                  <h4>旧版目录</h4>
-                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.legacyDataDir || '无' }}</p>
-                  <p v-if="dataDirInfo.legacyExists" style="color: var(--accent); font-size: 0.8rem; margin-top: 4px;">仍存在，将在启动时自动迁移</p>
-                  <p v-else style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">不存在或已清理</p>
+                  <h4>{{ t('settings.about.diagnosticsLegacyDir') }}</h4>
+                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.legacyDataDir || t('common.empty') }}</p>
+                  <p v-if="dataDirInfo.legacyExists" style="color: var(--accent); font-size: 0.8rem; margin-top: 4px;">{{ t('settings.about.legacyExists') }}</p>
+                  <p v-else style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">{{ t('settings.about.legacyCleaned') }}</p>
                 </div>
               </div>
             </div>
 
             <div class="modal-footer" style="margin-top: 16px;">
-              <button class="action-btn flex-1" @click="openDataDirDiagnosticModal">重新检测</button>
-              <button class="action-btn flex-1" @click="handleExportDiagnostics">导出诊断</button>
-              <button class="primary-btn accent-btn flex-1" @click="showDataDirDiagnosticModal = false">完成</button>
+              <button class="action-btn flex-1" @click="openDataDirDiagnosticModal">{{ t('settings.about.diagnosticsRerun') }}</button>
+              <button class="action-btn flex-1" @click="handleExportDiagnostics">{{ t('settings.about.diagnosticsExport') }}</button>
+              <button class="primary-btn accent-btn flex-1" @click="showDataDirDiagnosticModal = false">{{ t('settings.about.diagnosticsDone') }}</button>
             </div>
           </div>
         </div>
@@ -285,18 +277,49 @@ import { ICONS } from '../utils/icons';
 import appLogo from '../assets/logo.ico';
 import ModernNumberInput from './ModernNumberInput.vue';
 import ModernSelect from './ModernSelect.vue';
+import { t, currentLocale, setLocale, SUPPORTED_LOCALES, SupportedLocale } from '../locales';
 
-defineProps<{ behavior: Record<string, any> }>();
-defineEmits<{
+const props = defineProps<{ behavior: Record<string, any> }>();
+const emit = defineEmits<{
   navigate: [view: 'main'];
   save: [];
 }>();
+
+const handleLanguageChange = (val: any) => {
+  const lang = String(val) as SupportedLocale;
+  props.behavior.language = lang;
+  setLocale(lang);
+  emit('save');
+};
 
 const showRestoreModal = ref(false);
 const selectedPath = ref("");
 const restoreMode = ref("all");
 const showDataDirDiagnosticModal = ref(false);
 const dataDirInfo = ref<any>(null);
+
+const restoreModeOptions = computed(() => [
+  {
+    label: t('settings.about.restoreModeAll'),
+    value: 'all',
+    description: t('settings.about.restoreModeAllDesc')
+  },
+  {
+    label: t('settings.about.restoreModeSubs'),
+    value: 'subs',
+    description: t('settings.about.restoreModeSubsDesc')
+  },
+  {
+    label: t('settings.about.restoreModeSubsMerge'),
+    value: 'subs-merge',
+    description: t('settings.about.restoreModeSubsMergeDesc')
+  },
+  {
+    label: t('settings.about.restoreModeSettings'),
+    value: 'settings',
+    description: t('settings.about.restoreModeSettingsDesc')
+  }
+]);
 
 const openLink = (url: string) => {
   BrowserOpenURL(url);
@@ -317,22 +340,20 @@ const promptInstallApp = async (progress: any) => {
   const fullPath = progress.path || "";
 
   const ok = await showConfirm(
-      `GoclashZ ${version} 已下载完成。\n\n` +
-      `是否现在关闭程序并启动安装程序？\n\n` +
-      `安装完成后会自动清理临时安装包。`,
-      "新版本已下载完成",
+      t('settings.about.installAppConfirmMsg', { version }),
+      t('settings.about.installAppConfirmTitle'),
       false
   );
 
   if (ok) {
       if (!fullPath) {
-        await showAlert("安装包路径为空，请重新下载更新。", "错误", true);
+        await showAlert(t('settings.about.installAppPathEmpty'), t('common.error'), true);
         return;
       }
       try {
         await (API as any).ApplyAppUpdate(fullPath);
       } catch (e: any) {
-        await showAlert(String(e?.message || e || "未知错误"), "启动安装程序失败", true);
+        await showAlert(String(e?.message || e || t('common.error')), t('common.error'), true);
       }
   }
 };

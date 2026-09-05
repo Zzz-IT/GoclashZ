@@ -4,17 +4,17 @@
       <button class="back-btn" @click="$emit('navigate', 'main')">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
       </button>
-      <h3>应用行为设置</h3>
+      <h3>{{ t('settings.behavior.title') }}</h3>
       <button class="action-btn accent-btn mini-btn-reset" @click="$emit('reset', 'behavior')">
-        <span class="btn-icon" v-html="ICONS.refresh"></span> 重置
+        <span class="btn-icon" v-html="ICONS.refresh"></span> {{ t('settings.behavior.resetBtn') }}
       </button>
     </div>
 
     <div class="glass-card setting-group scrollable">
       <div class="setting-item">
         <div class="info">
-          <h4>静默启动</h4>
-          <p>启动时直接进入系统托盘，不自动显示主界面。</p>
+          <h4>{{ t('settings.behavior.silentStart') }}</h4>
+          <p>{{ t('settings.behavior.silentStartDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="behavior.silentStart" @change="$emit('save')">
@@ -25,8 +25,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>关闭面板时隐藏到托盘</h4>
-          <p>点击右上角关闭按钮时，程序将继续在后台运行。</p>
+          <h4>{{ t('settings.behavior.closeToTray') }}</h4>
+          <p>{{ t('settings.behavior.closeToTrayDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="behavior.closeToTray" @change="$emit('save')">
@@ -37,8 +37,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>仅端口代理</h4>
-          <p>开启后，系统代理按钮变为"端口代理"，点击时仅启动内核监听代理端口，不修改系统全局代理设置。浏览器可手动配置本地代理地址使用。</p>
+          <h4>{{ t('settings.behavior.portProxyMode') }}</h4>
+          <p>{{ t('settings.behavior.portProxyModeDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="behavior.portProxyMode" @change="$emit('save')">
@@ -49,8 +49,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>开机自启</h4>
-          <p>登录 Windows 时自动启动 GoclashZ。</p>
+          <h4>{{ t('settings.behavior.startupWithOS') }}</h4>
+          <p>{{ t('settings.behavior.startupWithOSDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="behavior.startupWithOS" @change="$emit('startup-change')">
@@ -58,15 +58,15 @@
         </label>
       </div>
 
-      <!-- 👇 新增：自启模式（当开机自启开启时才显示，附带动画） -->
+      <!-- 自启模式 -->
       <Transition name="dropdown">
         <div v-if="behavior.startupWithOS" class="delay-retention-sub-items">
           <div class="divider"></div>
 
           <div class="setting-item">
             <div class="info">
-              <h4>启动后恢复代理状态</h4>
-              <p>开机自启后，自动恢复退出前启用的系统代理或 TUN 模式。</p>
+              <h4>{{ t('settings.behavior.restoreOnStartup') }}</h4>
+              <p>{{ t('settings.behavior.restoreOnStartupDesc') }}</p>
             </div>
             <label class="modern-switch">
               <input type="checkbox" v-model="behavior.restoreOnStartup" @change="$emit('save')">
@@ -80,8 +80,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>自动延迟测速</h4>
-          <p>启用后，将按设定的时间间隔在后台自动更新节点延迟。</p>
+          <h4>{{ t('settings.behavior.autoDelayTest') }}</h4>
+          <p>{{ t('settings.behavior.autoDelayTestDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="behavior.autoDelayTest" @change="$emit('save')">
@@ -94,7 +94,7 @@
           <div class="divider"></div>
           <div class="setting-item">
             <div class="info">
-              <h4>测速间隔</h4>
+              <h4>{{ t('settings.behavior.autoDelayInterval') }}</h4>
             </div>
             <div class="input-with-unit">
               <ModernNumberInput
@@ -112,8 +112,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>显色彩色延迟数字</h4>
-          <p>启用后，节点延迟将以绿黄红三色显示，替代默认的黑白深浅风格。</p>
+          <h4>{{ t('settings.behavior.colorDelay') }}</h4>
+          <p>{{ t('settings.behavior.colorDelayDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="behavior.colorDelay" @change="$emit('save')">
@@ -124,8 +124,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>延迟结果保留</h4>
-          <p>开启后将缓存测速结果，可选择定时清空或长时间保留。</p>
+          <h4>{{ t('settings.behavior.delayRetention') }}</h4>
+          <p>{{ t('settings.behavior.delayRetentionDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="behavior.delayRetention" @change="$emit('save')">
@@ -138,16 +138,11 @@
           <div class="divider"></div>
           <div class="setting-item">
             <div class="info">
-              <h4>保留时间</h4>
+              <h4>{{ t('settings.behavior.delayRetentionTime') }}</h4>
             </div>
             <ModernSelect
               v-model="behavior.delayRetentionTime"
-              :options="[
-                { label: '5 秒', value: '5' },
-                { label: '10 秒', value: '10' },
-                { label: '30 秒', value: '30' },
-                { label: '长时间', value: 'long' }
-              ]"
+              :options="delayRetentionOptions"
               @change="$emit('save')"
             />
           </div>
@@ -157,8 +152,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>内核日志等级</h4>
-          <p>调整核心输出的日志详细程度。如遇到问题无法排查，可改为调试。</p>
+          <h4>{{ t('settings.behavior.logLevel') }}</h4>
+          <p>{{ t('settings.behavior.logLevelDesc') }}</p>
         </div>
         <ModernSelect
           v-model="behavior.logLevel"
@@ -170,8 +165,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>软件日志等级</h4>
-          <p>调整主程序本身的日志输出等级。此设置即时生效，对实时日志页面起过滤作用。</p>
+          <h4>{{ t('settings.behavior.appLogLevel') }}</h4>
+          <p>{{ t('settings.behavior.appLogLevelDesc') }}</p>
         </div>
         <ModernSelect
           v-model="behavior.appLogLevel"
@@ -183,8 +178,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>隐藏日志入口</h4>
-          <p>隐藏侧边栏中的日志页面入口；后台仍会保留最近日志用于故障诊断。</p>
+          <h4>{{ t('settings.behavior.hideLogs') }}</h4>
+          <p>{{ t('settings.behavior.hideLogsDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="behavior.hideLogs" @change="$emit('save')">
@@ -196,8 +191,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>仅统计代理流量</h4>
-          <p>开启后仪表盘流量图将只计算经由代理节点的流量，排除直连 (DIRECT) 流量。</p>
+          <h4>{{ t('settings.behavior.proxyTrafficOnly') }}</h4>
+          <p>{{ t('settings.behavior.proxyTrafficOnlyDesc') }}</p>
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="behavior.proxyTrafficOnly" @change="$emit('save')">
@@ -209,8 +204,8 @@
 
       <div class="setting-item">
         <div class="info">
-          <h4>订阅更新 User-Agent</h4>
-          <p>自定义下载或更新订阅配置时的请求头，留空使用默认值。</p>
+          <h4>{{ t('settings.behavior.subUA') }}</h4>
+          <p>{{ t('settings.behavior.subUADesc') }}</p>
         </div>
         <input
           type="text"
@@ -218,7 +213,7 @@
           style="width: 200px; text-align: center;"
           v-model="behavior.subUA"
           @blur="$emit('save')"
-          placeholder="默认 UA"
+          :placeholder="t('settings.behavior.subUAPlaceholder')"
         />
       </div>
     </div>
@@ -226,11 +221,12 @@
 </template>
 
 <script setup lang="ts">
-import { watch } from 'vue';
+import { computed, watch } from 'vue';
 import { showAlert } from '../store';
 import { ICONS } from '../utils/icons';
 import ModernSelect from './ModernSelect.vue';
 import ModernNumberInput from './ModernNumberInput.vue';
+import { t } from '../locales';
 
 const props = defineProps<{
   behavior: Record<string, any>;
@@ -239,20 +235,27 @@ const props = defineProps<{
 
 const emit = defineEmits(['navigate', 'reset', 'save', 'startup-change']);
 
-const logLevelOptions = [
-  { label: '调试', value: 'debug' },
-  { label: '信息', value: 'info' },
-  { label: '警告', value: 'warn' },
-  { label: '错误', value: 'error' },
-  { label: '静默', value: 'silent' }
-];
+const delayRetentionOptions = computed(() => [
+  { label: t('settings.behavior.sec5'), value: '5' },
+  { label: t('settings.behavior.sec10'), value: '10' },
+  { label: t('settings.behavior.sec30'), value: '30' },
+  { label: t('settings.behavior.timeLong'), value: 'long' }
+]);
 
-const appLogLevelOptions = [
-  { label: '调试', value: 'debug' },
-  { label: '信息', value: 'info' },
-  { label: '警告', value: 'warn' },
-  { label: '错误', value: 'error' }
-];
+const logLevelOptions = computed(() => [
+  { label: t('settings.behavior.logDebug'), value: 'debug' },
+  { label: t('settings.behavior.logInfo'), value: 'info' },
+  { label: t('settings.behavior.logWarn'), value: 'warn' },
+  { label: t('settings.behavior.logError'), value: 'error' },
+  { label: t('settings.behavior.logSilent'), value: 'silent' }
+]);
+
+const appLogLevelOptions = computed(() => [
+  { label: t('settings.behavior.logDebug'), value: 'debug' },
+  { label: t('settings.behavior.logInfo'), value: 'info' },
+  { label: t('settings.behavior.logWarn'), value: 'warn' },
+  { label: t('settings.behavior.logError'), value: 'error' }
+]);
 
 // 🚀 核心：监听更新间隔时间，防止用户输入 0 或负数
 watch(() => props.behavior.updateInterval, async (newVal) => {
@@ -260,9 +263,8 @@ watch(() => props.behavior.updateInterval, async (newVal) => {
     props.behavior.updateInterval = 1;
 
     // 👇 修复：只有在用户实际启用了定时更新的情况下，才弹出警告。
-    // 如果是旧版本配置缺失导致的 0，则静默修复并保存，不打扰用户。
     if (props.behavior.autoUpdate && props.behavior.updateMethod === 'scheduled') {
-      await showAlert("检查更新间隔不能小于 1 天。", "配置提示");
+      await showAlert(t('settings.behavior.intervalWarning'), t('settings.behavior.intervalNoticeTitle'));
     }
 
     emit('save');

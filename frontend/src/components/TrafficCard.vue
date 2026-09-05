@@ -2,7 +2,7 @@
   <section class="traffic-card">
     <div class="traffic-head">
       <div class="title-wrap">
-        <h3>网络流量</h3>
+        <h3>{{ t('traffic.title') }}</h3>
       </div>
 
       <div
@@ -10,19 +10,19 @@
         :title="outboundIPTitle"
         @click="refreshOutboundIPRouteAware('manual')"
       >
-        <span class="ip-label">当前出站IP</span>
+        <span class="ip-label">{{ t('traffic.currentOutboundIP') }}</span>
         <span
           class="ip-value"
-          :class="{ detecting: !outboundIPText || outboundIPText === '检测失败' }"
+          :class="{ detecting: !outboundIPText || outboundIPText === t('traffic.failed') }"
           :aria-label="outboundIPText"
         >
           {{ outboundIPText }}
         </span>
-        <span v-if="globalState.ipDetecting && outboundIPHasValue" class="ip-refreshing">刷新中</span>
+        <span v-if="globalState.ipDetecting && outboundIPHasValue" class="ip-refreshing">{{ t('traffic.refreshing') }}</span>
       </div>
 
       <button class="reset-btn" @click="handleReset">
-        重置
+        {{ t('traffic.resetBtn') }}
       </button>
     </div>
 
@@ -30,7 +30,7 @@
       <!-- 上传 -->
       <div class="wave-col">
         <div class="wave-label-row">
-          <span class="speed-label">上传速度</span>
+          <span class="speed-label">{{ t('traffic.uploadSpeed') }}</span>
           <strong class="speed-val">{{ traffic.up }}</strong>
         </div>
         <div class="wave-box">
@@ -38,13 +38,13 @@
             <path class="wave-area" :d="uploadAreaPath" />
           </svg>
         </div>
-        <span class="total-label">累计 {{ traffic.uploadTotal || '0 B' }}</span>
+        <span class="total-label">{{ t('traffic.totalUsed', { val: traffic.uploadTotal || '0 B' }) }}</span>
       </div>
 
       <!-- 下载 -->
       <div class="wave-col">
         <div class="wave-label-row">
-          <span class="speed-label">下载速度</span>
+          <span class="speed-label">{{ t('traffic.downloadSpeed') }}</span>
           <strong class="speed-val">{{ traffic.down }}</strong>
         </div>
         <div class="wave-box">
@@ -52,7 +52,7 @@
             <path class="wave-area" :d="downloadAreaPath" />
           </svg>
         </div>
-        <span class="total-label">累计 {{ traffic.downloadTotal || '0 B' }}</span>
+        <span class="total-label">{{ t('traffic.totalUsed', { val: traffic.downloadTotal || '0 B' }) }}</span>
       </div>
     </div>
   </section>
@@ -61,7 +61,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { globalState, refreshOutboundIPRouteAware } from '../store';
+import { globalState, refreshOutboundIPRouteAware, showAlert, showConfirm } from '../store';
+import { t } from '../locales';
 import {
   waveState,
   resetWaveState,
@@ -91,11 +92,11 @@ const outboundIPText = computed(() => {
   const r = globalState.outboundIP;
 
   if (!r) {
-    return globalState.ipDetecting ? '检测中' : '未检测';
+    return globalState.ipDetecting ? t('traffic.detecting') : t('traffic.undetected');
   }
 
   if (!r.preferred) {
-    return globalState.ipDetecting ? '检测中' : '检测失败';
+    return globalState.ipDetecting ? t('traffic.detecting') : t('traffic.failed');
   }
 
   return r.preferred;
@@ -108,23 +109,23 @@ const outboundIPTitle = computed(() => {
 
   const modeText =
     r.mode === 'proxy'
-      ? '代理检测'
+      ? t('traffic.modeProxy')
       : r.mode === 'tun-route'
-        ? 'TUN 路由检测'
-        : '直连检测';
+        ? t('traffic.modeTun')
+        : t('traffic.modeDirect');
 
   const lines = [
-    `模式：${modeText}`,
-    `IPv6：${r.ipv6 || '不可用'}`,
-    `IPv4：${r.ipv4 || '不可用'}`,
+    `${t('traffic.modeLabel')}: ${modeText}`,
+    `IPv6: ${r.ipv6 || t('traffic.unavailable')}`,
+    `IPv4: ${r.ipv4 || t('traffic.unavailable')}`,
   ];
 
   if (r.source) {
-    lines.push(`来源：${r.source}`);
+    lines.push(`Source: ${r.source}`);
   }
 
   if (r.message && !r.preferred) {
-    lines.push(`状态：${r.message}`);
+    lines.push(`Status: ${r.message}`);
   }
 
   return lines.join('\n');
@@ -139,8 +140,11 @@ const downloadAreaPath = computed(() =>
 );
 
 const handleReset = async () => {
+  const ok = await showConfirm(t('traffic.resetConfirmMsg'), t('traffic.resetConfirmTitle'));
+  if (!ok) return;
   await (API as any).ResetTrafficTotals();
   resetWaveState();
+  showAlert(t('traffic.resetSuccess'), t('common.success'));
 };
 </script>
 
@@ -194,82 +198,53 @@ const handleReset = async () => {
   font-size: 0.85rem;
   font-weight: 700;
   color: var(--text-main);
-  opacity: 1;
   white-space: nowrap;
 }
 
 .ip-value {
   font-family: var(--font-mono);
-  font-size: 0.95rem;
-  font-weight: 700;
+  font-size: 0.85rem;
   color: var(--text-main);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  max-width: 360px;
-  overflow: visible;
-  display: inline-block;
-  vertical-align: bottom;
-  font-synthesis-weight: none;
-  text-rendering: geometricPrecision;
 }
 
 .ip-value.detecting {
-  font-family: var(--font-sans);
   color: var(--text-muted);
-  font-weight: 600;
+  animation: pulse 1.5s infinite;
 }
 
 .ip-refreshing {
-  font-family: var(--font-sans);
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-left: 4px;
-  font-synthesis-weight: none;
-}
-
-@media (max-width: 700px) {
-  .traffic-head {
-    grid-template-columns: minmax(0, 1fr) auto;
-    row-gap: 8px;
-  }
-
-  .outbound-ip {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    justify-self: stretch;
-    justify-content: center;
-  }
-
-  .ip-value {
-    max-width: none;
-    white-space: normal;
-    overflow-wrap: anywhere;
-    text-align: center;
-  }
+  font-size: 0.7rem;
+  color: var(--accent);
+  margin-left: 2px;
+  white-space: nowrap;
 }
 
 .reset-btn {
-  border: none;
-  background: var(--text-main);
-  color: var(--accent-fg);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: 0.2s ease;
   justify-self: end;
+  background: var(--surface-hover);
+  border: none;
+  color: var(--text-sub);
+  font-size: 0.8rem;
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
 }
 
 .reset-btn:hover {
-  opacity: 0.85;
+  background: var(--text-main);
+  color: var(--accent-fg);
 }
 
 .wave-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 24px;
 }
 
 .wave-col {
@@ -280,30 +255,28 @@ const handleReset = async () => {
 
 .wave-label-row {
   display: flex;
-  align-items: baseline;
   justify-content: space-between;
+  align-items: baseline;
 }
 
 .speed-label {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--text-main);
-  letter-spacing: 0.05em;
+  font-size: 0.8rem;
+  color: var(--text-sub);
 }
 
 .speed-val {
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 1.1rem;
   font-weight: 700;
   color: var(--text-main);
-  font-variant-numeric: tabular-nums;
 }
 
 .wave-box {
-  height: 128px;
-  overflow: hidden;
-  border-radius: 10px;
+  width: 100%;
+  height: 52px;
   background: var(--surface-panel);
+  border-radius: 10px;
+  overflow: hidden;
 }
 
 .wave-svg {
@@ -313,15 +286,18 @@ const handleReset = async () => {
 }
 
 .wave-area {
-  opacity: 1;
   fill: var(--text-main);
+  opacity: 0.08;
 }
 
 .total-label {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--text-main);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  color: var(--text-sub);
+  margin-top: 2px;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
 }
 </style>

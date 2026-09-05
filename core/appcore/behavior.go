@@ -51,6 +51,9 @@ type AppBehavior struct {
 	LongConnectionProtection bool `json:"longConnectionProtection"`
 	DeferRestartWhenActive   bool `json:"deferRestartWhenActive"`
 	LongConnectionMinSeconds int  `json:"longConnectionMinSeconds"`
+
+	// 👇 新增：界面语言 ("zh-CN", "zh-TW", "en-US")
+	Language string `json:"language"`
 }
 
 type BehaviorStore struct {
@@ -181,6 +184,13 @@ func normalizeBehavior(b AppBehavior) AppBehavior {
 		b.LongConnectionMinSeconds = 60
 	}
 
+	switch b.Language {
+	case "zh-CN", "zh-TW", "zh-HK", "en-US", "ja-JP", "ru-RU", "fr-FR", "de-DE":
+		// valid
+	default:
+		b.Language = "zh-CN"
+	}
+
 	return b
 }
 
@@ -219,5 +229,7 @@ func (s *BehaviorStore) Default() AppBehavior {
 		LongConnectionProtection: true,
 		DeferRestartWhenActive:   true,
 		LongConnectionMinSeconds: 60,
+
+		Language: "zh-CN",
 	}
 }

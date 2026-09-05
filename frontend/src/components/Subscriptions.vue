@@ -2,9 +2,9 @@
   <div class="subs-view" @click="activeMenu = null">
     <div class="page-header page-sticky-mask">
       <div class="header-text">
-        <h2 class="main-title">本地配置库</h2>
+        <h2 class="main-title">{{ t('subs.title') }}</h2>
         <span class="sub-text">
-          {{ isSortingMode ? '排序模式：点击卡片左侧箭头上下移动' : '点击卡片应用该配置' }}
+          {{ isSortingMode ? t('subs.sortModeHint') : t('subs.defaultHint') }}
         </span>
       </div>
       
@@ -15,14 +15,14 @@
           @click.stop="toggleSortMode"
         >
           <span class="btn-icon" v-html="ICONS.sort"></span> 
-          {{ isSortingMode ? '完成' : '排序' }}
+          {{ isSortingMode ? t('subs.doneBtn') : t('subs.sortBtn') }}
         </button>
         <button class="primary-btn header-action-btn" @click.stop="activeModal = 'import'">
-          <span class="btn-icon" v-html="ICONS.plus"></span> 导入配置
+          <span class="btn-icon" v-html="ICONS.plus"></span> {{ t('subs.importBtn') }}
         </button>
         <button class="primary-btn header-action-btn" @click="handleUpdateAll" :disabled="isUpdating">
           <span class="btn-icon" v-html="ICONS.refresh" :class="{ 'spin': isUpdating }"></span>
-          {{ isUpdating ? '更新中...' : '更新全部' }}
+          {{ isUpdating ? t('subs.updating') : t('subs.updateAllBtn') }}
         </button>
       </div>
     </div>
@@ -30,7 +30,7 @@
     <!-- 列表过渡动画 -->
     <TransitionGroup name="list" tag="div" class="subs-list">
       <div v-if="localConfigs.length === 0" class="empty-state" key="empty">
-        暂无本地配置文件。
+        {{ t('subs.emptyState') }}
       </div>
 
       <div
@@ -54,7 +54,7 @@
           <div class="sub-status">
             <div v-if="isCurrentConfig(config.id)" class="status-badge-active">
               <div class="breathe-dot"></div>
-              <span>正在使用</span>
+              <span>{{ t('subs.inUse') }}</span>
             </div>
           </div>
         </div>
@@ -64,27 +64,27 @@
             <div class="traffic-fill" :style="{ width: Math.min(100, ((config.upload + config.download) / config.total) * 100) + '%' }"></div>
           </div>
           <div class="traffic-text">
-            <span>已用 {{ formatBytes(config.upload + config.download) }}</span>
-            <span>总计 {{ formatBytes(config.total) }}</span>
+            <span>{{ t('subs.used') }} {{ formatBytes(config.upload + config.download) }}</span>
+            <span>{{ t('subs.total') }} {{ formatBytes(config.total) }}</span>
           </div>
           <div v-if="config.expire > 0" class="expire-text">
-            到期时间: {{ formatDate(config.expire) }}
+            {{ t('subs.expireDate', { date: formatDate(config.expire) }) }}
           </div>
         </div>
 
         <div class="sub-footer" v-show="!isSortingMode">
-          <span class="sub-hint">点击应用此配置</span>
+          <span class="sub-hint">{{ t('subs.clickToApply') }}</span>
           <div class="sub-actions">
             <button class="icon-btn" @click.stop="toggleMenu(config.id)" v-html="ICONS.more"></button>
             <div v-if="activeMenu === config.id" class="menu-click-overlay" @click.stop="activeMenu = null"></div>
             <Transition name="dropdown">
               <div v-if="activeMenu === config.id" class="dropdown-menu card-panel">
-                <button v-if="config.type === 'remote'" class="menu-item" @click.stop="handleUpdateSingle(config)">更新订阅</button>
-                <button class="menu-item" @click.stop="openRenameModal(config)">重命名</button>
-                <button class="menu-item" @click.stop="handleEditFile(config)">编辑配置</button>
-                <button v-if="config.type === 'remote' && config.url" class="menu-item" @click.stop="handleShareLink(config)">分享链接</button>
-                <button class="menu-item" @click.stop="handleExport(config)">导出文件</button>
-                <button class="menu-item danger" @click.stop="openDeleteModal(config)">彻底删除</button>
+                <button v-if="config.type === 'remote'" class="menu-item" @click.stop="handleUpdateSingle(config)">{{ t('subs.menuUpdate') }}</button>
+                <button class="menu-item" @click.stop="openRenameModal(config)">{{ t('subs.menuRename') }}</button>
+                <button class="menu-item" @click.stop="handleEditFile(config)">{{ t('subs.menuEdit') }}</button>
+                <button v-if="config.type === 'remote' && config.url" class="menu-item" @click.stop="handleShareLink(config)">{{ t('subs.menuShare') }}</button>
+                <button class="menu-item" @click.stop="handleExport(config)">{{ t('subs.menuExport') }}</button>
+                <button class="menu-item danger" @click.stop="openDeleteModal(config)">{{ t('subs.menuDelete') }}</button>
               </div>
             </Transition>
           </div>
@@ -92,23 +92,23 @@
       </div>
     </TransitionGroup>
 
-    <!-- 统一模态框系统 (回归上上次样式的简洁结构) -->
+    <!-- 统一模态框系统 -->
     <Transition name="pop">
       <div v-if="activeModal" class="modal-overlay" @click="closeAllModals">
         <!-- 导入主入口弹窗 -->
         <div v-if="activeModal === 'import'" class="custom-modal-card" @click.stop>
           <div class="modal-header">
-            <h3>导入配置文件</h3>
+            <h3>{{ t('subs.importModalTitle') }}</h3>
           </div>
           <div class="modal-body">
-            <p class="global-modal-msg">通过订阅链接导入：</p>
+            <p class="global-modal-msg">{{ t('subs.importUrlLabel') }}</p>
             <div style="display: flex; gap: 8px;">
-              <input v-model="newSubUrl" placeholder="https://..." class="modal-input" style="flex: 1;" :disabled="isImporting" />
-              <button class="primary-btn mini-btn" style="height: 44px;" @click="handleDownload" :disabled="!newSubUrl.trim() || isImporting">导入</button>
+              <input v-model="newSubUrl" :placeholder="t('subs.urlPlaceholder')" class="modal-input" style="flex: 1;" :disabled="isImporting" />
+              <button class="primary-btn mini-btn" style="height: 44px;" @click="handleDownload" :disabled="!newSubUrl.trim() || isImporting">{{ t('subs.downloadBtn') }}</button>
             </div>
-            <div class="divider-text">或者</div>
+            <div class="divider-text">{{ t('subs.or') }}</div>
             <button class="action-btn w-full-btn hover-accent" @click="handlePickFile" :disabled="isImporting" style="height: 44px; margin-top: 4px;">
-              <span class="btn-icon" v-html="ICONS.folder" style="margin-right: 4px;"></span> 浏览本地 YAML 文件
+              <span class="btn-icon" v-html="ICONS.folder" style="margin-right: 4px;"></span> {{ t('subs.browseFile') }}
             </button>
           </div>
         </div>
@@ -116,25 +116,25 @@
         <!-- 导入确认/命名弹窗 -->
         <div v-if="activeModal === 'import_confirm'" class="custom-modal-card" @click.stop>
           <div class="modal-header">
-            <h3>{{ isImportingRemote ? '导入链接订阅' : '导入本地配置' }}</h3>
+            <h3>{{ isImportingRemote ? t('subs.importRemoteTitle') : t('subs.importLocalTitle') }}</h3>
           </div>
           <div class="modal-body">
             <p class="text-xs text-gray-500 mb-2 truncate" style="margin-bottom: 8px; opacity: 0.6; width: 100%; display: block;">
-              {{ isImportingRemote ? '链接:' : '文件:' }} {{ pendingImportPath }}
+              {{ isImportingRemote ? t('subs.linkPrefix') : t('subs.filePrefix') }} {{ pendingImportPath }}
             </p>
-            <p class="global-modal-msg">设置配置显示名称：</p>
+            <p class="global-modal-msg">{{ t('subs.setNameLabel') }}</p>
             <input 
               v-model="configNameInput" 
-              placeholder="请输入名称" 
+              :placeholder="t('subs.inputNamePlaceholder')" 
               class="modal-input"
               @keyup.enter="confirmImport"
               :disabled="isImporting"
             />
             <div class="modal-footer">
-              <button class="action-btn flex-1" @click="activeModal = 'import'" :disabled="isImporting">返回</button>
+              <button class="action-btn flex-1" @click="activeModal = 'import'" :disabled="isImporting">{{ t('common.back') }}</button>
               <button class="primary-btn accent-btn flex-1" @click="confirmImport" :disabled="!configNameInput || isImporting">
                 <span v-if="isImporting" class="btn-icon spin" v-html="ICONS.refresh"></span>
-                {{ isImporting ? (isImportingRemote ? '下载中...' : '导入中...') : '确定' }}
+                {{ isImporting ? (isImportingRemote ? t('subs.downloading') : t('subs.importing')) : t('common.confirm') }}
               </button>
             </div>
           </div>
@@ -143,14 +143,14 @@
         <!-- 重命名弹窗 -->
         <div v-if="activeModal === 'rename'" class="custom-modal-card" @click.stop>
           <div class="modal-header">
-            <h3>重命名配置文件</h3>
+            <h3>{{ t('subs.renameTitle') }}</h3>
           </div>
           <div class="modal-body">
-            <p class="global-modal-msg">请输入新的配置显示名称：</p>
-            <input v-model="renameValue" class="modal-input" placeholder="例如: 我的订阅" @keyup.enter="confirmRename" :disabled="isRenaming" />
+            <p class="global-modal-msg">{{ t('subs.inputNewName') }}</p>
+            <input v-model="renameValue" class="modal-input" :placeholder="t('subs.renamePlaceholder')" @keyup.enter="confirmRename" :disabled="isRenaming" />
             <div class="modal-footer">
-              <button class="action-btn flex-1" @click="closeAllModals" :disabled="isRenaming">取消</button>
-              <button class="primary-btn accent-btn flex-1" @click="confirmRename" :disabled="!renameValue || isRenaming">确定</button>
+              <button class="action-btn flex-1" @click="closeAllModals" :disabled="isRenaming">{{ t('common.cancel') }}</button>
+              <button class="primary-btn accent-btn flex-1" @click="confirmRename" :disabled="!renameValue || isRenaming">{{ t('common.confirm') }}</button>
             </div>
           </div>
         </div>
@@ -158,17 +158,17 @@
         <!-- 删除确认弹窗 -->
         <div v-if="activeModal === 'delete'" class="custom-modal-card" @click.stop>
           <div class="modal-header">
-            <h3 class="danger-text">彻底删除</h3>
+            <h3 class="danger-text">{{ t('subs.menuDelete') }}</h3>
           </div>
           <div class="modal-body">
             <p v-if="isCurrentConfig(targetId)" class="modal-hint-text">
-              <strong>警告：</strong> "{{ targetName }}" 正在运行中。删除将强制停止所有代理服务。
+              <strong>{{ t('common.warning') }}: </strong> {{ t('subs.deleteWarningRunning', { name: targetName }) }}
             </p>
-            <p v-else class="modal-hint-text">确定要彻底删除 <strong>{{ targetName }}</strong> 吗？此操作不可撤销。</p>
+            <p v-else class="modal-hint-text">{{ t('subs.deleteConfirm', { name: targetName }) }}</p>
             <div class="modal-footer">
-              <button class="action-btn flex-1" @click="closeAllModals">取消</button>
+              <button class="action-btn flex-1" @click="closeAllModals">{{ t('common.cancel') }}</button>
               <button class="primary-btn accent-btn red-text-btn flex-1" @click="confirmDelete" :disabled="isDeleting">
-                {{ isDeleting ? '删除中...' : '确定删除' }}
+                {{ isDeleting ? t('subs.deleting') : t('subs.confirmDelete') }}
               </button>
             </div>
           </div>
@@ -186,6 +186,7 @@ import { EventsOn, BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { showAlert, showConfirm, globalState } from '../store';
 import { formatBytes } from '../utils/format';
 import { ICONS } from '../utils/icons';
+import { t } from '../locales';
 
 const emit = defineEmits<{
   'edit-config': [id: string, name: string, type: 'local' | 'remote'];
@@ -286,14 +287,14 @@ const handleSelectConfig = async (config: clash.SubIndexItem) => {
   // 仅当当前请求仍是最新的（没有被新点击覆盖）且失败时，才进行回滚和报错
   if (lastError && currentSelectionNonce === thisNonce) {
     globalState.activeConfigId = previousConfigId;
-    await showAlert("切换订阅失败: " + lastError, "错误");
+    await showAlert(t('subs.errSwitchFailed', { error: String(lastError) }), t('common.error'));
   }
 };
 
 const handleUpdateAll = async () => {
   const remoteItems = localConfigs.value.filter(c => c.type === 'remote');
   if (remoteItems.length === 0) {
-    await showAlert("不存在链接订阅", "提示");
+    await showAlert(t('subs.noRemoteSubs'), t('common.notice'));
     return;
   }
 
@@ -308,9 +309,9 @@ const handleUpdateSingle = async (config: clash.SubIndexItem) => {
   try {
     await API.UpdateSingleSub(config.id);
     await fetchConfigs();
-    await showAlert("节点更新成功！\n\n自定义规则已保留。如需应用机场的最新规则，请前往「规则管理」页面手动同步。", "更新完毕");
+    await showAlert(t('subs.updateSingleSuccess'), t('subs.updateDone'));
   } catch (e) {
-    await showAlert(`更新失败: ${e}`, "发生错误");
+    await showAlert(t('subs.updateError', { error: String(e) }), t('common.error'));
   } finally {
     isUpdating.value = false;
   }
@@ -319,7 +320,7 @@ const handleUpdateSingle = async (config: clash.SubIndexItem) => {
 const handleDownload = () => {
   if (!newSubUrl.value.trim()) return;
   pendingImportPath.value = newSubUrl.value.trim();
-  configNameInput.value = "新订阅";
+  configNameInput.value = t('subs.newSubDefaultName');
   isImportingRemote.value = true;
   activeModal.value = 'import_confirm';
 };
@@ -342,7 +343,7 @@ const confirmImport = async () => {
   if (!pendingImportPath.value || !configNameInput.value) return;
   isImporting.value = true;
   try {
-    const finalName = configNameInput.value.trim() || (isImportingRemote.value ? "未命名订阅" : "未命名文件");
+    const finalName = configNameInput.value.trim() || (isImportingRemote.value ? t('subs.unnamedSub') : t('subs.unnamedFile'));
     if (isImportingRemote.value) {
       await API.UpdateSub(finalName, pendingImportPath.value);
     } else {
@@ -353,7 +354,7 @@ const confirmImport = async () => {
     newSubUrl.value = '';
   } catch (e) {
     console.error("导入失败:", e);
-    await showAlert("导入失败: " + e, "错误");
+    await showAlert(t('subs.importFailed', { error: String(e) }), t('common.error'));
   } finally {
     isImporting.value = false;
   }
@@ -375,7 +376,7 @@ const confirmRename = async () => {
     closeAllModals();
   } catch (e) {
     console.error("重命名失败:", e);
-    await showAlert("重命名失败: " + e, "错误");
+    await showAlert(t('subs.renameFailed', { error: String(e) }), t('common.error'));
   } finally {
     isRenaming.value = false;
   }
@@ -392,13 +393,13 @@ const handleShareLink = async (config: clash.SubIndexItem) => {
   let status: string;
   try {
     await navigator.clipboard.writeText(config.url);
-    status = '链接已复制';
+    status = t('subs.linkCopied');
   } catch {
-    status = '复制失败，请手动复制';
+    status = t('subs.copyFailed');
   }
   globalState.modal = {
     show: true,
-    title: '分享链接',
+    title: t('subs.shareLinkTitle'),
     message: status,
     detail: config.url,
     type: 'alert',
@@ -412,8 +413,8 @@ const handleExport = (config: clash.SubIndexItem) => {
   activeMenu.value = null;
   globalState.modal = {
     show: true,
-    title: '导出配置文件',
-    message: '是否在导出时使用自定义规则替换原始规则？',
+    title: t('subs.menuExport'),
+    message: t('subs.exportReplaceRulesPrompt'),
     detail: '',
     type: 'confirm',
     isDanger: false,
@@ -432,7 +433,7 @@ const doExport = async (id: string, useCustomRules: boolean) => {
   try {
     await API.ExportConfig(id, useCustomRules);
   } catch (e) {
-    await showAlert('导出失败: ' + e, '错误');
+    await showAlert(t('subs.exportFailed', { error: String(e) }), t('common.error'));
   }
 };
 
@@ -451,7 +452,7 @@ const confirmDelete = async () => {
     closeAllModals();
   } catch (e) {
     console.error("删除失败:", e);
-    await showAlert("删除失败: " + e, "错误");
+    await showAlert(t('subs.deleteFailed', { error: String(e) }), t('common.error'));
   } finally {
     isDeleting.value = false;
   }
@@ -482,12 +483,12 @@ onMounted(() => {
   unsubSubsUpdateSuccess = EventsOn("subs-update-success", async () => {
     isUpdating.value = false;
     await fetchConfigs();
-    await showAlert("全部订阅更新完成！\n\n自定义规则已保留。如需应用机场的最新规则，请前往「规则管理」页面手动同步。", "更新成功");
+    await showAlert(t('subs.updateAllSuccessMsg'), t('subs.updateSuccessTitle'));
   });
 
   unsubSubsUpdateError = EventsOn("subs-update-error", async (err: string) => {
     isUpdating.value = false;
-    await showAlert(`更新失败: ${err}`, "更新结果");
+    await showAlert(t('subs.updateFailedMsg', { error: String(err) }), t('subs.updateResultTitle'));
   });
 
   unsubConfigChanged = EventsOn("config-changed", (newId: string) => {

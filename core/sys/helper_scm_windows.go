@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
@@ -29,16 +30,17 @@ func openServiceWithAccess(m *mgr.Mgr, name string, access uint32) (*mgr.Service
 	}, nil
 }
 
-// isServiceInstalledSCM 通过 SCM 检查服务是否已注册
+// isServiceInstalledSCM 通过 SCM 检查服务是否已注册，失败时通过注册表兜底
 func isServiceInstalledSCM(name string) (bool, error) {
 	m, err := mgr.Connect()
-	if err != nil {
-		return false, fmt.Errorf("SCM connect failed: %w", err)
-	}
-	defer m.Disconnect()
+	if err == nil {
+		defer m.Disconnect()
 
-	s, err := openServiceWithAccess(m, name, windows.SERVICE_QUERY_STATUS)
-	if err != nil {
+		s, err := openServiceWithAccess(m, name, windows.SERVICE_QUERY_STATUS)
+		if err == nil {
+			s.Close()
+			return true, nil
+		}
 		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
 			return false, nil
 		}
@@ -47,10 +49,22 @@ func isServiceInstalledSCM(name string) (bool, error) {
 			// 视为已安装，后续由 Ping 来确认可达性
 			return true, nil
 		}
-		return false, fmt.Errorf("open service failed: %w", err)
 	}
-	defer s.Close()
-	return true, nil
+
+	// 注册表兜底检查（普通用户对 Services 注册表项拥有通用读取权限）
+	key, regErr := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Services\`+name, registry.READ)
+	if regErr == nil {
+		key.Close()
+		return true, nil
+	}
+	if errors.Is(regErr, registry.ErrNotExist) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, fmt.Errorf("SCM connect failed: %w", err)
+	}
+	return false, fmt.Errorf("check service failed: %w", regErr)
 }
 
 // isServiceRunningSCM 通过 SCM 检查服务是否正在运行

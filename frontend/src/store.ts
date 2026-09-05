@@ -3,6 +3,7 @@ import { reactive } from 'vue';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 import * as API from '../wailsjs/go/main/App';
 import { runtimeassets } from '../wailsjs/go/models';
+import { setLocale, SupportedLocale } from './locales';
 
 export type UpdateTaskState = {
   key: string;
@@ -304,6 +305,9 @@ export function updateStateFromBackend(rawData: any) {
 
   const newPortProxyMode = rawData.portProxyMode ?? rawData.PortProxyMode;
   if (newPortProxyMode !== undefined) globalState.portProxyMode = !!newPortProxyMode;
+
+  const lang = rawData.language ?? rawData.Language;
+  if (lang) setLocale(lang as SupportedLocale);
 }
 
 type DelayRetentionTime = 'long' | '30' | '60' | '300' | string;

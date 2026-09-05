@@ -4,18 +4,18 @@
       <button class="back-btn" @click="$emit('navigate', 'main')">
         <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>
       </button>
-      <h3>UWP 环回管理</h3>
+      <h3>{{ t('settings.uwp.title') }}</h3>
     </div>
 
     <div class="uwp-toolbar">
       <div class="uwp-search">
         <span class="search-icon" v-html="ICONS.search"></span>
-        <input v-model="uwpSearch" placeholder="搜索应用名称或包名..." />
+        <input v-model="uwpSearch" :placeholder="t('settings.uwp.searchPlaceholder')" />
         <span v-if="uwpSearch" class="clear-icon" @click="uwpSearch = ''" v-html="ICONS.close"></span>
       </div>
       <div class="uwp-batch">
-        <button class="batch-btn" @click="toggleAllUwp(true)">全选</button>
-        <button class="batch-btn" @click="toggleAllUwp(false)">反选</button>
+        <button class="batch-btn" @click="toggleAllUwp(true)">{{ t('settings.uwp.selectAll') }}</button>
+        <button class="batch-btn" @click="toggleAllUwp(false)">{{ t('settings.uwp.invertSelect') }}</button>
       </div>
     </div>
 
@@ -32,14 +32,14 @@
             {{ app.displayName?.[0]?.toUpperCase() || '?' }}
           </div>
           <div class="app-details">
-            <span class="app-name">{{ app.displayName || '未命名应用' }}</span>
+            <span class="app-name">{{ app.displayName || t('settings.uwp.unnamedApp') }}</span>
             <span class="app-pkg">{{ app.packageFamilyName }}</span>
           </div>
         </div>
 
         <div class="app-status-wrapper">
           <div class="uwp-status-tag">
-            {{ app.isEnabled ? '已豁免' : '受限' }}
+            {{ app.isEnabled ? t('settings.uwp.exempted') : t('settings.uwp.restricted') }}
           </div>
         </div>
       </div>
@@ -47,8 +47,8 @@
 
     <div class="uwp-footer">
       <button class="apply-btn" :disabled="savingUwp" @click="saveUwpChanges">
-        <span v-if="!savingUwp">应用更改 (需要管理员权限)</span>
-        <span v-else class="loading-spinner">正在保存...</span>
+        <span v-if="!savingUwp">{{ t('settings.uwp.applyBtn') }}</span>
+        <span v-else class="loading-spinner">{{ t('settings.uwp.saving') }}</span>
       </button>
     </div>
   </div>
@@ -59,6 +59,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { showAlert } from '../store';
 import { ICONS } from '../utils/icons';
+import { t } from '../locales';
 
 const props = defineProps<{ entry: number }>();
 
@@ -74,7 +75,7 @@ const enterUwpManager = async () => {
   try {
     uwpApps.value = await (API as any).GetUwpApps();
   } catch (e) {
-    showAlert('获取 UWP 列表失败: ' + e, '错误');
+    showAlert(t('settings.uwp.fetchFailed', { error: String(e) }), t('common.error'));
   }
 };
 
@@ -111,9 +112,9 @@ const saveUwpChanges = async () => {
   try {
     const sids = uwpApps.value.filter(a => a.isEnabled).map(a => a.sid);
     await (API as any).SaveUwpExemptions(sids);
-    await showAlert('豁免配置已成功更新！', '完成');
+    await showAlert(t('settings.uwp.saveSuccess'), t('common.confirm'));
   } catch (e) {
-    await showAlert('保存失败: ' + e, '错误');
+    await showAlert(t('settings.uwp.saveFailed', { error: String(e) }), t('common.error'));
   } finally {
     savingUwp.value = false;
   }

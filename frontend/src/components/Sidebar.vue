@@ -17,26 +17,26 @@
       <div class="side-traffic">
         <div class="t-item">
           <span class="icon-box">↑</span>
-          <span class="t-label">上传</span>
+          <span class="t-label">{{ t('sidebar.upload') }}</span>
           <span class="t-val">{{ traffic.up }}</span>
         </div>
         <div class="t-item">
           <span class="icon-box">↓</span>
-          <span class="t-label">下载</span>
+          <span class="t-label">{{ t('sidebar.download') }}</span>
           <span class="t-val">{{ traffic.down }}</span>
         </div>
       </div>
 
       <div class="theme-switch-row" @click="toggleTheme">
         <span class="icon-box" v-html="globalState.theme === 'dark' ? icons.moon : icons.sun"></span>
-        <span class="label">{{ globalState.theme === 'dark' ? '黑色模式' : '白色模式' }}</span>
+        <span class="label">{{ globalState.theme === 'dark' ? t('sidebar.darkTheme') : t('sidebar.lightTheme') }}</span>
       </div>
 
       <div class="status-indicator">
         <div class="icon-box">
           <div :class="['dot', { online: coreActive }]"></div>
         </div>
-        <span :class="['status-text', { online: coreActive }]">{{ coreActive ? '内核已启动' : '服务未运行' }}</span>
+        <span :class="['status-text', { online: coreActive }]">{{ coreActive ? t('sidebar.coreRunning') : t('sidebar.coreStopped') }}</span>
       </div>
     </div>
   </aside>
@@ -46,6 +46,7 @@
 import { computed } from 'vue';
 import { globalState } from '../store';
 import * as API from '../../wailsjs/go/main/App';
+import { t } from '../locales';
 
 // 定义 Props 接收外部数据
 defineProps<{
@@ -152,7 +153,11 @@ const coreActive = computed(() =>
 
 .nav-label { 
   font-size: 0.85rem; 
-  letter-spacing: 0.05em; 
+  letter-spacing: 0.02em; 
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 10px;
 }
 
 .sidebar-footer { padding: 16px; display: flex; flex-direction: column; gap: 12px; margin-top: auto; }
