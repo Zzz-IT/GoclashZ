@@ -1,6 +1,5 @@
 <!-- markdownlint-disable MD033 -->
 # <img src="docs/assets/logo.png" width="45" alt="GoclashZ Logo" style="vertical-align: middle; margin-right: 10px;"> GoclashZ
-<!-- markdownlint-enable MD033 -->
 
 A high-performance, industrial solid-aesthetic Mihomo (Clash Meta) desktop client built with Wails.
 
@@ -16,7 +15,6 @@ GoclashZ was created out of resistance against the excessive bloat of modern des
 
 ## Preview
 
-<!-- markdownlint-disable MD033 -->
 | Dark Mode | Light Mode |
 | :---: | :---: |
 | <img src="docs/assets/控制台-黑.png" width="400" alt="Dashboard Dark"> | <img src="docs/assets/控制台-白.png" width="400" alt="Dashboard Light"> |
@@ -81,6 +79,24 @@ wails dev
 # Build production binary
 wails build
 ```
+
+## Disclaimer & Roadmap
+
+### Community Appreciation & Disclaimer
+
+* **Acknowledgments**: Sincere gratitude to everyone who uses GoclashZ and contributes to GitHub Issues, discussions, and technical feedback. Your insights and support are the driving force behind the continuous refinement of this project.
+* **Independent Open-Source & Disclaimer**:
+  1. This project (GoclashZ) is a free and open-source tool developed purely for personal study, academic research into Go concurrency architectures, and technical exploration of lightweight desktop interfaces, provided "as is" under the MIT License.
+  2. **The developer has never engaged in, authorized, or endorsed any commercial promotion, marketing campaigns, user acquisition, or advertisements on any third-party platforms (including but not limited to social media, video platforms, forums, messaging channels, or e-commerce sites), nor has any party been authorized to represent or distribute this project**.
+  3. Any third-party videos, articles, distribution mirrors, tutorials, or commercial packaging found online are **strictly the independent actions of third parties and bear no affiliation, endorsement, or connection with the developer of this software**.
+  4. Users are solely responsible for ensuring that their use of this software complies with applicable local laws and regulations. **The developer assumes no liability for any direct, indirect, incidental, or consequential damages or legal disputes arising from the use, distribution, or reliance on third-party representations of this software**.
+
+### Parallel Plan: Branching to Wails v3 to Eliminate WebView2 Dependency
+
+To achieve a truly self-contained, native desktop experience and eliminate external environment prerequisites, an experimental parallel branch will be initiated to migrate to the **Wails v3** architecture:
+
+* **Breaking Free from WebView2**: The current release relies on the Microsoft Edge WebView2 Runtime, which can cause friction in stripped-down or legacy Windows installations lacking the runtime. Migrating to Wails v3 will enable the exploration of decoupling external runtimes, ultra-lightweight web rendering, or native UI alternatives.
+* **Architecture Evolution**: Leveraging Wails v3's rewritten native window manager, headless background process orchestration, and deep platform integration to further reduce memory footprint and startup overhead, crafting an instantly runnable client with zero external runtime dependencies.
 
 ## License
 
