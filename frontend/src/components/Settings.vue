@@ -52,6 +52,9 @@ const loadBehavior = async () => {
   try {
     const value = await API.GetAppBehavior();
     if (value) {
+      if (value.logLevel === 'warn') {
+        value.logLevel = 'warning';
+      }
       behavior.value = value;
       if (value.language) {
         setLocale(value.language as SupportedLocale);

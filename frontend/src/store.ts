@@ -55,6 +55,12 @@ const cachedHideLogs = localStorage.getItem('goclashz_hideLogs') === 'true';
 const cachedTheme = localStorage.getItem('goclashz_theme') || 'light';
 const cachedActiveConfigId = localStorage.getItem('goclashz_activeConfigId') || ''; // 👈 新增缓存预热
 const cachedOutboundIP = localStorage.getItem('goclashz_outboundIP');
+export type ProxyCardMode = 'standard' | 'compact' | 'list' | 'adaptive';
+const validProxyCardModes: ProxyCardMode[] = ['standard', 'compact', 'list', 'adaptive'];
+const savedProxyCardMode = localStorage.getItem('goclashz_proxy_card_mode') as ProxyCardMode | null;
+const cachedProxyCardMode: ProxyCardMode = (savedProxyCardMode && validProxyCardModes.includes(savedProxyCardMode))
+  ? savedProxyCardMode
+  : 'standard';
 
 let initialOutboundIP: OutboundIPResult | null = null;
 try {
@@ -101,12 +107,23 @@ export function settleTunIntent() {
   syncVisibleControls();
 }
 
+export function setProxyCardMode(mode: ProxyCardMode) {
+  const safeMode = validProxyCardModes.includes(mode) ? mode : 'standard';
+  globalState.proxyCardMode = safeMode;
+  try {
+    localStorage.setItem('goclashz_proxy_card_mode', safeMode);
+  } catch (e) {
+    console.error('Failed to save proxy card mode:', e);
+  }
+}
+
 // 定义全局响应式状态
 export const globalState = reactive({
   isRunning: false,
   mode: 'rule',
   theme: cachedTheme,
   hideLogs: cachedHideLogs,
+  proxyCardMode: cachedProxyCardMode,
   // Visible control state is the optimistic target or backend desired state.
   systemProxy: false,
   tun: false,
@@ -189,10 +206,9 @@ export const globalState = reactive({
 // 👇 新增清洗规则：打破数据格式强粘合，防止大小写污染
 const normalizeLogLevel = (level?: string) => {
   const v = String(level || '').toLowerCase().trim();
-  if (v === 'warning') return 'warn';
   if (v === 'trace') return 'debug';
   if (v === 'fatal' || v === 'panic') return 'error';
-  if (['debug', 'info', 'warn', 'error'].includes(v)) return v;
+  if (['debug', 'info', 'warn', 'warning', 'error', 'silent'].includes(v)) return v;
   return 'info';
 };
 

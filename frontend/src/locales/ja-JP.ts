@@ -89,6 +89,10 @@ export default {
     errToggleProxy: 'システムプロキシの切替に失敗しました: {error}',
     errToggleTun: 'TUN モードの切替に失敗しました: {error}',
     errSwitchMode: 'モードの切替に失敗しました: {error}',
+    tunHelperTitle: 'ヘルパーサービスが必要です',
+    tunHelperConfirm: 'TUN モードの実行には管理者権限のヘルパーサービスが必要です。今すぐインストールして起動しますか？',
+    errInstallHelper: 'ヘルパーサービスの初期化に失敗しました: {error}',
+    errWintunMissing: 'Wintun ドライバーが見つかりません。「コンポーネント更新」で Wintun をインストールしてください。',
   },
   traffic: {
     title: 'トラフィック',
@@ -125,6 +129,10 @@ export default {
     testError: '失敗',
     switchSuccess: 'ノードを切り替えました: {name}',
     switchError: 'ノードの切り替えに失敗しました: {error}',
+    layoutStandard: 'レイアウト: 標準',
+    layoutCompact: 'レイアウト: コンパクト',
+    layoutList: 'レイアウト: リスト',
+    layoutAdaptive: 'レイアウト: 自動幅調整',
   },
   subs: {
     title: 'プロファイル',
@@ -316,6 +324,11 @@ export default {
     discardConfirmTitle: '未保存の変更を破棄',
   },
   settings: {
+    resetConfirmTitle: 'リセットの確認',
+    resetConfirmMsg: '{name} をデフォルト設定に戻してもよろしいですか？この操作は取り消せません。',
+    saveFailed: '設定の保存に失敗しました: {error}',
+    resetSuccess: '{name} をデフォルト設定にリセットしました',
+    resetFailed: 'リセットに失敗しました: {error}',
     home: {
       networkGroup: 'ネットワーク',
       network: 'ネットワーク設定',

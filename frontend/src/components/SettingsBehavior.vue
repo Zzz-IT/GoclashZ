@@ -245,7 +245,7 @@ const delayRetentionOptions = computed(() => [
 const logLevelOptions = computed(() => [
   { label: t('settings.behavior.logDebug'), value: 'debug' },
   { label: t('settings.behavior.logInfo'), value: 'info' },
-  { label: t('settings.behavior.logWarn'), value: 'warn' },
+  { label: t('settings.behavior.logWarn'), value: 'warning' },
   { label: t('settings.behavior.logError'), value: 'error' },
   { label: t('settings.behavior.logSilent'), value: 'silent' }
 ]);

@@ -53,12 +53,23 @@
           </div>
         </div>
         <div class="sub-toolbar-spacer"></div>
+        <div class="sub-toolbar-layout">
+          <button class="tool-btn layout-toggle-btn" @click="cycleCardMode" :title="currentCardModeTitle">
+            <span class="btn-icon" :key="cardMode" v-html="currentCardModeIcon"></span>
+          </button>
+        </div>
       </div>
     </div>
 
     <div class="scroll-content">
       <div v-if="activeGroupData" :key="activeGroupData.name" class="group-section">
-        <div class="node-grid">
+        <TransitionGroup 
+          tag="div" 
+          class="node-grid" 
+          :class="`size-${cardMode}`" 
+          :style="gridStyle"
+          name="node-card"
+        >
             <div v-for="node in filteredAndSortedNodes" :key="node.name"
                  :class="['node-item', { active: activeGroupData.now === node.name, readonly: !activeGroupData.selectable }]"
                  @click="selectNode(activeGroupData.name, node.name)">
@@ -96,7 +107,7 @@
               </span>
             </div>
           </div>
-        </div>
+        </TransitionGroup>
       </div>
       <div v-else class="empty-state">
         <p>{{ t('proxies.noGroupsHint') }}</p>
@@ -106,10 +117,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed, watch, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed, watch, nextTick, TransitionGroup } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { showAlert, globalState, scheduleOutboundIPRefresh } from '../store';
+import { showAlert, globalState, scheduleOutboundIPRefresh, setProxyCardMode, ProxyCardMode } from '../store';
 import { ICONS } from '../utils/icons';
 import { t } from '../locales';
 
@@ -204,6 +215,131 @@ const locateActiveNode = () => {
   });
 };
 
+const CARD_MODES: ProxyCardMode[] = ['standard', 'compact', 'list', 'adaptive'];
+const cardMode = computed<ProxyCardMode>({
+  get: () => globalState.proxyCardMode || 'standard',
+  set: (val: ProxyCardMode) => setProxyCardMode(val),
+});
+
+
+
+const cycleCardMode = () => {
+  // 1. 视口锚定预备：记录当前被选中节点或视口内核心元素的垂直相对位置
+  const scrollContainer = document.querySelector('.scroll-content') as HTMLElement | null;
+  const activeEl = document.querySelector('.node-item.active') as HTMLElement | null;
+  
+  let anchorOffsetFromTop = 0;
+  let hasAnchor = false;
+
+  if (scrollContainer && activeEl) {
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const activeRect = activeEl.getBoundingClientRect();
+    
+    // 如果选中的节点当前在视口中（或接近视口范围内）
+    const isVisibleInViewport = (
+      activeRect.bottom >= containerRect.top &&
+      activeRect.top <= containerRect.bottom
+    );
+
+    if (isVisibleInViewport) {
+      anchorOffsetFromTop = activeRect.top - containerRect.top;
+      hasAnchor = true;
+    }
+  }
+
+  // 2. 切换模式
+  const currentIndex = CARD_MODES.indexOf(cardMode.value);
+  const nextIndex = (currentIndex + 1) % CARD_MODES.length;
+  cardMode.value = CARD_MODES[nextIndex];
+
+  // 4. 模式切换渲染后，精准维持被选中节点的视口相对位置，杜绝任何顺序跳变与视线丢失
+  if (hasAnchor) {
+    nextTick(() => {
+      requestAnimationFrame(() => {
+        if (!activeEl || !scrollContainer) return;
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const newActiveRect = activeEl.getBoundingClientRect();
+        const currentOffset = newActiveRect.top - containerRect.top;
+        const diff = currentOffset - anchorOffsetFromTop;
+        if (Math.abs(diff) > 1) {
+          scrollContainer.scrollTop += diff;
+        }
+      });
+    });
+  }
+};
+
+const currentCardModeIcon = computed(() => {
+  switch (cardMode.value) {
+    case 'compact':
+      return ICONS.layoutCompact;
+    case 'list':
+      return ICONS.layoutList;
+    case 'adaptive':
+      return ICONS.layoutAdaptive;
+    case 'standard':
+    default:
+      return ICONS.layoutStandard;
+  }
+});
+
+const currentCardModeTitle = computed(() => {
+  switch (cardMode.value) {
+    case 'compact':
+      return t('proxies.layoutCompact');
+    case 'list':
+      return t('proxies.layoutList');
+    case 'adaptive':
+      return t('proxies.layoutAdaptive');
+    case 'standard':
+    default:
+      return t('proxies.layoutStandard');
+  }
+});
+
+let measureCanvas: HTMLCanvasElement | null = null;
+function measureNodeTextWidth(text: string, font = '500 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'): number {
+  if (typeof document === 'undefined') return 80;
+  if (!measureCanvas) {
+    measureCanvas = document.createElement('canvas');
+  }
+  const context = measureCanvas.getContext('2d');
+  if (!context) return 80;
+  context.font = font;
+  return context.measureText(text).width;
+}
+
+const adaptiveCardWidth = computed(() => {
+  if (cardMode.value !== 'adaptive') return 130;
+  const nodes = filteredAndSortedNodes.value || [];
+  if (nodes.length === 0) return 130;
+  let maxW = 0;
+  for (const n of nodes) {
+    if (n) {
+      if (n.name) {
+        const nw = measureNodeTextWidth(n.name, '500 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif');
+        if (nw > maxW) maxW = nw;
+      }
+      if (n.type) {
+        const tw = measureNodeTextWidth(n.type, '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif');
+        if (tw > maxW) maxW = tw;
+      }
+    }
+  }
+  // 基础预留空间：卡片左右内边距(28px) + 测速区宽度与外边距(54px) + 呼吸安全间距(18px) = 100px
+  // 最小自适应宽度设为 130px（支持短名称节点更紧凑排列，远小于默认标准卡片的 260px）
+  return Math.max(130, Math.ceil(maxW + 100));
+});
+
+const gridStyle = computed(() => {
+  if (cardMode.value === 'adaptive') {
+    return {
+      gridTemplateColumns: `repeat(auto-fill, minmax(${adaptiveCardWidth.value}px, 1fr))`
+    };
+  }
+  return {};
+});
+
 const filteredAndSortedNodes = computed(() => {
   if (!activeGroupData.value || !activeGroupData.value.proxies) return [];
   let nodes = [...activeGroupData.value.proxies];
@@ -214,13 +350,27 @@ const filteredAndSortedNodes = computed(() => {
   }
 
   if (sortState.value === 1) {
-    nodes.sort((a, b) => {
-      const delayA = globalState.proxyDelays[a.name]?.delay;
-      const delayB = globalState.proxyDelays[b.name]?.delay;
-      const vA = (delayA !== undefined && delayA !== null && delayA > 0) ? delayA : 999999;
-      const vB = (delayB !== undefined && delayB !== null && delayB > 0) ? delayB : 999999;
-      return vA - vB;
+    const measured: any[] = [];
+    const unmeasured: any[] = [];
+
+    for (const node of nodes) {
+      const delay = globalState.proxyDelays[node.name]?.delay;
+      if (delay !== undefined && delay !== null && delay > 0) {
+        measured.push(node);
+      } else {
+        unmeasured.push(node);
+      }
+    }
+
+    // 测出速度的节点按延迟升序排序（同延迟自动维持原相对顺序）
+    measured.sort((a, b) => {
+      const delayA = globalState.proxyDelays[a.name]?.delay ?? 0;
+      const delayB = globalState.proxyDelays[b.name]?.delay ?? 0;
+      return delayA - delayB;
     });
+
+    // 测出速度的放在前面，未测速/超时的按原相对顺序继续排在后面
+    return [...measured, ...unmeasured];
   }
   
   return nodes;
@@ -649,6 +799,37 @@ onUnmounted(() => {
   flex: 1;
 }
 
+.sub-toolbar-layout {
+  display: flex;
+  align-items: center;
+}
+
+.layout-toggle-btn {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.layout-toggle-btn:active {
+  transform: scale(0.9);
+}
+
+.layout-toggle-btn .btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  animation: iconRotateIn 0.38s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes iconRotateIn {
+  0% {
+    opacity: 0.3;
+    transform: scale(0.7) rotate(-25deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
 .sub-toolbar-actions {
   display: flex;
   align-items: center;
@@ -721,7 +902,116 @@ onUnmounted(() => {
 }
 
 .group-section { margin-bottom: 24px; }
-.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.node-grid { 
+  display: grid; 
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); 
+  gap: 16px; 
+  position: relative;
+}
+
+/* TransitionGroup FLIP 排序与模式切换平滑优雅动画 */
+.node-card-move,
+.node-grid .node-item.node-card-move {
+  transition: 
+    transform 0.46s cubic-bezier(0.25, 1, 0.5, 1),
+    height 0.42s cubic-bezier(0.25, 1, 0.5, 1),
+    padding 0.42s cubic-bezier(0.25, 1, 0.5, 1),
+    border-radius 0.42s cubic-bezier(0.25, 1, 0.5, 1) !important;
+  z-index: 2;
+}
+
+/* 1. 标准卡片模式 (默认) */
+.node-grid.size-standard {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+/* 2. 紧凑小卡模式 */
+.node-grid.size-compact {
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+.node-grid.size-compact .node-item {
+  height: 60px;
+  padding: 10px 14px;
+  border-radius: 10px;
+}
+.node-grid.size-compact .n-name {
+  font-size: 0.85rem;
+}
+.node-grid.size-compact .n-protocol {
+  font-size: 0.6rem;
+  padding: 0 4px;
+}
+.node-grid.size-compact .n-latency-box {
+  padding: 4px 6px;
+  min-width: 44px;
+  margin-left: 8px;
+}
+.node-grid.size-compact .n-delay {
+  font-size: 0.78rem;
+}
+
+/* 3. 纵向列表模式 */
+.node-grid.size-list {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.node-grid.size-list .node-item {
+  height: 48px;
+  padding: 8px 18px;
+  border-radius: 10px;
+  align-items: center;
+}
+.node-grid.size-list .node-main-area {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+}
+.node-grid.size-list .node-info {
+  flex: 1;
+}
+.node-grid.size-list .node-meta {
+  flex-shrink: 0;
+}
+.node-grid.size-list .n-name {
+  font-size: 0.9rem;
+}
+.node-grid.size-list .n-protocol {
+  font-size: 0.65rem;
+  padding: 1px 6px;
+}
+.node-grid.size-list .n-latency-box {
+  padding: 4px 8px;
+  min-width: 50px;
+}
+
+/* 4. 自适应宽度模式 */
+.node-grid.size-adaptive {
+  gap: 12px;
+}
+.node-grid.size-adaptive .node-item {
+  height: 76px;
+  padding: 12px 14px;
+  border-radius: 11px;
+}
+.node-grid.size-adaptive .n-name {
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+.node-grid.size-adaptive .n-protocol {
+  font-size: 0.6rem;
+  padding: 1px 5px;
+}
+.node-grid.size-adaptive .n-latency-box {
+  min-width: 46px;
+  padding: 4px 6px;
+  margin-left: 8px;
+}
+.node-grid.size-adaptive .n-delay {
+  font-size: 0.76rem;
+}
 
 .node-item {
   display: flex;
@@ -729,11 +1019,23 @@ onUnmounted(() => {
   align-items: stretch;
   padding: 16px 20px;
   height: 84px;
+  min-width: 0;
+  box-sizing: border-box;
   border: none;
   border-radius: 12px;
   cursor: pointer;
   background: var(--surface);
-  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+  transition: 
+    transform 0.46s cubic-bezier(0.25, 1, 0.5, 1),
+    height 0.42s cubic-bezier(0.25, 1, 0.5, 1),
+    padding 0.42s cubic-bezier(0.25, 1, 0.5, 1),
+    border-radius 0.42s cubic-bezier(0.25, 1, 0.5, 1),
+    background 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+  will-change: transform, height;
 }
 .node-item.readonly {
   cursor: default;
@@ -743,6 +1045,9 @@ onUnmounted(() => {
   background: var(--accent); 
   color: var(--accent-fg);
   font-weight: 600; 
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
 }
 
 .node-item.active .n-name { 
@@ -779,10 +1084,26 @@ onUnmounted(() => {
   stroke: var(--accent-fg) !important;
 }
 
-.node-main-area { flex: 1; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
+.node-main-area { 
+  flex: 1; 
+  display: flex; 
+  flex-direction: column; 
+  justify-content: space-between; 
+  min-width: 0; 
+  transition: gap 0.42s cubic-bezier(0.25, 1, 0.5, 1);
+}
 
 .node-info { flex: 1; min-width: 0; }
-.n-name { font-size: 0.95rem; font-weight: 500; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main); }
+.n-name { 
+  font-size: 0.95rem; 
+  font-weight: 500; 
+  display: block; 
+  white-space: nowrap; 
+  overflow: hidden; 
+  text-overflow: ellipsis; 
+  color: var(--text-main);
+  transition: color 0.2s ease;
+}
 
 .node-meta { display: flex; align-items: center; }
 
@@ -799,6 +1120,7 @@ onUnmounted(() => {
   text-transform: uppercase;
   display: flex;
   align-items: center;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 /* 情况 1：未选中的节点卡片 */
@@ -822,17 +1144,16 @@ onUnmounted(() => {
 .n-latency-box {
   flex-shrink: 0 !important;
   white-space: nowrap;
-  min-width: max-content;
+  min-width: 54px;
   margin-left: 12px;
   padding: 6px 10px;
   border-radius: 6px;
   background: transparent !important;
   cursor: pointer;
-  min-width: 54px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: opacity 0.2s;
+  transition: min-width 0.42s cubic-bezier(0.25, 1, 0.5, 1), padding 0.42s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.2s;
 }
 .n-latency-box:hover {
   opacity: 0.6;

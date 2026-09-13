@@ -89,6 +89,10 @@ export default {
     errToggleProxy: 'Impossible de basculer le proxy système : {error}',
     errToggleTun: 'Impossible de basculer le mode TUN : {error}',
     errSwitchMode: 'Impossible de changer de mode : {error}',
+    tunHelperTitle: 'Service d\'assistance requis',
+    tunHelperConfirm: 'Le mode TUN nécessite un service d\'assistance avec privilèges administrateur. Voulez-vous l\'installer et le démarrer maintenant ?',
+    errInstallHelper: 'Échec de l\'initialisation du service d\'assistance : {error}',
+    errWintunMissing: 'Pilote Wintun manquant. Veuillez l\'installer dans la section « Mises à jour des composants ».',
   },
   traffic: {
     title: 'Trafic',
@@ -125,6 +129,10 @@ export default {
     testError: 'Échec',
     switchSuccess: 'Basculé sur le nœud : {name}',
     switchError: 'Impossible de changer de nœud : {error}',
+    layoutStandard: 'Disposition : Standard',
+    layoutCompact: 'Disposition : Compact',
+    layoutList: 'Disposition : Liste',
+    layoutAdaptive: 'Disposition : Largeur adaptative',
   },
   subs: {
     title: 'Abonnements',
@@ -316,6 +324,11 @@ export default {
     discardConfirmTitle: 'Ignorer les modifications',
   },
   settings: {
+    resetConfirmTitle: 'Confirmer la réinitialisation',
+    resetConfirmMsg: 'Êtes-vous sûr de vouloir restaurer les paramètres par défaut pour {name} ? Cette action est irréversible.',
+    saveFailed: 'Échec de l\'enregistrement des paramètres : {error}',
+    resetSuccess: '{name} a été réinitialisé aux valeurs par défaut',
+    resetFailed: 'Échec de la réinitialisation : {error}',
     home: {
       networkGroup: 'Réseau',
       network: 'Paramètres réseau',

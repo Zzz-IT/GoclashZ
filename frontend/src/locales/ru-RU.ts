@@ -89,6 +89,10 @@ export default {
     errToggleProxy: 'Не удалось переключить системный прокси: {error}',
     errToggleTun: 'Не удалось переключить режим TUN: {error}',
     errSwitchMode: 'Не удалось переключить режим: {error}',
+    tunHelperTitle: 'Требуется служба-помощник',
+    tunHelperConfirm: 'Для режима TUN требуется фоновая служба с правами администратора. Установить и запустить её сейчас?',
+    errInstallHelper: 'Ошибка инициализации службы-помощника: {error}',
+    errWintunMissing: 'Драйвер Wintun не найден. Пожалуйста, установите его на странице «Обновления компонентов».',
   },
   traffic: {
     title: 'Трафик',
@@ -125,6 +129,10 @@ export default {
     testError: 'Ошибка',
     switchSuccess: 'Переключено на узел: {name}',
     switchError: 'Не удалось переключить узел: {error}',
+    layoutStandard: 'Макет: Стандартный',
+    layoutCompact: 'Макет: Компактный',
+    layoutList: 'Макет: Список',
+    layoutAdaptive: 'Макет: Адаптивная ширина',
   },
   subs: {
     title: 'Профили',
@@ -316,6 +324,11 @@ export default {
     discardConfirmTitle: 'Отменить несохраненные изменения',
   },
   settings: {
+    resetConfirmTitle: 'Подтверждение сброса',
+    resetConfirmMsg: 'Вы уверены, что хотите сбросить {name} к настройкам по умолчанию? Это действие нельзя отменить.',
+    saveFailed: 'Не удалось сохранить настройки: {error}',
+    resetSuccess: 'Настройки {name} сброшены по умолчанию',
+    resetFailed: 'Ошибка сброса: {error}',
     home: {
       networkGroup: 'Сеть',
       network: 'Настройки сети',

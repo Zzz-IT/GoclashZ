@@ -201,9 +201,7 @@ func APIWSURLWithRawQuery(path string, rawQuery string) string {
 
 // FetchLogs 获取实时日志流并执行回调（带自动重连）
 func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) {
-	if level == "" {
-		level = "info" // 兜底默认值
-	}
+	level = NormalizeLogLevel(level)
 
 	for {
 		// 快速响应外部的 Cancel 信号

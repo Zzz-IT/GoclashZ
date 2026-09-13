@@ -3,6 +3,7 @@
 package appcore
 
 import (
+	"goclashz/core/clash"
 	"goclashz/core/utils"
 	"os"
 	"path/filepath"
@@ -135,9 +136,7 @@ func (s *BehaviorStore) Save() error {
 }
 
 func normalizeBehavior(b AppBehavior) AppBehavior {
-	if b.LogLevel == "" {
-		b.LogLevel = "error"
-	}
+	b.LogLevel = clash.NormalizeLogLevel(b.LogLevel)
 
 	if b.AppLogLevel == "" {
 		b.AppLogLevel = "info"

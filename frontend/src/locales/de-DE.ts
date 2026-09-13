@@ -89,6 +89,10 @@ export default {
     errToggleProxy: 'System-Proxy konnte nicht umgeschaltet werden: {error}',
     errToggleTun: 'TUN-Modus konnte nicht umgeschaltet werden: {error}',
     errSwitchMode: 'Modus konnte nicht gewechselt werden: {error}',
+    tunHelperTitle: 'Hilfsdienst erforderlich',
+    tunHelperConfirm: 'Für den TUN-Modus ist ein Hintergrunddienst mit Administratorrechten erforderlich. Jetzt installieren und starten?',
+    errInstallHelper: 'Initialisierung des Hilfsdienstes fehlgeschlagen: {error}',
+    errWintunMissing: 'Wintun-Treiber fehlt. Bitte installieren Sie ihn unter „Komponenten-Updates“.',
   },
   traffic: {
     title: 'Datenverkehr',
@@ -125,6 +129,10 @@ export default {
     testError: 'Fehlgeschlagen',
     switchSuccess: 'Gewechselt zu Knoten: {name}',
     switchError: 'Knoten konnte nicht gewechselt werden: {error}',
+    layoutStandard: 'Layout: Standard',
+    layoutCompact: 'Layout: Kompakt',
+    layoutList: 'Layout: Liste',
+    layoutAdaptive: 'Layout: Adaptive Breite',
   },
   subs: {
     title: 'Profile',
@@ -316,6 +324,11 @@ export default {
     discardConfirmTitle: 'Änderungen verwerfen',
   },
   settings: {
+    resetConfirmTitle: 'Zurücksetzen bestätigen',
+    resetConfirmMsg: 'Möchten Sie {name} wirklich auf die Standardeinstellungen zurücksetzen? Dieser Vorgang kann nicht rückgängig gemacht werden.',
+    saveFailed: 'Einstellungen konnten nicht gespeichert werden: {error}',
+    resetSuccess: '{name} wurde auf Standardwerte zurückgesetzt',
+    resetFailed: 'Zurücksetzen fehlgeschlagen: {error}',
     home: {
       networkGroup: 'Netzwerk',
       network: 'Netzwerkeinstellungen',

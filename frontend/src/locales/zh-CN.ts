@@ -89,6 +89,10 @@ export default {
     errToggleProxy: '系统代理切换失败: {error}',
     errToggleTun: 'TUN 模式切换失败: {error}',
     errSwitchMode: '模式切换失败: {error}',
+    tunHelperTitle: '需要辅助服务',
+    tunHelperConfirm: 'TUN 模式需要具有系统特权的辅助服务支持，是否立即安装/启动服务？',
+    errInstallHelper: '初始化后台服务失败: {error}',
+    errWintunMissing: '缺少 Wintun 驱动，请在「组件与库更新」页面安装 Wintun 驱动。',
   },
   traffic: {
     title: '网络流量',
@@ -125,6 +129,10 @@ export default {
     testError: '失败',
     switchSuccess: '已切换至节点: {name}',
     switchError: '节点切换失败: {error}',
+    layoutStandard: '卡片布局: 标准',
+    layoutCompact: '卡片布局: 紧凑小卡',
+    layoutList: '卡片布局: 纵向列表',
+    layoutAdaptive: '卡片布局: 自适应宽度',
   },
   subs: {
     title: '本地配置库',
@@ -316,6 +324,11 @@ export default {
     discardConfirmTitle: '放弃未保存的修改',
   },
   settings: {
+    resetConfirmTitle: '确认重置',
+    resetConfirmMsg: '确定要将 {name} 恢复为默认设置吗？此操作不可撤销，程序将重新加载配置。',
+    saveFailed: '保存设置失败: {error}',
+    resetSuccess: '{name} 已重置为默认值',
+    resetFailed: '重置失败: {error}',
     home: {
       networkGroup: '网络设置',
       network: '基础网络设置',

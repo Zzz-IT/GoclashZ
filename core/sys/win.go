@@ -37,6 +37,7 @@ const (
 	FLASHW_ALL       = 0x00000003
 	FLASHW_TIMERNOFG = 0x0000000C
 
+	SW_HIDE    = 0
 	SW_RESTORE = 9
 )
 
@@ -154,4 +155,45 @@ func FocusMainWindowAndFlashTwiceWin32Only() {
 
 	FocusWindow(hwnd)
 	FlashWindowTwice(hwnd)
+}
+
+// SafeHideMainWindowWin32 安全且彻底地隐藏主窗口
+// 针对 Windows 系统底层机制：当由父进程（如开机自启 Run 注册表由 explorer 启动）传入 STARTF_USESHOWWINDOW 时，
+// 系统会在进程首次调用 ShowWindow 时忽略传入的 nCmdShow（即使传入 SW_HIDE 也被系统强转为 SW_SHOWNORMAL）。
+// 通过多次调用 ShowWindow(hwnd, SW_HIDE) 消费掉系统默认的 STARTUPINFO 显示参数并强制隐藏。
+func SafeHideMainWindowWin32() {
+	hwnd := WaitMainWindowHandle()
+	if hwnd == 0 {
+		return
+	}
+
+	// 连续调用 ShowWindow(SW_HIDE)
+	// 第 1 次：消费掉 STARTUPINFO 中的 wShowWindow
+	// 第 2 次：确保真实执行 SW_HIDE
+	procShowWindow.Call(hwnd, uintptr(SW_HIDE))
+	procShowWindow.Call(hwnd, uintptr(SW_HIDE))
+}
+
+// EnsureMainWindowHiddenSilently 在后台守护短时间，确保静默启动时不被偶发系统事件或渲染初始化唤醒窗口
+func EnsureMainWindowHiddenSilently(shouldStayHidden func() bool) {
+	go func() {
+		checkIntervals := []time.Duration{
+			50 * time.Millisecond,
+			100 * time.Millisecond,
+			200 * time.Millisecond,
+			350 * time.Millisecond,
+			600 * time.Millisecond,
+			1000 * time.Millisecond,
+		}
+		for _, interval := range checkIntervals {
+			time.Sleep(interval)
+			if shouldStayHidden != nil && !shouldStayHidden() {
+				return
+			}
+			hwnd := FindMainWindow()
+			if hwnd != 0 {
+				procShowWindow.Call(hwnd, uintptr(SW_HIDE))
+			}
+		}
+	}()
 }

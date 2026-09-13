@@ -294,9 +294,23 @@ func UpdateNetworkConfig(newCfg *NetworkConfig) error {
 	return utils.SaveSetting("network", newCfg)
 }
 
-// ==========================================
-// --- 运行时参数注入器 ---
-// ==========================================
+// NormalizeLogLevel 规范化日志等级为 Mihomo/Clash 内核标准关键词 (debug, info, warning, error, silent)
+func NormalizeLogLevel(level string) string {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug", "trace":
+		return "debug"
+	case "info":
+		return "info"
+	case "warn", "warning":
+		return "warning"
+	case "error", "fatal", "panic":
+		return "error"
+	case "silent":
+		return "silent"
+	default:
+		return "info"
+	}
+}
 
 // BuildRuntimeConfig 核心流水线：基础配置 + 用户设置 = 最终运行配置
 func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool) error {
@@ -506,11 +520,7 @@ func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool
 	root["rules"] = runtimeRules
 
 	// 👇 核心新增：动态读取并注入我们设置的日志等级
-	if logLevel != "" {
-		root["log-level"] = logLevel
-	} else {
-		root["log-level"] = "info"
-	}
+	root["log-level"] = NormalizeLogLevel(logLevel)
 
 	// 4. 执行最终严格的引用校验，确保没有悬空引用导致 mihomo 启动崩溃
 	if err := ValidateClashReferences(root); err != nil {

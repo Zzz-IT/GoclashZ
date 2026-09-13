@@ -441,9 +441,18 @@ func (c *Controller) syncStartupTaskStateSafe() {
 	}
 
 	// ③ 任务存在且 SchedulerEnabled=true，但健康检查失败
-	//    （路径/参数不匹配、旧管理员任务等）
-	//    → 不覆盖用户配置，仅通过事件通知前端需要修复
+	//    （路径/参数不匹配、缺少 --silent、旧任务等）
+	//    → 如果用户期望开机自启，自动执行静默自愈修复
 	if !info.IsHealthy {
+		if behavior.StartupWithOS && info.ExpectedPath != "" {
+			c.logInfo("检测到开机自启项不健康或参数不全，自动自愈修复注册表: %s", info.LastError)
+			if err := sys.CreateStartupTask(info.ExpectedPath); err == nil {
+				c.logInfo("✅ 自动自愈修复开机自启注册表成功")
+				return
+			} else {
+				c.logWarn("自动修复开机自启注册表失败: %v", err)
+			}
+		}
 		c.events.Emit("startup-task-unhealthy", info.LastError)
 		return
 	}

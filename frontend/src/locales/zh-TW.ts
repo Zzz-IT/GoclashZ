@@ -89,6 +89,10 @@ export default {
     errToggleProxy: '系統代理切換失敗: {error}',
     errToggleTun: 'TUN 模式切換失敗: {error}',
     errSwitchMode: '模式切換失敗: {error}',
+    tunHelperTitle: '需要輔助服務',
+    tunHelperConfirm: 'TUN 模式需要具有系統特權的輔助服務支援，是否立即安裝/啟動服務？',
+    errInstallHelper: '初始化後台服務失敗: {error}',
+    errWintunMissing: '缺少 Wintun 驅動程式，請在「組件與庫更新」頁面安裝 Wintun 驅動。',
   },
   traffic: {
     title: '網路流量',
@@ -125,6 +129,10 @@ export default {
     testError: '失敗',
     switchSuccess: '已切換至節點: {name}',
     switchError: '節點切換失敗: {error}',
+    layoutStandard: '卡片佈局: 標準',
+    layoutCompact: '卡片佈局: 緊湊小卡',
+    layoutList: '卡片佈局: 縱向列表',
+    layoutAdaptive: '卡片佈局: 自適應寬度',
   },
   subs: {
     title: '本機設定庫',
@@ -316,6 +324,11 @@ export default {
     discardConfirmTitle: '放棄未儲存的修改',
   },
   settings: {
+    resetConfirmTitle: '確認重設',
+    resetConfirmMsg: '確定要將 {name} 恢復為預設設定嗎？此操作不可撤銷，程式將重新載入設定。',
+    saveFailed: '儲存設定失敗: {error}',
+    resetSuccess: '{name} 已重設為預設值',
+    resetFailed: '重設失敗: {error}',
     home: {
       networkGroup: '網路設定',
       network: '基礎網路設定',

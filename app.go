@@ -189,6 +189,12 @@ func (a *App) startup(ctx context.Context) {
 	} else {
 		runtime.WindowHide(ctx)
 		a.setWindowVisible(false)
+		// 🚀 核心修复：消费 Windows STARTF_USESHOWWINDOW 机制，防止系统将首个 ShowWindow(SW_HIDE) 强制改写为显示
+		sys.SafeHideMainWindowWin32()
+		// 🚀 核心守护：在启动后 1 秒内确保窗口保持隐藏，避免 WebView2 初始化或系统消息导致闪烁露头
+		sys.EnsureMainWindowHiddenSilently(func() bool {
+			return !a.isWindowVisible()
+		})
 	}
 
 	a.SyncState()

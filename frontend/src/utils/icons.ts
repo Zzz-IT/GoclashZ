@@ -26,6 +26,10 @@ export const ICONS = {
   // Proxies.vue
   zap: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>`,
   target: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>`,
+  layoutStandard: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3.5" width="8" height="7" rx="1.5"/><rect x="13" y="3.5" width="8" height="7" rx="1.5"/><rect x="3" y="13.5" width="8" height="7" rx="1.5"/><rect x="13" y="13.5" width="8" height="7" rx="1.5"/></svg>`,
+  layoutCompact: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="4.5" rx="1"/><rect x="13" y="3" width="8" height="4.5" rx="1"/><rect x="3" y="9.75" width="8" height="4.5" rx="1"/><rect x="13" y="9.75" width="8" height="4.5" rx="1"/><rect x="3" y="16.5" width="8" height="4.5" rx="1"/><rect x="13" y="16.5" width="8" height="4.5" rx="1"/></svg>`,
+  layoutList: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>`,
+  layoutAdaptive: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 12h10"/><path d="M10 9l-3 3 3 3"/><path d="M14 9l3 3-3 3"/></svg>`,
 
   // Connections.vue (强制 14x14)
   pause: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"></rect><rect x="14" y="4" width="4" height="16" rx="1"></rect></svg>`,

@@ -111,7 +111,7 @@ func hasLegacyTaskSchedulerTask() bool {
 	return cmd.Run() == nil
 }
 
-func deleteLegacyTaskSchedulerTask() {
+func DeleteLegacyTaskSchedulerTask() {
 	cmd := exec.Command("schtasks", "/Delete", "/TN", tsTaskName, "/F")
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	_ = cmd.Run()
@@ -241,7 +241,7 @@ func CreateStartupTask(exePath string) error {
 	}
 
 	// 尽力清理旧版任务计划程序残留（若无权限则忽略，不阻断主流程）
-	go deleteLegacyTaskSchedulerTask()
+	go DeleteLegacyTaskSchedulerTask()
 
 	return nil
 }
@@ -262,7 +262,7 @@ func DeleteStartupTask() error {
 	}
 
 	// 尽力清理旧版任务计划程序残留
-	go deleteLegacyTaskSchedulerTask()
+	go DeleteLegacyTaskSchedulerTask()
 
 	return nil
 }

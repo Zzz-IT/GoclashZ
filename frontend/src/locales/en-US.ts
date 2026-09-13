@@ -89,6 +89,10 @@ export default {
     errToggleProxy: 'Failed to toggle system proxy: {error}',
     errToggleTun: 'Failed to toggle TUN mode: {error}',
     errSwitchMode: 'Failed to switch mode: {error}',
+    tunHelperTitle: 'Helper Service Required',
+    tunHelperConfirm: 'TUN mode requires a background helper service with administrator privileges. Install and start it now?',
+    errInstallHelper: 'Failed to initialize helper service: {error}',
+    errWintunMissing: 'Wintun driver is missing. Please install the Wintun driver in "Components & Updates".',
   },
   traffic: {
     title: 'Traffic',
@@ -125,6 +129,10 @@ export default {
     testError: 'Failed',
     switchSuccess: 'Switched to node: {name}',
     switchError: 'Failed to switch node: {error}',
+    layoutStandard: 'Layout: Standard',
+    layoutCompact: 'Layout: Compact',
+    layoutList: 'Layout: List',
+    layoutAdaptive: 'Layout: Adaptive Width',
   },
   subs: {
     title: 'Profiles',
@@ -316,6 +324,11 @@ export default {
     discardConfirmTitle: 'Discard Unsaved Changes',
   },
   settings: {
+    resetConfirmTitle: 'Confirm Reset',
+    resetConfirmMsg: 'Are you sure you want to restore {name} to default settings? This cannot be undone and configuration will be reloaded.',
+    saveFailed: 'Failed to save settings: {error}',
+    resetSuccess: '{name} has been reset to defaults',
+    resetFailed: 'Reset failed: {error}',
     home: {
       networkGroup: 'Network',
       network: 'Network Settings',

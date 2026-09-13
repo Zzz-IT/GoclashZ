@@ -170,6 +170,16 @@ func main() {
 		// ✅ 核心修复：直接通过系统调用返回的 err 判断，切勿使用 GetLastError()
 		if err != nil {
 			if err == syswin.ERROR_ALREADY_EXISTS {
+				// 🚀 核心修复：若当前是由开机自启或静默模式拉起，遇到互斥锁碰撞说明已有实例在运行，
+				// 此时绝不可调用 FocusMainWindowAndFlashTwiceWin32Only() 弹窗唤醒，必须直接静默退出！
+				if hasFlag("--silent") || hasFlag("--startup") {
+					logger.Infof("⚠️ GoclashZ 已有实例在运行，当前为静默/自启模式，直接退出，不唤醒已有窗口")
+					if mutexHandle != 0 {
+						syswin.CloseHandle(mutexHandle)
+					}
+					os.Exit(0)
+				}
+
 				logger.Infof("⚠️ GoclashZ 已经在后台运行，正在唤醒已有窗口...")
 
 				// 🚀 核心重构：调用统一的唤醒与闪烁函数 (由 core/sys 提供)
@@ -190,8 +200,8 @@ func main() {
 			defer syswin.CloseHandle(mutexHandle)
 		}
 
-		// 🚀 核心自愈：我们不再无条件清理代理，而是交由 Supervisor 恢复机制
-		// sys.ClearOwnedSystemProxy() // 移除此行
+		// 🚀 核心自愈：清理可能残留的旧计划任务（防止开机时同时触发注册表Run与计划任务导致双启碰撞）
+		go sys.DeleteLegacyTaskSchedulerTask()
 
 		// 🚀 核心保护：注册操作系统信号监听
 		installEmergencyProxyCleanup()
