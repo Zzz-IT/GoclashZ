@@ -4,6 +4,8 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,6 +99,54 @@ func main() {
 			os.Exit(1)
 		}
 		logger.Infof("✅ 成功修复内核布局及权限")
+		os.Exit(0)
+	}
+
+	if hasFlag("--save-uwp-exemptions") {
+		if !sys.CheckAdmin() {
+			if err := sys.RequestAdmin(); err != nil {
+				logger.Errorf("请求管理员权限失败: %v", err)
+			}
+			os.Exit(0)
+		}
+
+		filePath := ""
+		for i, arg := range os.Args {
+			if arg == "--save-uwp-exemptions" && i+1 < len(os.Args) {
+				filePath = os.Args[i+1]
+				break
+			}
+		}
+
+		if filePath == "" {
+			err := fmt.Errorf("未指定 UWP 规则临时文件路径")
+			logger.Errorf("%v", err)
+			sys.WriteAdminTaskResult("save-uwp-exemptions", err)
+			os.Exit(1)
+		}
+
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			logger.Errorf("读取 UWP 规则临时文件失败: %v", err)
+			sys.WriteAdminTaskResult("save-uwp-exemptions", err)
+			os.Exit(1)
+		}
+
+		var sids []string
+		if err := json.Unmarshal(data, &sids); err != nil {
+			logger.Errorf("解析 UWP 规则失败: %v", err)
+			sys.WriteAdminTaskResult("save-uwp-exemptions", err)
+			os.Exit(1)
+		}
+
+		if err := sys.SaveUwpExemptions(sids); err != nil {
+			logger.Errorf("保存 UWP 规则失败: %v", err)
+			sys.WriteAdminTaskResult("save-uwp-exemptions", err)
+			os.Exit(1)
+		}
+
+		logger.Infof("成功保存 UWP 环回免除规则")
+		sys.WriteAdminTaskResult("save-uwp-exemptions", nil)
 		os.Exit(0)
 	}
 

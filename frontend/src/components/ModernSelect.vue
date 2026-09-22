@@ -24,8 +24,16 @@
   </div>
 </template>
 
+<script lang="ts">
+import { ref } from 'vue';
+
+let globalSelectCounter = 0;
+// 全局/页面共享的当前激活展开的下拉框实例 ID
+const activeSelectId = ref<number | null>(null);
+</script>
+
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { computed, onMounted, onUnmounted, watch } from 'vue';
 
 const props = defineProps<{
   modelValue: string | number;
@@ -44,7 +52,8 @@ watch(() => props.modelValue, (newVal) => {
   }
 }, { immediate: true });
 
-const isOpen = ref(false);
+const instanceId = ++globalSelectCounter;
+const isOpen = computed(() => activeSelectId.value === instanceId);
 const selectRef = ref<HTMLElement | null>(null);
 
 const selectedLabel = computed(() => {
@@ -53,19 +62,24 @@ const selectedLabel = computed(() => {
 });
 
 const toggle = () => {
-  if (!props.disabled) isOpen.value = !isOpen.value;
+  if (props.disabled) return;
+  if (activeSelectId.value === instanceId) {
+    activeSelectId.value = null;
+  } else {
+    activeSelectId.value = instanceId;
+  }
 };
 
 const selectOption = (val: string | number) => {
   emit('update:modelValue', val);
   emit('change', val);
-  isOpen.value = false;
+  activeSelectId.value = null;
 };
 
-// 🌟 核心重绘逻辑：自己接管“失去焦点”事件
+// 核心重绘逻辑：自己接管“失去焦点”事件
 const handleClickOutside = (event: MouseEvent) => {
-  if (isOpen.value && selectRef.value && !selectRef.value.contains(event.target as Node)) {
-    isOpen.value = false;
+  if (activeSelectId.value === instanceId && selectRef.value && !selectRef.value.contains(event.target as Node)) {
+    activeSelectId.value = null;
   }
 };
 
@@ -75,8 +89,11 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  // 组件销毁时记得撕掉监听器，防止内存泄漏
+  // 组件销毁时注销监听器
   document.removeEventListener('click', handleClickOutside);
+  if (activeSelectId.value === instanceId) {
+    activeSelectId.value = null;
+  }
 });
 </script>
 
@@ -94,6 +111,24 @@ onUnmounted(() => {
 
 .modern-custom-select.w-full {
   width: 100%;
+}
+
+.modern-custom-select.w-full .select-trigger {
+  width: 100%;
+}
+
+.modern-custom-select.w-full .select-trigger span {
+  max-width: 100%;
+  flex: 1;
+  text-align: left;
+}
+
+.modern-custom-select.w-full .select-dropdown {
+  width: 100%;
+  max-width: 100%;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
 }
 
 /* 2. 触发器（视觉主体） */

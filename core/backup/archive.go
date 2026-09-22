@@ -42,6 +42,7 @@ func Export(dataDir, destPath string, appVersion string) error {
 		"profiles",
 		"config.yaml",
 		"theme_setting.txt",
+		"offline_nodes.json",
 	}
 
 	contains := []string{}
@@ -210,13 +211,13 @@ func buildRestorePlan(mode string) *RestorePlan {
 	switch mode {
 	case "all":
 		plan.ReplaceDirs = []string{"Settings", "Subscriptions", "profiles"}
-		plan.ReplaceFiles = []string{"config.yaml", "theme_setting.txt"}
+		plan.ReplaceFiles = []string{"config.yaml", "theme_setting.txt", "offline_nodes.json"}
 	case "settings":
 		plan.ReplaceDirs = []string{"Settings"}
 		plan.ReplaceFiles = []string{"theme_setting.txt"}
 	case "subs":
 		plan.ReplaceDirs = []string{"Subscriptions", "profiles"}
-		plan.ReplaceFiles = []string{"config.yaml"}
+		plan.ReplaceFiles = []string{"config.yaml", "offline_nodes.json"}
 	case "subs-merge":
 		plan.MergeDirs = []string{"Subscriptions"}
 	}
@@ -227,9 +228,11 @@ func validateRestorePlanInputs(stagingDir string, plan *RestorePlan, mode string
 	required := append([]string{}, plan.ReplaceDirs...)
 	required = append(required, plan.ReplaceFiles...)
 
-	// 可选项可以排除 theme_setting.txt，兼容旧备份
+	// 可选项排除非必需目标，提高备份兼容性
 	optional := map[string]bool{
-		"theme_setting.txt": true,
+		"theme_setting.txt":  true,
+		"config.yaml":        true,
+		"offline_nodes.json": true,
 	}
 
 	for _, target := range required {
@@ -345,6 +348,9 @@ func rollbackRestorePlan(dataDir, rollbackDir string, plan *RestorePlan) error {
 			}
 		}
 	}
+
+	// 回滚完成后，重新从磁盘加载订阅索引到内存，确保内存与磁盘一致
+	_ = clash.LoadIndex()
 	return nil
 }
 
@@ -535,15 +541,19 @@ func normalizeBackupEntry(name string) (destRel string, kind string, ok bool) {
 		return "theme_setting.txt", "theme", true
 	case lower == "config.yaml":
 		return "config.yaml", "config", true
+	case lower == "offline_nodes.json":
+		return "offline_nodes.json", "nodes", true
 	case lower == "manifest.json":
 		return "manifest.json", "manifest", true
-	case lower == "behavior.json":
+	case lower == "index.json", lower == "subscriptions/index.json":
+		return filepath.ToSlash(filepath.Join("profiles", "index.json")), "profiles", true
+	case lower == "behavior.json", lower == "user_behavior.json":
 		return filepath.ToSlash(filepath.Join("Settings", "user_behavior.json")), "settings", true
-	case lower == "dns.json":
+	case lower == "dns.json", lower == "user_dns.json":
 		return filepath.ToSlash(filepath.Join("Settings", "user_dns.json")), "settings", true
-	case lower == "network.json":
+	case lower == "network.json", lower == "user_network.json":
 		return filepath.ToSlash(filepath.Join("Settings", "user_network.json")), "settings", true
-	case lower == "tun.json":
+	case lower == "tun.json", lower == "user_tun.json":
 		return filepath.ToSlash(filepath.Join("Settings", "user_tun.json")), "settings", true
 	case lower == "desired_state.json", lower == "user_desired_state.json", lower == "user_user_desired_state.json":
 		return filepath.ToSlash(filepath.Join("Settings", "user_desired_state.json")), "settings", true
@@ -683,6 +693,9 @@ func rebuildIndexFromSubscriptions(stagingDir string) ([]clash.SubIndexItem, err
 		}
 
 		if d.IsDir() {
+			if path != subDir {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
@@ -718,6 +731,14 @@ func rebuildIndexFromSubscriptions(stagingDir string) ([]clash.SubIndexItem, err
 
 	if len(items) == 0 {
 		return nil, fmt.Errorf("备份中未找到可恢复的订阅配置文件")
+	}
+
+	// 🛡️ 核心修复：将重建的索引持久化写入 stagingDir/profiles/index.json，确保物理目录与文件存在
+	profilesDir := filepath.Join(stagingDir, "profiles")
+	if err := os.MkdirAll(profilesDir, 0755); err == nil {
+		if data, err := json.MarshalIndent(items, "", "  "); err == nil {
+			_ = os.WriteFile(filepath.Join(profilesDir, "index.json"), data, 0644)
+		}
 	}
 
 	return items, nil

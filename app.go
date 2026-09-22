@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"goclashz/core/appcore"
 	"goclashz/core/clash"
@@ -633,11 +634,33 @@ func (a *App) GetComponentFileInfo() map[string]runtimeassets.AssetHealth {
 	}
 }
 
+func (a *App) RestartAsAdmin() error {
+	return sys.RequestAdmin()
+}
+
 func (a *App) GetUwpApps() ([]sys.UwpApp, error) {
 	return sys.GetUwpAppList()
 }
 
 func (a *App) SaveUwpExemptions(sids []string) error {
+	if !sys.CheckAdmin() {
+		// 普通权限模式下，借助 UAC 提权执行子进程以保存系统豁免配置
+		tempFile := filepath.Join(os.TempDir(), fmt.Sprintf("goclashz-uwp-%d.json", time.Now().UnixNano()))
+		data, err := json.Marshal(sids)
+		if err != nil {
+			return fmt.Errorf("编码 UWP 列表失败: %w", err)
+		}
+		if err := os.WriteFile(tempFile, data, 0600); err != nil {
+			return fmt.Errorf("创建临时文件失败: %w", err)
+		}
+		defer os.Remove(tempFile)
+
+		if err := sys.RunElevatedWithArgsWait("--save-uwp-exemptions", tempFile); err != nil {
+			return fmt.Errorf("提权保存 UWP 规则失败: %w", err)
+		}
+		return nil
+	}
+
 	return sys.SaveUwpExemptions(sids)
 }
 
@@ -1052,6 +1075,10 @@ func (a *App) TestProxy(name string) (int, error) {
 	ctx, cancel := context.WithTimeout(a.ctx, appcore.SingleOuterTimeout)
 	defer cancel()
 	return a.core.Delay.TestProxy(ctx, name)
+}
+
+func (a *App) StopDelayTest() {
+	a.core.Delay.StopDelayTest()
 }
 
 // --- Updates (Core & App) ---

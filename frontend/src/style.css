@@ -154,14 +154,51 @@ html[lang="de-DE"],
     --sidebar-width: 205px;
 }
 
-/* 🛡️ 全局防挤压：确保长英文标签下，右侧按钮、下拉框、Switch 等控件决不被压缩变形 */
+/* 国际化排版保护：为西文长词与片假名开启自动连字符与软折行 */
+.app-shell[data-lang="en-US"],
+.app-shell[data-lang="ja-JP"],
+.app-shell[data-lang="ru-RU"],
+.app-shell[data-lang="fr-FR"],
+.app-shell[data-lang="de-DE"] {
+    hyphens: auto;
+    overflow-wrap: break-word;
+}
+
+/* 外语环境下紧凑按钮字号与内边距微调，防止横向膨胀挤压布局 */
+.app-shell[data-lang="ru-RU"] .action-btn,
+.app-shell[data-lang="fr-FR"] .action-btn,
+.app-shell[data-lang="de-DE"] .action-btn,
+.app-shell[data-lang="ja-JP"] .action-btn,
+.app-shell[data-lang="ru-RU"] .primary-btn,
+.app-shell[data-lang="fr-FR"] .primary-btn,
+.app-shell[data-lang="de-DE"] .primary-btn,
+.app-shell[data-lang="ja-JP"] .primary-btn {
+    padding: 0 10px;
+    font-size: 0.8rem;
+    letter-spacing: -0.01em;
+}
+
+/* 外语环境下首页模式分段控制器微调 */
+.app-shell[data-lang="ru-RU"] .seg-item,
+.app-shell[data-lang="fr-FR"] .seg-item,
+.app-shell[data-lang="de-DE"] .seg-item,
+.app-shell[data-lang="ja-JP"] .seg-item {
+    font-size: 0.82rem;
+    padding: 12px 4px;
+    line-height: 1.2;
+}
+
+/* 🛡️ 全局防挤压：确保长外语标签下，右侧按钮、下拉框、Switch 等控件决不被压缩变形 */
 .setting-item {
     gap: 16px;
 }
 .setting-item > .info {
     flex: 1 1 auto;
-    min-width: 0;
+    min-width: 140px;
     word-break: break-word;
+}
+.setting-item > .info p {
+    line-height: 1.45;
 }
 .setting-item > *:not(.info) {
     flex-shrink: 0;
@@ -171,6 +208,13 @@ html[lang="de-DE"],
 .setting-item .primary-btn {
     white-space: nowrap;
     flex-shrink: 0;
+}
+.setting-item .btn-group {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
 /* 🌙 暗色模式：深沉纯黑灰，层次靠明度递进 */

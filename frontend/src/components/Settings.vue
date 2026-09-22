@@ -2,7 +2,7 @@
   <div class="settings-container">
     <Transition name="slide-fade" mode="out-in">
       <div :key="view" class="settings-view-wrapper">
-        <SettingsHome v-if="view === 'main'" @navigate="view = $event" @enter-uwp="view = 'uwp'; uwpEntry += 1" />
+        <SettingsHome v-if="view === 'main'" @navigate="view = $event" @enter-uwp="handleEnterUwp" />
         <SettingsUpdate v-else-if="view === 'update'" :behavior="behavior" @navigate="view = $event" @save-behavior="saveBehavior" />
         <SettingsTun v-else-if="view === 'tun'" :reset-key="resetVersions.tun" @navigate="view = $event" @reset="confirmReset" />
         <SettingsDns v-else-if="view === 'dns'" :reset-key="resetVersions.dns" @navigate="view = $event" @reset="confirmReset" />
@@ -20,7 +20,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { globalState, showAlert } from '../store';
+import { globalState, showAlert, showConfirm } from '../store';
 import { t, setLocale, currentLocale, SupportedLocale } from '../locales';
 import SettingsAbout from './SettingsAbout.vue';
 import SettingsBehavior from './SettingsBehavior.vue';
@@ -35,6 +35,26 @@ import SettingsUwp from './SettingsUwp.vue';
 const props = defineProps({ initialView: { type: String, default: 'main' } });
 const view = ref(props.initialView as 'main' | 'uwp' | 'tun' | 'dns' | 'network' | 'lan' | 'behavior' | 'update' | 'about');
 const uwpEntry = ref(0);
+
+const handleEnterUwp = async () => {
+  if (!globalState.isAdmin) {
+    const restart = await showConfirm(
+      t('settings.uwp.adminPromptMsg'),
+      t('settings.uwp.adminPromptTitle'),
+      false
+    );
+    if (restart) {
+      try {
+        await (API as any).RestartAsAdmin();
+      } catch (e: any) {
+        await showAlert(t('common.error') + ': ' + (e?.message || e), t('common.error'), true);
+      }
+      return;
+    }
+  }
+  view.value = 'uwp';
+  uwpEntry.value += 1;
+};
 const showResetConfirm = ref(false);
 const resetModule = ref('');
 const resetModuleName = ref('');

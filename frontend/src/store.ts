@@ -3,7 +3,7 @@ import { reactive } from 'vue';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 import * as API from '../wailsjs/go/main/App';
 import { runtimeassets } from '../wailsjs/go/models';
-import { setLocale, SupportedLocale } from './locales';
+import { setLocale, SupportedLocale, t } from './locales';
 
 export type UpdateTaskState = {
   key: string;
@@ -636,7 +636,7 @@ export async function initStore() {
     updateStateFromBackend(newState);
   });
 
-  EventsOn("app-notification", (notification: { level?: string; message?: string; source?: string }) => {
+  EventsOn("app-notification", async (notification: { level?: string; code?: string; message?: string; source?: string }) => {
     // Page commands already render their returned errors. Tray failures have
     // no local caller, so this is the one notification path that opens UI.
     if (
@@ -644,7 +644,25 @@ export async function initStore() {
       notification.level === 'error' &&
       notification.message
     ) {
-      showAlert(notification.message, '错误', true);
+      if (notification.code === 'STARTUP_RESTORE_HELPER_REQUIRED') {
+        const confirmed = await showConfirm(
+          t('overview.tunHelperConfirm'),
+          t('overview.tunHelperTitle')
+        );
+        if (confirmed) {
+          try {
+            await (API as any).InstallHelperService();
+            await API.ToggleTunMode(true);
+            const latest = await (API as any).GetAppState().catch(() => null);
+            if (latest) updateStateFromBackend(latest);
+          } catch (e: any) {
+            showAlert(t('overview.errInstallHelper', { error: String(e?.message || e) }), t('common.error'), true);
+          }
+        }
+        return;
+      }
+
+      showAlert(notification.message, t('common.error'), true);
     }
   });
 
@@ -749,9 +767,11 @@ export async function initStore() {
     const message = data.message || '';
     const delay = data.delay ?? null;
 
-    // 🛡️ 核心优化：如果本次测速失败（非 success），且本地已有成功的延迟，则不覆盖数值，仅更新消息以供 UI 提示
+    // 🛡️ 核心优化：如果本次测速失败（非 success），且本地已有成功的延迟，
+    // 仅在后台自动测速（非 manual）时防止网络抖动清空数值；
+    // 若为手动用户测速（source === 'manual'），如实反映当前超时/错误状态
     const existing = globalState.proxyDelays[data.name];
-    if (status !== 'success' && existing && existing.delay && existing.delay > 0) {
+    if (data.source !== 'manual' && status !== 'success' && existing && existing.delay && existing.delay > 0) {
       existing.status = status;
       existing.message = message;
       return;

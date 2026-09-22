@@ -21,11 +21,12 @@
         <div class="proxy-toolbar-actions">
           <button
             class="primary-btn accent-btn proxy-test-btn"
-            @click="testAllDelays"
-            :disabled="isTesting || !activeGroupData"
+            @click="toggleTestAllDelays"
+            :disabled="!activeGroupData"
+            :title="isTesting ? t('proxies.stopTesting') : t('proxies.speedTestGroup')"
           >
-            <span class="btn-icon" v-html="ICONS.zap"></span>
-            {{ isTesting ? t('proxies.testing') : t('proxies.speedTestGroup') }}
+            <span class="btn-icon" v-html="isTesting ? ICONS.x : ICONS.zap"></span>
+            {{ isTesting ? t('proxies.stopTesting') : t('proxies.speedTestGroup') }}
           </button>
         </div>
       </div>
@@ -85,7 +86,7 @@
 
             <div 
               class="n-latency-box" 
-              :class="{ disabled: isTesting }"
+              :class="{ disabled: node.testing }"
               :title="globalState.proxyDelays[node.name]?.message || ''"
               @click.stop="testSingleDelay(node)"
             >
@@ -164,7 +165,11 @@ const resetSlider = () => {
   });
 };
 
-watch(currentGroup, (v) => { if (v) localStorage.setItem('goclashz_proxyGroup', v); nextTick(updateSlider); });
+watch(currentGroup, (v) => { 
+  if (v) localStorage.setItem('goclashz_proxyGroup', v); 
+  frozenSortedNodes.value = null;
+  nextTick(updateSlider); 
+});
 watch(() => localGroups.value.length, () => { resetSlider(); });
 onMounted(() => resetSlider());
 onActivated(() => {
@@ -180,6 +185,8 @@ let unsubUpdate: (() => void) | null = null;
 let unsubChanged: (() => void) | null = null;
 let unsubFinish: (() => void) | null = null;
 let unsubProxyState: (() => void) | null = null;
+
+const frozenSortedNodes = ref<any[] | null>(null);
 
 const storedSort = parseInt(localStorage.getItem('goclashz_proxySortState') || '0');
 const sortState = ref(isNaN(storedSort) ? 0 : storedSort);
@@ -204,6 +211,7 @@ const toggleSearch = () => {
 
 const toggleSort = () => {
   sortState.value = sortState.value === 0 ? 1 : 0;
+  frozenSortedNodes.value = null;
 };
 
 const locateActiveNode = () => {
@@ -342,6 +350,16 @@ const gridStyle = computed(() => {
 
 const filteredAndSortedNodes = computed(() => {
   if (!activeGroupData.value || !activeGroupData.value.proxies) return [];
+
+  // 测速进行时冻结排序快照，避免频繁重排致使卡片剧烈抖动与错位
+  if (isTesting.value && frozenSortedNodes.value) {
+    if (searchQuery.value) {
+      const q = searchQuery.value.toLowerCase();
+      return frozenSortedNodes.value.filter(n => n.name.toLowerCase().includes(q));
+    }
+    return frozenSortedNodes.value;
+  }
+
   let nodes = [...activeGroupData.value.proxies];
   
   if (searchQuery.value) {
@@ -490,44 +508,70 @@ const stopActiveConfigWatch = watch(
   }
 );
 
-// 测速当前选中的组
+// 测速当前选中的组 / 中止测速
+const toggleTestAllDelays = async () => {
+  if (isTesting.value) {
+    await stopTesting();
+    return;
+  }
+  await testAllDelays();
+};
+
+const stopTesting = async () => {
+  try {
+    await API.StopDelayTest();
+  } catch (e) {
+    console.error("停止测速失败:", e);
+  } finally {
+    isTesting.value = false;
+    frozenSortedNodes.value = null;
+    if (localGroups.value) {
+      localGroups.value.forEach(g => {
+        if (!g.proxies) return;
+        g.proxies.forEach((n: any) => {
+          n.testing = false;
+        });
+      });
+    }
+  }
+};
+
 const testAllDelays = async () => {
   if (!activeGroupData.value || isTesting.value) return;
 
   isTesting.value = true;
-  const nodesArray = activeGroupData.value.proxies.map((n: any) => {
-      n.testing = true;
-      return n.name;
-  });
+  const proxies = activeGroupData.value.proxies || [];
+  // 冻结当前节点顺序，防止测速期间卡片位置频繁跳动造成视觉混乱与点击错位
+  frozenSortedNodes.value = [...filteredAndSortedNodes.value];
+
+  const nodesArray = proxies.map((n: any) => n.name);
 
   if (nodesArray.length > 0) {
     try {
       await API.TestAllProxies(nodesArray);
     } catch (e) {
       isTesting.value = false;
-      activeGroupData.value.proxies.forEach((n: any) => {
-          n.testing = false;
+      frozenSortedNodes.value = null;
+      proxies.forEach((n: any) => {
+        n.testing = false;
       });
     }
   } else {
     isTesting.value = false;
+    frozenSortedNodes.value = null;
   }
 };
 
 // 单点测速
 const testSingleDelay = async (node: any) => {
-  if (node.testing || isTesting.value) return;
+  if (node.testing) return;
   
   node.testing = true;
 
   try {
     await API.TestProxy(node.name);
-    // 🛡️ 核心修复：不再手动调用 updateProxyDelay
-    // 因为后端会通过 proxy-delay-update 事件发送归一化后的 leaf 和 group 派生结果
-    // 这样能确保主页面和组页面数据百分之百同步，且处理了嵌套组的派生逻辑
   } catch (e) {
     const msg = String(e);
-    // 🛡️ 核心修复：如果是 busy 状态（说明已在批量测速中），则静默退出，不要覆盖已有结果为 0
     if (msg.includes('DELAY_TEST_BUSY') || msg.includes('已有测速任务') || msg.includes('busy')) {
       return;
     }
@@ -593,6 +637,7 @@ onMounted(async () => {
 
   unsubFinish = (EventsOn as any)("proxy-test-finished", () => {
     isTesting.value = false;
+    frozenSortedNodes.value = null;
     
     // 🚀 核心修复：清理所有组内节点的转圈状态，防止长尾节点卡死
     localGroups.value.forEach(g => {
@@ -782,6 +827,7 @@ onUnmounted(() => {
   padding: 0 18px;
   border-radius: 8px;
   white-space: nowrap;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .btn-icon { width: 14px; height: 14px; }

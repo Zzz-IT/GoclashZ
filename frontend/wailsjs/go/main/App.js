@@ -250,6 +250,10 @@ export function ResetTrafficTotals() {
   return window['go']['main']['App']['ResetTrafficTotals']();
 }
 
+export function RestartAsAdmin() {
+  return window['go']['main']['App']['RestartAsAdmin']();
+}
+
 export function RestartCore() {
   return window['go']['main']['App']['RestartCore']();
 }
@@ -332,6 +336,10 @@ export function StartStreamingLogs() {
 
 export function StopConnectionMonitor() {
   return window['go']['main']['App']['StopConnectionMonitor']();
+}
+
+export function StopDelayTest() {
+  return window['go']['main']['App']['StopDelayTest']();
 }
 
 export function SyncRules(arg1) {

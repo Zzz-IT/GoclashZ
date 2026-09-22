@@ -378,9 +378,8 @@ const runModeWorker = async (targetMode: string) => {
 .on .status-node { background: var(--accent-fg); box-shadow: 0 0 8px var(--accent-fg); }
 .rules-card { padding: 24px 28px; background: var(--surface); border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); display: flex; flex-direction: column; gap: 20px; }
 .rules-head { display: flex; align-items: center; justify-content: space-between; }
-.section-heading { margin: 0; font-size: 1rem; font-weight: 600; color: var(--text-main); }
 .segmented-control { background: var(--surface-panel); padding: 4px; border-radius: 12px; display: flex; position: relative; border: none; overflow: hidden; }
-.seg-item { flex: 1; text-align: center; padding: 14px 0; font-size: 0.9rem; font-weight: 600; color: var(--text-main); cursor: pointer; z-index: 1; transition: 0.3s; }
+.seg-item { flex: 1; text-align: center; padding: 10px 4px; min-height: 40px; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: 600; color: var(--text-main); cursor: pointer; z-index: 1; transition: 0.3s; word-break: keep-all; }
 .seg-item.active { color: var(--accent-fg); }
-.seg-slider { position: absolute; top: 10px; bottom: 10px; width: calc(33.33% - 20px); margin-left: 10px; background: var(--text-main); border-radius: 8px; z-index: 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1); transition: left 0.3s cubic-bezier(0.4,0,0.2,1); }
+.seg-slider { position: absolute; top: 4px; bottom: 4px; width: calc(33.33% - 8px); margin-left: 4px; background: var(--text-main); border-radius: 8px; z-index: 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1); transition: left 0.3s cubic-bezier(0.4,0,0.2,1); }
 </style>

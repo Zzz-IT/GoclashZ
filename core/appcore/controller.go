@@ -398,14 +398,26 @@ func (c *Controller) runStartupRestoreJob(ctx context.Context) {
 		case errors.Is(err, ErrNoActiveConfig):
 			c.notify("error", "STARTUP_RESTORE_NO_CONFIG", "启动恢复失败：尚未添加配置", "startup")
 			return
-		case errors.Is(err, ErrHelperInstallRequired), errors.Is(err, ErrHelperRepairRequired):
+		case errors.Is(err, ErrHelperInstallRequired):
+			// 服务根本未安装（例如纯绿色解压版），直接通知引导
 			c.notify("error", "STARTUP_RESTORE_HELPER_REQUIRED", "TUN 启动恢复需要初始化后台服务", "startup")
 			return
-		case errors.Is(err, ErrWintunMissing):
-			c.notify("error", "STARTUP_RESTORE_WINTUN_MISSING", "TUN 启动恢复失败：缺少 Wintun 驱动", "startup")
-			return
 		default:
-			c.logWarn("启动恢复失败 attempt=%d: %v", i+1, err)
+			// 对于 ErrHelperRepairRequired、ErrWintunMissing 或开机 SCM 忙等瞬态延迟：
+			// 在退避重试次数未耗尽前继续下一次尝试，避免因开机瞬时卡顿提前弹出错误
+			if i < len(backoff)-1 {
+				c.logWarn("启动恢复尝试 (%d/%d) 暂未就绪: %v，将在 %v 后重试", i+1, len(backoff), err, backoff[i+1])
+				continue
+			}
+
+			// 5 次重试全部耗尽后，作为最终失败通知用户
+			if errors.Is(err, ErrHelperRepairRequired) {
+				c.notify("error", "STARTUP_RESTORE_HELPER_REQUIRED", "TUN 启动恢复需要初始化后台服务", "startup")
+			} else if errors.Is(err, ErrWintunMissing) {
+				c.notify("error", "STARTUP_RESTORE_WINTUN_MISSING", "TUN 启动恢复失败：缺少 Wintun 驱动", "startup")
+			} else {
+				c.notify("error", "STARTUP_RESTORE_FAILED", fmt.Sprintf("TUN 启动恢复失败: %v", err), "startup")
+			}
 		}
 	}
 
@@ -1230,11 +1242,13 @@ func (c *Controller) ensureHelperReadySlow(reason string) error {
 
 	// 1. 如果 Helper 已安装但处于停止状态，尝试直接通过 SCM 启动（当前用户 SID 已由 DACL 授权 SERVICE_START）
 	if err := sys.StartHelperService(); err == nil {
-		if err := sys.WaitForHelperReady(15, 200*time.Millisecond); err == nil {
+		if err := sys.WaitForHelperReady(25, 200*time.Millisecond); err == nil {
 			_ = client.RegisterParent(os.Getpid())
 			c.logInfo("Helper 服务已通过 SCM 成功启动并就绪 (reason: %s)", reason)
 			return nil
 		}
+	} else {
+		c.logWarn("尝试通过 SCM 启动 Helper 服务未成功: %v (reason: %s)", err, reason)
 	}
 
 	// 2. 普通权限：无法直接启动时检查服务是否安装，返回对应引导错误

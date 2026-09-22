@@ -131,6 +131,8 @@ export function ResetComponentSettings(arg1:string):Promise<void>;
 
 export function ResetTrafficTotals():Promise<void>;
 
+export function RestartAsAdmin():Promise<void>;
+
 export function RestartCore():Promise<void>;
 
 export function RestartHelperService():Promise<void>;
@@ -172,6 +174,8 @@ export function StartConnectionMonitor():Promise<void>;
 export function StartStreamingLogs():Promise<void>;
 
 export function StopConnectionMonitor():Promise<void>;
+
+export function StopDelayTest():Promise<void>;
 
 export function SyncRules(arg1:string):Promise<void>;
 

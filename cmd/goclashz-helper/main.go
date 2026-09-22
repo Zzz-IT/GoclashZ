@@ -784,9 +784,11 @@ func readAllowedSids() []string {
 }
 
 func buildPipeSDDL(allowedSids []string) string {
-	sddl := "D:(A;;GA;;;SY)(A;;GA;;;BA)"
+	sddl := "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;IU)"
 	for _, sid := range allowedSids {
-		sddl += "(A;;GA;;;" + sid + ")"
+		if sid != "" {
+			sddl += "(A;;GA;;;" + sid + ")"
+		}
 	}
 	return sddl
 }

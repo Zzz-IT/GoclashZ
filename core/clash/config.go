@@ -231,7 +231,7 @@ func GetDefaultDNSConfig() DNSConfig {
 		DefaultNameserver:     []string{"223.5.5.5", "114.114.114.114"},
 		Nameserver:            []string{"https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"},
 		Fallback:              []string{"https://doh.dns.sb/dns-query", "https://dns.cloudflare.com/dns-query"},
-		DirectNameserver:      []string{"https://dns.alidns.com/dns-query", "https://doh.pub/dns-query"},
+		DirectNameserver:      []string{"223.5.5.5", "https://dns.alidns.com/dns-query", "https://doh.pub/dns-query"},
 		ProxyServerNameserver: []string{"223.5.5.5"},
 		NameserverPolicy:      map[string]string{"geosite:cn": "https://doh.pub/dns-query"},
 		FallbackFilter: FallbackFilterConfig{
@@ -263,7 +263,7 @@ func GetDefaultNetworkConfig() NetworkConfig {
 		TCPConcurrent:             true,
 		TCPKeepAlive:              true,
 		TCPKeepAliveInterval:      30,
-		TestURL:                   "http://www.g.cn/generate_204",
+		TestURL:                   "http://www.gstatic.com/generate_204",
 		ExternalController:        "127.0.0.1:9090",
 		ExternalControllerEnabled: false,
 		ExternalControllerSecret:  "",

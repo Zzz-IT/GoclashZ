@@ -101,6 +101,10 @@ func getExemptedSids() (map[string]bool, error) {
 
 // SaveUwpExemptions 批量保存豁免（增量更新版，加入并发控制与路径安全加固）
 func SaveUwpExemptions(targetSids []string) error {
+	if !CheckAdmin() {
+		return fmt.Errorf("修改 UWP 环回免除规则需要管理员权限")
+	}
+
 	// 1. 获取当前系统已有的豁免列表
 	currentExempted, err := getExemptedSids()
 	if err != nil {
@@ -118,6 +122,8 @@ func SaveUwpExemptions(targetSids []string) error {
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 10) // 令牌桶：最大允许 10 个并发进程，防止风暴
+	var runErr error
+	var errMu sync.Mutex
 
 	// 封装一个并发执行函数
 	runCmdAsync := func(args ...string) {
@@ -127,7 +133,19 @@ func SaveUwpExemptions(targetSids []string) error {
 
 		cmd := exec.Command(sys32, args...)
 		utils.HideCommandWindow(cmd, 0)
-		_ = cmd.Run()
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			errMu.Lock()
+			if runErr == nil {
+				outMsg := strings.TrimSpace(string(out))
+				if outMsg != "" {
+					runErr = fmt.Errorf("CheckNetIsolation 执行失败: %s", outMsg)
+				} else {
+					runErr = fmt.Errorf("CheckNetIsolation 执行失败: %w", err)
+				}
+			}
+			errMu.Unlock()
+		}
 	}
 
 	// 3. 增量删除：存在于系统但不在目标列表中的
@@ -148,6 +166,9 @@ func SaveUwpExemptions(targetSids []string) error {
 
 	// 阻塞等待所有后台进程执行完毕
 	wg.Wait()
+	if runErr != nil {
+		return runErr
+	}
 	return nil
 }
 

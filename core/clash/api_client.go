@@ -29,6 +29,7 @@ var noProxyTransport = &http.Transport{
 		KeepAlive: 15 * time.Second,
 	}).DialContext,
 	MaxIdleConns:        100,              // 最大空闲连接数
+	MaxIdleConnsPerHost: 20,               // 针对 127.0.0.1:9090 复用长连接，杜绝端口枯竭与频繁建连
 	IdleConnTimeout:     90 * time.Second, // 空闲超时时间
 	TLSHandshakeTimeout: 10 * time.Second,
 }
@@ -299,9 +300,12 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 func GetProxyDelay(ctx context.Context, proxyName string, testUrl string, timeoutMs int) (int, error) {
 	encodedName := url.PathEscape(proxyName)
 
-	// 🛡️ 核心优化：使用全局统一的默认测速地址
+	// 🛡️ 核心优化：使用全局统一的默认测速地址，并自动修剪与补齐协议头
+	testUrl = strings.TrimSpace(testUrl)
 	if testUrl == "" {
 		testUrl = DefaultDelayTestURL
+	} else if !strings.HasPrefix(testUrl, "http://") && !strings.HasPrefix(testUrl, "https://") {
+		testUrl = "http://" + testUrl
 	}
 
 	if timeoutMs <= 0 {

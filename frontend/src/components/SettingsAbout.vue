@@ -164,11 +164,11 @@
     <!-- 还原备份弹窗 -->
     <Transition name="pop">
       <div v-if="showRestoreModal" class="modal-overlay" @click.self="showRestoreModal = false">
-        <div class="custom-modal-card" @click.stop>
+        <div class="custom-modal-card" style="overflow: visible;" @click.stop>
           <div class="modal-header">
             <h3>{{ t('settings.about.restoreTitle') }}</h3>
           </div>
-          <div class="modal-body">
+          <div class="modal-body" style="overflow: visible;">
             <p class="global-modal-msg">{{ t('settings.about.restorePrompt') }}</p>
 
             <div class="restore-actions" style="width: 100%; display: flex; flex-direction: column; gap: 4px;">
@@ -183,6 +183,7 @@
 
               <div class="mode-selector-group" style="width: 100%;">
                 <ModernSelect
+                  class="w-full"
                   v-model="restoreMode"
                   :options="restoreModeOptions"
                 />
@@ -190,8 +191,8 @@
             </div>
 
             <div class="modal-footer">
-              <button class="action-btn flex-1" @click="showRestoreModal = false">{{ t('common.cancel') }}</button>
-              <button class="primary-btn accent-btn flex-1" :disabled="!selectedPath" @click="confirmRestore">{{ t('settings.about.executeRestore') }}</button>
+              <button class="action-btn flex-1" :disabled="isRestoring" @click="showRestoreModal = false">{{ t('common.cancel') }}</button>
+              <button class="primary-btn accent-btn flex-1" :disabled="!selectedPath || isRestoring" @click="confirmRestore">{{ isRestoring ? (t('common.loading') || '处理中...') : t('settings.about.executeRestore') }}</button>
             </div>
           </div>
         </div>
@@ -295,6 +296,7 @@ const handleLanguageChange = (val: any) => {
 const showRestoreModal = ref(false);
 const selectedPath = ref("");
 const restoreMode = ref("all");
+const isRestoring = ref(false);
 const showDataDirDiagnosticModal = ref(false);
 const dataDirInfo = ref<any>(null);
 
@@ -331,7 +333,7 @@ const handleCheckUpdate = async () => {
     // 🚀 核心改进：调用异步静默下载流，将通知权交给全局监听器 (App.vue)
     await (API as any).CheckAndDownloadAppUpdateAsync();
   } catch (e) {
-    await showAlert("检查更新失败: " + e, "错误", true);
+    await showAlert(t('common.error') + ": " + e, t('common.error'), true);
   }
 };
 
@@ -363,10 +365,10 @@ const handleExportBackup = async () => {
   try {
     const res = await (API as any).ExportBackup();
     if (res === "SUCCESS") {
-      await showAlert("备份成功导出", "通知");
+      await showAlert(t('settings.about.exportSuccess') || "备份成功导出", t('common.notice'));
     }
   } catch (e) {
-    await showAlert("导出失败: " + String(e), "错误");
+    await showAlert((t('settings.about.exportFailed') || "导出失败: ") + String(e), t('common.error'));
   }
 };
 
@@ -391,32 +393,35 @@ const handleSelectFile = async () => {
 
 // 执行还原
 const confirmRestore = async () => {
-  if (!selectedPath.value) return;
+  if (!selectedPath.value || isRestoring.value) return;
 
   const warnings: Record<string, string> = {
-    all: '完整恢复会替换当前软件设置、订阅列表、运行配置和主题设置。恢复过程中会短暂停止内核。',
-    subs: '此操作会用备份中的订阅列表替换当前订阅列表，当前多余订阅会被移除。',
-    'subs-merge': '此操作会保留当前订阅列表，并将备份中的订阅合并进来。同 ID 订阅可能被备份内容覆盖。',
-    settings: '此操作只恢复软件设置和主题设置，不会影响订阅列表。'
+    all: t('settings.about.restoreModeAllDesc'),
+    subs: t('settings.about.restoreModeSubsDesc'),
+    'subs-merge': t('settings.about.restoreModeSubsMergeDesc'),
+    settings: t('settings.about.restoreModeSettingsDesc')
   };
 
-  const confirmMsg = warnings[restoreMode.value] || '确定要执行数据还原吗？';
+  const confirmMsg = warnings[restoreMode.value] || t('settings.about.restoreConfirmDefault') || '确定要执行数据还原吗？';
 
   const ok = await showConfirm(
-    confirmMsg + "\n\n还原完成后，部分设置将即时生效。",
-    "还原备份确认",
+    confirmMsg + "\n\n" + (t('settings.about.restoreNotice') || '还原完成后，部分设置将即时生效。'),
+    t('settings.about.restoreConfirmTitle') || "还原备份确认",
     true
   );
   if (!ok) return;
 
+  isRestoring.value = true;
   try {
     const res = await (API as any).ExecuteRestore(selectedPath.value, restoreMode.value);
     if (res === "SUCCESS") {
       showRestoreModal.value = false;
-      await showAlert("数据还原成功！设置及配置已即时生效。", "成功");
+      await showAlert(t('settings.about.restoreSuccess') || "数据还原成功！设置及配置已即时生效。", t('common.notice'));
     }
   } catch (e) {
-    await showAlert("还原失败: " + String(e), "错误");
+    await showAlert((t('settings.about.restoreFailed') || "还原失败: ") + String(e), t('common.error'));
+  } finally {
+    isRestoring.value = false;
   }
 };
 
@@ -425,7 +430,7 @@ const openDataDirDiagnosticModal = async () => {
     dataDirInfo.value = await API.GetDataDirInfo();
     showDataDirDiagnosticModal.value = true;
   } catch (error) {
-    showAlert('获取数据目录信息失败: ' + error);
+    showAlert(t('common.error') + ': ' + error, t('common.error'), true);
   }
 };
 

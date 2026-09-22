@@ -8,6 +8,7 @@ import (
 
 	"goclashz/core/backup"
 	"goclashz/core/clash"
+	"goclashz/core/sys"
 	"goclashz/core/utils"
 )
 
@@ -16,7 +17,7 @@ func (c *Controller) ExportBackup(destPath string) error {
 	return backup.Export(utils.GetDataDir(), destPath, c.version)
 }
 
-// RestoreBackup 事务化业务恢复编排：停核 -> 事务还原文件 -> 重载状态 -> 重启或构建运行时配置
+// RestoreBackup 事务化业务恢复编排：停核 -> 事务还原文件 -> 重载状态 -> 统一调和运行态
 func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode string) error {
 	if selected == "" {
 		return fmt.Errorf("未选择有效的备份文件")
@@ -37,10 +38,18 @@ func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode st
 	// 决定是否需要在操作完成后恢复运行状态
 	shouldRestart := wasRunning || wantSysProxy || wantTun
 
-	// 2. 预处理：停止内核释放文件句柄
-	if wasRunning {
-		c.stopCoreProcessLocked()
-		c.coreLifecycleMu.Unlock() // 停止后释放生命周期锁，允许还原逻辑执行
+	// 2. 预处理：停止内核释放文件句柄，并临时关闭系统代理避免悬空断网
+	if wasRunning || wantSysProxy {
+		if wasRunning {
+			c.stopCoreProcessLocked()
+		}
+		if wantSysProxy {
+			_ = sys.DisableSystemProxy()
+			c.mu.Lock()
+			c.sysProxyActive = false
+			c.mu.Unlock()
+		}
+		c.coreLifecycleMu.Unlock()
 		c.SyncState()
 	} else {
 		c.coreLifecycleMu.Unlock()
@@ -48,9 +57,9 @@ func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode st
 
 	// 3. 执行事务化底层还原
 	if err := backup.RestoreTransactional(ctx, utils.GetDataDir(), selected, mode); err != nil {
-		// 还原失败：如果原先在运行，尝试恢复运行状态
+		// 还原失败：如果原先在运行或需要代理，使用 Supervisor 统一调和恢复原状态
 		if shouldRestart {
-			_ = c.EnsureCoreRunning(ctx)
+			_ = c.Supervisor.Reconcile(ctx, "restore-failed-rollback")
 		}
 		c.SyncState()
 		return err
@@ -75,31 +84,40 @@ func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode st
 		c.SyncState()
 		return fmt.Errorf("配置文件还原成功但意图重载失败: %v", err)
 	}
-	// 5. 恢复运行态或重载配置
-	// Re-derive shouldRestart from the freshly loaded desired state rather
-	// than the snapshot taken before the restore.  The backup may contain a
-	// different desired state (e.g. core was stopped in the backup but was
-	// running before the restore, or vice-versa).
-	newDesired := c.Desired.Get()
-	shouldRestart = newDesired.CoreRunning || newDesired.SystemProxy || newDesired.Tun
-	if shouldRestart {
-		err := c.EnsureCoreRunning(ctx)
-		if err != nil {
-			c.SyncState()
-			return fmt.Errorf("还原成功但启动内核失败: %v", err)
+
+	// 重新载入策略组节点记忆
+	if c.Offline != nil {
+		c.Offline.Load(c.Behavior.Get().ActiveConfig)
+	}
+
+	// 🛡️ 核心自愈：若当前活跃配置在还原后的订阅中不存在，平滑切换至首个可用配置或清空
+	activeConfig := c.Behavior.Get().ActiveConfig
+	if activeConfig != "" && activeConfig != "config.yaml" {
+		if _, ok := clash.FindSubIndexByID(activeConfig); !ok {
+			clash.IndexLock.RLock()
+			items := clash.SubIndex
+			clash.IndexLock.RUnlock()
+			if len(items) > 0 {
+				_ = c.Behavior.SetActiveConfig(items[0].ID)
+				_ = c.Desired.Update(func(d *DesiredState) {
+					d.ActiveConfig = items[0].ID
+				})
+			} else {
+				_ = c.Behavior.SetActiveConfig("")
+				_ = c.Desired.Update(func(d *DesiredState) {
+					d.ActiveConfig = ""
+					d.CoreRunning = false
+				})
+			}
 		}
-	} else {
-		// 未运行时，仅静默更新一次 runtime config 以确保下一次启动使用的是新配置
-		state := c.GetAppState()
-		if state.ActiveConfig != "" {
-			// 仅生成运行时配置，不启动代理和 TUN
-			_ = clash.BuildRuntimeConfig(
-				c.Behavior.Get().ActiveConfig,
-				c.Behavior.Get().ActiveMode,
-				c.Behavior.Get().LogLevel,
-				c.Desired.Get().Tun,
-			)
-		}
+	}
+
+	// 5. 恢复运行态：统一交由 Supervisor 调和器接管
+	// 调和器会根据加载后的 DesiredState 自动判定是否需要内核、TUN 与系统代理，
+	// 若不需要则自动 DisableAll，若需要则自动编译配置并拉起全部对应服务。
+	if err := c.Supervisor.Reconcile(ctx, "restore"); err != nil {
+		c.SyncState()
+		return fmt.Errorf("还原成功但状态调和失败: %v", err)
 	}
 
 	// 6. 刷新副作用与同步 UI

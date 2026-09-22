@@ -13,6 +13,17 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
+// connectSCM 以指定的访问权限连接 SCM。
+// 普通用户进程使用 windows.SC_MANAGER_CONNECT 即可成功连接，
+// 进而操作通过 DACL 授权给该用户的特定服务对象。
+func connectSCM(access uint32) (*mgr.Mgr, error) {
+	h, err := windows.OpenSCManager(nil, nil, access)
+	if err != nil {
+		return nil, err
+	}
+	return &mgr.Mgr{Handle: h}, nil
+}
+
 func openServiceWithAccess(m *mgr.Mgr, name string, access uint32) (*mgr.Service, error) {
 	namePtr, err := windows.UTF16PtrFromString(name)
 	if err != nil {
@@ -32,7 +43,7 @@ func openServiceWithAccess(m *mgr.Mgr, name string, access uint32) (*mgr.Service
 
 // isServiceInstalledSCM 通过 SCM 检查服务是否已注册，失败时通过注册表兜底
 func isServiceInstalledSCM(name string) (bool, error) {
-	m, err := mgr.Connect()
+	m, err := connectSCM(windows.SC_MANAGER_CONNECT)
 	if err == nil {
 		defer m.Disconnect()
 
@@ -69,7 +80,7 @@ func isServiceInstalledSCM(name string) (bool, error) {
 
 // isServiceRunningSCM 通过 SCM 检查服务是否正在运行
 func isServiceRunningSCM(name string) (bool, error) {
-	m, err := mgr.Connect()
+	m, err := connectSCM(windows.SC_MANAGER_CONNECT)
 	if err != nil {
 		return false, fmt.Errorf("SCM connect failed: %w", err)
 	}
@@ -182,9 +193,9 @@ func uninstallServiceSCM(name string) error {
 	return nil
 }
 
-// startServiceSCM 通过 SCM 启动服务（已运行时容错）
+// startServiceSCM 通过 SCM 启动服务（支持普通用户 DACL 权限及已运行时容错）
 func startServiceSCM(name string) error {
-	m, err := mgr.Connect()
+	m, err := connectSCM(windows.SC_MANAGER_CONNECT)
 	if err != nil {
 		return fmt.Errorf("SCM connect failed: %w", err)
 	}
@@ -202,11 +213,22 @@ func startServiceSCM(name string) error {
 		return nil
 	}
 
-	if err := s.Start(); err != nil {
-		if err == windows.ERROR_SERVICE_ALREADY_RUNNING {
-			return nil
+	var startErr error
+	for i := 0; i < 3; i++ {
+		startErr = s.Start()
+		if startErr == nil || errors.Is(startErr, windows.ERROR_SERVICE_ALREADY_RUNNING) {
+			startErr = nil
+			break
 		}
-		return fmt.Errorf("start service failed: %w", err)
+		// 若因开机时 SCM 数据库短暂锁定，稍候避让重试
+		if errors.Is(startErr, windows.ERROR_SERVICE_DATABASE_LOCKED) {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		break
+	}
+	if startErr != nil {
+		return fmt.Errorf("start service failed: %w", startErr)
 	}
 
 	// 等待服务进入 Running 状态
@@ -230,7 +252,7 @@ func startServiceSCM(name string) error {
 
 // stopServiceSCM 通过 SCM 停止服务
 func stopServiceSCM(name string) error {
-	m, err := mgr.Connect()
+	m, err := connectSCM(windows.SC_MANAGER_CONNECT)
 	if err != nil {
 		return fmt.Errorf("SCM connect failed: %w", err)
 	}
@@ -278,14 +300,20 @@ func grantServiceControlToUser(serviceName string, userSID string) error {
 	adminRights := "CCDCLCSWRPWPDTLOCRSDRCWDWO"
 	userRights := "LCRPWPLOCRRC"
 
-	// 构造与原来等价的 SDDL，但通过 Win32 API 写入，不走 sc.exe 子进程
+	// 构造安全描述符：
+	// - SY: LocalSystem 完全控制
+	// - BA: Builtin Administrators 完全控制
+	// - IU: Interactive Users (本地登录的交互式用户组)，允许查询/启停
+	// - userSID: 指定的用户 SID
 	sddl := fmt.Sprintf(
-		"D:(A;;%s;;;SY)(A;;%s;;;BA)(A;;%s;;;%s)",
+		"D:(A;;%s;;;SY)(A;;%s;;;BA)(A;;%s;;;IU)",
 		adminRights,
 		adminRights,
 		userRights,
-		userSID,
 	)
+	if userSID != "" {
+		sddl += fmt.Sprintf("(A;;%s;;;%s)", userRights, userSID)
+	}
 
 	// 将 SDDL 字符串解析为安全描述符
 	sd, err := windows.SecurityDescriptorFromString(sddl)

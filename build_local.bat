@@ -1,5 +1,6 @@
 @echo off
-REM build_local.bat - 仅编译，不下载运行时资产
+chcp 65001 >nul
+set "PATH=%USERPROFILE%\go\bin;C:\Program Files\Go\bin;C:\Program Files\nodejs;%PATH%"
 
 echo === Building GoclashZ (local only) ===
 

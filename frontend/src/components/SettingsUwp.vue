@@ -7,6 +7,17 @@
       <h3>{{ t('settings.uwp.title') }}</h3>
     </div>
 
+    <!-- 非管理员权限提示卡片 -->
+    <div v-if="!globalState.isAdmin" class="glass-card setting-group">
+      <div class="setting-item">
+        <div class="info">
+          <h4>{{ t('settings.uwp.adminPromptTitle') }}</h4>
+          <p>{{ t('settings.uwp.notAdminBanner') }}</p>
+        </div>
+        <button class="action-btn" @click="handleRestartAdmin">{{ t('settings.uwp.restartAsAdmin') }}</button>
+      </div>
+    </div>
+
     <div class="uwp-toolbar">
       <div class="uwp-search">
         <span class="search-icon" v-html="ICONS.search"></span>
@@ -57,7 +68,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { showAlert } from '../store';
+import { globalState, showAlert, showConfirm } from '../store';
 import { ICONS } from '../utils/icons';
 import { t } from '../locales';
 
@@ -70,6 +81,14 @@ defineEmits<{
 const uwpApps = ref<any[]>([]);
 const uwpSearch = ref('');
 const savingUwp = ref(false);
+
+const handleRestartAdmin = async () => {
+  try {
+    await (API as any).RestartAsAdmin();
+  } catch (e: any) {
+    await showAlert(t('common.error') + ': ' + (e?.message || e), t('common.error'), true);
+  }
+};
 
 const enterUwpManager = async () => {
   try {
@@ -108,13 +127,22 @@ const toggleAllUwp = (val: boolean) => {
 };
 
 const saveUwpChanges = async () => {
+  if (!globalState.isAdmin) {
+    const ok = await showConfirm(
+      t('settings.uwp.applyConfirmMsg'),
+      t('settings.uwp.applyConfirmTitle'),
+      false
+    );
+    if (!ok) return;
+  }
+
   savingUwp.value = true;
   try {
     const sids = uwpApps.value.filter(a => a.isEnabled).map(a => a.sid);
     await (API as any).SaveUwpExemptions(sids);
     await showAlert(t('settings.uwp.saveSuccess'), t('common.confirm'));
-  } catch (e) {
-    await showAlert(t('settings.uwp.saveFailed', { error: String(e) }), t('common.error'));
+  } catch (e: any) {
+    await showAlert(t('settings.uwp.saveFailed', { error: String(e?.message || e) }), t('common.error'));
   } finally {
     savingUwp.value = false;
   }
@@ -131,6 +159,13 @@ h3 { margin: 0 0 8px 0; color: var(--text-main); font-size: 1.25rem; padding-bot
 .back-btn:hover { background: var(--surface-hover); }
 .back-btn .icon svg { width: 18px; height: 18px; display: block; }
 .back-icon-svg :deep(svg) { width: 18px; height: 18px; }
+
+.setting-group { padding: 16px 20px; margin-bottom: 16px; border-radius: 12px; }
+.setting-item { display: flex; justify-content: space-between; align-items: center; }
+.info { flex: 1; padding-right: 16px; min-width: 0; }
+h4 { margin: 0 0 4px 0; color: var(--text-main); font-size: 0.95rem; }
+p { margin: 0; font-size: 0.85rem; color: var(--text-sub); line-height: 1.5; }
+
 .uwp-toolbar { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
 .uwp-search { flex: 1; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--surface-hover); border-radius: 10px; padding: 0 12px; height: 40px; transition: all 0.2s; }
 .uwp-search:focus-within { border-color: var(--accent); background: var(--surface-panel); }

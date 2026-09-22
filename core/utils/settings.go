@@ -12,7 +12,7 @@ import (
 
 var settingsMu sync.Mutex
 
-// LoadSetting 泛型读取：优先 user -> 其次 default -> 兜底生成 default
+// LoadSetting 泛型读取：优先 user -> 若未自定义则直接使用最新默认配置并覆盖更新 default
 func LoadSetting[T any](fileName string, defaultData T) (*T, error) {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
@@ -33,17 +33,7 @@ func LoadSetting[T any](fileName string, defaultData T) (*T, error) {
 		}
 	}
 
-	// 2. 尝试读取默认配置
-	if data, err := os.ReadFile(defaultPath); err == nil {
-		if json.Unmarshal(data, &result) == nil {
-			// 自动修补默认配置文件
-			patchedBytes, _ := json.MarshalIndent(result, "", "  ")
-			_ = WriteFileAtomic(defaultPath, patchedBytes, 0644)
-			return &result, nil
-		}
-	}
-
-	// 3. 都没找到，初始化默认配置文件 (只在第一次运行时触发)
+	// 2. 若用户之前未手动修改过（即未生成 user_*.json），直接使用最新默认配置并覆盖写入 default 文件
 	defaultBytes, _ := json.MarshalIndent(defaultData, "", "  ")
 	_ = WriteFileAtomic(defaultPath, defaultBytes, 0644)
 

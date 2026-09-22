@@ -200,7 +200,7 @@ const dnsConfig = ref<any>({
   defaultNameserver: ['223.5.5.5', '114.114.114.114'],
   nameserver: ['https://doh.pub/dns-query'],
   fallback: ['https://doh.dns.sb/dns-query'],
-  directNameserver: ['https://dns.alidns.com/dns-query'],
+  directNameserver: ['223.5.5.5', 'https://dns.alidns.com/dns-query', 'https://doh.pub/dns-query'],
   proxyServerNameserver: ['https://doh.pub/dns-query'],
   nameserverPolicy: { 'geosite:cn': 'https://doh.pub/dns-query' },
   fallbackFilter: {
