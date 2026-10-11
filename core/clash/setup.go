@@ -377,6 +377,10 @@ func CompareCoreVersion(remote, local string) (int, error) {
 }
 
 func parseVersionParts(v string) ([3]int, error) {
+	return ParseVersionParts(v)
+}
+
+func ParseVersionParts(v string) ([3]int, error) {
 	var out [3]int
 
 	original := v
@@ -415,6 +419,27 @@ func parseVersionParts(v string) ([3]int, error) {
 	}
 
 	return out, nil
+}
+
+// CoreSupportsMips 检查当前内核版本是否支持 MIPS 协议栈 (Mihomo Meta v1.19.31+)
+func CoreSupportsMips(ctx context.Context) bool {
+	ver := GetLocalCoreVersion(ctx)
+	parsed, err := parseVersionParts(ver)
+	if err != nil {
+		return false
+	}
+	if parsed[0] > 1 {
+		return true
+	}
+	if parsed[0] == 1 {
+		if parsed[1] > 19 {
+			return true
+		}
+		if parsed[1] == 19 && parsed[2] >= 31 {
+			return true
+		}
+	}
+	return false
 }
 
 func GeoDBFileName(key string) (string, error) {

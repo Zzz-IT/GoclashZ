@@ -219,3 +219,22 @@ func forceMode(mode RepairMode) bool {
 func isCoreAsset(key AssetKey) bool {
 	return key == AssetCore || key == AssetWintun
 }
+
+func RecordSeedCoreCopied(seedPath string) {
+	state := LoadAssetState()
+	h := checkCoreByPath(context.Background(), seedPath)
+	sha := h.SHA256
+	catalog := LoadSeedCatalog()
+	if meta, ok := catalog.Items["clash.exe"]; ok && meta.SHA256 != "" {
+		sha = meta.SHA256
+	}
+
+	state.CopiedAssets["clash.exe"] = struct {
+		SHA256 string `json:"sha256"`
+		Source string `json:"source"`
+	}{
+		SHA256: sha,
+		Source: "seed",
+	}
+	_ = saveAssetState(state)
+}

@@ -45,6 +45,16 @@
           <span class="slider"></span>
         </label>
       </div>
+      <div class="setting-item">
+        <div class="info">
+          <h4>{{ t('settings.behavior.coreComparisonPrompt') }}</h4>
+          <p>{{ t('settings.behavior.coreComparisonPromptDesc') }}</p>
+        </div>
+        <label class="modern-switch">
+          <input type="checkbox" v-model="behavior.coreComparisonPrompt" @change="$emit('save')">
+          <span class="slider"></span>
+        </label>
+      </div>
       <div class="divider"></div>
 
       <div class="setting-item">

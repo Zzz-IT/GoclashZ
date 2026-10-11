@@ -18,11 +18,17 @@ import (
 	"goclashz/core/utils"
 )
 
+type coreVersionCacheItem struct {
+	version   string
+	size      int64
+	modTime   int64
+	timestamp time.Time
+}
+
 var (
-	coreVersionRe         = regexp.MustCompile(`v?\d+\.\d+\.\d+(?:[-+][^\s]+)?`)
-	coreVersionCache      string
-	coreVersionCacheTime  time.Time
-	coreVersionCacheMu    sync.Mutex
+	coreVersionRe       = regexp.MustCompile(`v?\d+\.\d+\.\d+(?:[-+][^\s]+)?`)
+	coreVersionCacheMap = make(map[string]coreVersionCacheItem)
+	coreVersionCacheMu  sync.Mutex
 )
 
 func CheckCore(ctx context.Context) AssetHealth {
@@ -65,7 +71,7 @@ func checkCoreByPath(ctx context.Context, path string) AssetHealth {
 		h.SHA256 = hash
 	}
 
-	version, execErr := readCoreVersion(path)
+	version, execErr := ReadCoreVersion(path)
 	if execErr != nil {
 		h.Version = "已安装，版本未知"
 		h.Hint = "版本探测失败或超时，但内核文件格式有效；可尝试直接启动。"
@@ -78,11 +84,20 @@ func checkCoreByPath(ctx context.Context, path string) AssetHealth {
 }
 
 func readCoreVersion(path string) (string, error) {
+	return ReadCoreVersion(path)
+}
+
+func ReadCoreVersion(path string) (string, error) {
 	coreVersionCacheMu.Lock()
 	defer coreVersionCacheMu.Unlock()
 
-	if coreVersionCache != "" && time.Since(coreVersionCacheTime) < time.Minute {
-		return coreVersionCache, nil
+	stat, statErr := os.Stat(path)
+	if statErr == nil {
+		if item, exists := coreVersionCacheMap[path]; exists {
+			if item.size == stat.Size() && item.modTime == stat.ModTime().UnixNano() && time.Since(item.timestamp) < time.Minute {
+				return item.version, nil
+			}
+		}
 	}
 
 	cmdCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -115,8 +130,14 @@ func readCoreVersion(path string) (string, error) {
 		}
 	}
 
-	coreVersionCache = ver
-	coreVersionCacheTime = time.Now()
+	if statErr == nil {
+		coreVersionCacheMap[path] = coreVersionCacheItem{
+			version:   ver,
+			size:      stat.Size(),
+			modTime:   stat.ModTime().UnixNano(),
+			timestamp: time.Now(),
+		}
+	}
 
 	return ver, nil
 }

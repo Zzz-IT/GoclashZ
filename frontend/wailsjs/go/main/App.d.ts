@@ -17,6 +17,8 @@ export function CancelUpdateTask(arg1:string):Promise<void>;
 
 export function CheckAndDownloadAppUpdateAsync():Promise<void>;
 
+export function CheckCoreAgainstSeed():Promise<appcore.CoreSeedCheckResult>;
+
 export function CheckCoreUpdateAsync():Promise<void>;
 
 export function CheckTunEnv():Promise<Record<string, any>>;
@@ -34,6 +36,8 @@ export function CloseConnection(arg1:string):Promise<void>;
 export function DeleteConfig(arg1:string):Promise<void>;
 
 export function DeleteRule(arg1:string,arg2:string,arg3:number):Promise<void>;
+
+export function DisableCoreComparisonPrompt():Promise<void>;
 
 export function DoLocalImport(arg1:string,arg2:string):Promise<string>;
 
@@ -126,6 +130,8 @@ export function RepairDataDirPermission():Promise<void>;
 export function RepairRuntimeAssets():Promise<runtimeassets.RuntimeAssetStatus>;
 
 export function RepairStartupTask():Promise<void>;
+
+export function ReplaceCoreWithSeed():Promise<string>;
 
 export function ResetComponentSettings(arg1:string):Promise<void>;
 

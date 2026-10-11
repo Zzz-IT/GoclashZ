@@ -322,7 +322,7 @@ func (a *App) ToggleSystemProxy(enable bool) error {
 }
 
 func (a *App) ToggleTunMode(enable bool) error {
-	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	ctx, cancel := context.WithTimeout(a.ctx, 25*time.Second)
 	defer cancel()
 	return a.core.ToggleTunMode(ctx, enable)
 }
@@ -419,6 +419,7 @@ func (a *App) ResetTrafficTotals() {
 // --- Behavior & Theme ---
 
 type AppBehavior = appcore.AppBehavior
+type CoreSeedCheckResult = appcore.CoreSeedCheckResult
 
 func (a *App) GetAppBehavior() AppBehavior {
 	return a.core.Behavior.Get()
@@ -602,6 +603,7 @@ func (a *App) CheckTunEnv() map[string]any {
 		"hasWintun":     status.Assets[runtimeassets.AssetWintun].Ready,
 		"wintun":        status.Assets[runtimeassets.AssetWintun],
 		"helperRunning": helperStatus.Reachable,
+		"supportsMips":  clash.CoreSupportsMips(a.ctx),
 	}
 }
 
@@ -1089,6 +1091,18 @@ func (a *App) UpdateCoreComponentAsync() {
 
 func (a *App) CheckCoreUpdateAsync() {
 	a.core.CheckCoreUpdateAsync(a.ctx)
+}
+
+func (a *App) CheckCoreAgainstSeed() appcore.CoreSeedCheckResult {
+	return a.core.CheckCoreAgainstSeed(a.ctx)
+}
+
+func (a *App) ReplaceCoreWithSeed() (string, error) {
+	return a.core.ReplaceCoreWithSeed(a.ctx)
+}
+
+func (a *App) DisableCoreComparisonPrompt() error {
+	return a.core.DisableCoreComparisonPrompt()
 }
 
 func (a *App) UpdateGeoDatabaseAsync(key string) {

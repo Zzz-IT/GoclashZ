@@ -216,6 +216,9 @@ func NewController(opts Options) *Controller {
 		return c.Behavior.Get().AppLogLevel
 	})
 	c.Supervisor = NewCoreSupervisor(c, c.Desired)
+	clash.SetMipsFallbackNotifier(func() {
+		c.events.Emit("tun-mips-fallback")
+	})
 	c.controls = NewControlCoordinator(c)
 	c.traffic = NewTrafficStreamManager(opts.Events, c.appLogger)
 	c.logs = NewLogStreamManager(c.appLogger)
@@ -650,6 +653,12 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 		c.logWarn("确保运行期资产失败: %v", err)
 	}
 
+	// 启动内核前校验生成的运行时配置（秒级拦截语法错误、不支持的协议栈等）
+	if err := clash.ValidateConfig(ctx, utils.GetRuntimeConfigPath()); err != nil {
+		c.logError("运行时配置预检未通过: %v", err)
+		return fmt.Errorf("配置预检未通过: %w", err)
+	}
+
 	if err := clash.Start(ctx, desired.Tun); err != nil {
 		return err
 	}
@@ -672,6 +681,14 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 			// 如果在探活期间内核进程挂掉（如遭遇残存的 TIME_WAIT 端口冲突），
 			// 避免原地等待 10 秒，而是等待缓冲后自动原地重试拉起。
 			clash.Stop()
+			// 内核已异常退出，立即提取真实错误原因快速失败，杜绝盲等超时
+			if valErr := clash.ValidateConfig(ctx, utils.GetRuntimeConfigPath()); valErr != nil {
+				c.mu.Lock()
+				c.userCoreRunning = false
+				c.coreStartedAt = time.Time{}
+				c.mu.Unlock()
+				return fmt.Errorf("内核启动异常退出: %w", valErr)
+			}
 			if i < 90 {
 				time.Sleep(150 * time.Millisecond)
 				if err := clash.Start(ctx, desired.Tun); err != nil {

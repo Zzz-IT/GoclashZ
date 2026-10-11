@@ -30,6 +30,7 @@ export namespace appcore {
 	    deferRestartWhenActive: boolean;
 	    longConnectionMinSeconds: number;
 	    language: string;
+	    coreComparisonPrompt: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppBehavior(source);
@@ -66,6 +67,7 @@ export namespace appcore {
 	        this.deferRestartWhenActive = source["deferRestartWhenActive"];
 	        this.longConnectionMinSeconds = source["longConnectionMinSeconds"];
 	        this.language = source["language"];
+	        this.coreComparisonPrompt = source["coreComparisonPrompt"];
 	    }
 	}
 	export class AppState {
@@ -238,6 +240,26 @@ export namespace appcore {
 		    }
 		    return a;
 		}
+	}
+	export class CoreSeedCheckResult {
+	    currentVersion: string;
+	    seedVersion: string;
+	    isCurrentLower: boolean;
+	    isUnknown: boolean;
+	    shouldPrompt: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CoreSeedCheckResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.currentVersion = source["currentVersion"];
+	        this.seedVersion = source["seedVersion"];
+	        this.isCurrentLower = source["isCurrentLower"];
+	        this.isUnknown = source["isUnknown"];
+	        this.shouldPrompt = source["shouldPrompt"];
+	    }
 	}
 	export class DiagnosticAssets {
 	    "clash.exe": boolean;
@@ -644,6 +666,7 @@ export namespace clash {
 	    dnsHijack: string[];
 	    strictRoute: boolean;
 	    mtu: number;
+	    congestionController: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TunConfig(source);
@@ -658,6 +681,7 @@ export namespace clash {
 	        this.dnsHijack = source["dnsHijack"];
 	        this.strictRoute = source["strictRoute"];
 	        this.mtu = source["mtu"];
+	        this.congestionController = source["congestionController"];
 	    }
 	}
 

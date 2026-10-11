@@ -148,11 +148,27 @@ func GetAppDir() string {
 }
 
 func GetSeedCoreBinDir() string {
-	return filepath.Join(appDir, "seed", "core", "bin")
+	dir := filepath.Join(appDir, "seed", "core", "bin")
+	if _, err := os.Stat(dir); err == nil {
+		return dir
+	}
+	devDir := filepath.Join(appDir, "build", "runtime-assets", "core", "bin")
+	if _, err := os.Stat(devDir); err == nil {
+		return devDir
+	}
+	return dir
 }
 
 func GetSeedAssetManifestPath() string {
-	return filepath.Join(appDir, "seed", "core", "asset-manifest.json")
+	path := filepath.Join(appDir, "seed", "core", "asset-manifest.json")
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	devPath := filepath.Join(appDir, "build", "runtime-assets", "core", "asset-manifest.json")
+	if _, err := os.Stat(devPath); err == nil {
+		return devPath
+	}
+	return path
 }
 
 func GetRuntimeDir() string {

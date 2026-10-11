@@ -3,10 +3,13 @@
 package clash
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"goclashz/core/utils"
 
@@ -151,36 +154,98 @@ func GetOfflineData(id string) (map[string]interface{}, error) {
 
 // TunConfig 映射 yaml 中的 tun 配置块
 type TunConfig struct {
-	Enable              bool     `yaml:"enable" json:"-"` // Not persisted to user_tun.json anymore
-	Stack               string   `yaml:"stack" json:"stack"`
-	Device              string   `yaml:"device,omitempty" json:"device"`
-	AutoRoute           bool     `yaml:"auto-route" json:"autoRoute"`
-	AutoDetectInterface bool     `yaml:"auto-detect-interface" json:"autoDetect"`
-	DNSHijack           []string `yaml:"dns-hijack" json:"dnsHijack"`
-	StrictRoute         bool     `yaml:"strict-route" json:"strictRoute"`
-	MTU                 int      `yaml:"mtu" json:"mtu"`
+	Enable               bool     `yaml:"enable" json:"-"` // Not persisted to user_tun.json anymore
+	Stack                string   `yaml:"stack,omitempty" json:"stack"`
+	Device               string   `yaml:"device,omitempty" json:"device"`
+	AutoRoute            bool     `yaml:"auto-route" json:"autoRoute"`
+	AutoDetectInterface  bool     `yaml:"auto-detect-interface" json:"autoDetect"`
+	DNSHijack            []string `yaml:"dns-hijack" json:"dnsHijack"`
+	StrictRoute          bool     `yaml:"strict-route" json:"strictRoute"`
+	MTU                  int      `yaml:"mtu" json:"mtu"`
+	CongestionController string   `yaml:"congestion-controller,omitempty" json:"congestionController"`
+}
+
+var (
+	mipsFallbackNotifyMu sync.RWMutex
+	mipsFallbackNotifier func()
+	lastMipsFallbackTime atomic.Int64
+)
+
+// SetMipsFallbackNotifier 设置当配置中的 mips 降级退回 mixed 时的通知回调
+func SetMipsFallbackNotifier(fn func()) {
+	mipsFallbackNotifyMu.Lock()
+	defer mipsFallbackNotifyMu.Unlock()
+	mipsFallbackNotifier = fn
+}
+
+// NotifyMipsFallback 触发 mips 降级通知回调（内置 2 秒防抖，避免重复弹窗）
+func NotifyMipsFallback() {
+	now := time.Now().UnixMilli()
+	last := lastMipsFallbackTime.Load()
+	if now-last < 2000 {
+		return
+	}
+	if !lastMipsFallbackTime.CompareAndSwap(last, now) {
+		return
+	}
+
+	mipsFallbackNotifyMu.RLock()
+	fn := mipsFallbackNotifier
+	mipsFallbackNotifyMu.RUnlock()
+	if fn != nil {
+		go fn()
+	}
+}
+
+func notifyMipsFallback() {
+	NotifyMipsFallback()
+}
+
+// AdjustTunConfigForCore 校验并调整 TUN 配置，若指定了 mips 但当前内核不支持，则降级为 mixed、清空拥塞控制算法并返回 true
+func AdjustTunConfigForCore(cfg *TunConfig, supportsMips bool) bool {
+	if cfg == nil {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.Stack), "mips") && !supportsMips {
+		cfg.Stack = "mixed"
+		cfg.CongestionController = ""
+		return true
+	}
+	return false
 }
 
 // ================= TUN 设置 =================
 func GetDefaultTunConfig() TunConfig {
 	return TunConfig{
-		Enable:              false,
-		Stack:               "gvisor",
-		Device:              "GOCLASHZ",
-		AutoRoute:           true,
-		AutoDetectInterface: true,
-		DNSHijack:           []string{"any:53"},
-		StrictRoute:         false,
-		MTU:                 1430,
+		Enable:               false,
+		Stack:                "mips",
+		Device:               "GOCLASHZ",
+		AutoRoute:            true,
+		AutoDetectInterface:  true,
+		DNSHijack:            []string{"any:53"},
+		StrictRoute:          false,
+		MTU:                  1430,
+		CongestionController: "bbr3",
 	}
 }
 
 func GetTunConfig() (*TunConfig, error) {
 	defaultTun := GetDefaultTunConfig()
-	return utils.LoadSetting("tun", defaultTun)
+	cfg, err := utils.LoadSetting("tun", defaultTun)
+	if err != nil {
+		return cfg, err
+	}
+	if AdjustTunConfigForCore(cfg, CoreSupportsMips(context.Background())) {
+		_ = utils.SaveSetting("tun", cfg)
+		notifyMipsFallback()
+	}
+	return cfg, nil
 }
 
 func UpdateTunConfig(newTun *TunConfig) error {
+	if AdjustTunConfigForCore(newTun, CoreSupportsMips(context.Background())) {
+		notifyMipsFallback()
+	}
 	return utils.SaveSetting("tun", newTun)
 }
 
@@ -405,7 +470,45 @@ func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool
 	if userTun != nil {
 		tunRuntime := *userTun
 		tunRuntime.Enable = tunEnabled
+
+		// 处理 "跟随配置文件" 模式
+		if tunRuntime.Stack == "follow" || tunRuntime.Stack == "" {
+			origStack := ""
+			if origTun, ok := root["tun"].(map[string]interface{}); ok {
+				if s, ok := origTun["stack"].(string); ok {
+					origStack = strings.ToLower(strings.TrimSpace(s))
+				}
+			}
+			tunRuntime.Stack = origStack
+		}
+
+		// 🌟 无论 stack 来自配置文件 (follow) 还是来自用户设置，若指定为 mips 但当前内核不支持，自动退回 mixed 并通知用户
+		if AdjustTunConfigForCore(&tunRuntime, CoreSupportsMips(context.Background())) {
+			if strings.EqualFold(strings.TrimSpace(userTun.Stack), "mips") {
+				userTun.Stack = "mixed"
+				userTun.CongestionController = ""
+				_ = utils.SaveSetting("tun", userTun)
+			}
+			notifyMipsFallback()
+		}
+
+		// 拥塞控制算法仅在 mips stack 下生效，非 mips 时剔除
+		if tunRuntime.Stack != "mips" {
+			tunRuntime.CongestionController = ""
+		}
+
 		root["tun"] = tunRuntime
+	} else {
+		// 防御性处理：没有 userTun 时检查原始配置中的 tun
+		if origTun, ok := root["tun"].(map[string]interface{}); ok {
+			if s, ok := origTun["stack"].(string); ok && strings.EqualFold(strings.TrimSpace(s), "mips") {
+				if !CoreSupportsMips(context.Background()) {
+					origTun["stack"] = "mixed"
+					delete(origTun, "congestion-controller")
+					notifyMipsFallback()
+				}
+			}
+		}
 	}
 
 	// 注入 DNS 配置

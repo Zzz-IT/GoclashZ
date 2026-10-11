@@ -55,6 +55,9 @@ type AppBehavior struct {
 
 	// 👇 新增：界面语言 ("zh-CN", "zh-TW", "en-US")
 	Language string `json:"language"`
+
+	// 👇 新增：内核对比更新提示
+	CoreComparisonPrompt bool `json:"coreComparisonPrompt"`
 }
 
 type BehaviorStore struct {
@@ -230,5 +233,7 @@ func (s *BehaviorStore) Default() AppBehavior {
 		LongConnectionMinSeconds: 60,
 
 		Language: "zh-CN",
+
+		CoreComparisonPrompt: true,
 	}
 }

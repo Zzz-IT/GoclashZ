@@ -22,6 +22,22 @@
       </div>
       <div class="divider"></div>
       <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.stack') }}</h4></div><ModernSelect v-model="tunConfig.stack" :options="stackOptions" @change="saveTun" :disabled="!tunStatus.hasWintun || loading" /></div>
+      <Transition :name="isInitialized ? 'dropdown' : ''">
+        <div v-if="tunConfig.stack === 'mips'" class="congestion-sub-items">
+          <div class="divider"></div>
+          <div class="setting-item">
+            <div class="info">
+              <h4>{{ t('settings.tun.congestion') }}</h4>
+            </div>
+            <ModernSelect
+              v-model="tunConfig.congestionController"
+              :options="congestionOptions"
+              @change="saveTun"
+              :disabled="!tunStatus.hasWintun || loading"
+            />
+          </div>
+        </div>
+      </Transition>
       <div class="divider"></div>
       <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.device') }}</h4></div><input type="text" class="modern-input" v-model="tunConfig.device" :placeholder="t('settings.tun.devicePlaceholder')" @blur="saveTun" :disabled="!tunStatus.hasWintun || loading" /></div>
       <div class="divider"></div>
@@ -39,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { globalState, settleTunIntent, setTunIntent, showAlert, showConfirm } from '../store';
@@ -52,14 +68,33 @@ const props = defineProps<{ resetKey: number }>();
 
 defineEmits<{ navigate: [view: 'main']; reset: [module: 'tun'] }>();
 
-const stackOptions = [
-  { label: 'gVisor', value: 'gvisor' }, { label: 'Mixed', value: 'mixed' },
-  { label: 'System', value: 'system' }, { label: 'LWIP', value: 'lwip' }
+const stackOptions = computed(() => {
+  const options = [
+    { label: t('settings.tun.stackFollow'), value: 'follow' },
+  ];
+  if (tunStatus.value.supportsMips) {
+    options.push({ label: t('settings.tun.stackMips'), value: 'mips' });
+  }
+  options.push(
+    { label: 'gVisor', value: 'gvisor' },
+    { label: 'Mixed', value: 'mixed' },
+    { label: 'System', value: 'system' },
+    { label: 'LWIP', value: 'lwip' }
+  );
+  return options;
+});
+
+const congestionOptions = [
+  { label: 'bbr3 (推荐)', value: 'bbr3' },
+  { label: 'bbr', value: 'bbr' },
+  { label: 'cubic', value: 'cubic' },
+  { label: 'reno', value: 'reno' }
 ];
 const loading = ref(true);
+const isInitialized = ref(false);
 const isInstalling = computed(() => globalState.componentUpdate.tasks['driver-install']?.status === 'running');
 const tunStatus = ref<Record<string, any>>({ hasWintun: false, isAdmin: false, wintunError: '' });
-const tunConfig = ref({ stack: 'gvisor', device: '', autoRoute: true, autoDetect: true, dnsHijack: ['any:53'], strictRoute: true, mtu: 1500 });
+const tunConfig = ref({ stack: 'mips', device: '', autoRoute: true, autoDetect: true, dnsHijack: ['any:53'], strictRoute: true, mtu: 1500, congestionController: 'bbr3' });
 const unsubs: (() => void)[] = [];
 
 const refreshRuntimeAssets = async () => {
@@ -70,11 +105,25 @@ const refreshRuntimeAssets = async () => {
 
 const loadData = async () => {
   loading.value = true;
+  isInitialized.value = false;
   try {
     const [_, status, config] = await Promise.all([refreshRuntimeAssets(), API.CheckTunEnv(), API.GetTunConfig()]);
     tunStatus.value = status;
-    if (config) tunConfig.value = config;
-  } catch (e) { console.error('加载配置失败', e); } finally { loading.value = false; }
+    if (config) {
+      tunConfig.value = config;
+      if (tunConfig.value.stack === 'mips' && !status?.supportsMips) {
+        tunConfig.value.stack = 'mixed';
+        void saveTun();
+        void showAlert(t('settings.tun.mipsFallbackWarning'), t('common.notice'), false);
+      }
+    }
+  } catch (e) {
+    console.error('加载配置失败', e);
+  } finally {
+    loading.value = false;
+    await nextTick();
+    isInitialized.value = true;
+  }
 };
 
 const handleTunToggle = async (e: Event) => {
@@ -118,4 +167,17 @@ h3 { margin: 0 0 8px 0; color: var(--text-main); font-size: 1.25rem; padding-bot
 .modern-input { background: var(--surface-hover); border: none; color: var(--text-main); padding: 10px 14px; border-radius: 8px; outline: none; font-size: 0.9rem; text-align: right; }.modern-input:disabled { opacity: 0.5; cursor: not-allowed; }
 .modern-switch { position: relative; display: inline-block; width: 44px; height: 24px; }.modern-switch input { opacity: 0; width: 0; height: 0; }.slider { position: absolute; cursor: pointer; inset: 0; background-color: var(--surface-hover); transition: .3s; border-radius: 24px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }.slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3); } input:disabled + .slider { opacity: 0.5; cursor: not-allowed; } input:checked + .slider { background-color: var(--accent); } input:checked + .slider:before { transform: translateX(20px); background-color: var(--accent-fg); }
 .sub-header { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; padding: 0 0 12px 0; background: transparent; }.sub-header.page-sticky-mask { --sticky-mask-bleed: 4px; }.sub-header h3 { margin: 0; border: none; padding: 0; }.section-header { justify-content: space-between; }.sub-header.section-header h3 { flex: 1; margin-left: 12px; }.back-btn { background: var(--surface); border: none; color: var(--text-main); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; }.back-btn:hover { background: var(--surface-hover); }.mini-btn-reset { height: 36px !important; padding: 0 14px !important; font-size: 0.85rem !important; border-radius: 8px !important; }.mini-btn-reset :deep(.btn-icon) svg { width: 16px; height: 16px; }.status-msg { margin-top: 4px; font-weight: 500; }.green-text { color: var(--text-main); font-weight: 600; }.red-text { color: var(--text-muted); }
+.congestion-sub-items { overflow: hidden; }
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  max-height: 120px;
+  overflow: hidden;
+}
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  max-height: 0;
+  transform: translateY(-8px);
+}
 </style>

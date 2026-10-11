@@ -8,6 +8,7 @@ import (
 	"goclashz/core/clash"
 	"goclashz/core/downloader"
 	"goclashz/core/logger"
+	"goclashz/core/runtimeassets"
 	"goclashz/core/sys"
 	"goclashz/core/utils"
 	"os"
@@ -201,6 +202,182 @@ func (c *Controller) InstallTunDriverAsync(ctx context.Context) {
 
 func (c *Controller) GetCoreVersion(ctx context.Context) string {
 	return clash.GetLocalCoreVersion(ctx)
+}
+
+type CoreSeedCheckResult struct {
+	CurrentVersion string `json:"currentVersion"`
+	SeedVersion    string `json:"seedVersion"`
+	IsCurrentLower bool   `json:"isCurrentLower"`
+	IsUnknown      bool   `json:"isUnknown"`
+	ShouldPrompt   bool   `json:"shouldPrompt"`
+}
+
+func isVersionUnknown(ver string) bool {
+	v := strings.TrimSpace(ver)
+	if v == "" || v == "未安装" || strings.Contains(v, "未知") {
+		return true
+	}
+	_, err := clash.ParseVersionParts(v)
+	return err != nil
+}
+
+func (c *Controller) GetSeedCoreVersion(ctx context.Context) string {
+	seedPath := filepath.Join(utils.GetSeedCoreBinDir(), "clash.exe")
+	if stat, err := os.Stat(seedPath); err == nil && !stat.IsDir() {
+		if ver, err := runtimeassets.ReadCoreVersion(seedPath); err == nil && ver != "" && !strings.Contains(ver, "未知") {
+			return ver
+		}
+	}
+
+	catalog := runtimeassets.LoadSeedCatalog()
+	if meta, ok := catalog.Items["clash.exe"]; ok && meta.Version != "" {
+		v := strings.TrimSpace(meta.Version)
+		if strings.HasPrefix(v, "v") || strings.HasPrefix(v, "V") {
+			return v
+		}
+		return "v" + v
+	}
+
+	return ""
+}
+
+func (c *Controller) CheckCoreAgainstSeed(ctx context.Context) CoreSeedCheckResult {
+	currentVer := clash.GetLocalCoreVersion(ctx)
+	seedVer := c.GetSeedCoreVersion(ctx)
+
+	behavior := c.Behavior.Get()
+	result, newPromptEnabled := EvaluateCoreComparison(currentVer, seedVer, behavior.CoreComparisonPrompt)
+
+	if result.IsUnknown && behavior.CoreComparisonPrompt != newPromptEnabled {
+		behavior.CoreComparisonPrompt = newPromptEnabled
+		_ = c.Behavior.SetAndSave(behavior)
+	}
+
+	return result
+}
+
+func EvaluateCoreComparison(currentVer, seedVer string, promptEnabled bool) (CoreSeedCheckResult, bool) {
+	result := CoreSeedCheckResult{
+		CurrentVersion: currentVer,
+		SeedVersion:    seedVer,
+	}
+
+	// 1. 若当前内核版本不明，不提示，并自动关闭“内核对比更新提示”设置
+	if isVersionUnknown(currentVer) {
+		result.IsUnknown = true
+		result.ShouldPrompt = false
+		return result, false
+	}
+
+	// 2. 若种子版本不明，无法对比，不提示
+	if isVersionUnknown(seedVer) {
+		result.ShouldPrompt = false
+		return result, promptEnabled
+	}
+
+	// 3. 对比版本
+	// CompareCoreVersion(seedVer, currentVer): 若 seedVer > currentVer 返回 1
+	cmp, err := clash.CompareCoreVersion(seedVer, currentVer)
+	if err != nil || cmp <= 0 {
+		// 当前内核大于或等于种子内核，不提示
+		result.IsCurrentLower = false
+		result.ShouldPrompt = false
+		return result, promptEnabled
+	}
+
+	// 4. 当前内核版本低于种子版本
+	result.IsCurrentLower = true
+	result.ShouldPrompt = promptEnabled
+
+	return result, promptEnabled
+}
+
+func (c *Controller) ReplaceCoreWithSeed(ctx context.Context) (string, error) {
+	seedPath := filepath.Join(utils.GetSeedCoreBinDir(), "clash.exe")
+	if _, err := os.Stat(seedPath); err != nil {
+		return "", fmt.Errorf("种子内核文件不存在: %s", seedPath)
+	}
+
+	if err := utils.ValidateWindowsPE(seedPath, 5*1024*1024, 300*1024*1024); err != nil {
+		return "", fmt.Errorf("种子内核文件校验失败: %w", err)
+	}
+
+	c.componentUpdateMu.Lock()
+	defer c.componentUpdateMu.Unlock()
+
+	targetPath := filepath.Join(utils.GetCoreBinDir(), "clash.exe")
+	if !c.IsCoreBinWritable() {
+		_ = c.EnsureHelperReady("core-update")
+		helperStatus := sys.CheckHelperService()
+		if !helperStatus.Reachable {
+			return "", fmt.Errorf("需要管理员权限进行内核替换。请安装后台服务或以管理员身份重启软件后重试")
+		}
+	}
+
+	c.coreLifecycleMu.Lock()
+	wasRunning := clash.IsRunning()
+	c.mu.RLock()
+	wantSysProxy := c.sysProxyActive
+	wantTun := c.tunActive
+	c.mu.RUnlock()
+	shouldRestart := wasRunning || wantSysProxy || wantTun
+
+	if wasRunning {
+		c.stopCoreProcessLocked()
+		c.coreLifecycleMu.Unlock()
+		c.SyncState()
+	} else {
+		c.coreLifecycleMu.Unlock()
+	}
+
+	var replaceErr error
+	if !c.IsCoreBinWritable() {
+		client := sys.NewHelperClient()
+		replaceErr = client.ReplaceCoreFile(sys.ReplaceCoreFileParams{
+			Source: seedPath,
+			Target: targetPath,
+		})
+	} else {
+		if err := clash.WaitFileReleased(targetPath, 5*time.Second); err != nil {
+			replaceErr = err
+		} else {
+			replaceErr = clash.ReplaceFileWithBackup(seedPath, targetPath)
+		}
+	}
+
+	if replaceErr != nil {
+		if shouldRestart {
+			_ = c.EnsureCoreRunning(ctx)
+		}
+		c.SyncState()
+		return "", fmt.Errorf("替换内核文件失败: %w", replaceErr)
+	}
+
+	clash.ClearLocalCoreVersionCache()
+	newVer := clash.GetLocalCoreVersion(ctx)
+
+	runtimeassets.RecordSeedCoreCopied(seedPath)
+
+	if shouldRestart {
+		if err := c.EnsureCoreRunning(ctx); err != nil {
+			c.SyncState()
+			return newVer, fmt.Errorf("内核替换成功，但恢复启动失败: %w", err)
+		}
+	}
+
+	c.events.Emit("core-version-updated", map[string]string{
+		"version": newVer,
+	})
+	c.events.Emit("delay-cache-clear", "core-replace-seed")
+	c.SyncState()
+
+	return newVer, nil
+}
+
+func (c *Controller) DisableCoreComparisonPrompt() error {
+	behavior := c.Behavior.Get()
+	behavior.CoreComparisonPrompt = false
+	return c.Behavior.SetAndSave(behavior)
 }
 
 func (c *Controller) CheckAppUpdateAsync(ctx context.Context, currentVersion string, manual bool) {

@@ -22,6 +22,10 @@ export function CheckAndDownloadAppUpdateAsync() {
   return window['go']['main']['App']['CheckAndDownloadAppUpdateAsync']();
 }
 
+export function CheckCoreAgainstSeed() {
+  return window['go']['main']['App']['CheckCoreAgainstSeed']();
+}
+
 export function CheckCoreUpdateAsync() {
   return window['go']['main']['App']['CheckCoreUpdateAsync']();
 }
@@ -56,6 +60,10 @@ export function DeleteConfig(arg1) {
 
 export function DeleteRule(arg1, arg2, arg3) {
   return window['go']['main']['App']['DeleteRule'](arg1, arg2, arg3);
+}
+
+export function DisableCoreComparisonPrompt() {
+  return window['go']['main']['App']['DisableCoreComparisonPrompt']();
 }
 
 export function DoLocalImport(arg1, arg2) {
@@ -240,6 +248,10 @@ export function RepairRuntimeAssets() {
 
 export function RepairStartupTask() {
   return window['go']['main']['App']['RepairStartupTask']();
+}
+
+export function ReplaceCoreWithSeed() {
+  return window['go']['main']['App']['ReplaceCoreWithSeed']();
 }
 
 export function ResetComponentSettings(arg1) {

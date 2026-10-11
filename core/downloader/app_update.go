@@ -186,6 +186,29 @@ func parseVersionParts(v string) []int {
 	return out
 }
 
+// BuildCandidateDownloadURLs 为 GitHub Release 资产生成候选下载地址（原生地址 + 高可用镜像备用地址）
+func BuildCandidateDownloadURLs(rawURL string) []string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return nil
+	}
+
+	urls := []string{rawURL}
+
+	// 若为 GitHub release 下载地址，追加镜像备用地址，供国内直连或代理断连时自动接力
+	if strings.Contains(rawURL, "github.com/") && strings.Contains(rawURL, "/releases/download/") {
+		mirrors := []string{
+			"https://ghfast.top/",
+			"https://mirror.ghproxy.com/",
+		}
+		for _, m := range mirrors {
+			urls = append(urls, m+rawURL)
+		}
+	}
+
+	return urls
+}
+
 // DownloadAppUpdate 使用通用下载机下载应用更新包
 func DownloadAppUpdate(
 	ctx context.Context,
@@ -213,14 +236,17 @@ func DownloadAppUpdate(
 
 	destPath := filepath.Join(destDir, fileName)
 
-	// 🚀 复用 grab/v3 下载机
+	// 🚀 复用 grab/v3 下载机，支持多通道竞速、镜像自动回退、断点续传及 SHA256 校验
 	err := DownloadLargeAssetAtomic(ctx, Options{
-		URLs:       []string{info.DownloadURL},
-		DestPath:   destPath,
-		UserAgent:  "GoclashZ-Updater",
-		MaxBytes:   300 << 20, // 限制 300MB
-		Strategy:   strategy,
-		OnProgress: onProgress,
+		URLs:                BuildCandidateDownloadURLs(info.DownloadURL),
+		DestPath:            destPath,
+		UserAgent:           "GoclashZ-Updater",
+		MaxBytes:            300 << 20, // 限制 300MB
+		Strategy:            strategy,
+		OnProgress:          onProgress,
+		VerifyGitHubSHA:     true,
+		RequireGitHubSHA:    false,
+		AttemptsPerEndpoint: 3,
 		Validator: func(tmpPath string) error {
 			return ValidateWindowsExecutable(tmpPath)
 		},

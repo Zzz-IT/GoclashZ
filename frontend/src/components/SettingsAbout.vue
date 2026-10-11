@@ -75,7 +75,7 @@
         </label>
       </div>
 
-      <Transition name="dropdown">
+      <Transition :name="isInitialized ? 'dropdown' : ''">
         <div v-if="behavior.autoUpdate" class="auto-update-sub-items">
           <div class="divider"></div>
           <div class="setting-item">
@@ -92,22 +92,25 @@
             />
           </div>
 
-          <div class="divider"></div>
-          <div class="setting-item" :class="{ 'disabled-fade': behavior.updateMethod !== 'scheduled' }">
-            <div class="info">
-              <h4>{{ t('settings.about.updateInterval') }}</h4>
+          <Transition :name="isInitialized ? 'dropdown' : ''">
+            <div v-if="behavior.updateMethod === 'scheduled'" class="update-interval-sub-items">
+              <div class="divider"></div>
+              <div class="setting-item">
+                <div class="info">
+                  <h4>{{ t('settings.about.updateInterval') }}</h4>
+                </div>
+                <div class="input-with-unit">
+                  <ModernNumberInput
+                    v-model="behavior.updateInterval"
+                    :min="1"
+                    :max="365"
+                    @change="$emit('save')"
+                  />
+                  <span class="unit">{{ t('settings.about.daysUnit') }}</span>
+                </div>
+              </div>
             </div>
-            <div class="input-with-unit">
-              <ModernNumberInput
-                v-model="behavior.updateInterval"
-                :min="1"
-                :max="365"
-                :disabled="behavior.updateMethod !== 'scheduled'"
-                @change="$emit('save')"
-              />
-              <span class="unit">{{ t('settings.about.daysUnit') }}</span>
-            </div>
-          </div>
+          </Transition>
         </div>
       </Transition>
 
@@ -269,7 +272,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { BrowserOpenURL, EventsOn } from '../../wailsjs/runtime/runtime';
 import { globalState, showAlert, showConfirm } from '../store';
@@ -285,6 +288,13 @@ const emit = defineEmits<{
   navigate: [view: 'main'];
   save: [];
 }>();
+
+const isInitialized = ref(false);
+
+onMounted(async () => {
+  await nextTick();
+  isInitialized.value = true;
+});
 
 const handleLanguageChange = (val: any) => {
   const lang = String(val) as SupportedLocale;
@@ -551,6 +561,11 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 .divider-text::after { margin-left: 10px; }
 .restore-actions { display: flex; flex-direction: column; }
 .active-border { border: 1px solid var(--accent) !important; }
+
+.auto-update-sub-items,
+.update-interval-sub-items {
+  overflow: hidden;
+}
 
 .dropdown-enter-active,
 .dropdown-leave-active {

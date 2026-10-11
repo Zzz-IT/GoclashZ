@@ -238,7 +238,47 @@ func Stop() error {
 	return nil
 }
 
+// ValidateConfig 使用 clash.exe -t 验证配置有效性
+func ValidateConfig(ctx context.Context, configPath string) error {
+	binDir := utils.GetCoreBinDir()
+	exePath := filepath.Join(binDir, "clash.exe")
+
+	cmdCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(cmdCtx, exePath, "-t", "-d", binDir, "-f", configPath)
+	cmd.Dir = binDir
+	utils.HideCommandWindow(cmd, 0)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+		var errLines []string
+		for _, line := range lines {
+			l := strings.TrimSpace(line)
+			if strings.Contains(l, "level=error") || strings.Contains(l, "level=fatal") || strings.Contains(l, "failed") {
+				errLines = append(errLines, l)
+			}
+		}
+		if len(errLines) > 0 {
+			return fmt.Errorf("%s", strings.Join(errLines, "; "))
+		}
+		if len(out) > 0 {
+			return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+		}
+		return fmt.Errorf("配置校验失败: %w", err)
+	}
+	return nil
+}
+
 func IsRunning() bool {
+	if startedViaHelper.Load() {
+		client := sys.NewHelperClient()
+		if status, err := client.CoreStatus(); err == nil {
+			isRunning.Store(status.Running)
+			return status.Running
+		}
+	}
 	return isRunning.Load()
 }
 

@@ -66,7 +66,7 @@ const modules = computed<Record<string, string>>(() => ({
   lan: t('settings.home.lan'),
   behavior: t('settings.home.behavior'),
 }));
-const behavior = ref<any>({ language: currentLocale.value, silentStart: false, closeToTray: true, startupWithOS: false, restoreOnStartup: false, colorDelay: false, delayRetention: false, delayRetentionTime: 'long', proxyTrafficOnly: false, logLevel: 'info', appLogLevel: 'info', hideLogs: false, subUA: '', activeConfig: '', activeMode: '', geoIpLink: '', geoSiteLink: '', mmdbLink: '', asnLink: '', autoUpdate: true, updateMethod: 'startup', updateInterval: 3 });
+const behavior = ref<any>({ language: currentLocale.value, silentStart: false, closeToTray: true, startupWithOS: false, restoreOnStartup: false, colorDelay: false, delayRetention: false, delayRetentionTime: 'long', proxyTrafficOnly: false, logLevel: 'info', appLogLevel: 'info', hideLogs: false, subUA: '', activeConfig: '', activeMode: '', geoIpLink: '', geoSiteLink: '', mmdbLink: '', asnLink: '', autoUpdate: true, updateMethod: 'startup', updateInterval: 3, coreComparisonPrompt: true });
 
 const loadBehavior = async () => {
   try {
@@ -74,6 +74,9 @@ const loadBehavior = async () => {
     if (value) {
       if (value.logLevel === 'warn') {
         value.logLevel = 'warning';
+      }
+      if (value.coreComparisonPrompt === undefined) {
+        value.coreComparisonPrompt = true;
       }
       behavior.value = value;
       if (value.language) {

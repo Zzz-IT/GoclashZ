@@ -371,6 +371,10 @@ export function updateProxyDelay(
 // 全局 Alert 提示框 (替代原生 alert)
 export function showAlert(message: string, title: string = '提示', isDanger: boolean = false): Promise<void> {
   return new Promise((resolve) => {
+    if (globalState.modal.show && globalState.modal.type === 'alert' && globalState.modal.message === message) {
+      resolve();
+      return;
+    }
     globalState.modal.type = 'alert';
     globalState.modal.title = title;
     globalState.modal.message = message;

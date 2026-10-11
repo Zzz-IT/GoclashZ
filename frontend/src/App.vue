@@ -34,6 +34,27 @@
               {{ yamlEditorStatus }}
             </span>
             <div style="flex: 1"></div>
+            <div
+              v-if="globalState.appUpdateProgress"
+              class="global-update-chip"
+              :class="{ downloaded: globalState.appUpdateProgress.isDownloaded }"
+              @click="handleGlobalUpdateChipClick"
+              :title="globalState.appUpdateProgress.isDownloaded ? t('appUpdate.clickToInstall') : t('appUpdate.viewDetails')"
+            >
+              <span class="chip-pulse" v-if="!globalState.appUpdateProgress.isDownloaded"></span>
+              <span class="chip-icon">
+                <svg v-if="!globalState.appUpdateProgress.isDownloaded" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <svg v-else viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </span>
+              <span class="chip-text">
+                <template v-if="!globalState.appUpdateProgress.isDownloaded">
+                  {{ globalAppUpdatePercent }}% · {{ formatSpeed(globalState.appUpdateProgress.speedBps) }}
+                </template>
+                <template v-else>
+                  {{ t('appUpdate.readyToInstall') }}
+                </template>
+              </span>
+            </div>
             <span
               v-if="currentTab === 'yaml-editor' && yamlEditorCursor"
               class="yaml-cursor-status"
@@ -131,6 +152,39 @@
         </div>
       </div>
     </Transition>
+
+    <!-- 种子内核对比更新提示卡片 -->
+    <Transition name="pop">
+      <div v-if="showCoreSeedModal" class="modal-overlay" @click.self="handleCoreSeedCancel">
+        <div class="custom-modal-card core-seed-modal" @click.stop>
+          <div class="modal-header">
+            <h3>{{ t('coreSeedPrompt.title') }}</h3>
+          </div>
+          
+          <div class="modal-body">
+            <p class="global-modal-msg">{{ t('coreSeedPrompt.message') }}</p>
+            <div class="core-compare-card">
+              <div class="core-compare-row">
+                <span class="compare-tag-label">{{ t('coreSeedPrompt.currentVersion') }}:</span>
+                <span class="version-badge current-badge">{{ currentCoreVer || t('settings.update.installedUnknownVersion') }}</span>
+              </div>
+              <div class="core-compare-row">
+                <span class="compare-tag-label">{{ t('coreSeedPrompt.seedVersion') }}:</span>
+                <span class="version-badge seed-badge">{{ seedCoreVer }}</span>
+              </div>
+            </div>
+            
+            <div class="modal-footer core-seed-footer">
+              <button class="action-btn" @click="handleCoreSeedNever">{{ t('coreSeedPrompt.never') }}</button>
+              <button class="primary-btn accent-btn" :disabled="replacingCore" @click="handleCoreSeedConfirm">
+                {{ replacingCore ? t('coreSeedPrompt.replacing') : t('common.confirm') }}
+              </button>
+              <button class="action-btn" @click="handleCoreSeedCancel">{{ t('common.cancel') }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -139,6 +193,7 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import * as API from '../wailsjs/go/main/App';
 import { ICONS } from './utils/icons';
 import { t, currentLocale } from './locales';
+import { formatSpeed } from './utils/format';
 import Sidebar from './components/Sidebar.vue';
 import Overview from './components/Overview.vue';
 import Proxies from './components/Proxies.vue';
@@ -163,7 +218,7 @@ import {
   WindowIsMaximised,
   Quit
 } from '../wailsjs/runtime/runtime';
-import { globalState, initStore, updateStateFromBackend } from './store';
+import { globalState, initStore, updateStateFromBackend, showAlert } from './store';
 
 const currentTab = ref('home');
 const targetSettingsView = ref('main');
@@ -176,6 +231,45 @@ const yamlEditorStatus = ref(t('yamlEditor.saved'));
 const yamlEditorModified = ref(false);
 const yamlEditorHasError = ref(false);
 const yamlEditorCursor = ref('');
+
+const showCoreSeedModal = ref(false);
+const currentCoreVer = ref('');
+const seedCoreVer = ref('');
+const replacingCore = ref(false);
+
+const globalAppUpdatePercent = computed(() => {
+  const p = globalState.appUpdateProgress;
+  if (!p || !p.totalBytes || p.totalBytes <= 0) return 0;
+  return Math.min(100, Math.floor((p.bytesDone / p.totalBytes) * 100));
+});
+
+const handleGlobalUpdateChipClick = () => {
+  const p = globalState.appUpdateProgress;
+  if (!p) return;
+  if (p.isDownloaded) {
+    globalState.modal = {
+      show: true,
+      title: t('appUpdate.downloadCompleteTitle'),
+      message: t('appUpdate.downloadCompleteMsg', { version: p.version || '' }),
+      detail: '',
+      type: "confirm",
+      isDanger: false,
+      onConfirm: async () => {
+        globalState.modal.show = false;
+        if (!p.path) return;
+        try {
+          await (API as any).ApplyAppUpdate(p.path);
+        } catch (e: any) {
+          showAlert(String(e?.message || e || t('common.error')), t('common.error'), true);
+        }
+      },
+      onCancel: () => { globalState.modal.show = false; }
+    };
+  } else {
+    currentTab.value = 'settings';
+    targetSettingsView.value = 'about';
+  }
+};
 
 const traffic = ref({ 
   up: '0 B/s', 
@@ -359,6 +453,32 @@ const handleModalCancel = () => {
   if (globalState.modal.onCancel) globalState.modal.onCancel();
 };
 
+const handleCoreSeedNever = async () => {
+  showCoreSeedModal.value = false;
+  try {
+    await (API as any).DisableCoreComparisonPrompt();
+  } catch (e) {
+    console.error("Disable core comparison prompt failed:", e);
+  }
+};
+
+const handleCoreSeedCancel = () => {
+  showCoreSeedModal.value = false;
+};
+
+const handleCoreSeedConfirm = async () => {
+  replacingCore.value = true;
+  try {
+    const newVer = await (API as any).ReplaceCoreWithSeed();
+    showCoreSeedModal.value = false;
+    await showAlert(t('coreSeedPrompt.replaceSuccess', { version: newVer || seedCoreVer.value }), t('common.success'));
+  } catch (e: any) {
+    await showAlert(t('coreSeedPrompt.replaceFailed', { error: String(e?.message || e) }), t('common.error'), true);
+  } finally {
+    replacingCore.value = false;
+  }
+};
+
 const watchTheme = watch(() => globalState.theme, (val) => {
   if (val === 'dark') {
     document.documentElement.classList.add('dark');
@@ -389,6 +509,17 @@ onMounted(async () => {
     const status = await API.CheckTunEnv();
     globalState.tunStatus = status as any;
   } catch (e) { console.error("TUN Env Check Error:", e); }
+
+  try {
+    const checkResult = await (API as any).CheckCoreAgainstSeed();
+    if (checkResult && checkResult.shouldPrompt) {
+      currentCoreVer.value = checkResult.currentVersion;
+      seedCoreVer.value = checkResult.seedVersion;
+      showCoreSeedModal.value = true;
+    }
+  } catch (e) {
+    console.error("Check core against seed failed:", e);
+  }
 
   unsubTrafficData = EventsOn("traffic-data", (data: any) => {
     traffic.value = {
@@ -430,6 +561,10 @@ onMounted(async () => {
   unsubClashExited = EventsOn("clash-exited", () => {
     globalState.isRunning = false;
     (API as any).SyncState();
+  });
+
+  EventsOn("tun-mips-fallback", () => {
+    void showAlert(t('settings.tun.mipsFallbackWarning'), t('common.notice'), false);
   });
 
   window.addEventListener('resize', handleResize);
@@ -793,5 +928,124 @@ const resetViewScroller = () => {
 
 .yaml-save-status.error {
   color: #ff4d4f;
+}
+
+.core-seed-modal {
+  max-width: 460px;
+}
+
+.core-compare-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--surface-hover);
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+
+.core-compare-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.compare-tag-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.version-badge {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.version-badge.current-badge {
+  color: var(--text-sub);
+  background: var(--surface-panel);
+}
+
+.version-badge.seed-badge {
+  color: var(--accent);
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.core-seed-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.global-update-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-hover);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-main);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+  position: relative;
+}
+
+.global-update-chip:hover {
+  background: var(--surface-panel);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.global-update-chip.downloaded {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #10b981;
+  font-weight: 600;
+}
+
+.global-update-chip.downloaded:hover {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: #10b981;
+}
+
+.chip-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--accent);
+  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+  animation: chipPulse 1.8s infinite;
+}
+
+@keyframes chipPulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+}
+
+.chip-icon {
+  display: flex;
+  align-items: center;
+}
+
+.chip-text {
+  letter-spacing: 0.01em;
 }
 </style>

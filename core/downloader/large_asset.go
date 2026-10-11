@@ -96,8 +96,9 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 
 				resp := grabClient.Do(req)
 
-				t := time.NewTicker(500 * time.Millisecond)
+				t := time.NewTicker(400 * time.Millisecond)
 				strategyChanged := false
+				var smoothedSpeed float64
 			loop:
 				for {
 					select {
@@ -115,13 +116,23 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 						}
 
 						if opt.OnProgress != nil {
+							instSpeed := resp.BytesPerSecond()
+							if smoothedSpeed <= 0 {
+								smoothedSpeed = instSpeed
+							} else if instSpeed > 0 {
+								smoothedSpeed = smoothedSpeed*0.7 + instSpeed*0.3
+							}
+
 							eta := int64(-1)
-							if !resp.ETA().IsZero() {
+							remBytes := resp.Size() - resp.BytesComplete()
+							if smoothedSpeed > 1024 && remBytes > 0 {
+								eta = int64(float64(remBytes) / smoothedSpeed)
+							} else if !resp.ETA().IsZero() {
 								if d := time.Until(resp.ETA()); d > 0 {
 									eta = int64(d.Seconds())
 								}
 							}
-							opt.OnProgress(resp.BytesComplete(), resp.Size(), int64(resp.BytesPerSecond()), eta)
+							opt.OnProgress(resp.BytesComplete(), resp.Size(), int64(smoothedSpeed), eta)
 						}
 					case <-resp.Done:
 						break loop
