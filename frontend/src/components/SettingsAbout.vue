@@ -562,11 +562,6 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 .restore-actions { display: flex; flex-direction: column; }
 .active-border { border: 1px solid var(--accent) !important; }
 
-.auto-update-sub-items,
-.update-interval-sub-items {
-  overflow: hidden;
-}
-
 .dropdown-enter-active,
 .dropdown-leave-active {
   transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);

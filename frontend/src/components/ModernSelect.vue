@@ -109,6 +109,10 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
+.modern-custom-select.is-open {
+  z-index: 50;
+}
+
 .modern-custom-select.w-full {
   width: 100%;
 }
