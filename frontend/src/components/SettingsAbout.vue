@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-page">
+  <div class="settings-page" :class="{ 'no-anim': loading }">
     <div class="sub-header section-header page-sticky-mask">
       <button class="back-btn" @click="$emit('navigate', 'main')">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
@@ -283,7 +283,7 @@ import ModernNumberInput from './ModernNumberInput.vue';
 import ModernSelect from './ModernSelect.vue';
 import { t, currentLocale, setLocale, SUPPORTED_LOCALES, SupportedLocale } from '../locales';
 
-const props = defineProps<{ behavior: Record<string, any> }>();
+const props = defineProps<{ behavior: Record<string, any>; loading?: boolean }>();
 const emit = defineEmits<{
   navigate: [view: 'main'];
   save: [];

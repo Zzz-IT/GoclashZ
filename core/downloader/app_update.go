@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -27,14 +28,54 @@ type AppUpdateInfo struct {
 
 var strictVersionRe = regexp.MustCompile(`(?i)(?:^|[^0-9])v?(\d+\.\d+(?:\.\d+)?(?:\.\d+)?)`)
 
+// errStrategyChanged 标记"检查过程中代理/TUN 被切换"，
+// 后端将其作为普通结果处理（静默复位前端状态），不弹错误框。
+var errStrategyChanged = fmt.Errorf("network strategy changed during check")
+
+// IsStrategyChanged 判断错误是否为"检查过程中网络策略被切换"。
+func IsStrategyChanged(err error) bool {
+	return err != nil && (err == errStrategyChanged || strings.Contains(err.Error(), errStrategyChanged.Error()))
+}
+
 func CheckAppUpdate(ctx context.Context, currentVersion string, strategy func() DownloadStrategy) (*AppUpdateInfo, error) {
 	apiURL := "https://api.github.com/repos/Zzz-IT/GoclashZ/releases/latest"
 
-	clients := BuildOrderedClients(strategy, APIRequestTimeout)
+	// 每次调用时读取一次策略作为基线，用于后续轮询检测代理/TUN 是否被切换。
+	var baseStrategy DownloadStrategy
+	if strategy != nil {
+		baseStrategy = strategy()
+	}
 
-	// 单次拨号超时 6s，保证 2 client × 3 URL = 6 次拨号（最坏 36s）
-	// 能在外层 40s 的预算内跑完，不会在候选还没试完时就被整体超时掐断。
+	clients := BuildOrderedClients(strategy, APIRequestTimeout)
 	apiURLs := BuildCandidateAPIURLs(apiURL)
+
+	// 监听代理/TUN 切换：用户在检查过程中切换了网络路径时，
+	// 立即中止本次检查（返回带标记的错误），让用户重新点击后
+	// 立刻用新路径重试，而不是傻等超时。
+	strategyChanged := make(chan struct{}, 1)
+	if strategy != nil {
+		watchCtx, stopWatch := context.WithCancel(ctx)
+		defer stopWatch()
+		go func() {
+			ticker := time.NewTicker(500 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-watchCtx.Done():
+					return
+				case <-ticker.C:
+					s := strategy()
+					if s.PreferProxy != baseStrategy.PreferProxy || s.ProxyURL != baseStrategy.ProxyURL {
+						select {
+						case strategyChanged <- struct{}{}:
+						default:
+						}
+						return
+					}
+				}
+			}
+		}()
+	}
 
 	var release struct {
 		TagName string `json:"tag_name"`
@@ -46,38 +87,110 @@ func CheckAppUpdate(ctx context.Context, currentVersion string, strategy func() 
 		} `json:"assets"`
 	}
 
+	// 并发发起所有候选请求（直连/代理 × 原生地址），谁先成功用谁，
+	// 其余用 reqCtx 取消。网络不通时最坏也只是一个 client 的 6s 超时，
+	// 而不是串行逐个等待（旧逻辑最坏 2 client × 6s = 12s 才能报失败）。
 	var lastErr error
-found:
+	found := false
+	reqCtx, cancelReqs := context.WithCancel(ctx)
+	defer cancelReqs()
+
+	type checkResult struct {
+		rel *struct {
+			TagName string `json:"tag_name"`
+			Body    string `json:"body"`
+			HTMLURL string `json:"html_url"`
+			Assets  []struct {
+				Name               string `json:"name"`
+				BrowserDownloadURL string `json:"browser_download_url"`
+			} `json:"assets"`
+		}
+		err error
+	}
+	resultCh := make(chan checkResult, len(clients)*len(apiURLs))
+	var successOnce sync.Once
+
+	// 标记策略切换：一旦触发，取消所有在途请求
+	go func() {
+		select {
+		case <-strategyChanged:
+			cancelReqs()
+		case <-reqCtx.Done():
+		}
+	}()
+
 	for _, client := range clients {
 		for _, u := range apiURLs {
-			req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-			if reqErr != nil {
-				lastErr = reqErr
-				continue
-			}
-			req.Header.Set("User-Agent", "GoclashZ-Updater")
+			go func(c *http.Client, rawURL string) {
+				select {
+				case <-strategyChanged:
+					resultCh <- checkResult{err: errStrategyChanged}
+					return
+				default:
+				}
 
-			resp, reqErr := client.Do(req)
-			if reqErr != nil {
-				lastErr = reqErr
-				continue
-			}
-
-			func() {
-				defer resp.Body.Close()
-				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-					lastErr = fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
+				req, reqErr := http.NewRequestWithContext(reqCtx, http.MethodGet, rawURL, nil)
+				if reqErr != nil {
+					resultCh <- checkResult{err: reqErr}
 					return
 				}
-				lastErr = json.NewDecoder(resp.Body).Decode(&release)
-			}()
+				req.Header.Set("User-Agent", "GoclashZ-Updater")
 
-			if lastErr == nil && release.TagName != "" {
-				break found
-			}
+				resp, reqErr := c.Do(req)
+				if reqErr != nil {
+					resultCh <- checkResult{err: reqErr}
+					return
+				}
+				defer resp.Body.Close()
+
+				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+					resultCh <- checkResult{err: fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)}
+					return
+				}
+
+				var rel struct {
+					TagName string `json:"tag_name"`
+					Body    string `json:"body"`
+					HTMLURL string `json:"html_url"`
+					Assets  []struct {
+						Name               string `json:"name"`
+						BrowserDownloadURL string `json:"browser_download_url"`
+					} `json:"assets"`
+				}
+				if decErr := json.NewDecoder(resp.Body).Decode(&rel); decErr != nil {
+					resultCh <- checkResult{err: decErr}
+					return
+				}
+				if rel.TagName == "" {
+					resultCh <- checkResult{err: fmt.Errorf("GitHub API 响应缺少 tag_name")}
+					return
+				}
+
+				// 用 sync.Once 保证只有第一个成功者写回数据并取消其余请求
+				successOnce.Do(func() {
+					release = rel
+					found = true
+					cancelReqs()
+				})
+				resultCh <- checkResult{rel: &rel, err: nil}
+			}(client, u)
 		}
 	}
 
+	total := len(clients) * len(apiURLs)
+	for i := 0; i < total; i++ {
+		res := <-resultCh
+		if res.err == errStrategyChanged {
+			return nil, errStrategyChanged
+		}
+		if !found {
+			lastErr = res.err
+		}
+	}
+
+	if found {
+		lastErr = nil
+	}
 	if lastErr != nil {
 		return nil, lastErr
 	}
@@ -234,23 +347,15 @@ func BuildCandidateDownloadURLs(rawURL string, preferProxy bool) []string {
 }
 
 // BuildCandidateAPIURLs 为 GitHub API 请求生成候选地址。
-// 实测 ghfast / ghproxy 这类公益镜像基本只反代 github.com 的下载路径，
-// 不反代 api.github.com（直接 403 或断连），因此原生地址恒优先、镜像仅作最后兜底。
+// 实测 ghfast / ghproxy 这类公益镜像只反代 github.com 的下载路径，
+// 不反代 api.github.com（直接 403 或断连），镜像候选每次都会白等一个超时，
+// 因此 API 请求固定只用原生地址，不再拼镜像兜底。
 func BuildCandidateAPIURLs(apiURL string) []string {
 	apiURL = strings.TrimSpace(apiURL)
 	if apiURL == "" {
 		return nil
 	}
-	if !strings.Contains(apiURL, "api.github.com/") {
-		return []string{apiURL}
-	}
-
-	urls := make([]string, 0, len(githubMirrors)+1)
-	urls = append(urls, apiURL)
-	for _, m := range githubMirrors {
-		urls = append(urls, m+apiURL)
-	}
-	return urls
+	return []string{apiURL}
 }
 
 // DownloadAppUpdate 使用通用下载机下载应用更新包

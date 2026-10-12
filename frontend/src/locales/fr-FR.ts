@@ -442,6 +442,8 @@ export default {
       portProxyModeDesc: 'Démarrer le port d\'écoute sans modifier le proxy système global de Windows.',
       coreComparisonPrompt: 'Notification de comparaison du noyau',
       coreComparisonPromptDesc: 'Vérifier au démarrage si le noyau actuel est antérieur au noyau de base et proposer le remplacement.',
+      longConnectionProtection: 'Protection des connexions longues',
+      longConnectionProtectionDesc: 'Diffère le redémarrage du noyau tant que des connexions longues sont actives, puis le lance. Désactivé : redémarrage immédiat, risque de coupure.',
       autoDelayTest: 'Test de latence automatique',
       autoDelayTestDesc: 'Mesurer périodiquement la latence des nœuds en arrière-plan.',
       autoDelayInterval: 'Intervalle de test',

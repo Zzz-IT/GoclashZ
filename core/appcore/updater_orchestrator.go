@@ -21,9 +21,18 @@ import (
 // 之前两者共用 "app-update-flow"，导致"上一次自动检查还没释放任务名"时
 // 用户的手动点击被误判成"正在下载"而弹 busy。拆开后手动检查可以安全抢占，
 // 又不会影响真正的下载任务。
+//
+// ⚠️ 重要：任务名不能叫 "app-update-check"。
+// 任务框架 (core/tasks/manager.go) 在启动任何任务时会自动广播 `<任务名>-start`，
+// 若任务名叫 "app-update-check"，框架就会发出 "app-update-check-start"，
+// 与前端用来点亮"检查中"的 UI 事件同名。而启动自动检查 (manual=false) 路径
+// 因为所有终态事件都被 `if manual` 保护，不会发出任何复位事件，
+// 导致按钮永久停在"检查中"，只能等前端 15s 兜底才恢复。
+// 改为 -job 后缀后，框架发出的 "app-update-check-job-start" 无人监听，
+// UI 只由 runAppUpdateCheck 中 manual-only 的 check-start / check-end 驱动。
 const (
-	appUpdateCheckTask    = "app-update-check"
-	appUpdateDownloadTask = "app-update-download"
+	appUpdateCheckTask    = "app-update-check-job"
+	appUpdateDownloadTask = "app-update-download-job"
 )
 
 func (c *Controller) updateGeoDatabase(ctx context.Context, key string, onProgress func(bytesDone, totalBytes, speedBps, etaSec int64)) error {
@@ -138,7 +147,8 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 
 func (c *Controller) CheckCoreUpdateAsync(ctx context.Context) {
 	c.Tasks.Run(ctx, "core-update-check", true, func(ctx context.Context) error {
-		timeoutCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+		// 同软件更新：只走原生 API，12s 覆盖代理/直连两路兜底
+		timeoutCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 		defer cancel()
 
 		local := clash.GetLocalCoreVersion(timeoutCtx)
@@ -407,17 +417,30 @@ func (c *Controller) CheckAppUpdateAsync(ctx context.Context, currentVersion str
 }
 
 func (c *Controller) runAppUpdateCheck(ctx context.Context, currentVersion string, manual bool) error {
+	// manual=true 表示用户手动点击"检查更新"：
+	// 通知前端进入"检查中"状态；返回时无论成功/失败/取消，
+	// 都发终态事件让前端复位，杜绝按钮卡死。
 	if manual {
 		c.events.Emit("app-update-check-start")
+		defer c.events.Emit("app-update-check-end")
 	}
 
-	// 40s 预算：覆盖 2 client × 3 API 地址、单次 6s 的最坏遍历，
-	// 不留出"候选还没试完就被掐断"的窗口。
-	timeoutCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+	// 检查更新只走原生 api.github.com，候选最多 2 client（代理优先时）× 1 地址。
+	// 12s 预算足够覆盖单次 6s 拨号 + 直连/代理两路兜底，不再为注定失败的
+	// 公益镜像候选白等超时。
+	timeoutCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 
 	info, err := downloader.CheckAppUpdate(timeoutCtx, currentVersion, c.getDynamicStrategy)
 	if err != nil {
+		if downloader.IsStrategyChanged(err) {
+			// 检查过程中代理/TUN 被切换：静默复位前端"检查中"状态，
+			// 不弹错误框，让用户立刻用新网络路径重新点击。
+			if manual {
+				c.events.Emit("app-update-check-cancelled")
+			}
+			return nil
+		}
 		if manual {
 			c.events.Emit("app-update-error", "检查软件更新失败: "+err.Error())
 		}

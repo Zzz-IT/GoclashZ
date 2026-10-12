@@ -365,12 +365,24 @@ watch(logsTabsTrackRef, (el) => {
 });
 
 let scrollTimer: ReturnType<typeof setTimeout> | null = null;
+let appUpdateCheckFailsafeTimer: ReturnType<typeof setTimeout> | null = null;
+
+// 复位"检查中"并清掉兜底定时器，所有终态事件统一走这里
+const settleAppUpdateChecking = () => {
+  if (appUpdateCheckFailsafeTimer) {
+    clearTimeout(appUpdateCheckFailsafeTimer);
+    appUpdateCheckFailsafeTimer = null;
+  }
+  globalState.appUpdateChecking = false;
+};
 
 let unsubTrafficData: (() => void) | null = null;
 let unsubTrafficModeChanged: (() => void) | null = null;
 let unsubLogMessage: (() => void) | null = null;
 let unsubClashExited: (() => void) | null = null;
 let unsubUpdateCheckStart: (() => void) | null = null;
+let unsubUpdateCheckCancelled: (() => void) | null = null;
+let unsubUpdateCheckEnd: (() => void) | null = null;
 let unsubUpdateAvailable: (() => void) | null = null;
 let unsubUpdateStart: (() => void) | null = null;
 let unsubUpdateDownloaded: (() => void) | null = null;
@@ -572,10 +584,29 @@ onMounted(async () => {
 
   unsubUpdateCheckStart = EventsOn("app-update-check-start", () => {
     globalState.appUpdateChecking = true;
+
+    // 🛡️ 兜底：后端最长 12s 必须给出结果；若 15s 后仍无任何事件，
+    // 强制复位"检查中"，杜绝按钮永远卡死。
+    if (appUpdateCheckFailsafeTimer) clearTimeout(appUpdateCheckFailsafeTimer);
+    appUpdateCheckFailsafeTimer = setTimeout(() => {
+      if (globalState.appUpdateChecking) {
+        console.warn("[app-update] 检查超过 15s 无任何后端事件，强制复位");
+        globalState.appUpdateChecking = false;
+      }
+    }, 15000);
+  });
+
+  unsubUpdateCheckCancelled = EventsOn("app-update-check-cancelled", () => {
+    settleAppUpdateChecking();
+  });
+
+  // 后端每次手动检查结束（成功/失败/取消）都会发 check-end，兜底复位
+  unsubUpdateCheckEnd = EventsOn("app-update-check-end", () => {
+    settleAppUpdateChecking();
   });
 
   unsubUpdateAvailable = EventsOn("app-update-available", (info: any) => {
-    globalState.appUpdateChecking = false;
+    settleAppUpdateChecking();
     const version = info?.version ?? "";
 
     globalState.modal = {
@@ -611,7 +642,7 @@ onMounted(async () => {
   });
 
   unsubUpdateDownloaded = EventsOn("app-update-downloaded", (payload: any) => {
-    globalState.appUpdateChecking = false;
+    settleAppUpdateChecking();
     const version = payload?.version ?? "";
     const fullPath = payload?.path ?? "";
 
@@ -657,7 +688,7 @@ onMounted(async () => {
   });
 
   unsubUpdateNone = EventsOn("app-update-none", (payload: any) => {
-    globalState.appUpdateChecking = false;
+    settleAppUpdateChecking();
     globalState.modal = {
       show: true,
       title: t('appUpdate.latestTitle'),
@@ -671,7 +702,7 @@ onMounted(async () => {
   });
 
   unsubUpdateError = EventsOn("app-update-error", (err: string) => {
-    globalState.appUpdateChecking = false;
+    settleAppUpdateChecking();
     const s = String(err || t('common.error'));
     const msg = s.length > 120 ? t('appUpdate.networkOrRetryMsg') : s;
 
@@ -698,6 +729,10 @@ onUnmounted(() => {
     clearTimeout(scrollTimer);
     scrollTimer = null;
   }
+  if (appUpdateCheckFailsafeTimer) {
+    clearTimeout(appUpdateCheckFailsafeTimer);
+    appUpdateCheckFailsafeTimer = null;
+  }
 
   stopWaveSampling();
   window.removeEventListener('resize', handleResize);
@@ -707,6 +742,8 @@ onUnmounted(() => {
   unsubLogMessage?.();
   unsubClashExited?.();
   unsubUpdateCheckStart?.();
+  unsubUpdateCheckCancelled?.();
+  unsubUpdateCheckEnd?.();
   unsubUpdateAvailable?.();
   unsubUpdateStart?.();
   unsubUpdateDownloaded?.();

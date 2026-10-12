@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-page">
+  <div class="settings-page" :class="{ 'no-anim': loading }">
     <div class="sub-header section-header page-sticky-mask">
       <button class="back-btn" @click="$emit('navigate', 'main')">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
@@ -52,6 +52,16 @@
         </div>
         <label class="modern-switch">
           <input type="checkbox" v-model="behavior.coreComparisonPrompt" @change="$emit('save')">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="setting-item">
+        <div class="info">
+          <h4>{{ t('settings.behavior.longConnectionProtection') }}</h4>
+          <p>{{ t('settings.behavior.longConnectionProtectionDesc') }}</p>
+        </div>
+        <label class="modern-switch">
+          <input type="checkbox" :checked="behavior.longConnectionProtection" @change="onToggleLongConnectionProtection">
           <span class="slider"></span>
         </label>
       </div>
@@ -241,6 +251,7 @@ import { t } from '../locales';
 const props = defineProps<{
   behavior: Record<string, any>;
   resetKey: number;
+  loading?: boolean;
 }>();
 
 const emit = defineEmits(['navigate', 'reset', 'save', 'startup-change']);
@@ -266,6 +277,17 @@ const appLogLevelOptions = computed(() => [
   { label: t('settings.behavior.logWarn'), value: 'warn' },
   { label: t('settings.behavior.logError'), value: 'error' }
 ]);
+
+// 长连接保护：总开关 + 延迟重启联动。
+// 后端 guardDisruptiveAction 要求 longConnectionProtection && deferRestartWhenActive
+// 同时为 true 才生效，所以前端把两个字段作为一个"长连接保护"开关联动写，
+// 关掉总开关时同步关闭延迟重启，打开时恢复默认的延迟行为。
+const onToggleLongConnectionProtection = (e: Event) => {
+  const on = (e.target as HTMLInputElement).checked;
+  props.behavior.longConnectionProtection = on;
+  props.behavior.deferRestartWhenActive = on;
+  emit('save');
+};
 
 // 🚀 核心：监听更新间隔时间，防止用户输入 0 或负数
 watch(() => props.behavior.updateInterval, async (newVal) => {

@@ -648,3 +648,18 @@ body,
   max-height: 0;
   transform: translateY(-8px);
 }
+
+/* ================================== */
+/* 初始化动画抑制：设置子页面数据未加载完成前，
+   禁用所有 transition/animation，杜绝"默认值→真实值"
+   被渲染成开关滑动 / 下拉展开的伪交互动画。
+   各子页面在 loading 期间给根容器加 .no-anim，
+   数据就绪 nextTick 后移除即可恢复正常动画。 */
+/* ================================== */
+.no-anim,
+.no-anim *,
+.no-anim *::before,
+.no-anim *::after {
+  transition: none !important;
+  animation: none !important;
+}

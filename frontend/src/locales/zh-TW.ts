@@ -442,6 +442,8 @@ export default {
       portProxyModeDesc: '開啟後，系統代理按鈕變為「連接埠代理」，點擊時僅啟動核心監聽代理連接埠，不修改系統全域代理設定。瀏覽器可手動設定本機代理位址使用。',
       coreComparisonPrompt: '核心對比更新提示',
       coreComparisonPromptDesc: '啟動時檢測目前核心是否低於種子核心，若版本較低則提示是否替換。',
+      longConnectionProtection: '長連接保護',
+      longConnectionProtectionDesc: '有作用中的長連接時延遲核心重啟，連接結束後自動完成。關閉則立即重啟，可能中斷進行中的連接。',
       autoDelayTest: '自動延遲測速',
       autoDelayTestDesc: '啟用後，將按設定的時間間隔在背景自動更新節點延遲。',
       autoDelayInterval: '測速間隔',

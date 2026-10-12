@@ -442,6 +442,8 @@ export default {
       portProxyModeDesc: 'Start proxy listening port without altering global Windows system proxy.',
       coreComparisonPrompt: 'Core Seed Comparison Prompt',
       coreComparisonPromptDesc: 'Check on startup whether current core version is lower than the seed core, prompting to replace if outdated.',
+      longConnectionProtection: 'Long Connection Protection',
+      longConnectionProtectionDesc: 'Defers core restarts until active long connections end. When off, restarts run immediately and may interrupt them.',
       autoDelayTest: 'Auto Latency Test',
       autoDelayTestDesc: 'Periodically measure proxy node latencies in the background.',
       autoDelayInterval: 'Test Interval',

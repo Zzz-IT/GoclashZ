@@ -442,6 +442,8 @@ export default {
       portProxyModeDesc: '开启后，系统代理按钮变为"端口代理"，点击时仅启动内核监听代理端口，不修改系统全局代理设置。浏览器可手动配置本地代理地址使用。',
       coreComparisonPrompt: '内核对比更新提示',
       coreComparisonPromptDesc: '启动时检测当前内核是否低于种子内核，若版本较低则提示是否替换。',
+      longConnectionProtection: '长连接保护',
+      longConnectionProtectionDesc: '有活跃长连接时延迟内核重启，连接结束后自动完成。关闭则立即重启，可能中断进行中的连接。',
       autoDelayTest: '自动延迟测速',
       autoDelayTestDesc: '启用后，将按设定的时间间隔在后台自动更新节点延迟。',
       autoDelayInterval: '测速间隔',

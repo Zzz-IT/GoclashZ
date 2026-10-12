@@ -8,8 +8,8 @@
         <SettingsDns v-else-if="view === 'dns'" :reset-key="resetVersions.dns" @navigate="view = $event" @reset="confirmReset" />
         <SettingsNetwork v-else-if="view === 'network'" :reset-key="resetVersions.network" @navigate="view = $event" @reset="confirmReset" />
         <SettingsLan v-else-if="view === 'lan'" :reset-key="resetVersions.lan" @navigate="view = $event" @reset="confirmReset" />
-        <SettingsBehavior v-else-if="view === 'behavior'" :behavior="behavior" :reset-key="resetVersions.behavior" @navigate="view = $event" @reset="confirmReset" @save="saveBehavior" @startup-change="handleStartupWithOSChange" />
-        <SettingsAbout v-else-if="view === 'about'" :behavior="behavior" @navigate="view = $event" @save="saveBehavior" />
+        <SettingsBehavior v-else-if="view === 'behavior'" :behavior="behavior" :loading="behaviorLoading" :reset-key="resetVersions.behavior" @navigate="view = $event" @reset="confirmReset" @save="saveBehavior" @startup-change="handleStartupWithOSChange" />
+        <SettingsAbout v-else-if="view === 'about'" :behavior="behavior" :loading="behaviorLoading" @navigate="view = $event" @save="saveBehavior" />
         <SettingsUwp v-else-if="view === 'uwp'" :entry="uwpEntry" @navigate="view = $event" />
       </div>
     </Transition>
@@ -66,7 +66,9 @@ const modules = computed<Record<string, string>>(() => ({
   lan: t('settings.home.lan'),
   behavior: t('settings.home.behavior'),
 }));
-const behavior = ref<any>({ language: currentLocale.value, silentStart: false, closeToTray: true, startupWithOS: false, restoreOnStartup: false, colorDelay: false, delayRetention: false, delayRetentionTime: 'long', proxyTrafficOnly: false, logLevel: 'info', appLogLevel: 'info', hideLogs: false, subUA: '', activeConfig: '', activeMode: '', geoIpLink: '', geoSiteLink: '', mmdbLink: '', asnLink: '', autoUpdate: true, updateMethod: 'startup', updateInterval: 3, coreComparisonPrompt: true });
+const behavior = ref<any>({ language: currentLocale.value, silentStart: false, closeToTray: true, startupWithOS: false, restoreOnStartup: false, colorDelay: false, delayRetention: false, delayRetentionTime: 'long', proxyTrafficOnly: false, logLevel: 'info', appLogLevel: 'info', hideLogs: false, subUA: '', activeConfig: '', activeMode: '', geoIpLink: '', geoSiteLink: '', mmdbLink: '', asnLink: '', autoUpdate: true, updateMethod: 'startup', updateInterval: 3, coreComparisonPrompt: true, longConnectionProtection: true, deferRestartWhenActive: true, longConnectionMinSeconds: 60 });
+
+const behaviorLoading = ref(true);
 
 const loadBehavior = async () => {
   try {
@@ -78,6 +80,9 @@ const loadBehavior = async () => {
       if (value.coreComparisonPrompt === undefined) {
         value.coreComparisonPrompt = true;
       }
+      if (value.longConnectionProtection === undefined) {
+        value.longConnectionProtection = true;
+      }
       behavior.value = value;
       if (value.language) {
         setLocale(value.language as SupportedLocale);
@@ -85,6 +90,13 @@ const loadBehavior = async () => {
     }
   } catch (error) {
     console.error('加载配置失败', error);
+  } finally {
+    // 必须等浏览器真正绘制一帧（rAF）后再解除 no-anim。
+    // 若用 nextTick，解除发生在绘制之前，浏览器首次绘制时 transition 已恢复，
+    // 会把"默认值→真实值"当成状态变化播成滑动动画，抑制形同无效。
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => { behaviorLoading.value = false; });
+    });
   }
 };
 const saveBehavior = async () => {

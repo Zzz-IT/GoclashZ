@@ -442,6 +442,8 @@ export default {
       portProxyModeDesc: 'グローバルシステムプロキシを変更せず、待受ポートのみ起動します。',
       coreComparisonPrompt: 'コア比較更新の確認',
       coreComparisonPromptDesc: '起動時に現在のコアがシードコアより古いか検出し、古い場合は置換を確認します。',
+      longConnectionProtection: '長時間接続の保護',
+      longConnectionProtectionDesc: '長時間接続がアクティブな間はコア再起動を延期し、終了後に自動実行します。オフの場合は即時再起動され、進行中の接続が中断される場合があります。',
       autoDelayTest: '自動遅延測定',
       autoDelayTestDesc: 'バックグラウンドで定期的にプロキシノードの遅延を測定します。',
       autoDelayInterval: '測定間隔',

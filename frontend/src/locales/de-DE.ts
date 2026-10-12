@@ -442,6 +442,8 @@ export default {
       portProxyModeDesc: 'Proxy-Port starten, ohne den globalen Windows-Systemproxy anzupassen.',
       coreComparisonPrompt: 'Core-Vergleichs-Aktualisierungshinweis',
       coreComparisonPromptDesc: 'Beim Start prüfen, ob der aktuelle Core älter als der Seed-Core ist, und ggf. Austausch vorschlagen.',
+      longConnectionProtection: 'Schutz langer Verbindungen',
+      longConnectionProtectionDesc: 'Verschiebt den Core-Neustart, solange Langzeitverbindungen aktiv sind, und führt ihn danach aus. Deaktiviert: sofortiger Neustart, Verbindungen können abbrechen.',
       autoDelayTest: 'Automatische Latenzprüfung',
       autoDelayTestDesc: 'Latenz der Knoten regelmäßig im Hintergrund messen.',
       autoDelayInterval: 'Prüfintervall',

@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-page">
+  <div class="settings-page" :class="{ 'no-anim': !isInitialized }">
     <div class="sub-header section-header page-sticky-mask">
       <button class="back-btn" @click="$emit('navigate', 'main')">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
@@ -56,7 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { globalState, settleTunIntent, setTunIntent, showAlert, showConfirm } from '../store';
@@ -122,8 +122,12 @@ const loadData = async () => {
     console.error('加载配置失败', e);
   } finally {
     loading.value = false;
-    await nextTick();
-    isInitialized.value = true;
+    // 必须等浏览器真正绘制一帧（rAF）后再解除 no-anim。
+    // 若只用 nextTick，解除发生在绘制之前，浏览器首次绘制时 transition 已恢复，
+    // 会把"默认值→真实值"当成状态变化播成滑动动画，抑制形同无效。
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => { isInitialized.value = true; });
+    });
   }
 };
 

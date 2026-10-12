@@ -58,6 +58,11 @@ func createOrderedClientsFromStrategy(opt Options, strategy DownloadStrategy) []
 }
 
 // BuildOrderedClients 根据动态策略构建有序 HTTP 客户端列表（供 API 检查等轻量场景复用）
+//
+// 注意：只有用户明确开着代理（PreferProxy=true）时才会附带代理 client。
+// PreferProxy=false（国内裸连）时只返回直连 client——此时若内核在跑，
+// ProxyURL 也会被塞进候选，但那个 127.0.0.1 代理要么用户根本没想让更新走它，
+// 要么节点失效导致每个候选白等一个超时，纯属浪费时间。
 func BuildOrderedClients(strategy func() DownloadStrategy, timeout time.Duration) []*http.Client {
 	directClient := &http.Client{Timeout: timeout}
 
@@ -70,11 +75,8 @@ func BuildOrderedClients(strategy func() DownloadStrategy, timeout time.Duration
 		return []*http.Client{NewProxyClient(strat.ProxyURL, timeout), directClient}
 	}
 
-	clients := []*http.Client{directClient}
-	if strat.ProxyURL != "" {
-		clients = append(clients, NewProxyClient(strat.ProxyURL, timeout))
-	}
-	return clients
+	// 裸连：只直连，不再附加代理兜底
+	return []*http.Client{directClient}
 }
 
 func NewProxyClient(proxyURL string, timeout time.Duration) *http.Client {
