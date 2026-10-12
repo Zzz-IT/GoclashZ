@@ -569,6 +569,7 @@ export default {
       stackMips: 'MIPS (推荐)',
       congestion: 'TCP 拥塞控制算法',
       congestionMipsOnly: '仅在 MIPS 协议栈下生效',
+      congestionRecommended: '推荐',
       mipsFallbackWarning: '当前配置文件指定了 MIPS 协议栈，但当前内核版本过低不支持。已自动为您降级退回 Mixed 模式，建议升级内核以支持 MIPS 及 BBR3。',
       device: '指定网卡名称 (Device)',
       devicePlaceholder: '留空则自动',

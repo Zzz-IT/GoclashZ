@@ -222,11 +222,15 @@ func isCoreAsset(key AssetKey) bool {
 
 func RecordSeedCoreCopied(seedPath string) {
 	state := LoadAssetState()
-	h := checkCoreByPath(context.Background(), seedPath)
-	sha := h.SHA256
+	// 优先取 seed 清单里的 sha256；清单缺失或条目无效时才回退到实际哈希计算。
+	sha := ""
 	catalog := LoadSeedCatalog()
 	if meta, ok := catalog.Items["clash.exe"]; ok && meta.SHA256 != "" {
 		sha = meta.SHA256
+	}
+	if sha == "" {
+		h := checkCoreByPath(context.Background(), seedPath)
+		sha = h.SHA256
 	}
 
 	state.CopiedAssets["clash.exe"] = struct {

@@ -463,7 +463,7 @@ const appUpdatePercent = computed(() => {
 
 const unsubAppUpdateBusy = EventsOn("app-update-busy", () => {
   globalState.appUpdateChecking = false;
-  void showAlert("已有软件更新任务正在进行，请稍后再试。", "提示");
+  void showAlert(t('settings.update.appUpdateBusy'), t('common.confirm'));
 });
 
 onUnmounted(() => {
@@ -561,19 +561,6 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 .divider-text::after { margin-left: 10px; }
 .restore-actions { display: flex; flex-direction: column; }
 .active-border { border: 1px solid var(--accent) !important; }
-
-.dropdown-enter-active,
-.dropdown-leave-active {
-  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-  max-height: 250px;
-  overflow: hidden;
-}
-.dropdown-enter-from,
-.dropdown-leave-to {
-  opacity: 0;
-  max-height: 0;
-  transform: translateY(-8px);
-}
 
 /* 关于页面的超链接样式 */
 .link-item {

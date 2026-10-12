@@ -197,10 +197,6 @@ func NotifyMipsFallback() {
 	}
 }
 
-func notifyMipsFallback() {
-	NotifyMipsFallback()
-}
-
 // AdjustTunConfigForCore 校验并调整 TUN 配置，若指定了 mips 但当前内核不支持，则降级为 mixed、清空拥塞控制算法并返回 true
 func AdjustTunConfigForCore(cfg *TunConfig, supportsMips bool) bool {
 	if cfg == nil {
@@ -237,14 +233,14 @@ func GetTunConfig() (*TunConfig, error) {
 	}
 	if AdjustTunConfigForCore(cfg, CoreSupportsMips(context.Background())) {
 		_ = utils.SaveSetting("tun", cfg)
-		notifyMipsFallback()
+		NotifyMipsFallback()
 	}
 	return cfg, nil
 }
 
 func UpdateTunConfig(newTun *TunConfig) error {
 	if AdjustTunConfigForCore(newTun, CoreSupportsMips(context.Background())) {
-		notifyMipsFallback()
+		NotifyMipsFallback()
 	}
 	return utils.SaveSetting("tun", newTun)
 }
@@ -489,7 +485,7 @@ func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool
 				userTun.CongestionController = ""
 				_ = utils.SaveSetting("tun", userTun)
 			}
-			notifyMipsFallback()
+			NotifyMipsFallback()
 		}
 
 		// 拥塞控制算法仅在 mips stack 下生效，非 mips 时剔除
@@ -505,7 +501,7 @@ func BuildRuntimeConfig(id string, mode string, logLevel string, tunEnabled bool
 				if !CoreSupportsMips(context.Background()) {
 					origTun["stack"] = "mixed"
 					delete(origTun, "congestion-controller")
-					notifyMipsFallback()
+					NotifyMipsFallback()
 				}
 			}
 		}

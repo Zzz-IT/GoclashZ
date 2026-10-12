@@ -67,17 +67,20 @@ func BuildOrderedClients(strategy func() DownloadStrategy, timeout time.Duration
 
 	strat := strategy()
 	if strat.PreferProxy && strat.ProxyURL != "" {
-		return []*http.Client{NewProxyClient(strat.ProxyURL), directClient}
+		return []*http.Client{NewProxyClient(strat.ProxyURL, timeout), directClient}
 	}
 
 	clients := []*http.Client{directClient}
 	if strat.ProxyURL != "" {
-		clients = append(clients, NewProxyClient(strat.ProxyURL))
+		clients = append(clients, NewProxyClient(strat.ProxyURL, timeout))
 	}
 	return clients
 }
 
-func NewProxyClient(proxyURL string) *http.Client {
+func NewProxyClient(proxyURL string, timeout time.Duration) *http.Client {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
 	tr := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		TLSHandshakeTimeout:   10 * time.Second,
@@ -93,7 +96,7 @@ func NewProxyClient(proxyURL string) *http.Client {
 	}
 
 	return &http.Client{
-		Timeout:   30 * time.Second,
+		Timeout:   timeout,
 		Transport: tr,
 	}
 }

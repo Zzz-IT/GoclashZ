@@ -445,20 +445,6 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   height: 16px;
 }
 
-.dropdown-enter-active,
-.dropdown-leave-active {
-  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-  max-height: 250px;
-  overflow: hidden;
-}
-
-.dropdown-enter-from,
-.dropdown-leave-to {
-  opacity: 0;
-  max-height: 0;
-  transform: translateY(-8px);
-}
-
 /* ================================ */
 /* 验证错误提示样式                    */
 /* ================================ */

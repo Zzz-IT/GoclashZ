@@ -30,7 +30,11 @@ var strictVersionRe = regexp.MustCompile(`(?i)(?:^|[^0-9])v?(\d+\.\d+(?:\.\d+)?(
 func CheckAppUpdate(ctx context.Context, currentVersion string, strategy func() DownloadStrategy) (*AppUpdateInfo, error) {
 	apiURL := "https://api.github.com/repos/Zzz-IT/GoclashZ/releases/latest"
 
-	clients := BuildOrderedClients(strategy, 60*time.Second)
+	clients := BuildOrderedClients(strategy, APIRequestTimeout)
+
+	// 单次拨号超时 6s，保证 2 client × 3 URL = 6 次拨号（最坏 36s）
+	// 能在外层 40s 的预算内跑完，不会在候选还没试完时就被整体超时掐断。
+	apiURLs := BuildCandidateAPIURLs(apiURL)
 
 	var release struct {
 		TagName string `json:"tag_name"`
@@ -43,31 +47,34 @@ func CheckAppUpdate(ctx context.Context, currentVersion string, strategy func() 
 	}
 
 	var lastErr error
+found:
 	for _, client := range clients {
-		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
-		if reqErr != nil {
-			lastErr = reqErr
-			continue
-		}
-		req.Header.Set("User-Agent", "GoclashZ-Updater")
-
-		resp, reqErr := client.Do(req)
-		if reqErr != nil {
-			lastErr = reqErr
-			continue
-		}
-
-		func() {
-			defer resp.Body.Close()
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				lastErr = fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
-				return
+		for _, u := range apiURLs {
+			req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+			if reqErr != nil {
+				lastErr = reqErr
+				continue
 			}
-			lastErr = json.NewDecoder(resp.Body).Decode(&release)
-		}()
+			req.Header.Set("User-Agent", "GoclashZ-Updater")
 
-		if lastErr == nil && release.TagName != "" {
-			break
+			resp, reqErr := client.Do(req)
+			if reqErr != nil {
+				lastErr = reqErr
+				continue
+			}
+
+			func() {
+				defer resp.Body.Close()
+				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+					lastErr = fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
+					return
+				}
+				lastErr = json.NewDecoder(resp.Body).Decode(&release)
+			}()
+
+			if lastErr == nil && release.TagName != "" {
+				break found
+			}
 		}
 	}
 
@@ -186,26 +193,63 @@ func parseVersionParts(v string) []int {
 	return out
 }
 
-// BuildCandidateDownloadURLs 为 GitHub Release 资产生成候选下载地址（原生地址 + 高可用镜像备用地址）
-func BuildCandidateDownloadURLs(rawURL string) []string {
+// githubMirrors 是国内可用的 GitHub 反代镜像（公益服务，可用性波动，仅作加速/兜底）
+var githubMirrors = []string{
+	"https://ghfast.top/",
+	"https://mirror.ghproxy.com/",
+}
+
+// APIRequestTimeout 是检查更新时单次 API 请求的超时。
+// 取值 6s：候选遍历最坏要跑 2 个 client × 3 个地址 = 6 次，
+// 6 × 6s = 36s，仍落在外层 40s 的整体预算内。
+const APIRequestTimeout = 6 * time.Second
+
+// BuildCandidateDownloadURLs 为 GitHub Release 资产生成候选下载地址。
+// preferProxy 为 true（用户开着代理）时原生地址优先；
+// 为 false（国内裸连）时镜像优先、原生地址兜底，避免先撞一次 GitHub 的墙。
+func BuildCandidateDownloadURLs(rawURL string, preferProxy bool) []string {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
 		return nil
 	}
 
-	urls := []string{rawURL}
-
-	// 若为 GitHub release 下载地址，追加镜像备用地址，供国内直连或代理断连时自动接力
-	if strings.Contains(rawURL, "github.com/") && strings.Contains(rawURL, "/releases/download/") {
-		mirrors := []string{
-			"https://ghfast.top/",
-			"https://mirror.ghproxy.com/",
-		}
-		for _, m := range mirrors {
-			urls = append(urls, m+rawURL)
-		}
+	isGitHubRelease := strings.Contains(rawURL, "github.com/") && strings.Contains(rawURL, "/releases/download/")
+	if !isGitHubRelease {
+		return []string{rawURL}
 	}
 
+	urls := make([]string, 0, len(githubMirrors)+1)
+	if preferProxy {
+		urls = append(urls, rawURL)
+		for _, m := range githubMirrors {
+			urls = append(urls, m+rawURL)
+		}
+	} else {
+		for _, m := range githubMirrors {
+			urls = append(urls, m+rawURL)
+		}
+		urls = append(urls, rawURL)
+	}
+	return urls
+}
+
+// BuildCandidateAPIURLs 为 GitHub API 请求生成候选地址。
+// 实测 ghfast / ghproxy 这类公益镜像基本只反代 github.com 的下载路径，
+// 不反代 api.github.com（直接 403 或断连），因此原生地址恒优先、镜像仅作最后兜底。
+func BuildCandidateAPIURLs(apiURL string) []string {
+	apiURL = strings.TrimSpace(apiURL)
+	if apiURL == "" {
+		return nil
+	}
+	if !strings.Contains(apiURL, "api.github.com/") {
+		return []string{apiURL}
+	}
+
+	urls := make([]string, 0, len(githubMirrors)+1)
+	urls = append(urls, apiURL)
+	for _, m := range githubMirrors {
+		urls = append(urls, m+apiURL)
+	}
 	return urls
 }
 
@@ -236,9 +280,14 @@ func DownloadAppUpdate(
 
 	destPath := filepath.Join(destDir, fileName)
 
+	preferProxy := false
+	if strategy != nil {
+		preferProxy = strategy().PreferProxy
+	}
+
 	// 🚀 复用 grab/v3 下载机，支持多通道竞速、镜像自动回退、断点续传及 SHA256 校验
 	err := DownloadLargeAssetAtomic(ctx, Options{
-		URLs:                BuildCandidateDownloadURLs(info.DownloadURL),
+		URLs:                BuildCandidateDownloadURLs(info.DownloadURL, preferProxy),
 		DestPath:            destPath,
 		UserAgent:           "GoclashZ-Updater",
 		MaxBytes:            300 << 20, // 限制 300MB

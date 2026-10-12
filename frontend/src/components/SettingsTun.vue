@@ -28,6 +28,7 @@
           <div class="setting-item">
             <div class="info">
               <h4>{{ t('settings.tun.congestion') }}</h4>
+              <p class="status-msg">{{ t('settings.tun.congestionMipsOnly') }}</p>
             </div>
             <ModernSelect
               v-model="tunConfig.congestionController"
@@ -84,12 +85,12 @@ const stackOptions = computed(() => {
   return options;
 });
 
-const congestionOptions = [
-  { label: 'bbr3 (推荐)', value: 'bbr3' },
+const congestionOptions = computed(() => [
+  { label: `bbr3 (${t('settings.tun.congestionRecommended')})`, value: 'bbr3' },
   { label: 'bbr', value: 'bbr' },
   { label: 'cubic', value: 'cubic' },
   { label: 'reno', value: 'reno' }
-];
+]);
 const loading = ref(true);
 const isInitialized = ref(false);
 const isInstalling = computed(() => globalState.componentUpdate.tasks['driver-install']?.status === 'running');
@@ -167,16 +168,9 @@ h3 { margin: 0 0 8px 0; color: var(--text-main); font-size: 1.25rem; padding-bot
 .modern-input { background: var(--surface-hover); border: none; color: var(--text-main); padding: 10px 14px; border-radius: 8px; outline: none; font-size: 0.9rem; text-align: right; }.modern-input:disabled { opacity: 0.5; cursor: not-allowed; }
 .modern-switch { position: relative; display: inline-block; width: 44px; height: 24px; }.modern-switch input { opacity: 0; width: 0; height: 0; }.slider { position: absolute; cursor: pointer; inset: 0; background-color: var(--surface-hover); transition: .3s; border-radius: 24px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }.slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3); } input:disabled + .slider { opacity: 0.5; cursor: not-allowed; } input:checked + .slider { background-color: var(--accent); } input:checked + .slider:before { transform: translateX(20px); background-color: var(--accent-fg); }
 .sub-header { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; padding: 0 0 12px 0; background: transparent; }.sub-header.page-sticky-mask { --sticky-mask-bleed: 4px; }.sub-header h3 { margin: 0; border: none; padding: 0; }.section-header { justify-content: space-between; }.sub-header.section-header h3 { flex: 1; margin-left: 12px; }.back-btn { background: var(--surface); border: none; color: var(--text-main); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; }.back-btn:hover { background: var(--surface-hover); }.mini-btn-reset { height: 36px !important; padding: 0 14px !important; font-size: 0.85rem !important; border-radius: 8px !important; }.mini-btn-reset :deep(.btn-icon) svg { width: 16px; height: 16px; }.status-msg { margin-top: 4px; font-weight: 500; }.green-text { color: var(--text-main); font-weight: 600; }.red-text { color: var(--text-muted); }
-.dropdown-enter-active,
-.dropdown-leave-active {
-  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+/* 拥塞控制子项高度较小，覆盖公共 dropdown 过渡的 max-height */
+.congestion-sub-items.dropdown-enter-active,
+.congestion-sub-items.dropdown-leave-active {
   max-height: 120px;
-  overflow: hidden;
-}
-.dropdown-enter-from,
-.dropdown-leave-to {
-  opacity: 0;
-  max-height: 0;
-  transform: translateY(-8px);
 }
 </style>

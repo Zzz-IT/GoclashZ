@@ -196,8 +196,13 @@ func PrepareCoreUpdate(ctx context.Context, assetURL string, strategy func() dow
 		return nil, fmt.Errorf("内核下载地址为空")
 	}
 
+	preferProxy := false
+	if strategy != nil {
+		preferProxy = strategy().PreferProxy
+	}
+
 	if err := downloader.DownloadLargeAssetAtomic(ctx, downloader.Options{
-		URLs:                []string{assetURL},
+		URLs:                downloader.BuildCandidateDownloadURLs(assetURL, preferProxy),
 		DestPath:            zipPath,
 		Strategy:            strategy,
 		MaxBytes:            200 << 20,
@@ -271,43 +276,49 @@ type CoreReleaseInfo struct {
 }
 
 func CheckLatestCore(ctx context.Context, strategy func() downloader.DownloadStrategy) (version, assetURL, releaseURL string, err error) {
-	clients := downloader.BuildOrderedClients(strategy, 60*time.Second)
+	clients := downloader.BuildOrderedClients(strategy, downloader.APIRequestTimeout)
+
+	// 单次拨号超时 8s，保证 2 client × 3 URL 的候选组合能在外层 30s 预算内跑完
+	apiURLs := downloader.BuildCandidateAPIURLs("https://api.github.com/repos/MetaCubeX/mihomo/releases/latest")
 
 	var release CoreReleaseInfo
 	var lastErr error
 
+found:
 	for _, client := range clients {
-		req, reqErr := http.NewRequestWithContext(
-			ctx,
-			http.MethodGet,
-			"https://api.github.com/repos/MetaCubeX/mihomo/releases/latest",
-			nil,
-		)
-		if reqErr != nil {
-			lastErr = reqErr
-			continue
-		}
-
-		req.Header.Set("User-Agent", "GoclashZ-CoreUpdateChecker")
-		req.Header.Set("Accept", "application/vnd.github+json")
-
-		resp, reqErr := client.Do(req)
-		if reqErr != nil {
-			lastErr = reqErr
-			continue
-		}
-
-		func() {
-			defer resp.Body.Close()
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				lastErr = fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
-				return
+		for _, u := range apiURLs {
+			req, reqErr := http.NewRequestWithContext(
+				ctx,
+				http.MethodGet,
+				u,
+				nil,
+			)
+			if reqErr != nil {
+				lastErr = reqErr
+				continue
 			}
-			lastErr = json.NewDecoder(resp.Body).Decode(&release)
-		}()
 
-		if lastErr == nil && release.TagName != "" {
-			break
+			req.Header.Set("User-Agent", "GoclashZ-CoreUpdateChecker")
+			req.Header.Set("Accept", "application/vnd.github+json")
+
+			resp, reqErr := client.Do(req)
+			if reqErr != nil {
+				lastErr = reqErr
+				continue
+			}
+
+			func() {
+				defer resp.Body.Close()
+				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+					lastErr = fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
+					return
+				}
+				lastErr = json.NewDecoder(resp.Body).Decode(&release)
+			}()
+
+			if lastErr == nil && release.TagName != "" {
+				break found
+			}
 		}
 	}
 
@@ -353,12 +364,12 @@ func selectMihomoWindowsAmd64Asset(assets []struct {
 }
 
 func CompareCoreVersion(remote, local string) (int, error) {
-	r, err := parseVersionParts(remote)
+	r, err := ParseVersionParts(remote)
 	if err != nil {
 		return 0, err
 	}
 
-	l, err := parseVersionParts(local)
+	l, err := ParseVersionParts(local)
 	if err != nil {
 		// 本地版本未知、未安装或无法解析时，允许更新。
 		return 1, nil
@@ -374,10 +385,6 @@ func CompareCoreVersion(remote, local string) (int, error) {
 	}
 
 	return 0, nil
-}
-
-func parseVersionParts(v string) ([3]int, error) {
-	return ParseVersionParts(v)
 }
 
 func ParseVersionParts(v string) ([3]int, error) {
@@ -424,7 +431,7 @@ func ParseVersionParts(v string) ([3]int, error) {
 // CoreSupportsMips 检查当前内核版本是否支持 MIPS 协议栈 (Mihomo Meta v1.19.31+)
 func CoreSupportsMips(ctx context.Context) bool {
 	ver := GetLocalCoreVersion(ctx)
-	parsed, err := parseVersionParts(ver)
+	parsed, err := ParseVersionParts(ver)
 	if err != nil {
 		return false
 	}
@@ -471,8 +478,13 @@ func UpdateGeoDB(ctx context.Context, key string, url string, strategy func() do
 		return err
 	}
 
+	preferProxy := false
+	if strategy != nil {
+		preferProxy = strategy().PreferProxy
+	}
+
 	return downloader.DownloadLargeAssetAtomic(ctx, downloader.Options{
-		URLs:                []string{url},
+		URLs:                downloader.BuildCandidateDownloadURLs(url, preferProxy),
 		DestPath:            destPath,
 		Strategy:            strategy,
 		MaxBytes:            geoDBMaxBytes(),

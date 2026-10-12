@@ -39,6 +39,13 @@ var (
 	processExitCh     chan struct{}
 	onExitCallback    OnExitFunc
 	startedViaHelper  atomic.Bool
+
+	// helper 状态 IPC 短缓存：IsRunning 在 helper 模式下每次都会拨 named pipe，
+	// 热路径（如 2s ticker）上 IPC 往返不可忽略，此处缓存 1s 内的查询结果。
+	helperStatusCacheMu  sync.Mutex
+	helperStatusCacheAt  time.Time
+	helperStatusCacheVal bool
+	helperStatusCacheOK  bool
 )
 
 // SetOnExitCallback 注册内核异常退出的回调（由 appcore 层在启动时设置）
@@ -273,11 +280,28 @@ func ValidateConfig(ctx context.Context, configPath string) error {
 
 func IsRunning() bool {
 	if startedViaHelper.Load() {
+		helperStatusCacheMu.Lock()
+		if helperStatusCacheOK && time.Since(helperStatusCacheAt) < time.Second {
+			v := helperStatusCacheVal
+			helperStatusCacheMu.Unlock()
+			return v
+		}
+		helperStatusCacheMu.Unlock()
+
 		client := sys.NewHelperClient()
 		if status, err := client.CoreStatus(); err == nil {
 			isRunning.Store(status.Running)
+			helperStatusCacheMu.Lock()
+			helperStatusCacheVal = status.Running
+			helperStatusCacheAt = time.Now()
+			helperStatusCacheOK = true
+			helperStatusCacheMu.Unlock()
 			return status.Running
 		}
+		// IPC 失败时使缓存失效，回落到本地标志位
+		helperStatusCacheMu.Lock()
+		helperStatusCacheOK = false
+		helperStatusCacheMu.Unlock()
 	}
 	return isRunning.Load()
 }

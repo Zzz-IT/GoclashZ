@@ -17,6 +17,15 @@ import (
 	"time"
 )
 
+// 检查与下载拆成两个任务名：
+// 之前两者共用 "app-update-flow"，导致"上一次自动检查还没释放任务名"时
+// 用户的手动点击被误判成"正在下载"而弹 busy。拆开后手动检查可以安全抢占，
+// 又不会影响真正的下载任务。
+const (
+	appUpdateCheckTask    = "app-update-check"
+	appUpdateDownloadTask = "app-update-download"
+)
+
 func (c *Controller) updateGeoDatabase(ctx context.Context, key string, onProgress func(bytesDone, totalBytes, speedBps, etaSec int64)) error {
 	var url string
 	behavior := c.Behavior.Get()
@@ -129,7 +138,7 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 
 func (c *Controller) CheckCoreUpdateAsync(ctx context.Context) {
 	c.Tasks.Run(ctx, "core-update-check", true, func(ctx context.Context) error {
-		timeoutCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		timeoutCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
 		defer cancel()
 
 		local := clash.GetLocalCoreVersion(timeoutCtx)
@@ -381,60 +390,75 @@ func (c *Controller) DisableCoreComparisonPrompt() error {
 }
 
 func (c *Controller) CheckAppUpdateAsync(ctx context.Context, currentVersion string, manual bool) {
-	ok := c.Tasks.RunIfIdle(ctx, "app-update-flow", false, func(ctx context.Context) error {
-		if manual {
-			c.events.Emit("app-update-check-start")
-		}
-
-		timeoutCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		defer cancel()
-
-		info, err := downloader.CheckAppUpdate(timeoutCtx, currentVersion, c.getDynamicStrategy)
-		if err != nil {
-			if manual {
-				c.events.Emit("app-update-error", "检查软件更新失败: "+err.Error())
-			}
-			return nil
-		}
-
-		if info == nil || !info.HasUpdate {
-			if manual {
-				c.events.Emit("app-update-none", map[string]string{
-					"message": "当前已经是最新版本。",
-				})
-			}
-			return nil
-		}
-
-		if info.DownloadURL == "" {
-			if manual {
-				c.events.Emit("app-update-error", fmt.Sprintf(
-					"发现新版本 %s，但 Release 中没有匹配的软件本体安装包",
-					info.Version,
-				))
-			}
-			return nil
-		}
-
-		c.mu.Lock()
-		c.pendingAppUpdateInfo = info
-		c.mu.Unlock()
-
-		c.events.Emit("app-update-available", map[string]any{
-			"version": info.Version,
-			"manual":  manual,
+	// 手动点击必须抢占：不能因为上一次启动自动检查还没释放任务名就把用户的
+	// 点击挡回去弹 busy。检查与下载用不同任务名，所以抢占只会取消上一次"检查"，
+	// 绝不会误伤正在跑的 40MB 下载。
+	if manual {
+		c.Tasks.Run(ctx, appUpdateCheckTask, false, func(ctx context.Context) error {
+			return c.runAppUpdateCheck(ctx, currentVersion, true)
 		})
+		return
+	}
 
+	// 自动检查：已有任务在跑就安静跳过，不打扰用户。
+	_ = c.Tasks.RunIfIdle(ctx, appUpdateCheckTask, false, func(ctx context.Context) error {
+		return c.runAppUpdateCheck(ctx, currentVersion, false)
+	})
+}
+
+func (c *Controller) runAppUpdateCheck(ctx context.Context, currentVersion string, manual bool) error {
+	if manual {
+		c.events.Emit("app-update-check-start")
+	}
+
+	// 40s 预算：覆盖 2 client × 3 API 地址、单次 6s 的最坏遍历，
+	// 不留出"候选还没试完就被掐断"的窗口。
+	timeoutCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+	defer cancel()
+
+	info, err := downloader.CheckAppUpdate(timeoutCtx, currentVersion, c.getDynamicStrategy)
+	if err != nil {
+		if manual {
+			c.events.Emit("app-update-error", "检查软件更新失败: "+err.Error())
+		}
 		return nil
+	}
+
+	if info == nil || !info.HasUpdate {
+		if manual {
+			c.events.Emit("app-update-none", map[string]string{
+				"message": "当前已经是最新版本。",
+			})
+		}
+		return nil
+	}
+
+	if info.DownloadURL == "" {
+		if manual {
+			c.events.Emit("app-update-error", fmt.Sprintf(
+				"发现新版本 %s，但 Release 中没有匹配的软件本体安装包",
+				info.Version,
+			))
+		}
+		return nil
+	}
+
+	c.mu.Lock()
+	c.pendingAppUpdateInfo = info
+	c.mu.Unlock()
+
+	c.events.Emit("app-update-available", map[string]any{
+		"version": info.Version,
+		"manual":  manual,
 	})
 
-	if !ok && manual {
-		c.events.Emit("app-update-busy")
-	}
+	return nil
 }
 
 func (c *Controller) DownloadPendingAppUpdateAsync(ctx context.Context) {
-	ok := c.Tasks.RunIfIdle(ctx, "app-update-flow", false, func(ctx context.Context) error {
+	// 下载是真正的重型任务：这里必须保留 RunIfIdle。
+	// 真有下载在跑时弹 busy 是正确行为，不能让第二次点击把它取消掉。
+	ok := c.Tasks.RunIfIdle(ctx, appUpdateDownloadTask, false, func(ctx context.Context) error {
 		c.mu.RLock()
 		info := c.pendingAppUpdateInfo
 		c.mu.RUnlock()

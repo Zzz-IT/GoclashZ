@@ -126,6 +126,7 @@ textarea,
     --accent: #1A1A1A;
     /* 强调色 = 文字色，黑白体系 */
     --accent-fg: #FFFFFF;
+    --pulse-ring: rgba(26, 26, 26, 0.45);
 
     --surface: #EBEBEB;
     /* 输入框/按钮底色 */
@@ -232,6 +233,7 @@ html[lang="de-DE"],
     --accent: #E8E8E8;
     /* 强调色 = 文字色 */
     --accent-fg: #111111;
+    --pulse-ring: rgba(232, 232, 232, 0.45);
 
     --surface: #222222;
     --surface-hover: #2A2A2A;
@@ -632,4 +634,17 @@ body,
 
 .conn-tab-slider.animated {
     transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* Dropdown expand/collapse transition, shared by settings sub-pages (Transition name="dropdown"). */
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  max-height: 250px;
+  overflow: hidden;
+}
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  max-height: 0;
+  transform: translateY(-8px);
 }

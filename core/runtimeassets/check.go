@@ -83,10 +83,6 @@ func checkCoreByPath(ctx context.Context, path string) AssetHealth {
 	return h
 }
 
-func readCoreVersion(path string) (string, error) {
-	return ReadCoreVersion(path)
-}
-
 func ReadCoreVersion(path string) (string, error) {
 	coreVersionCacheMu.Lock()
 	defer coreVersionCacheMu.Unlock()

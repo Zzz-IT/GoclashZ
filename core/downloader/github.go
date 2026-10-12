@@ -108,7 +108,27 @@ func fetchGitHubReleaseDigests(ctx context.Context, client *http.Client, owner, 
 		)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	apiURLs := BuildCandidateAPIURLs(apiURL)
+
+	var lastErr error
+	for _, u := range apiURLs {
+		assets, err := fetchGitHubReleaseDigestsOnce(ctx, client, u, userAgent)
+		if err == nil {
+			return assets, nil
+		}
+		lastErr = err
+	}
+
+	return nil, lastErr
+}
+
+func fetchGitHubReleaseDigestsOnce(ctx context.Context, client *http.Client, apiURL, userAgent string) (map[string]string, error) {
+	// 每一步独立限时：这一步发生在 40MB 下载完成之后，不能继承下载的长超时，
+	// 否则国内裸连会卡在"包已下完、正在取校验值"这一步。
+	reqCtx, cancel := context.WithTimeout(ctx, APIRequestTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, err
 	}

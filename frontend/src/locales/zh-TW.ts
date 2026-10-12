@@ -569,6 +569,7 @@ export default {
       stackMips: 'MIPS (推薦)',
       congestion: 'TCP 擁塞控制演算法',
       congestionMipsOnly: '僅在 MIPS 堆疊下生效',
+      congestionRecommended: '推薦',
       mipsFallbackWarning: '目前設定檔指定了 MIPS 堆疊，但當前核心版本過低不支援。已自動為您降級回退至 Mixed 模式，建議升級核心以支援 MIPS 及 BBR3。',
       device: '指定網卡名稱 (Device)',
       devicePlaceholder: '留空則自動',

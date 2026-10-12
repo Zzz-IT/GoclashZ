@@ -35,6 +35,12 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 	}()
 
 	var lastErr error
+
+	// slowAbandoned 标记本轮是否已经主动放弃过一个慢速源。
+	// 放弃过一次后就不再触发 tooSlow，让剩下的候选跑到底——否则"所有源都偏慢"
+	// 时会把每个候选都判死，用户只看到失败，而不是"慢但能下完"。
+	slowAbandoned := false
+
 	ua := opt.UserAgent
 	if ua == "" {
 		ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GoclashZ/1.0"
@@ -98,6 +104,8 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 
 				t := time.NewTicker(400 * time.Millisecond)
 				strategyChanged := false
+				tooSlow := false
+				dlStart := time.Now()
 				var smoothedSpeed float64
 			loop:
 				for {
@@ -111,6 +119,25 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 								resp.Cancel()
 								lastStrategy = currentStrategy
 								strategyChanged = true
+								break loop
+							}
+						}
+
+						// 🚀 慢速主动放弃：起步一段时间（已建立连接）后，若速度持续过低且
+						// 完成度还很小，说明当前通道（尤其镜像）质量差，主动 Cancel 换下一个候选，
+						// 避免在低速源上空等整个超时。
+						// 只放弃一次：之后的候选即使慢也让它跑完，保证总有兜底能出结果，
+						// 否则所有源都偏慢时会被逐个判死，用户只看到失败。
+						if elapsed := time.Since(dlStart); elapsed > 6*time.Second {
+							speed := resp.BytesPerSecond()
+							progress := float64(0)
+							if size := resp.Size(); size > 0 {
+								progress = float64(resp.BytesComplete()) / float64(size)
+							}
+							if speed > 0 && speed < 100*1024 && progress < 0.1 && !slowAbandoned {
+								resp.Cancel()
+								tooSlow = true
+								slowAbandoned = true
 								break loop
 							}
 						}
@@ -147,6 +174,11 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 					// 如果是因为策略改变导致的取消，我们不需要等待，直接跳出双层循环，立即触发外层的全新 attempt！
 					if strategyChanged {
 						goto NEXT_ATTEMPT
+					}
+
+					// 慢速主动放弃：立即换下一个候选 URL，不做退避等待
+					if tooSlow {
+						continue
 					}
 
 					// 正常的网络失败，等待后重试

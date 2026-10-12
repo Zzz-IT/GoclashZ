@@ -2,6 +2,27 @@
   <div class="app-shell" :class="{ dark: globalState.theme === 'dark' }" :data-lang="currentLocale">
     <div class="drag-bar" style="--wails-draggable:drag">
       <div class="top-actions" style="--wails-draggable:none">
+        <div
+          v-if="globalState.appUpdateProgress"
+          class="global-update-chip"
+          :class="{ downloaded: globalState.appUpdateProgress.isDownloaded }"
+          @click="handleGlobalUpdateChipClick"
+          :title="globalState.appUpdateProgress.isDownloaded ? t('appUpdate.clickToInstall') : t('appUpdate.viewDetails')"
+        >
+          <span class="chip-pulse" v-if="!globalState.appUpdateProgress.isDownloaded"></span>
+          <span class="chip-icon">
+            <svg v-if="!globalState.appUpdateProgress.isDownloaded" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <svg v-else viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </span>
+          <span class="chip-text">
+            <template v-if="!globalState.appUpdateProgress.isDownloaded">
+              {{ globalAppUpdatePercent }}% · {{ formatSpeed(globalState.appUpdateProgress.speedBps) }}
+            </template>
+            <template v-else>
+              {{ t('appUpdate.readyToInstall') }}
+            </template>
+          </span>
+        </div>
         <div class="window-controls">
           <button @click="WindowMinimise" class="ctrl-btn" :title="t('window.min')" v-html="ICONS.min"></button>
           <button @click="handleToggleMaximise" class="ctrl-btn" :title="t('window.max')" v-html="isMaximized ? ICONS.restore : ICONS.max"></button>
@@ -34,27 +55,6 @@
               {{ yamlEditorStatus }}
             </span>
             <div style="flex: 1"></div>
-            <div
-              v-if="globalState.appUpdateProgress"
-              class="global-update-chip"
-              :class="{ downloaded: globalState.appUpdateProgress.isDownloaded }"
-              @click="handleGlobalUpdateChipClick"
-              :title="globalState.appUpdateProgress.isDownloaded ? t('appUpdate.clickToInstall') : t('appUpdate.viewDetails')"
-            >
-              <span class="chip-pulse" v-if="!globalState.appUpdateProgress.isDownloaded"></span>
-              <span class="chip-icon">
-                <svg v-if="!globalState.appUpdateProgress.isDownloaded" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                <svg v-else viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="20 6 9 17 4 12"></polyline></svg>
-              </span>
-              <span class="chip-text">
-                <template v-if="!globalState.appUpdateProgress.isDownloaded">
-                  {{ globalAppUpdatePercent }}% · {{ formatSpeed(globalState.appUpdateProgress.speedBps) }}
-                </template>
-                <template v-else>
-                  {{ t('appUpdate.readyToInstall') }}
-                </template>
-              </span>
-            </div>
             <span
               v-if="currentTab === 'yaml-editor' && yamlEditorCursor"
               class="yaml-cursor-status"
@@ -376,6 +376,7 @@ let unsubUpdateStart: (() => void) | null = null;
 let unsubUpdateDownloaded: (() => void) | null = null;
 let unsubUpdateNone: (() => void) | null = null;
 let unsubUpdateError: (() => void) | null = null;
+let unsubMipsFallback: (() => void) | null = null;
 
 const menu = computed(() => [
   { id: 'home', label: t('menu.home'), icon: ICONS.home },
@@ -563,7 +564,7 @@ onMounted(async () => {
     (API as any).SyncState();
   });
 
-  EventsOn("tun-mips-fallback", () => {
+  unsubMipsFallback = EventsOn("tun-mips-fallback", () => {
     void showAlert(t('settings.tun.mipsFallbackWarning'), t('common.notice'), false);
   });
 
@@ -711,6 +712,7 @@ onUnmounted(() => {
   unsubUpdateDownloaded?.();
   unsubUpdateNone?.();
   unsubUpdateError?.();
+  unsubMipsFallback?.();
 });
 
 const resetViewScroller = () => {
@@ -738,6 +740,7 @@ const resetViewScroller = () => {
   display: flex; 
   align-items: center; 
   flex-shrink: 0; 
+  gap: 8px; /* 更新提示泡与窗口控制按钮之间的间距 */
 }
 
 /* 🚀 2. 锁死按钮包裹区 */
@@ -1004,16 +1007,18 @@ const resetViewScroller = () => {
   transform: translateY(-1px);
 }
 
+/* 下载完成：使用当前主题的反色（accent/accent-fg），不再用绿色 */
 .global-update-chip.downloaded {
-  background: rgba(16, 185, 129, 0.12);
-  border-color: rgba(16, 185, 129, 0.35);
-  color: #10b981;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
   font-weight: 600;
 }
 
 .global-update-chip.downloaded:hover {
-  background: rgba(16, 185, 129, 0.18);
-  border-color: #10b981;
+  background: var(--accent);
+  border-color: var(--accent);
+  filter: brightness(1.12);
 }
 
 .chip-pulse {
@@ -1021,22 +1026,22 @@ const resetViewScroller = () => {
   height: 6px;
   border-radius: 50%;
   background-color: var(--accent);
-  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+  box-shadow: 0 0 0 0 var(--pulse-ring, rgba(26, 26, 26, 0.45));
   animation: chipPulse 1.8s infinite;
 }
 
 @keyframes chipPulse {
   0% {
     transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+    box-shadow: 0 0 0 0 var(--pulse-ring, rgba(26, 26, 26, 0.45));
   }
   70% {
     transform: scale(1);
-    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0);
+    box-shadow: 0 0 0 6px transparent;
   }
   100% {
     transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 

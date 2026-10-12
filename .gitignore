@@ -35,3 +35,8 @@ build/windows/installer/tmp/
 # Temp/Misc
 webfonts/
 scratch/
+
+# Session export dumps accidentally dropped into the repo root
+# (keeps wails.json tracked; add other root JSON configs with a "!" rule)
+/*.json
+!/wails.json

@@ -36,7 +36,7 @@ func EnsureRuntimeAssets(ctx context.Context, behavior AppBehavior) error {
 		}
 
 		if err := downloader.DownloadLargeAssetAtomic(ctx, downloader.Options{
-			URLs:                []string{item.URL},
+			URLs:                downloader.BuildCandidateDownloadURLs(item.URL, false),
 			DestPath:            path,
 			Strategy:            func() downloader.DownloadStrategy { return downloader.DownloadStrategy{} },
 			MaxBytes:            200 << 20,

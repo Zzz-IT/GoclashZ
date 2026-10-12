@@ -569,6 +569,7 @@ export default {
       stackMips: 'MIPS (Recommandé)',
       congestion: 'Contrôleur de congestion TCP',
       congestionMipsOnly: 'Uniquement disponible avec la pile MIPS',
+      congestionRecommended: 'Recommandé',
       mipsFallbackWarning: 'Le profil spécifie la pile MIPS, mais la version actuelle du noyau ne la prend pas en charge. Basculement automatique en mode Mixed. Veuillez mettre à niveau le noyau pour MIPS et BBR3.',
       device: 'Nom de l\'adaptateur (Device)',
       devicePlaceholder: 'Laisser vide par défaut',

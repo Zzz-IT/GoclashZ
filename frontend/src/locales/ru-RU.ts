@@ -569,6 +569,7 @@ export default {
       stackMips: 'MIPS (Рекомендуется)',
       congestion: 'Контроль перегрузки TCP',
       congestionMipsOnly: 'Доступно только со стеком MIPS',
+      congestionRecommended: 'Рекомендуется',
       mipsFallbackWarning: 'В профиле указан стек MIPS, но текущая версия ядра его не поддерживает. Автоматически выполнен откат к режиму Mixed. Рекомендуется обновить ядро для MIPS и BBR3.',
       device: 'Имя адаптера (Device)',
       devicePlaceholder: 'Оставьте пустым для значения по умолчанию',

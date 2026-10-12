@@ -569,6 +569,7 @@ export default {
       stackMips: 'MIPS (Empfohlen)',
       congestion: 'TCP-Überlastungssteuerung',
       congestionMipsOnly: 'Nur im MIPS-Stack verfügbar',
+      congestionRecommended: 'Empfohlen',
       mipsFallbackWarning: 'Das Profil gibt den MIPS-Stack an, die aktuelle Core-Version unterstützt ihn jedoch nicht. Automatisch auf Mixed-Modus zurückgefallen. Bitte aktualisieren Sie den Core für MIPS und BBR3.',
       device: 'Adaptername (Device)',
       devicePlaceholder: 'Leer lassen für Standard',

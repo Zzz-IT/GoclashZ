@@ -569,6 +569,7 @@ export default {
       stackMips: 'MIPS (推奨)',
       congestion: 'TCP輻輳制御アルゴリズム',
       congestionMipsOnly: 'MIPS スタックでのみ有効',
+      congestionRecommended: '推奨',
       mipsFallbackWarning: '設定ファイルで MIPS スタックが指定されていますが、現在のコアバージョンは非対応です。自動的に Mixed モードにフォールバックしました。MIPS および BBR3 を有効にするにはコアの更新をお勧めします。',
       device: 'アダプタ名 (Device)',
       devicePlaceholder: '空欄でデフォルト',
