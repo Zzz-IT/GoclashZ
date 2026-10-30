@@ -429,3 +429,7 @@ export function UpdateSub(arg1, arg2) {
 export function ValidateConfigText(arg1) {
   return window['go']['main']['App']['ValidateConfigText'](arg1);
 }
+
+export function ClearAllUwpExemptions() {
+  return window['go']['main']['App']['ClearAllUwpExemptions']();
+}

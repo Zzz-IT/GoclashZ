@@ -220,3 +220,5 @@ export function UpdateSingleSub(arg1:string):Promise<void>;
 export function UpdateSub(arg1:string,arg2:string):Promise<void>;
 
 export function ValidateConfigText(arg1:string):Promise<void>;
+
+export function ClearAllUwpExemptions():Promise<void>;

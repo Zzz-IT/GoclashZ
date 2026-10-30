@@ -31,6 +31,11 @@
     </div>
 
     <div class="uwp-list-wrapper scrollable" id="set-uwp-exemptList">
+      <!-- 列表没加载成功时既没有可改的项，也不允许提交，这里给一行提示（复用全局空态样式） -->
+      <div v-if="!uwpLoaded" class="empty-state-block">
+        <div class="empty-state-hint">{{ t('common.empty') }}</div>
+      </div>
+
       <div
         v-for="app in filteredUwpApps"
         :key="app.sid"
@@ -57,7 +62,7 @@
     </div>
 
     <div class="uwp-footer">
-      <button class="apply-btn" id="set-uwp-applyBtn" :disabled="savingUwp" @click="saveUwpChanges">
+      <button class="apply-btn" id="set-uwp-applyBtn" :disabled="savingUwp || !uwpLoaded" @click="saveUwpChanges">
         <span v-if="!savingUwp">{{ t('settings.uwp.applyBtn') }}</span>
         <span v-else class="loading-spinner">{{ t('settings.uwp.saving') }}</span>
       </button>
@@ -81,6 +86,10 @@ defineEmits<{
 const uwpApps = ref<any[]>([]);
 const uwpSearch = ref('');
 const savingUwp = ref(false);
+// 列表是否成功加载过：false 时禁止提交，避免「空列表 = 用户取消了全部」的误判
+const uwpLoaded = ref(false);
+// 加载成功那一刻的 isEnabled 快照：保存时据此算出真正的 added / removed
+const initialEnabled = ref<Record<string, boolean>>({});
 
 const handleRestartAdmin = async () => {
   try {
@@ -92,8 +101,17 @@ const handleRestartAdmin = async () => {
 
 const enterUwpManager = async () => {
   try {
-    uwpApps.value = await (API as any).GetUwpApps();
+    const list = await (API as any).GetUwpApps();
+    uwpApps.value = list;
+
+    const snapshot: Record<string, boolean> = {};
+    for (const app of list) snapshot[app.sid] = !!app.isEnabled;
+    initialEnabled.value = snapshot;
+
+    uwpLoaded.value = true;
   } catch (e) {
+    // 加载失败保持 false：按钮继续禁用，避免把「没拿到列表」当成「用户取消了全部」
+    uwpLoaded.value = false;
     showAlert(t('settings.uwp.fetchFailed', { error: String(e) }), t('common.error'));
   }
 };
@@ -126,7 +144,17 @@ const toggleAllUwp = (val: boolean) => {
   }
 };
 
+// 清空确认文案：该 key 目前放在 diag.* 命名空间（locales 由 Lead 维护），
+// 这里同时兼容 settings.uwp.* 的位置，避免任一位置变动时弹窗直接显示 key 名。
+const clearAllConfirmText = (): string => {
+  const scoped = t('settings.uwp.clearAllConfirm');
+  return scoped === 'settings.uwp.clearAllConfirm' ? t('diag.clearAllConfirm') : scoped;
+};
+
 const saveUwpChanges = async () => {
+  // 列表没成功加载时不允许提交（按钮已 disabled，这里兜底）
+  if (!uwpLoaded.value) return;
+
   if (!globalState.isAdmin) {
     const ok = await showConfirm(
       t('settings.uwp.applyConfirmMsg'),
@@ -136,10 +164,42 @@ const saveUwpChanges = async () => {
     if (!ok) return;
   }
 
+  const targetSids = uwpApps.value.filter(a => a.isEnabled).map(a => a.sid);
+
+  // 目标为空 = 用户取消了全部勾选：走专门的「清空全部豁免」接口与确认，
+  // 不能把它当普通差异提交，否则和「列表没加载出来」无法区分。
+  if (targetSids.length === 0) {
+    const ok = await showConfirm(clearAllConfirmText(), t('settings.uwp.applyConfirmTitle'), false);
+    if (!ok) return;
+
+    savingUwp.value = true;
+    try {
+      await (API as any).ClearAllUwpExemptions();
+      await enterUwpManager();
+      await showAlert(t('settings.uwp.saveSuccess'), t('common.confirm'));
+    } catch (e: any) {
+      await showAlert(t('settings.uwp.saveFailed', { error: String(e?.message || e) }), t('common.error'));
+    } finally {
+      savingUwp.value = false;
+    }
+    return;
+  }
+
+  // 差异式应用：只提交用户真正勾上 / 取消的 SID，未出现在本次枚举里的系统豁免一律不动
+  const added: string[] = [];
+  const removed: string[] = [];
+  for (const app of uwpApps.value) {
+    const wasEnabled = !!initialEnabled.value[app.sid];
+    const nowEnabled = !!app.isEnabled;
+    if (nowEnabled === wasEnabled) continue;
+    if (nowEnabled) added.push(app.sid);
+    else removed.push(app.sid);
+  }
+
   savingUwp.value = true;
   try {
-    const sids = uwpApps.value.filter(a => a.isEnabled).map(a => a.sid);
-    await (API as any).SaveUwpExemptions(sids);
+    await (API as any).ApplyUwpExemptionChanges(added, removed);
+    await enterUwpManager();
     await showAlert(t('settings.uwp.saveSuccess'), t('common.confirm'));
   } catch (e: any) {
     await showAlert(t('settings.uwp.saveFailed', { error: String(e?.message || e) }), t('common.error'));

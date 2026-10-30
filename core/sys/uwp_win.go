@@ -3,6 +3,7 @@
 package sys
 
 import (
+	"context"
 	"fmt"
 	"goclashz/core/utils"
 	"golang.org/x/sys/windows/registry"
@@ -83,14 +84,26 @@ var uwpSidRegex = regexp.MustCompile(`S-1-15-[-0-9]+`)
 // getExemptedSids 解析 CheckNetIsolation.exe LoopbackExempt -s 的结果
 func getExemptedSids() (map[string]bool, error) {
 	exemptMap := make(map[string]bool)
+
 	// 枚举同样走固定系统路径，避免 PATH 劫持伪造「已豁免」结果
-	cmd := exec.Command(checkNetIsolationPath(), "LoopbackExempt", "-s")
+	exe, err := checkNetIsolationPath()
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), uwpCommandTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, exe, "LoopbackExempt", "-s")
 	utils.HideCommandWindow(cmd, 0)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// 🔒 枚举失败必须报错：返回空表会让调用方误以为「系统里没有任何豁免」，
 		// 进而在保存时把真实存在的豁免项当成「用户关掉了」全部删掉。
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("读取现有 UWP 豁免列表超时（%s）", uwpCommandTimeout)
+		}
 		message := strings.TrimSpace(string(output))
 		if message != "" {
 			return nil, fmt.Errorf("读取现有 UWP 豁免列表失败: %s", message)
@@ -107,6 +120,9 @@ func getExemptedSids() (map[string]bool, error) {
 
 	return exemptMap, nil
 }
+
+// uwpCommandTimeout CheckNetIsolation 子进程的超时时间：卡死的子进程不该拖垮整个保存流程
+const uwpCommandTimeout = 5 * time.Second
 
 // uwpExemptionConcurrency CheckNetIsolation 子进程的并发上限。
 // 原来是 10：并发过高时多个 CheckNetIsolation 会互相抢占（表现为大量假失败），这里降到 3。
@@ -174,7 +190,50 @@ func SaveUwpExemptions(targetSids []string) error {
 	}
 
 	added, removed := planUwpExemptionChanges(targetSids, apps)
+
+	// 🛡️ 空目标守卫：targetSids 为空但系统里确实有可枚举的已豁免项时，说明调用方传参出了问题
+	// （或前端状态没加载完）。这时把被枚举到的豁免全部删掉风险太大，直接拒绝执行。
+	// 需要清空请显式调用 ClearAllUwpExemptions()。
+	if targetSidListIsEmpty(targetSids) && len(removed) > 0 {
+		return fmt.Errorf("拒绝执行：目标列表为空")
+	}
+
 	return ApplyUwpExemptionChanges(added, removed)
+}
+
+// ClearAllUwpExemptions 清空全部豁免：只删除「本次枚举到的」已豁免 SID，
+// 供前端「清空全部」显式调用。SaveUwpExemptions 传空列表会被拒绝执行，两者语义分开。
+func ClearAllUwpExemptions() error {
+	if !CheckAdmin() {
+		return fmt.Errorf("修改 UWP 环回免除规则需要管理员权限")
+	}
+
+	apps, err := GetUwpAppList()
+	if err != nil {
+		return fmt.Errorf("枚举 UWP 应用失败: %w", err)
+	}
+
+	removed := make([]string, 0, len(apps))
+	for _, app := range apps {
+		if app.IsEnabled {
+			removed = append(removed, app.SID)
+		}
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+
+	return ApplyUwpExemptionChanges(nil, removed)
+}
+
+// targetSidListIsEmpty 判断调用方是否给了一个「实质为空」的目标列表（全空串也算空）
+func targetSidListIsEmpty(sids []string) bool {
+	for _, sid := range sids {
+		if strings.TrimSpace(sid) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // ApplyUwpExemptionChanges 只按传入的差异执行增删，绝不枚举、也绝不推断系统里还有哪些豁免。
@@ -248,7 +307,10 @@ func buildUwpLoopbackChanges(added []string, removed []string) ([]uwpLoopbackCha
 // runUwpLoopbackChanges 用固定大小工作池执行动作：并发上限 uwpExemptionConcurrency，
 // 单个失败重试 uwpExemptionRetries 次，最后聚合返回第一个失败原因。
 func runUwpLoopbackChanges(changes []uwpLoopbackChange) error {
-	exe := checkNetIsolationPath()
+	exe, err := checkNetIsolationPath()
+	if err != nil {
+		return err
+	}
 
 	workers := uwpExemptionConcurrency
 	if len(changes) < workers {
@@ -301,15 +363,21 @@ func runUwpLoopbackChange(exe string, change uwpLoopbackChange) error {
 
 	var lastErr error
 	for attempt := 0; attempt <= uwpExemptionRetries; attempt++ {
-		cmd := exec.Command(exe, "LoopbackExempt", action, "-p="+change.sid)
+		ctx, cancel := context.WithTimeout(context.Background(), uwpCommandTimeout)
+		cmd := exec.CommandContext(ctx, exe, "LoopbackExempt", action, "-p="+change.sid)
 		utils.HideCommandWindow(cmd, 0)
 		output, err := cmd.CombinedOutput()
+		timedOut := ctx.Err() == context.DeadlineExceeded
+		cancel()
+
 		if err == nil {
 			return nil
 		}
 
 		message := strings.TrimSpace(string(output))
-		if message != "" {
+		if timedOut {
+			lastErr = fmt.Errorf("%s %s 超时（%s）", label, change.sid, uwpCommandTimeout)
+		} else if message != "" {
 			lastErr = fmt.Errorf("%s %s 失败: %s", label, change.sid, message)
 		} else {
 			lastErr = fmt.Errorf("%s %s 失败: %w", label, change.sid, err)
@@ -323,15 +391,26 @@ func runUwpLoopbackChange(exe string, change uwpLoopbackChange) error {
 	return lastErr
 }
 
-// checkNetIsolationPath 固定使用系统目录下的可执行文件，防路径劫持；找不到时退回 PATH 查找
-func checkNetIsolationPath() string {
-	if root := strings.TrimSpace(os.Getenv("SystemRoot")); root != "" {
-		candidate := filepath.Join(root, "System32", "CheckNetIsolation.exe")
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
+// checkNetIsolationPath 只在系统目录里找 CheckNetIsolation.exe：
+// 64 位进程 → System32；32 位进程跑在 64 位系统上 → Sysnative。
+// 两处都找不到就直接报错，绝不回退到 PATH（PATH 可被劫持成任意程序）。
+func checkNetIsolationPath() (string, error) {
+	root := strings.TrimSpace(os.Getenv("SystemRoot"))
+	if root == "" {
+		return "", fmt.Errorf("无法确定 SystemRoot，拒绝执行 CheckNetIsolation")
+	}
+
+	candidates := []string{
+		filepath.Join(root, "System32", "CheckNetIsolation.exe"),
+		filepath.Join(root, "Sysnative", "CheckNetIsolation.exe"),
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
 		}
 	}
-	return "CheckNetIsolation.exe"
+
+	return "", fmt.Errorf("找不到系统自带的 CheckNetIsolation.exe（System32 / Sysnative 均不可用）")
 }
 
 // isValidUwpSid 判断是否是标准 UWP AppContainer SID（S-1-15-...）

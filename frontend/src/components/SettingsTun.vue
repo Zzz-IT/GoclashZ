@@ -158,6 +158,9 @@ const installDriver = async (force: boolean = true) => {
   if (!ok) return;
   (API as any).InstallTunDriverAsync(force).catch(() => {});
 };
+// 自动保存会频繁触发：同一条失败提示 5 秒内只弹一次，避免连弹
+let saveFailAt = 0;
+let saveFailMsg = '';
 const saveTun = async () => {
   if (loading.value) return;
   try {
@@ -166,7 +169,12 @@ const saveTun = async () => {
   } catch (e) {
     console.error('保存失败', e);
     const u = toUserError(e);
-    showAlert(u.message, t('common.error'), true, u.detail);
+    const now = Date.now();
+    if (u.message !== saveFailMsg || now - saveFailAt > 5000) {
+      saveFailAt = now;
+      saveFailMsg = u.message;
+      showAlert(u.message, t('common.error'), true, u.detail);
+    }
   }
 };
 const updateTunDnsHijack = (e: Event) => { if (loading.value) return; tunConfig.value.dnsHijack = (e.target as HTMLInputElement).value.split(',').map(s => s.trim()).filter(s => s); saveTun(); };

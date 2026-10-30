@@ -746,6 +746,33 @@ export default {
     dnsSourcePolicy: '域名策略',
     dnsSourceFallback: '回退',
     dnsSourceMain: '主 DNS',
-    dnsSourceDefault: '默认'
-  }
+    dnsSourceDefault: '默认',
+    dnsIpTarget: '目标为 IP，无需 DNS 解析',
+    searchHiddenItem: '该项目前不可见，已定位到页面顶部',
+    clearAllConfirm: '确定取消全部环回豁免？',
+    uncertain: '结论不确定',
+    note: {
+      dnsDisabled: 'DNS 未启用，走系统解析',
+      static: '纯静态推演，未发起真实 DNS 查询',
+      policyUnresolved: '策略未展开：{arg}',
+      policyEmpty: '策略值为空：{arg}',
+      filterUnresolved: '过滤器未展开：{arg}',
+      fakeIpFiltered: '命中 fake-ip-filter：{arg}',
+      fakeIp: '返回虚拟 IP，真实解析在建立连接时完成',
+      fallbackFilterActive: 'fallback-filter 已启用，实际解析器无法静态判定',
+      noNameserver: '未配置 nameserver，只能用系统默认解析',
+    },
+  },
+  deviation: {
+    field: {
+      httpPort: 'HTTP 端口',
+      lanAuth: '局域网认证',
+      congestion: '拥塞控制',
+    },
+    reason: {
+      httpPort: '混合端口已占用，HTTP 端口被忽略',
+      lanAuth: '缺用户名，认证已丢弃',
+      congestion: '仅 MIPS 生效，已清空',
+    },
+  },
 };

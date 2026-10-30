@@ -746,6 +746,33 @@ export default {
     dnsSourcePolicy: '網域策略',
     dnsSourceFallback: '回退',
     dnsSourceMain: '主 DNS',
-    dnsSourceDefault: '預設'
-  }
+    dnsSourceDefault: '預設',
+    dnsIpTarget: '目標為 IP，無需 DNS 解析',
+    searchHiddenItem: '該項目目前不可見，已定位到頁面頂部',
+    clearAllConfirm: '確定取消全部迴環豁免？',
+    uncertain: '結論不確定',
+    note: {
+      dnsDisabled: 'DNS 未啟用，走系統解析',
+      static: '純靜態推演，未發起真實 DNS 查詢',
+      policyUnresolved: '策略未展開：{arg}',
+      policyEmpty: '策略值為空：{arg}',
+      filterUnresolved: '過濾器未展開：{arg}',
+      fakeIpFiltered: '命中 fake-ip-filter：{arg}',
+      fakeIp: '回傳虛擬 IP，真實解析在建立連線時完成',
+      fallbackFilterActive: 'fallback-filter 已啟用，實際解析器無法靜態判定',
+      noNameserver: '未設定 nameserver，只能用系統預設解析',
+    },
+  },
+  deviation: {
+    field: {
+      httpPort: 'HTTP 埠',
+      lanAuth: '區域網路認證',
+      congestion: '壅塞控制',
+    },
+    reason: {
+      httpPort: '混合埠已佔用，HTTP 埠被忽略',
+      lanAuth: '缺使用者名稱，認證已捨棄',
+      congestion: '僅 MIPS 生效，已清空',
+    },
+  },
 };

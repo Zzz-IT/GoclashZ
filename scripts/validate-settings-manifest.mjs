@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 // 校验设置项清单与页面模板是否一致，防止 manifest 与 .vue 漂移。
-// 规则：manifest 里每个 id，必须能在对应页面的 .vue 源码里找到（静态 id 或动态拼接前缀）。
-// 失败时以非 0 退出，可直接接在 npm build 前。
+// 规则：
+//   1) manifest 条目数必须与解析到的 id 数一致（防止正则漏匹配造成"假绿"）；
+//   2) 每个 id 必须在该页 .vue 的模板里出现 id="..."（v-for 动态拼接的按前缀匹配）；
+//   3) page 必须映射到已知文件，否则直接报错（不再 path.join(undefined)）。
+// 失败以非 0 退出，已接在 npm build 前。
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,38 +26,51 @@ const PAGE_FILES = {
   uwp: 'SettingsUwp.vue',
 };
 
-// 由 v-for 动态拼接的 id：只校验前缀出现在模板里
+// v-for 动态拼接的 id：只校验前缀出现在模板里
 const DYNAMIC_PREFIX = ['set-update-dbFile'];
 
 const manifest = fs.readFileSync(manifestPath, 'utf8');
-const entries = [];
-const re = /\{\s*id:\s*'([^']+)',\s*\n\s*page:\s*'([^']+)'/g;
-let m;
-while ((m = re.exec(manifest)) !== null) {
-  entries.push({ id: m[1], page: m[2] });
-}
 
-if (entries.length === 0) {
-  console.error('[settings-manifest] 未从 manifest.ts 解析到任何条目，格式可能被改动');
+// 只提取 id 与 page，不依赖两者的换行顺序
+const entries = [...manifest.matchAll(/id:\s*'([^']+)'/g)].map((m) => m[1]);
+const pages = [...manifest.matchAll(/page:\s*'([^']+)'/g)].map((m) => m[1]);
+
+if (entries.length === 0 || entries.length !== pages.length) {
+  console.error(
+    '[settings-manifest] 解析条目失败：id=' + entries.length + ' page=' + pages.length + '（两者必须相等且大于 0）'
+  );
   process.exit(1);
 }
+
+const fields = entries.map((id, i) => ({ id, page: pages[i] }));
 
 const cache = new Map();
 const loadPage = (page) => {
   if (cache.has(page)) return cache.get(page);
   const file = PAGE_FILES[page];
+  if (!file) {
+    console.error('[settings-manifest] manifest 里出现了未知页面：' + page);
+    process.exit(1);
+  }
   const full = path.join(componentsDir, file);
-  const text = fs.existsSync(full) ? fs.readFileSync(full, 'utf8') : '';
+  if (!fs.existsSync(full)) {
+    console.error('[settings-manifest] 找不到页面文件：' + file);
+    process.exit(1);
+  }
+  const text = fs.readFileSync(full, 'utf8');
   cache.set(page, text);
   return text;
 };
 
 const missing = [];
-for (const { id, page } of entries) {
+for (const { id, page } of fields) {
   const text = loadPage(page);
   const dynamic = DYNAMIC_PREFIX.find((p) => id.startsWith(p));
-  const needle = dynamic ? dynamic : id;
-  if (!text.includes(needle)) missing.push({ id, page, needle });
+  // 精确匹配锚点属性，避免 id 只是别处字符串的子串
+  const found = dynamic
+    ? text.includes("'" + dynamic + "'")
+    : new RegExp('id\\s*=\\s*"' + id + '"').test(text);
+  if (!found) missing.push({ id, page });
 }
 
 if (missing.length > 0) {
@@ -66,4 +82,4 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
-console.log('[settings-manifest] OK，' + entries.length + ' 个设置项锚点全部就位');
+console.log('[settings-manifest] OK，' + fields.length + ' 个设置项锚点全部就位');

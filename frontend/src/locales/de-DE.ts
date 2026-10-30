@@ -746,6 +746,33 @@ export default {
     dnsSourcePolicy: 'Domain-Richtlinie',
     dnsSourceFallback: 'Fallback',
     dnsSourceMain: 'Haupt-DNS',
-    dnsSourceDefault: 'Standard'
-  }
+    dnsSourceDefault: 'Standard',
+    dnsIpTarget: 'Ziel ist eine IP, keine DNS-Auflösung nötig',
+    searchHiddenItem: 'Diese Einstellung ist derzeit ausgeblendet',
+    clearAllConfirm: 'Alle Loopback-Ausnahmen entfernen?',
+    uncertain: 'Ergebnis unbestimmt',
+    note: {
+      dnsDisabled: 'DNS deaktiviert, System-Resolver wird genutzt',
+      static: 'Statische Ableitung, keine echte DNS-Abfrage',
+      policyUnresolved: 'Richtlinie nicht aufgelöst: {arg}',
+      policyEmpty: 'Richtlinienwert leer: {arg}',
+      filterUnresolved: 'Filter nicht aufgelöst: {arg}',
+      fakeIpFiltered: 'fake-ip-filter getroffen: {arg}',
+      fakeIp: 'Liefert eine virtuelle IP, echte Auflösung beim Verbinden',
+      fallbackFilterActive: 'fallback-filter aktiv, Resolver unbestimmt',
+      noNameserver: 'Kein nameserver, nur Systemstandard',
+    },
+  },
+  deviation: {
+    field: {
+      httpPort: 'HTTP-Port',
+      lanAuth: 'LAN-Auth',
+      congestion: 'Überlastkontrolle',
+    },
+    reason: {
+      httpPort: 'Gemischter Port belegt, HTTP-Port ignoriert',
+      lanAuth: 'Benutzername fehlt, Auth verworfen',
+      congestion: 'Nur MIPS, geleert',
+    },
+  },
 };

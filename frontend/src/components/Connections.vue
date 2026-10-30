@@ -94,9 +94,10 @@
             <div v-else-if="dnsError" class="match-empty">{{ dnsError }}</div>
             <template v-else-if="dnsResult">
               <div class="match-line">{{ t('diag.dnsBasis') }} {{ dnsSourceLabel }}<template v-if="dnsResult.policyKey"> · {{ dnsResult.policyKey }}</template></div>
+              <div v-if="dnsResult.uncertain" class="match-line match-skip">ⓘ {{ t('diag.uncertain') }}</div>
               <div class="match-line match-meta">{{ t('diag.dnsResolver') }} {{ dnsResult.resolver || '—' }}</div>
               <div class="match-line match-meta">{{ t('diag.dnsFakeIp') }} {{ dnsResult.fakeIp ? 'ON' : 'OFF' }}</div>
-              <div v-for="(n, i) in dnsNotes" :key="'dns-' + i" class="match-line match-skip">ⓘ {{ n }}</div>
+              <div v-for="(n, i) in dnsNotes" :key="'dns-' + i" class="match-line match-skip">ⓘ {{ noteText(n) }}</div>
             </template>
             <div v-else class="match-empty">{{ t('diag.dnsNoConfig') }}</div>
           </div>
@@ -121,6 +122,7 @@ import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { showConfirm, showAlert } from '../store';
 import { ICONS } from '../utils/icons';
 import { t } from '../locales';
+import { toUserError } from '../utils/errors';
 import EmptyState from './EmptyState.vue';
 
 const connections = ref<any[]>([]);
@@ -135,6 +137,16 @@ const dnsResult = ref<any>(null);
 const dnsError = ref('');
 let dnsLoaded = false;
 
+// 目标本身是 IP 字面量（v4/v6，允许方括号）：ExplainDNS 只接受域名，前端先判定
+const isIpLiteral = (host: string) => {
+  let value = host.trim();
+  // 去掉 IPv6 的方括号写法 [::1]（不用正则，避免转义歧义）
+  if (value.startsWith('[') && value.endsWith(']')) value = value.slice(1, -1);
+  if (!value) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(value)) return true;
+  return value.includes(':') && /^[0-9a-f:.]+$/i.test(value);
+};
+
 const dnsSourceLabel = computed(() => {
   const key = String(dnsResult.value?.source || 'default');
   const map: Record<string, string> = {
@@ -147,6 +159,17 @@ const dnsSourceLabel = computed(() => {
 });
 
 const dnsNotes = computed<any[]>(() => (Array.isArray(dnsResult.value?.notes) ? dnsResult.value.notes : []));
+
+// notes 现在是 { code, arg }：按 code 取 i18n；未知 code 时退回 arg 或 code，避免把 key 露给用户
+const noteText = (note: any): string => {
+  if (!note || typeof note !== 'object') return String(note || '');
+  const code = String(note.code || '');
+  const arg = note.arg || '';
+  if (!code) return String(arg);
+  const key = 'diag.note.' + code;
+  const text = t(key, { arg });
+  return text === key ? String(arg || code) : text;
+};
 
 const tabsTrackRef = ref<HTMLElement | null>(null);
 const connTabEl = ref<HTMLElement | null>(null);
@@ -307,18 +330,25 @@ const toggleDNS = async () => {
   if (dnsLoaded) return;
 
   const requestConnId = selectedConn.value.id;
-  const query = selectedConn.value.metadata.host || selectedConn.value.metadata.destinationIP;
+  const target = String(selectedConn.value.metadata.host || selectedConn.value.metadata.destinationIP || '');
+  // 纯 IP 目标没有 DNS 解析过程：直接给静态说明，不打后端，也不显示"请输入域名"
+  if (isIpLiteral(target)) {
+    dnsResult.value = null;
+    dnsError.value = t('diag.dnsIpTarget');
+    dnsLoaded = true;
+    return;
+  }
   dnsLoading.value = true;
   dnsError.value = '';
 
   try {
-    const r = await API.ExplainDNS(query);
+    const r = await API.ExplainDNS(target);
     if (!selectedConn.value || selectedConn.value.id !== requestConnId) return;
     dnsResult.value = r;
     dnsLoaded = true;
   } catch (e) {
     if (!selectedConn.value || selectedConn.value.id !== requestConnId) return;
-    dnsError.value = String(e);
+    dnsError.value = toUserError(e).message;
   } finally {
     if (selectedConn.value && selectedConn.value.id === requestConnId) {
       dnsLoading.value = false;

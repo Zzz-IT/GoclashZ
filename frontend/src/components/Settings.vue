@@ -20,7 +20,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { globalState, showAlert, showConfirm } from '../store';
+import { globalState, showAlert, showConfirm, showToast } from '../store';
 import { t, setLocale, currentLocale, SupportedLocale } from '../locales';
 import SettingsAbout from './SettingsAbout.vue';
 import SettingsBehavior from './SettingsBehavior.vue';
@@ -36,7 +36,7 @@ const props = defineProps({ initialView: { type: String, default: 'main' } });
 const view = ref(props.initialView as 'main' | 'uwp' | 'tun' | 'dns' | 'network' | 'lan' | 'behavior' | 'update' | 'about');
 const uwpEntry = ref(0);
 
-const handleEnterUwp = async () => {
+const handleEnterUwp = async (anchor?: string) => {
   if (!globalState.isAdmin) {
     const restart = await showConfirm(
       t('settings.uwp.adminPromptMsg'),
@@ -54,6 +54,11 @@ const handleEnterUwp = async () => {
   }
   view.value = 'uwp';
   uwpEntry.value += 1;
+  // 搜索跳转进入 UWP 时也要定位到具体字段
+  if (anchor) {
+    pendingAnchor.value = anchor;
+    setTimeout(() => applyAnchor(), 360);
+  }
 };
 // ===== 设置项搜索跳转：切页后定位到具体字段并短暂高亮 =====
 const pendingAnchor = ref('');
@@ -63,18 +68,31 @@ const applyAnchor = (retry = 0) => {
   if (!id) return;
   const el = document.getElementById(id);
   if (!el) {
-    // 目标项可能因 v-if 未渲染：重试几次后放弃，停留在页面顶部
-    if (retry < 6) setTimeout(() => applyAnchor(retry + 1), 120);
-    else pendingAnchor.value = '';
+    // 目标项可能因 v-if 未渲染：重试几次后放弃，回到顶部并告知用户
+    if (retry < 6) {
+      setTimeout(() => applyAnchor(retry + 1), 120);
+    } else {
+      pendingAnchor.value = '';
+      document.querySelector('.view-scroller')?.scrollTo({ top: 0, behavior: 'auto' });
+      showToast(t('diag.searchHiddenItem'), 'info');
+    }
     return;
   }
-  el.scrollIntoView({ block: 'center' });
+  el.scrollIntoView({ block: 'start' });
+  // 先移除再强制 reflow：1.9s 内连续跳同一项也能重新播放高亮
+  el.classList.remove('setting-flash');
+  void el.offsetWidth;
   el.classList.add('setting-flash');
   setTimeout(() => el.classList.remove('setting-flash'), 1900);
   pendingAnchor.value = '';
 };
 
 const onNavigate = (next: string, anchor?: string) => {
+  // 搜索直达 UWP 也必须走管理员鉴权，不能绕过 handleEnterUwp
+  if (next === 'uwp') {
+    void handleEnterUwp(anchor);
+    return;
+  }
   view.value = next as typeof view.value;
   if (!anchor) return;
   pendingAnchor.value = anchor;

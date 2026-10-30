@@ -31,6 +31,11 @@ $pkg = Get-Content frontend/package.json -Raw -Encoding UTF8
 $pkg = $pkg -replace '"version"\s*:\s*"[^"]*"', "`"version`": `"$Version`""
 Write-Utf8NoBom "frontend/package.json" $pkg
 
+# frontend/package.json.md5
+# Wails v2 用这个 md5 判断是否需要重新 npm install；不同步会导致每次构建多跑一次安装
+$md5 = (Get-FileHash -Path "frontend/package.json" -Algorithm MD5).Hash.ToLower()
+Write-Utf8NoBom "frontend/package.json.md5" $md5
+
 # package.iss
 $iss = Get-Content package.iss -Raw -Encoding UTF8
 $iss = $iss -replace '#define MyAppVersion ".*"', "#define MyAppVersion `"$Version`""

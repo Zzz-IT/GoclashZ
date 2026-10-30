@@ -746,6 +746,33 @@ export default {
     dnsSourcePolicy: 'Domain policy',
     dnsSourceFallback: 'Fallback',
     dnsSourceMain: 'Main DNS',
-    dnsSourceDefault: 'Default'
-  }
+    dnsSourceDefault: 'Default',
+    dnsIpTarget: 'Target is an IP, no DNS lookup needed',
+    searchHiddenItem: 'This setting is hidden right now',
+    clearAllConfirm: 'Remove all loopback exemptions?',
+    uncertain: 'Result is uncertain',
+    note: {
+      dnsDisabled: 'DNS disabled, using system resolver',
+      static: 'Static inference, no real DNS query',
+      policyUnresolved: 'Policy not expanded: {arg}',
+      policyEmpty: 'Policy value empty: {arg}',
+      filterUnresolved: 'Filter not expanded: {arg}',
+      fakeIpFiltered: 'Matched fake-ip-filter: {arg}',
+      fakeIp: 'Returns a virtual IP; the real lookup happens when connecting',
+      fallbackFilterActive: 'fallback-filter enabled, the actual resolver cannot be determined',
+      noNameserver: 'No nameserver configured, system default only',
+    },
+  },
+  deviation: {
+    field: {
+      httpPort: 'HTTP Port',
+      lanAuth: 'LAN Auth',
+      congestion: 'Congestion',
+    },
+    reason: {
+      httpPort: 'Mixed port in use, HTTP port ignored',
+      lanAuth: 'Username missing, auth dropped',
+      congestion: 'MIPS only, cleared',
+    },
+  },
 };

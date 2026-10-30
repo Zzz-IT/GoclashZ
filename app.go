@@ -671,6 +671,11 @@ func (a *App) ApplyUwpExemptionChanges(added []string, removed []string) error {
 	return a.core.ApplyUwpExemptionChanges(added, removed)
 }
 
+// ClearAllUwpExemptions 清空全部 UWP 豁免：只删除本次枚举到的已豁免 SID
+func (a *App) ClearAllUwpExemptions() error {
+	return a.core.ClearAllUwpExemptions()
+}
+
 // --- Config Management ---
 
 func (a *App) GetDNSConfig() (*clash.DNSConfig, error) {

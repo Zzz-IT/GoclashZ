@@ -134,6 +134,9 @@ textarea,
 
     --status-online: #1A1A1A;
     /* 呼吸灯使用纯黑，通过动画而非颜色表达 */
+
+    /* 唯一允许出现的彩色：危险操作 */
+    --danger: var(--danger);
 }
 
 /* 🌍 国际化适配：当语言为外语（英文/日文/俄文/法文/德文）时，动态自适应侧边栏宽度，为 Subscriptions、サブスクリプション、Verbindungen、Соединения 等长单词提供充裕空间 */
@@ -239,6 +242,8 @@ html[lang="de-DE"],
     --surface-hover: #2A2A2A;
 
     --status-online: #E8E8E8;
+
+    --danger: var(--danger);
 }
 
 * {
@@ -420,7 +425,7 @@ body,
 }
 
 .danger-text {
-    color: #ff4d4f !important;
+    color: var(--danger) !important;
 }
 
 /* ================================== */
@@ -548,7 +553,7 @@ body,
 
 /* 危险操作红字 */
 .red-text-btn {
-    color: #ff4d4f !important;
+    color: var(--danger) !important;
 }
 
 .hover-accent:hover:not(:disabled) {
@@ -675,7 +680,8 @@ body,
   display: flex;
   flex-direction: column;
   gap: 10px;
-  z-index: 9000;
+  /* 必须高于模态遮罩(.modal-overlay = 9999)，否则模态期间的成功提示会被盖住 */
+  z-index: 10000;
   pointer-events: none;
 }
 
@@ -696,8 +702,16 @@ body,
   background: var(--accent);
 }
 
+.toast--success .toast__bar {
+  background: var(--accent);
+}
+
+.toast--info .toast__bar {
+  background: var(--text-sub);
+}
+
 .toast--error .toast__bar {
-  background: #ff4d4f;
+  background: var(--danger);
 }
 
 .toast__body {
@@ -774,8 +788,7 @@ body,
   color: var(--text-sub);
 }
 
-.match-skip,
-.match-reason {
+.match-skip {
   color: var(--text-muted);
 }
 
@@ -810,11 +823,6 @@ body,
   min-width: 0;
   font-size: 0.82rem;
   color: var(--text-main);
-}
-
-.deviation-strip__count {
-  font-family: var(--font-mono);
-  font-weight: 700;
 }
 
 .deviation-strip__action {
@@ -876,7 +884,6 @@ body,
 /* 只改背景色，不加色相、不加边框 */
 /* ================================== */
 .setting-item[id],
-.glass-card[id],
 .uwp-list-wrapper[id] {
   scroll-margin-top: 88px;
 }

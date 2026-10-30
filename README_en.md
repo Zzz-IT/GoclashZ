@@ -52,6 +52,13 @@ GoclashZ was created out of resistance against the excessive bloat of modern des
 * **Transactional Disaster Recovery**: Proprietary `.gocz` backup format with automatic rollback snapshots.
 * **Native Registry Startup**: Replaced fragile Task Scheduler COM tasks with robust, lightweight Windows `HKCU\Run` registry entries.
 
+### Diagnostics & Readability
+* **Field-level settings search**: one index over 87 fields across 8 settings pages, grouped by page; clicking jumps to the field and highlights it.
+* **Configuration deviation report**: after saving, lists settings that will not take effect as written (port conflict, missing auth, stack limits); one item expands inline, several collapse.
+* **DNS resolution explanation**: the connection detail shows the matched nameserver policy and resolver, and flags results that cannot be determined statically.
+* **Layered error messages**: a one-line conclusion plus expandable technical details; successful actions use a toast instead of a modal.
+* **Consistent empty states**: an icon and a caption instead of a single grey line.
+
 ## Deployment & Setup
 
 ### Installation

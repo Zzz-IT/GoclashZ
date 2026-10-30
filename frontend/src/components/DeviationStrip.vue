@@ -9,7 +9,7 @@
     <div class="deviation-strip">
       <span class="deviation-strip__bar"></span>
       <div class="deviation-strip__text">
-        <template v-if="list.length === 1">{{ list[0].field }} · {{ list[0].reason }}</template>
+        <template v-if="list.length === 1">{{ fieldText(list[0]) }} · {{ reasonText(list[0]) }}</template>
         <template v-else>{{ t('diag.notApplied', { count: list.length }) }}</template>
       </div>
       <button
@@ -21,8 +21,8 @@
     </div>
     <div v-if="list.length > 1 && open" class="deviation-list">
       <div v-for="(d, i) in list" :key="i" class="deviation-item">
-        <span class="deviation-item__field">{{ d.field }}</span>
-        <span class="deviation-item__reason">{{ d.reason }}</span>
+        <span class="deviation-item__field">{{ fieldText(d) }}</span>
+        <span class="deviation-item__reason">{{ reasonText(d) }}</span>
       </div>
     </div>
   </template>
@@ -39,6 +39,23 @@ const list = ref<any[]>([]);
 const open = ref(false);
 const dismissed = ref(false);
 let disposed = false;
+// field / reason 现在都是 { code, arg }：按 code 取 i18n；迁移期若还是字符串也能兜住
+const codeOf = (value: any): string => {
+  if (value && typeof value === 'object') return String(value.code || '');
+  return String(value || '');
+};
+const localized = (prefix: string, value: any): string => {
+  const code = codeOf(value);
+  if (!code) return '';
+  const key = prefix + '.' + code;
+  const text = t(key, { arg: value?.arg || '' });
+  return text === key ? code : text;
+};
+const fieldText = (d: any) => localized('deviation.field', d?.field);
+const reasonText = (d: any) => localized('deviation.reason', d?.reason);
+// 上次渲染的偏差内容签名：只有内容变化才把用户关掉的回执条重新显示（只拼 code，不依赖任何语言的展示文本）
+const signatureOf = (items: any[]) => items.map((d) => `${codeOf(d?.field)}|${codeOf(d?.reason)}`).join(';;');
+let lastSignature = '';
 
 const visible = computed(() => !dismissed.value && list.value.length > 0);
 
@@ -53,9 +70,13 @@ const refresh = async () => {
     if (disposed) return;
     list.value = [];
   }
-  // 每次刷新（打开页面 / 保存成功）都重新可见，关闭只在当次生效
-  dismissed.value = false;
-  if (list.value.length !== 1) open.value = false;
+  // 关闭只在内容没变时保持；签名变了才重新显示，避免自动保存后反复弹回
+  const sig = signatureOf(list.value);
+  if (sig !== lastSignature) {
+    dismissed.value = false;
+    if (list.value.length !== 1) open.value = false;
+  }
+  lastSignature = sig;
 };
 
 const dismiss = () => {

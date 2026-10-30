@@ -1992,3 +1992,8 @@ func (c *Controller) ExplainDNS(domain string) (*clash.DNSExplain, error) {
 func (c *Controller) ApplyUwpExemptionChanges(added []string, removed []string) error {
 	return sys.ApplyUwpExemptionChanges(added, removed)
 }
+
+// ClearAllUwpExemptions 清空全部 UWP 豁免：只删除本次枚举到的已豁免 SID
+func (c *Controller) ClearAllUwpExemptions() error {
+	return sys.ClearAllUwpExemptions()
+}

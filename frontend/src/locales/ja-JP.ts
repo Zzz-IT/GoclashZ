@@ -746,6 +746,33 @@ export default {
     dnsSourcePolicy: 'ドメインポリシー',
     dnsSourceFallback: 'フォールバック',
     dnsSourceMain: 'メイン DNS',
-    dnsSourceDefault: '既定'
-  }
+    dnsSourceDefault: '既定',
+    dnsIpTarget: '対象は IP のため DNS 解決は不要',
+    searchHiddenItem: 'この項目は現在非表示です',
+    clearAllConfirm: 'すべてのループバック除外を解除しますか？',
+    uncertain: '判定不能',
+    note: {
+      dnsDisabled: 'DNS 無効、システムリゾルバーを使用',
+      static: '静的推論、実際の DNS 問い合わせなし',
+      policyUnresolved: 'ポリシー未展開：{arg}',
+      policyEmpty: 'ポリシー値が空：{arg}',
+      filterUnresolved: 'フィルター未展開：{arg}',
+      fakeIpFiltered: 'fake-ip-filter に一致：{arg}',
+      fakeIp: '仮想 IP を返し、実解決は接続時に行う',
+      fallbackFilterActive: 'fallback-filter 有効、実際のリゾルバーは判定不能',
+      noNameserver: 'nameserver 未設定、システム既定のみ',
+    },
+  },
+  deviation: {
+    field: {
+      httpPort: 'HTTP ポート',
+      lanAuth: 'LAN 認証',
+      congestion: '輻輳制御',
+    },
+    reason: {
+      httpPort: '混合ポート使用中、HTTP ポートは無視',
+      lanAuth: 'ユーザー名なし、認証は破棄',
+      congestion: 'MIPS のみ有効、クリア済み',
+    },
+  },
 };

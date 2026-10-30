@@ -746,6 +746,33 @@ export default {
     dnsSourcePolicy: 'Политика домена',
     dnsSourceFallback: 'Резервный',
     dnsSourceMain: 'Основной DNS',
-    dnsSourceDefault: 'По умолчанию'
-  }
+    dnsSourceDefault: 'По умолчанию',
+    dnsIpTarget: 'Цель — IP, DNS-разрешение не требуется',
+    searchHiddenItem: 'Этот пункт сейчас скрыт',
+    clearAllConfirm: 'Снять все исключения обратной петли?',
+    uncertain: 'Результат не определён',
+    note: {
+      dnsDisabled: 'DNS отключён, используется системный резолвер',
+      static: 'Статический расчёт, реального запроса нет',
+      policyUnresolved: 'Политика не раскрыта: {arg}',
+      policyEmpty: 'Значение политики пусто: {arg}',
+      filterUnresolved: 'Фильтр не раскрыт: {arg}',
+      fakeIpFiltered: 'Совпадение fake-ip-filter: {arg}',
+      fakeIp: 'Возвращается виртуальный IP, реальное разрешение при подключении',
+      fallbackFilterActive: 'fallback-filter включён, резолвер не определить',
+      noNameserver: 'nameserver не задан, только системный',
+    },
+  },
+  deviation: {
+    field: {
+      httpPort: 'HTTP-порт',
+      lanAuth: 'LAN-аутентификация',
+      congestion: 'Управление перегрузкой',
+    },
+    reason: {
+      httpPort: 'Смешанный порт занят, HTTP-порт игнорируется',
+      lanAuth: 'Нет имени пользователя, аутентификация отброшена',
+      congestion: 'Только MIPS, сброшено',
+    },
+  },
 };

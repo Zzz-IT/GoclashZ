@@ -34,7 +34,16 @@
     <template v-else>
       <div v-for="g in groups" :key="g.page" class="search-group">
         <h3 class="search-group__title">{{ t(SETTING_PAGE_TITLES[g.page]) }}</h3>
-        <div v-for="f in g.items" :key="f.id" class="search-row" @click="jump(f)">
+        <div
+          v-for="f in g.items"
+          :key="f.id"
+          class="search-row"
+          role="button"
+          tabindex="0"
+          @click="jump(f)"
+          @keydown.enter.prevent="jump(f)"
+          @keydown.space.prevent="jump(f)"
+        >
           <span class="search-row__title">{{ labelOf(f) }}</span>
           <span v-if="sectionLabel(f)" class="search-row__section">{{ sectionLabel(f) }}</span>
         </div>
@@ -54,7 +63,7 @@ import { settingsSearchQuery } from '../settings/searchState';
 
 const emit = defineEmits<{
   navigate: [view: SettingPage, anchor?: string];
-  'enter-uwp': [];
+  'enter-uwp': [anchor?: string];
 }>();
 
 type EntryId = SettingPage;
@@ -119,6 +128,11 @@ const go = (e: Entry) => {
 };
 
 const jump = (f: SettingField) => {
+  // UWP 页由父级用 entry 计数进入（入口页面），其余页面走常规带锚点跳转
+  if (f.page === 'uwp') {
+    emit('enter-uwp', f.id);
+    return;
+  }
   emit('navigate', f.page, f.id);
 };
 </script>
@@ -194,7 +208,8 @@ const jump = (f: SettingField) => {
   border-radius: 8px;
   cursor: pointer;
 }
-.search-row:hover { background: var(--surface-hover); }
+.search-row:hover,
+.search-row:focus-visible { background: var(--surface-hover); }
 .search-row__title {
   flex: 1;
   min-width: 0;

@@ -10,8 +10,6 @@
       </button>
     </div>
 
-    <DeviationStrip ref="deviationRef" module="dns" />
-
     <div class="glass-card setting-group scrollable">
 
       <div class="setting-item" id="set-dns-enableDns">
@@ -173,9 +171,10 @@
 import { onMounted, ref, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { ICONS } from '../utils/icons';
-import DeviationStrip from './DeviationStrip.vue';
 import ModernSelect from './ModernSelect.vue';
 import { t } from '../locales';
+import { showAlert } from '../store';
+import { toUserError } from '../utils/errors';
 
 const props = defineProps<{ resetKey: number }>();
 
@@ -188,7 +187,6 @@ const enhancedModeOptions = [
 ];
 
 const loading = ref(true);
-const deviationRef = ref<InstanceType<typeof DeviationStrip> | null>(null);
 
 const dnsConfig = ref<any>({
   enable: true, 
@@ -234,7 +232,12 @@ const loadData = async () => {
 
 const saveDns = async () => {
   if (loading.value) return;
-  try { await (API.SaveDNSConfig as any)(dnsConfig.value); void deviationRef.value?.refresh(); } catch (e) { console.error('DNS 保存失败', e); }
+  try {
+    await (API.SaveDNSConfig as any)(dnsConfig.value);
+  } catch (e) {
+    const u = toUserError(e);
+    void showAlert(u.message, t('common.error'), true, u.detail);
+  }
 };
 
 const updateDnsArray = (e: Event, key: string) => {

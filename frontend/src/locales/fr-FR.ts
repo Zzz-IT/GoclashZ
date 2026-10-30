@@ -746,6 +746,33 @@ export default {
     dnsSourcePolicy: 'Politique de domaine',
     dnsSourceFallback: 'Repli',
     dnsSourceMain: 'DNS principal',
-    dnsSourceDefault: 'Par défaut'
-  }
+    dnsSourceDefault: 'Par défaut',
+    dnsIpTarget: 'La cible est une IP, aucune résolution DNS',
+    searchHiddenItem: 'Ce réglage est masqué actuellement',
+    clearAllConfirm: 'Retirer toutes les exceptions de bouclage ?',
+    uncertain: 'Résultat incertain',
+    note: {
+      dnsDisabled: 'DNS désactivé, résolveur système utilisé',
+      static: 'Inférence statique, aucune requête DNS réelle',
+      policyUnresolved: 'Politique non étendue : {arg}',
+      policyEmpty: 'Valeur de politique vide : {arg}',
+      filterUnresolved: 'Filtre non étendu : {arg}',
+      fakeIpFiltered: 'fake-ip-filter correspondant : {arg}',
+      fakeIp: 'Renvoie une IP virtuelle, résolution réelle à la connexion',
+      fallbackFilterActive: 'fallback-filter actif, résolveur réel indéterminable',
+      noNameserver: 'Aucun nameserver, système par défaut uniquement',
+    },
+  },
+  deviation: {
+    field: {
+      httpPort: 'Port HTTP',
+      lanAuth: 'Auth LAN',
+      congestion: 'Congestion',
+    },
+    reason: {
+      httpPort: 'Port mixte occupé, port HTTP ignoré',
+      lanAuth: 'Identifiant manquant, auth ignorée',
+      congestion: 'MIPS uniquement, effacé',
+    },
+  },
 };
