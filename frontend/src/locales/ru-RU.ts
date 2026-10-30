@@ -239,6 +239,9 @@ export default {
     detailDest: 'Назначение',
     detailRule: 'Правило',
     detailChain: 'Цепочка прокси',
+    expand: 'Показать',
+    collapse: 'Свернуть',
+    calculating: 'Вычисление…',
     detailUpload: 'Отдано',
     detailDownload: 'Загружено',
     detailTime: 'Время соединения',
@@ -325,6 +328,8 @@ export default {
     discardConfirmTitle: 'Отменить несохраненные изменения',
   },
   settings: {
+    searchPlaceholder: 'Поиск настроек',
+    searchEmpty: 'Нет подходящих настроек',
     resetConfirmTitle: 'Подтверждение сброса',
     resetConfirmMsg: 'Вы уверены, что хотите сбросить {name} к настройкам по умолчанию? Это действие нельзя отменить.',
     saveFailed: 'Не удалось сохранить настройки: {error}',
@@ -728,5 +733,19 @@ export default {
     replacing: 'Замена...',
     replaceSuccess: 'Ядро успешно заменено на версию из ресурсов!',
     replaceFailed: 'Ошибка при замене ядра: {error}',
+  },
+  diag: {
+    notApplied: '{count} параметров не применено',
+    view: 'Показать',
+    hide: 'Скрыть',
+    close: 'Закрыть',
+    dnsResolver: 'Резолвер',
+    dnsBasis: 'Основание',
+    dnsFakeIp: 'Fake-IP',
+    dnsNoConfig: 'Конфигурация DNS недоступна',
+    dnsSourcePolicy: 'Политика домена',
+    dnsSourceFallback: 'Резервный',
+    dnsSourceMain: 'Основной DNS',
+    dnsSourceDefault: 'По умолчанию'
   }
 };

@@ -118,6 +118,16 @@ export function setProxyCardMode(mode: ProxyCardMode) {
 }
 
 // 定义全局响应式状态
+export type ToastKind = 'info' | 'success' | 'error';
+
+export type ToastItem = {
+  id: number;
+  kind: ToastKind;
+  title: string;
+  message: string;
+  duration: number;
+};
+
 export const globalState = reactive({
   isRunning: false,
   mode: 'rule',
@@ -187,6 +197,9 @@ export const globalState = reactive({
     coreUpdateInfo: { local: '', remote: '', releaseUrl: '' },
     networkBusy: false,
   },
+
+  // 轻提示队列（成功/中性反馈，不打断操作；同屏最多 3 条）
+  toasts: [] as ToastItem[],
 
   // 全局模态框状态
   modal: {
@@ -369,7 +382,8 @@ export function updateProxyDelay(
 }
 
 // 全局 Alert 提示框 (替代原生 alert)
-export function showAlert(message: string, title: string = '提示', isDanger: boolean = false): Promise<void> {
+// detail：可选的技术详情（等宽小块，默认折叠在正文下方），供"人话 + 原始错误"分层使用
+export function showAlert(message: string, title: string = '提示', isDanger: boolean = false, detail: string = ''): Promise<void> {
   return new Promise((resolve) => {
     if (globalState.modal.show && globalState.modal.type === 'alert' && globalState.modal.message === message) {
       resolve();
@@ -378,7 +392,7 @@ export function showAlert(message: string, title: string = '提示', isDanger: b
     globalState.modal.type = 'alert';
     globalState.modal.title = title;
     globalState.modal.message = message;
-    globalState.modal.detail = ''; // Clear detail to prevent state leakage
+    globalState.modal.detail = detail;
     globalState.modal.isDanger = isDanger;
     globalState.modal.onConfirm = () => resolve();
     globalState.modal.onCancel = () => resolve(); // Alert 模式下点击遮罩层取消也视为 resolve
@@ -789,4 +803,37 @@ export async function initStore() {
       globalState.delayRetention ? globalState.delayRetentionTime : 'long'
     );
   });
+}
+
+/* ============================================================
+ * 轻提示（Toast）
+ * 使用边界：成功 / 中性结果用 showToast；错误与破坏性操作仍用 showAlert/showConfirm。
+ * 理由：成功是高频事件，用模态框会反复打断用户；错误必须被看见，必须用模态框。
+ * ========================================================== */
+let toastSeq = 0;
+
+export function showToast(
+  message: string,
+  kind: ToastKind = 'info',
+  opts: { title?: string; duration?: number } = {}
+): number {
+  const id = ++toastSeq;
+  const item: ToastItem = {
+    id,
+    kind,
+    title: opts.title ?? '',
+    message,
+    duration: opts.duration ?? 2400,
+  };
+  globalState.toasts.push(item);
+  while (globalState.toasts.length > 3) {
+    globalState.toasts.shift();
+  }
+  window.setTimeout(() => dismissToast(id), item.duration);
+  return id;
+}
+
+export function dismissToast(id: number): void {
+  const idx = globalState.toasts.findIndex((t) => t.id === id);
+  if (idx >= 0) globalState.toasts.splice(idx, 1);
 }

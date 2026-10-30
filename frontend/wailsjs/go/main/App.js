@@ -14,6 +14,10 @@ export function ApplyAppUpdate(arg1) {
   return window['go']['main']['App']['ApplyAppUpdate'](arg1);
 }
 
+export function ApplyUwpExemptionChanges(arg1, arg2) {
+  return window['go']['main']['App']['ApplyUwpExemptionChanges'](arg1, arg2);
+}
+
 export function CancelUpdateTask(arg1) {
   return window['go']['main']['App']['CancelUpdateTask'](arg1);
 }
@@ -78,6 +82,10 @@ export function ExecuteRestore(arg1, arg2) {
   return window['go']['main']['App']['ExecuteRestore'](arg1, arg2);
 }
 
+export function ExplainDNS(arg1) {
+  return window['go']['main']['App']['ExplainDNS'](arg1);
+}
+
 export function ExportBackup() {
   return window['go']['main']['App']['ExportBackup']();
 }
@@ -108,6 +116,10 @@ export function GetAppVersion() {
 
 export function GetComponentFileInfo() {
   return window['go']['main']['App']['GetComponentFileInfo']();
+}
+
+export function GetConfigDeviations(arg1) {
+  return window['go']['main']['App']['GetConfigDeviations'](arg1);
 }
 
 export function GetConfigFilePath(arg1) {

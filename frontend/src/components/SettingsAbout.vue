@@ -39,7 +39,7 @@
       </div>
 
       <div class="divider"></div>
-      <div class="setting-item">
+      <div class="setting-item" id="set-about-language">
         <div class="info">
           <h4>{{ t('settings.about.language') }}</h4>
           <p>{{ t('settings.about.languageDesc') }}</p>
@@ -52,7 +52,7 @@
       </div>
 
       <div class="divider"></div>
-      <div class="setting-item">
+      <div class="setting-item" id="set-about-version">
         <div class="info">
           <h4>{{ t('settings.about.version') }}</h4>
           <p>{{ globalState.appVersion || t('settings.about.fetchingVersion') }}</p>
@@ -64,7 +64,7 @@
 
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-about-autoUpdate">
         <div class="info">
           <h4>{{ t('settings.about.autoUpdate') }}</h4>
           <p>{{ t('settings.about.autoUpdateDesc') }}</p>
@@ -78,7 +78,7 @@
       <Transition :name="isInitialized ? 'dropdown' : ''">
         <div v-if="behavior.autoUpdate" class="auto-update-sub-items">
           <div class="divider"></div>
-          <div class="setting-item">
+          <div class="setting-item" id="set-about-updateMethod">
             <div class="info">
               <h4>{{ t('settings.about.updateMethod') }}</h4>
             </div>
@@ -95,7 +95,7 @@
           <Transition :name="isInitialized ? 'dropdown' : ''">
             <div v-if="behavior.updateMethod === 'scheduled'" class="update-interval-sub-items">
               <div class="divider"></div>
-              <div class="setting-item">
+              <div class="setting-item" id="set-about-updateInterval">
                 <div class="info">
                   <h4>{{ t('settings.about.updateInterval') }}</h4>
                 </div>
@@ -116,7 +116,7 @@
 
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-about-exportBackup">
         <div class="info">
           <h4>{{ t('settings.about.exportBackup') }}</h4>
           <p>{{ t('settings.about.exportBackupDesc') }}</p>
@@ -126,7 +126,7 @@
 
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-about-restoreBackup">
         <div class="info">
           <h4>{{ t('settings.about.restoreBackup') }}</h4>
           <p>{{ t('settings.about.restoreBackupDesc') }}</p>
@@ -136,7 +136,7 @@
 
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-about-dataDirDiagnostic">
         <div class="info">
           <h4>{{ t('settings.about.dataDirDiagnostic') }}</h4>
           <p>{{ t('settings.about.dataDirDiagnosticDesc') }}</p>
@@ -146,7 +146,7 @@
 
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-about-appDiagnosticInfo">
         <div class="info">
           <h4>{{ t('settings.about.appDiagnosticInfo') }}</h4>
           <p>{{ t('settings.about.appDiagnosticDesc') }}</p>
@@ -156,7 +156,7 @@
 
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-about-githubRepo">
         <div class="info">
           <h4>{{ t('settings.about.githubRepo') }}</h4>
           <a href="javascript:void(0)" @click="openLink('https://github.com/Zzz-IT/GoclashZ')" class="link-item">https://github.com/Zzz-IT/GoclashZ</a>
@@ -275,9 +275,10 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { BrowserOpenURL, EventsOn } from '../../wailsjs/runtime/runtime';
-import { globalState, showAlert, showConfirm } from '../store';
+import { globalState, showAlert, showToast, showConfirm } from '../store';
 import { formatBytes, formatEtaTime, formatSpeed } from '../utils/format';
 import { ICONS } from '../utils/icons';
+import { toUserError } from '../utils/errors';
 import appLogo from '../assets/logo.ico';
 import ModernNumberInput from './ModernNumberInput.vue';
 import ModernSelect from './ModernSelect.vue';
@@ -343,7 +344,8 @@ const handleCheckUpdate = async () => {
     // 🚀 核心改进：调用异步静默下载流，将通知权交给全局监听器 (App.vue)
     await (API as any).CheckAndDownloadAppUpdateAsync();
   } catch (e) {
-    await showAlert(t('common.error') + ": " + e, t('common.error'), true);
+    const u = toUserError(e);
+    await showAlert(u.message, t('common.error'), true, u.detail);
   }
 };
 
@@ -375,10 +377,11 @@ const handleExportBackup = async () => {
   try {
     const res = await (API as any).ExportBackup();
     if (res === "SUCCESS") {
-      await showAlert(t('settings.about.exportSuccess') || "备份成功导出", t('common.notice'));
+      showToast(t('settings.about.exportSuccess') || "备份成功导出", 'success');
     }
   } catch (e) {
-    await showAlert((t('settings.about.exportFailed') || "导出失败: ") + String(e), t('common.error'));
+    const u = toUserError(e);
+    await showAlert(u.message, t('common.error'), true, u.detail);
   }
 };
 
@@ -426,10 +429,11 @@ const confirmRestore = async () => {
     const res = await (API as any).ExecuteRestore(selectedPath.value, restoreMode.value);
     if (res === "SUCCESS") {
       showRestoreModal.value = false;
-      await showAlert(t('settings.about.restoreSuccess') || "数据还原成功！设置及配置已即时生效。", t('common.notice'));
+      showToast(t('settings.about.restoreSuccess') || "数据还原成功！设置及配置已即时生效。", 'success');
     }
   } catch (e) {
-    await showAlert((t('settings.about.restoreFailed') || "还原失败: ") + String(e), t('common.error'));
+    const u = toUserError(e);
+    await showAlert(u.message, t('common.error'), true, u.detail);
   } finally {
     isRestoring.value = false;
   }

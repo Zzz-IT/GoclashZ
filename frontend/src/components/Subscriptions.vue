@@ -29,9 +29,12 @@
 
     <!-- 列表过渡动画 -->
     <TransitionGroup name="list" tag="div" class="subs-list">
-      <div v-if="localConfigs.length === 0" class="empty-state" key="empty">
-        {{ t('subs.emptyState') }}
-      </div>
+      <EmptyState
+        v-if="localConfigs.length === 0"
+        key="empty"
+        :icon="ICONS.subs"
+        :title="t('subs.emptyState')"
+      />
 
       <div
         v-for="(config, index) in localConfigs"
@@ -186,6 +189,8 @@ import { EventsOn, BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { showAlert, showConfirm, globalState } from '../store';
 import { formatBytes } from '../utils/format';
 import { ICONS } from '../utils/icons';
+import { toUserError } from '../utils/errors';
+import EmptyState from './EmptyState.vue';
 import { t } from '../locales';
 
 const emit = defineEmits<{
@@ -311,7 +316,8 @@ const handleUpdateSingle = async (config: clash.SubIndexItem) => {
     await fetchConfigs();
     await showAlert(t('subs.updateSingleSuccess'), t('subs.updateDone'));
   } catch (e) {
-    await showAlert(t('subs.updateError', { error: String(e) }), t('common.error'));
+    const u = toUserError(e);
+    await showAlert(u.message, t('common.error'), true, u.detail);
   } finally {
     isUpdating.value = false;
   }
@@ -488,7 +494,8 @@ onMounted(() => {
 
   unsubSubsUpdateError = EventsOn("subs-update-error", async (err: string) => {
     isUpdating.value = false;
-    await showAlert(t('subs.updateFailedMsg', { error: String(err) }), t('subs.updateResultTitle'));
+    const u = toUserError(err);
+    await showAlert(u.message, t('common.error'), true, u.detail);
   });
 
   unsubConfigChanged = EventsOn("config-changed", (newId: string) => {

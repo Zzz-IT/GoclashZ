@@ -239,6 +239,9 @@ export default {
     detailDest: '宛先',
     detailRule: 'マッチしたルール',
     detailChain: 'プロキシチェーン',
+    expand: '表示',
+    collapse: '閉じる',
+    calculating: '計算中…',
     detailUpload: '送信量',
     detailDownload: '受信量',
     detailTime: '接続時刻',
@@ -325,6 +328,8 @@ export default {
     discardConfirmTitle: '未保存の変更を破棄',
   },
   settings: {
+    searchPlaceholder: '設定を検索',
+    searchEmpty: '一致する設定がありません',
     resetConfirmTitle: 'リセットの確認',
     resetConfirmMsg: '{name} をデフォルト設定に戻してもよろしいですか？この操作は取り消せません。',
     saveFailed: '設定の保存に失敗しました: {error}',
@@ -728,5 +733,19 @@ export default {
     replacing: '置換中...',
     replaceSuccess: 'コアがシードバージョンに正常に置き換えられました！',
     replaceFailed: 'コアの置換に失敗しました: {error}',
+  },
+  diag: {
+    notApplied: '{count} 項目未反映',
+    view: '表示',
+    hide: '閉じる',
+    close: '閉じる',
+    dnsResolver: 'リゾルバー',
+    dnsBasis: '根拠',
+    dnsFakeIp: 'Fake-IP',
+    dnsNoConfig: 'DNS 設定を取得できません',
+    dnsSourcePolicy: 'ドメインポリシー',
+    dnsSourceFallback: 'フォールバック',
+    dnsSourceMain: 'メイン DNS',
+    dnsSourceDefault: '既定'
   }
 };

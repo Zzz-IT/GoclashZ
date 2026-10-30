@@ -11,7 +11,7 @@
     </div>
 
     <div class="glass-card setting-group scrollable">
-      <div class="setting-item">
+      <div class="setting-item" id="set-behavior-silentStart">
         <div class="info">
           <h4>{{ t('settings.behavior.silentStart') }}</h4>
           <p>{{ t('settings.behavior.silentStartDesc') }}</p>
@@ -23,7 +23,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-behavior-closeToTray">
         <div class="info">
           <h4>{{ t('settings.behavior.closeToTray') }}</h4>
           <p>{{ t('settings.behavior.closeToTrayDesc') }}</p>
@@ -35,7 +35,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-behavior-portProxyMode">
         <div class="info">
           <h4>{{ t('settings.behavior.portProxyMode') }}</h4>
           <p>{{ t('settings.behavior.portProxyModeDesc') }}</p>
@@ -45,7 +45,7 @@
           <span class="slider"></span>
         </label>
       </div>
-      <div class="setting-item">
+      <div class="setting-item" id="set-behavior-coreComparisonPrompt">
         <div class="info">
           <h4>{{ t('settings.behavior.coreComparisonPrompt') }}</h4>
           <p>{{ t('settings.behavior.coreComparisonPromptDesc') }}</p>
@@ -55,7 +55,7 @@
           <span class="slider"></span>
         </label>
       </div>
-      <div class="setting-item">
+      <div class="setting-item" id="set-behavior-longConnectionProtection">
         <div class="info">
           <h4>{{ t('settings.behavior.longConnectionProtection') }}</h4>
           <p>{{ t('settings.behavior.longConnectionProtectionDesc') }}</p>
@@ -67,7 +67,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-behavior-startupWithOS">
         <div class="info">
           <h4>{{ t('settings.behavior.startupWithOS') }}</h4>
           <p>{{ t('settings.behavior.startupWithOSDesc') }}</p>
@@ -83,7 +83,7 @@
         <div v-if="behavior.startupWithOS" class="delay-retention-sub-items">
           <div class="divider"></div>
 
-          <div class="setting-item">
+          <div class="setting-item" id="set-behavior-restoreOnStartup">
             <div class="info">
               <h4>{{ t('settings.behavior.restoreOnStartup') }}</h4>
               <p>{{ t('settings.behavior.restoreOnStartupDesc') }}</p>
@@ -98,7 +98,7 @@
       </Transition>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-behavior-autoDelayTest">
         <div class="info">
           <h4>{{ t('settings.behavior.autoDelayTest') }}</h4>
           <p>{{ t('settings.behavior.autoDelayTestDesc') }}</p>
@@ -112,7 +112,7 @@
       <Transition name="dropdown">
         <div v-if="behavior.autoDelayTest" class="delay-retention-sub-items">
           <div class="divider"></div>
-          <div class="setting-item">
+          <div class="setting-item" id="set-behavior-autoDelayInterval">
             <div class="info">
               <h4>{{ t('settings.behavior.autoDelayInterval') }}</h4>
             </div>
@@ -130,7 +130,7 @@
       </Transition>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-behavior-colorDelay">
         <div class="info">
           <h4>{{ t('settings.behavior.colorDelay') }}</h4>
           <p>{{ t('settings.behavior.colorDelayDesc') }}</p>
@@ -142,7 +142,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-behavior-delayRetention">
         <div class="info">
           <h4>{{ t('settings.behavior.delayRetention') }}</h4>
           <p>{{ t('settings.behavior.delayRetentionDesc') }}</p>
@@ -156,7 +156,7 @@
       <Transition name="dropdown">
         <div v-if="behavior.delayRetention" class="delay-retention-sub-items">
           <div class="divider"></div>
-          <div class="setting-item">
+          <div class="setting-item" id="set-behavior-delayRetentionTime">
             <div class="info">
               <h4>{{ t('settings.behavior.delayRetentionTime') }}</h4>
             </div>
@@ -170,7 +170,7 @@
       </Transition>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-behavior-logLevel">
         <div class="info">
           <h4>{{ t('settings.behavior.logLevel') }}</h4>
           <p>{{ t('settings.behavior.logLevelDesc') }}</p>
@@ -183,7 +183,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-behavior-appLogLevel">
         <div class="info">
           <h4>{{ t('settings.behavior.appLogLevel') }}</h4>
           <p>{{ t('settings.behavior.appLogLevelDesc') }}</p>
@@ -196,7 +196,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-behavior-hideLogs">
         <div class="info">
           <h4>{{ t('settings.behavior.hideLogs') }}</h4>
           <p>{{ t('settings.behavior.hideLogsDesc') }}</p>
@@ -209,7 +209,7 @@
 
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-behavior-proxyTrafficOnly">
         <div class="info">
           <h4>{{ t('settings.behavior.proxyTrafficOnly') }}</h4>
           <p>{{ t('settings.behavior.proxyTrafficOnlyDesc') }}</p>
@@ -222,7 +222,7 @@
 
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-behavior-subUA">
         <div class="info">
           <h4>{{ t('settings.behavior.subUA') }}</h4>
           <p>{{ t('settings.behavior.subUADesc') }}</p>

@@ -13,6 +13,8 @@ export function AddRuleFromForm(arg1:string,arg2:string,arg3:clash.BuildRuleRequ
 
 export function ApplyAppUpdate(arg1:string):Promise<void>;
 
+export function ApplyUwpExemptionChanges(arg1:Array<string>,arg2:Array<string>):Promise<void>;
+
 export function CancelUpdateTask(arg1:string):Promise<void>;
 
 export function CheckAndDownloadAppUpdateAsync():Promise<void>;
@@ -45,6 +47,8 @@ export function DownloadPendingAppUpdateAsync():Promise<void>;
 
 export function ExecuteRestore(arg1:string,arg2:string):Promise<string>;
 
+export function ExplainDNS(arg1:string):Promise<clash.DNSExplain>;
+
 export function ExportBackup():Promise<string>;
 
 export function ExportConfig(arg1:string,arg2:boolean):Promise<void>;
@@ -60,6 +64,8 @@ export function GetAppState():Promise<appcore.AppState>;
 export function GetAppVersion():Promise<string>;
 
 export function GetComponentFileInfo():Promise<Record<string, runtimeassets.AssetHealth>>;
+
+export function GetConfigDeviations(arg1:string):Promise<Array<clash.ConfigDeviation>>;
 
 export function GetConfigFilePath(arg1:string):Promise<string>;
 

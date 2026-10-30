@@ -239,6 +239,9 @@ export default {
     detailDest: '目標位址',
     detailRule: '命中規則',
     detailChain: '代理鏈路',
+    expand: '檢視',
+    collapse: '收起',
+    calculating: '正在計算…',
     detailUpload: '上傳流量',
     detailDownload: '下載流量',
     detailTime: '連線時間',
@@ -325,6 +328,8 @@ export default {
     discardConfirmTitle: '放棄未儲存的修改',
   },
   settings: {
+    searchPlaceholder: '搜尋設定項',
+    searchEmpty: '沒有符合的設定項',
     resetConfirmTitle: '確認重設',
     resetConfirmMsg: '確定要將 {name} 恢復為預設設定嗎？此操作不可撤銷，程式將重新載入設定。',
     saveFailed: '儲存設定失敗: {error}',
@@ -728,5 +733,19 @@ export default {
     replacing: '正在替換...',
     replaceSuccess: '核心已成功替換為種子版本！',
     replaceFailed: '替換核心失敗: {error}',
+  },
+  diag: {
+    notApplied: '{count} 項未生效',
+    view: '檢視',
+    hide: '收起',
+    close: '關閉',
+    dnsResolver: '解析器',
+    dnsBasis: '依據',
+    dnsFakeIp: 'Fake-IP',
+    dnsNoConfig: '未取得 DNS 設定',
+    dnsSourcePolicy: '網域策略',
+    dnsSourceFallback: '回退',
+    dnsSourceMain: '主 DNS',
+    dnsSourceDefault: '預設'
   }
 };

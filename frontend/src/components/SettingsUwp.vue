@@ -9,7 +9,7 @@
 
     <!-- 非管理员权限提示卡片 -->
     <div v-if="!globalState.isAdmin" class="glass-card setting-group">
-      <div class="setting-item">
+      <div class="setting-item" id="set-uwp-adminPromptTitle">
         <div class="info">
           <h4>{{ t('settings.uwp.adminPromptTitle') }}</h4>
           <p>{{ t('settings.uwp.notAdminBanner') }}</p>
@@ -30,7 +30,7 @@
       </div>
     </div>
 
-    <div class="uwp-list-wrapper scrollable">
+    <div class="uwp-list-wrapper scrollable" id="set-uwp-exemptList">
       <div
         v-for="app in filteredUwpApps"
         :key="app.sid"
@@ -57,7 +57,7 @@
     </div>
 
     <div class="uwp-footer">
-      <button class="apply-btn" :disabled="savingUwp" @click="saveUwpChanges">
+      <button class="apply-btn" id="set-uwp-applyBtn" :disabled="savingUwp" @click="saveUwpChanges">
         <span v-if="!savingUwp">{{ t('settings.uwp.applyBtn') }}</span>
         <span v-else class="loading-spinner">{{ t('settings.uwp.saving') }}</span>
       </button>

@@ -239,6 +239,9 @@ export default {
     detailDest: '目标地址',
     detailRule: '匹配规则',
     detailChain: '代理链路',
+    expand: '查看',
+    collapse: '收起',
+    calculating: '正在计算…',
     detailUpload: '上传流量',
     detailDownload: '下载流量',
     detailTime: '连接时间',
@@ -325,6 +328,8 @@ export default {
     discardConfirmTitle: '放弃未保存的修改',
   },
   settings: {
+    searchPlaceholder: '搜索设置项',
+    searchEmpty: '没有匹配的设置项',
     resetConfirmTitle: '确认重置',
     resetConfirmMsg: '确定要将 {name} 恢复为默认设置吗？此操作不可撤销，程序将重新加载配置。',
     saveFailed: '保存设置失败: {error}',
@@ -728,5 +733,19 @@ export default {
     replacing: '正在替换...',
     replaceSuccess: '内核已成功替换为种子版本！',
     replaceFailed: '替换内核失败: {error}',
+  },
+  diag: {
+    notApplied: '{count} 项未生效',
+    view: '查看',
+    hide: '收起',
+    close: '关闭',
+    dnsResolver: '解析器',
+    dnsBasis: '依据',
+    dnsFakeIp: 'Fake-IP',
+    dnsNoConfig: '未获取到 DNS 配置',
+    dnsSourcePolicy: '域名策略',
+    dnsSourceFallback: '回退',
+    dnsSourceMain: '主 DNS',
+    dnsSourceDefault: '默认'
   }
 };

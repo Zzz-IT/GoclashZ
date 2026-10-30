@@ -666,6 +666,11 @@ func (a *App) SaveUwpExemptions(sids []string) error {
 	return sys.SaveUwpExemptions(sids)
 }
 
+// ApplyUwpExemptionChanges UWP 豁免差异应用：只动传入的两组 SID，不枚举、不推断其它豁免
+func (a *App) ApplyUwpExemptionChanges(added []string, removed []string) error {
+	return a.core.ApplyUwpExemptionChanges(added, removed)
+}
+
 // --- Config Management ---
 
 func (a *App) GetDNSConfig() (*clash.DNSConfig, error) {
@@ -762,6 +767,16 @@ func (a *App) RepairRuntimeAssets() runtimeassets.RuntimeAssetStatus {
 
 func (a *App) GetProxyDelay(proxyName, testUrl string) (int, error) {
 	return clash.GetProxyDelay(a.ctx, proxyName, testUrl, 8000)
+}
+
+// GetConfigDeviations 配置偏差：返回保存了但不会生效的设置项（module 为空表示全部）
+func (a *App) GetConfigDeviations(module string) ([]clash.ConfigDeviation, error) {
+	return a.core.GetConfigDeviations(module)
+}
+
+// ExplainDNS DNS 解析决策：该域名最终用哪个解析器（静态推演，不发真实查询）
+func (a *App) ExplainDNS(domain string) (*clash.DNSExplain, error) {
+	return a.core.ExplainDNS(domain)
 }
 
 // Deprecated: use new AddRule/DeleteRule/SaveRuleSection

@@ -10,22 +10,24 @@
       </button>
     </div>
 
+    <DeviationStrip ref="deviationRef" module="tun" />
+
     <div class="glass-card setting-group scrollable">
-      <div class="setting-item">
+      <div class="setting-item" id="set-tun-enableTun">
         <div class="info"><h4>{{ t('settings.tun.enableTun') }}</h4></div>
         <label class="modern-switch"><input type="checkbox" :checked="globalState.tun" @change="handleTunToggle"><span class="slider"></span></label>
       </div>
       <div class="divider"></div>
-      <div class="setting-item">
+      <div class="setting-item" id="set-tun-driverInstall">
         <div class="info"><h4>{{ t('settings.tun.driverInstall') }}</h4><p class="status-msg">{{ t('settings.tun.statusLabel') }}<span :class="tunStatus.hasWintun ? 'green-text' : 'red-text'">{{ tunStatus.hasWintun ? t('settings.tun.driverReady') : (tunStatus.wintunError || t('settings.tun.driverUnavailable')) }}</span></p></div>
         <button class="action-btn" @click="installDriver(true)" :disabled="isInstalling || tunStatus.hasWintun">{{ isInstalling ? t('settings.tun.processing') : (tunStatus.hasWintun ? t('settings.tun.driverInstalled') : t('settings.tun.driverInstallBtn')) }}</button>
       </div>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.stack') }}</h4></div><ModernSelect v-model="tunConfig.stack" :options="stackOptions" @change="saveTun" :disabled="!tunStatus.hasWintun || loading" /></div>
+      <div class="setting-item" id="set-tun-stack"><div class="info"><h4>{{ t('settings.tun.stack') }}</h4></div><ModernSelect v-model="tunConfig.stack" :options="stackOptions" @change="saveTun" :disabled="!tunStatus.hasWintun || loading" /></div>
       <Transition :name="isInitialized ? 'dropdown' : ''">
         <div v-if="tunConfig.stack === 'mips'" class="congestion-sub-items">
           <div class="divider"></div>
-          <div class="setting-item">
+          <div class="setting-item" id="set-tun-congestion">
             <div class="info">
               <h4>{{ t('settings.tun.congestion') }}</h4>
               <p class="status-msg">{{ t('settings.tun.congestionMipsOnly') }}</p>
@@ -40,17 +42,17 @@
         </div>
       </Transition>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.device') }}</h4></div><input type="text" class="modern-input" v-model="tunConfig.device" :placeholder="t('settings.tun.devicePlaceholder')" @blur="saveTun" :disabled="!tunStatus.hasWintun || loading" /></div>
+      <div class="setting-item" id="set-tun-device"><div class="info"><h4>{{ t('settings.tun.device') }}</h4></div><input type="text" class="modern-input" v-model="tunConfig.device" :placeholder="t('settings.tun.devicePlaceholder')" @blur="saveTun" :disabled="!tunStatus.hasWintun || loading" /></div>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.autoRoute') }}</h4></div><label class="modern-switch"><input type="checkbox" v-model="tunConfig.autoRoute" @change="saveTun" :disabled="!tunStatus.hasWintun || loading"><span class="slider"></span></label></div>
+      <div class="setting-item" id="set-tun-autoRoute"><div class="info"><h4>{{ t('settings.tun.autoRoute') }}</h4></div><label class="modern-switch"><input type="checkbox" v-model="tunConfig.autoRoute" @change="saveTun" :disabled="!tunStatus.hasWintun || loading"><span class="slider"></span></label></div>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.autoDetect') }}</h4></div><label class="modern-switch"><input type="checkbox" v-model="tunConfig.autoDetect" @change="saveTun" :disabled="!tunStatus.hasWintun || loading"><span class="slider"></span></label></div>
+      <div class="setting-item" id="set-tun-autoDetect"><div class="info"><h4>{{ t('settings.tun.autoDetect') }}</h4></div><label class="modern-switch"><input type="checkbox" v-model="tunConfig.autoDetect" @change="saveTun" :disabled="!tunStatus.hasWintun || loading"><span class="slider"></span></label></div>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.dnsHijack') }}</h4></div><input type="text" class="modern-input" :value="tunConfig.dnsHijack.join(', ')" @blur="updateTunDnsHijack" :placeholder="t('settings.tun.dnsHijackPlaceholder')" :disabled="!tunStatus.hasWintun || loading" /></div>
+      <div class="setting-item" id="set-tun-dnsHijack"><div class="info"><h4>{{ t('settings.tun.dnsHijack') }}</h4></div><input type="text" class="modern-input" :value="tunConfig.dnsHijack.join(', ')" @blur="updateTunDnsHijack" :placeholder="t('settings.tun.dnsHijackPlaceholder')" :disabled="!tunStatus.hasWintun || loading" /></div>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.strictRoute') }}</h4></div><label class="modern-switch"><input type="checkbox" v-model="tunConfig.strictRoute" @change="saveTun" :disabled="!tunStatus.hasWintun || loading"><span class="slider"></span></label></div>
+      <div class="setting-item" id="set-tun-strictRoute"><div class="info"><h4>{{ t('settings.tun.strictRoute') }}</h4></div><label class="modern-switch"><input type="checkbox" v-model="tunConfig.strictRoute" @change="saveTun" :disabled="!tunStatus.hasWintun || loading"><span class="slider"></span></label></div>
       <div class="divider"></div>
-      <div class="setting-item"><div class="info"><h4>{{ t('settings.tun.mtu') }}</h4></div><ModernNumberInput v-model="tunConfig.mtu" :min="576" :max="1500" @change="saveTun" :disabled="!tunStatus.hasWintun || loading" /></div>
+      <div class="setting-item" id="set-tun-mtu"><div class="info"><h4>{{ t('settings.tun.mtu') }}</h4></div><ModernNumberInput v-model="tunConfig.mtu" :min="576" :max="1500" @change="saveTun" :disabled="!tunStatus.hasWintun || loading" /></div>
     </div>
   </div>
 </template>
@@ -61,6 +63,8 @@ import * as API from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { globalState, settleTunIntent, setTunIntent, showAlert, showConfirm } from '../store';
 import { ICONS } from '../utils/icons';
+import { toUserError } from '../utils/errors';
+import DeviationStrip from './DeviationStrip.vue';
 import ModernNumberInput from './ModernNumberInput.vue';
 import ModernSelect from './ModernSelect.vue';
 import { t } from '../locales';
@@ -92,6 +96,7 @@ const congestionOptions = computed(() => [
   { label: 'reno', value: 'reno' }
 ]);
 const loading = ref(true);
+const deviationRef = ref<InstanceType<typeof DeviationStrip> | null>(null);
 const isInitialized = ref(false);
 const isInstalling = computed(() => globalState.componentUpdate.tasks['driver-install']?.status === 'running');
 const tunStatus = ref<Record<string, any>>({ hasWintun: false, isAdmin: false, wintunError: '' });
@@ -153,7 +158,17 @@ const installDriver = async (force: boolean = true) => {
   if (!ok) return;
   (API as any).InstallTunDriverAsync(force).catch(() => {});
 };
-const saveTun = async () => { if (loading.value) return; try { await API.SaveTunConfig(tunConfig.value); } catch (e) { console.error('保存失败', e); } };
+const saveTun = async () => {
+  if (loading.value) return;
+  try {
+    await API.SaveTunConfig(tunConfig.value);
+    void deviationRef.value?.refresh();
+  } catch (e) {
+    console.error('保存失败', e);
+    const u = toUserError(e);
+    showAlert(u.message, t('common.error'), true, u.detail);
+  }
+};
 const updateTunDnsHijack = (e: Event) => { if (loading.value) return; tunConfig.value.dnsHijack = (e.target as HTMLInputElement).value.split(',').map(s => s.trim()).filter(s => s); saveTun(); };
 
 onMounted(() => {

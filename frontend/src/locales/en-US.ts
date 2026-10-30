@@ -239,6 +239,9 @@ export default {
     detailDest: 'Destination',
     detailRule: 'Rule',
     detailChain: 'Proxy Chain',
+    expand: 'View',
+    collapse: 'Collapse',
+    calculating: 'Calculating…',
     detailUpload: 'Upload',
     detailDownload: 'Download',
     detailTime: 'Connected At',
@@ -325,6 +328,8 @@ export default {
     discardConfirmTitle: 'Discard Unsaved Changes',
   },
   settings: {
+    searchPlaceholder: 'Search settings',
+    searchEmpty: 'No matching settings',
     resetConfirmTitle: 'Confirm Reset',
     resetConfirmMsg: 'Are you sure you want to restore {name} to default settings? This cannot be undone and configuration will be reloaded.',
     saveFailed: 'Failed to save settings: {error}',
@@ -728,5 +733,19 @@ export default {
     replacing: 'Replacing...',
     replaceSuccess: 'Core successfully replaced with seed version!',
     replaceFailed: 'Failed to replace core: {error}',
+  },
+  diag: {
+    notApplied: '{count} settings not applied',
+    view: 'View',
+    hide: 'Hide',
+    close: 'Close',
+    dnsResolver: 'Resolver',
+    dnsBasis: 'Basis',
+    dnsFakeIp: 'Fake-IP',
+    dnsNoConfig: 'DNS config unavailable',
+    dnsSourcePolicy: 'Domain policy',
+    dnsSourceFallback: 'Fallback',
+    dnsSourceMain: 'Main DNS',
+    dnsSourceDefault: 'Default'
   }
 };

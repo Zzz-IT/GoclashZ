@@ -13,9 +13,11 @@
       </button>
     </div>
 
+    <DeviationStrip ref="deviationRef" module="lan" />
+
     <div class="glass-card setting-group scrollable">
       <!-- 总开关 -->
-      <div class="setting-item">
+      <div class="setting-item" id="set-lan-allowLan">
         <div class="info">
           <h4>{{ t('settings.lan.allowLan') }}</h4>
           <p>{{ t('settings.lan.allowLanDesc') }}</p>
@@ -34,7 +36,7 @@
           <span class="section-label-sub">{{ t('settings.lan.authSectionSub') }}</span>
         </div>
 
-        <div class="setting-item col-item">
+        <div class="setting-item col-item" id="set-lan-userLabel">
           <div class="info">
             <h4>{{ t('settings.lan.userLabel') }}</h4>
           </div>
@@ -50,7 +52,7 @@
         </div>
         <div class="divider"></div>
 
-        <div class="setting-item col-item">
+        <div class="setting-item col-item" id="set-lan-passLabel">
           <div class="info">
             <h4>{{ t('settings.lan.passLabel') }}</h4>
           </div>
@@ -81,7 +83,7 @@
         <div class="divider"></div>
 
         <!-- 允许连接的 IP -->
-        <div class="setting-item col-item">
+        <div class="setting-item col-item" id="set-lan-allowedIPs">
           <div class="info">
             <h4>{{ t('settings.lan.allowedIPs') }}</h4>
             <p>{{ t('settings.lan.allowedIPsDesc') }}</p>
@@ -108,7 +110,7 @@
         <div class="divider"></div>
 
         <!-- 禁止连接的 IP -->
-        <div class="setting-item col-item">
+        <div class="setting-item col-item" id="set-lan-disallowedIPs">
           <div class="info">
             <h4>{{ t('settings.lan.disallowedIPs') }}</h4>
             <p>{{ t('settings.lan.disallowedIPsDesc') }}</p>
@@ -135,7 +137,7 @@
         <div class="divider"></div>
 
         <!-- 跳过认证的 IP -->
-        <div class="setting-item col-item">
+        <div class="setting-item col-item" id="set-lan-skipAuthIPs">
           <div class="info">
             <h4>{{ t('settings.lan.skipAuthIPs') }}</h4>
             <p>{{ t('settings.lan.skipAuthIPsDesc') }}</p>
@@ -167,12 +169,14 @@
 import { onMounted, reactive, ref, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { ICONS } from '../utils/icons';
+import DeviationStrip from './DeviationStrip.vue';
 import { t } from '../locales';
 
 const props = defineProps<{ resetKey: number }>();
 defineEmits<{ navigate: [view: 'main']; reset: [module: 'network'] }>();
 
 const loading = ref(true);
+const deviationRef = ref<InstanceType<typeof DeviationStrip> | null>(null);
 const showPassword = ref(false);
 
 const lanConfig = reactive({
@@ -258,6 +262,7 @@ const save = async () => {
       lanSkipAuthIPs:   lanConfig.lanSkipAuthIPs,
     };
     await (API.SaveNetworkConfig as any)(merged);
+    void deviationRef.value?.refresh();
   } catch (e) {
     console.error('局域网代理配置保存失败', e);
   }

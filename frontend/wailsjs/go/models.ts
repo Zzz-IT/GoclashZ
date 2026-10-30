@@ -386,6 +386,26 @@ export namespace clash {
 	        this.policy = source["policy"];
 	    }
 	}
+	export class ConfigDeviation {
+	    key: string;
+	    field: string;
+	    reason: string;
+	    severity: string;
+	    module: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConfigDeviation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.field = source["field"];
+	        this.reason = source["reason"];
+	        this.severity = source["severity"];
+	        this.module = source["module"];
+	    }
+	}
 	export class ConfigTextResult {
 	    id: string;
 	    name: string;
@@ -485,6 +505,32 @@ export namespace clash {
 		    }
 		    return a;
 		}
+	}
+	export class DNSExplain {
+	    domain: string;
+	    queryType: string;
+	    resolver: string;
+	    source: string;
+	    policyKey: string;
+	    fakeIp: boolean;
+	    filtered: boolean;
+	    notes: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DNSExplain(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.domain = source["domain"];
+	        this.queryType = source["queryType"];
+	        this.resolver = source["resolver"];
+	        this.source = source["source"];
+	        this.policyKey = source["policyKey"];
+	        this.fakeIp = source["fakeIp"];
+	        this.filtered = source["filtered"];
+	        this.notes = source["notes"];
+	    }
 	}
 	
 	export class NetworkConfig {

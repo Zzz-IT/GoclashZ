@@ -663,3 +663,301 @@ body,
   transition: none !important;
   animation: none !important;
 }
+
+/* ================================== */
+/* Toast 轻提示：成功/中性反馈，不打断操作（错误仍走模态框） */
+/* 无阴影、无渐变：仅用色差与 1px 边框，符合实色美学 */
+/* ================================== */
+.toast-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 9000;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: stretch;
+  width: 320px;
+  background: var(--surface-panel);
+  border: 1px solid var(--surface-hover);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.toast__bar {
+  width: 3px;
+  flex: 0 0 3px;
+  background: var(--accent);
+}
+
+.toast--error .toast__bar {
+  background: #ff4d4f;
+}
+
+.toast__body {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+}
+
+.toast__title {
+  margin-bottom: 3px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.toast__text {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-sub);
+  word-break: break-word;
+}
+
+.toast__close {
+  padding: 0 10px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.toast__close:hover {
+  color: var(--text-main);
+}
+
+.toast-enter-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.toast-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.toast-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.toast-leave-to {
+  opacity: 0;
+}
+
+/* ================================== */
+/* 规则匹配面板（为什么走这条） */
+/* 复用 --surface 凹槽 + 反色命中行，全部 mono */
+/* ================================== */
+.match-panel {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.7;
+  color: var(--text-main);
+}
+
+.match-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.match-meta {
+  color: var(--text-sub);
+}
+
+.match-skip,
+.match-reason {
+  color: var(--text-muted);
+}
+
+.match-empty {
+  padding: 10px 0;
+  color: var(--text-sub);
+  font-size: 0.82rem;
+}
+
+/* ================================== */
+/* 生效回执条（设置保存后的配置偏差提示） */
+/* 不打断、不弹窗；无偏差时整条不渲染 */
+/* ================================== */
+.deviation-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.deviation-strip__bar {
+  width: 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.deviation-strip__text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.82rem;
+  color: var(--text-main);
+}
+
+.deviation-strip__count {
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.deviation-strip__action {
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-sub);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.deviation-strip__action:hover {
+  color: var(--text-main);
+}
+
+.deviation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 0 14px 10px;
+}
+
+.deviation-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.8rem;
+}
+
+.deviation-item__field {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  color: var(--text-main);
+}
+
+.deviation-item__reason {
+  color: var(--text-sub);
+}
+
+.deviation-strip__close {
+  flex: 0 0 auto;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.deviation-strip__close:hover {
+  color: var(--text-main);
+}
+
+/* ================================== */
+/* 设置项锚点定位与高亮（设置搜索跳转用） */
+/* 只改背景色，不加色相、不加边框 */
+/* ================================== */
+.setting-item[id],
+.glass-card[id],
+.uwp-list-wrapper[id] {
+  scroll-margin-top: 88px;
+}
+
+@keyframes settingFlash {
+  0% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+/* 高亮遮罩用伪元素向外扩一圈：
+   1) 能盖住整行以及行间留白，不再"勉强包住文字"；
+   2) 不改 padding / margin，所以动画结束不会引起布局跳动；
+   3) 圆角 12px，与可点行一致。 */
+.setting-flash {
+  position: relative;
+  /* 建立独立层叠上下文，保证负 z-index 的遮罩不会掉到卡片背景后面 */
+  isolation: isolate;
+  border-radius: 12px;
+}
+
+.setting-flash::before {
+  content: "";
+  position: absolute;
+  inset: -7px -12px;
+  border-radius: 12px;
+  background: var(--surface-hover);
+  opacity: 0;
+  z-index: -1;
+  pointer-events: none;
+  animation: settingFlash 1.8s ease-out;
+}
+
+/* 卡片 / 列表容器参与高亮时，向内收一点，避免顶到容器边缘 */
+.glass-card.setting-flash::before,
+.uwp-list-wrapper.setting-flash::before {
+  inset: -6px;
+}
+
+/* ================================== */
+/* 空态（EmptyState 组件）：图标 + 一句话 + 可选动作 */
+/* ================================== */
+.empty-state-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 56px 24px;
+  text-align: center;
+}
+
+.empty-state-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.empty-state-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.empty-state-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.empty-state-hint {
+  max-width: 420px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-sub);
+}

@@ -239,6 +239,9 @@ export default {
     detailDest: 'Ziel',
     detailRule: 'Regel',
     detailChain: 'Proxy-Kette',
+    expand: 'Anzeigen',
+    collapse: 'Einklappen',
+    calculating: 'Berechnung…',
     detailUpload: 'Upload',
     detailDownload: 'Download',
     detailTime: 'Verbunden um',
@@ -325,6 +328,8 @@ export default {
     discardConfirmTitle: 'Änderungen verwerfen',
   },
   settings: {
+    searchPlaceholder: 'Einstellungen suchen',
+    searchEmpty: 'Keine passende Einstellung',
     resetConfirmTitle: 'Zurücksetzen bestätigen',
     resetConfirmMsg: 'Möchten Sie {name} wirklich auf die Standardeinstellungen zurücksetzen? Dieser Vorgang kann nicht rückgängig gemacht werden.',
     saveFailed: 'Einstellungen konnten nicht gespeichert werden: {error}',
@@ -728,5 +733,19 @@ export default {
     replacing: 'Ersetzen...',
     replaceSuccess: 'Core erfolgreich durch die Seed-Version ersetzt!',
     replaceFailed: 'Core-Austausch fehlgeschlagen: {error}',
+  },
+  diag: {
+    notApplied: '{count} Einstellungen nicht angewendet',
+    view: 'Anzeigen',
+    hide: 'Ausblenden',
+    close: 'Schließen',
+    dnsResolver: 'Resolver',
+    dnsBasis: 'Grundlage',
+    dnsFakeIp: 'Fake-IP',
+    dnsNoConfig: 'DNS-Konfiguration nicht verfügbar',
+    dnsSourcePolicy: 'Domain-Richtlinie',
+    dnsSourceFallback: 'Fallback',
+    dnsSourceMain: 'Haupt-DNS',
+    dnsSourceDefault: 'Standard'
   }
 };

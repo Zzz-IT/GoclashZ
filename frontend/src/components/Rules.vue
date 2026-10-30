@@ -40,9 +40,16 @@
           </div>
         </div>
         
-        <div v-if="!loading && !hasFilteredRules" class="loading-state">
-          {{ searchQuery ? t('rules.noMatchingRules') : t('rules.noRules') }}
-        </div>
+        <EmptyState
+          v-if="!loading && !hasFilteredRules && searchQuery"
+          :icon="ICONS.search"
+          :title="t('rules.noMatchingRules')"
+        />
+        <EmptyState
+          v-else-if="!loading && !hasFilteredRules"
+          :icon="ICONS.rules"
+          :title="t('rules.noRules')"
+        />
       </div>
 
       <div class="pagination-bar" v-if="hasFilteredRules">
@@ -115,6 +122,7 @@ import * as API from '../../wailsjs/go/main/App';
 import { showAlert, showConfirm, globalState } from '../store';
 import { ICONS } from '../utils/icons';
 import ModernSelect from './ModernSelect.vue';
+import EmptyState from './EmptyState.vue';
 import { t } from '../locales';
 
 const rulePageData = shallowRef<any>(null);
@@ -699,5 +707,10 @@ onActivated(() => {
   font-size: 0.78rem;
   color: var(--text-main);
   word-break: break-all;
+}
+
+/* 空态块放在规则网格里，必须占满整行，否则会被当成一个 300px 的格子 */
+.rules-grid :deep(.empty-state-block) {
+  grid-column: 1 / -1;
 }
 </style>

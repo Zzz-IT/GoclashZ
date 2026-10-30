@@ -10,12 +10,14 @@
       </button>
     </div>
 
+    <DeviationStrip ref="deviationRef" module="network" />
+
     <div class="glass-card setting-group scrollable">
       <div class="setting-item col-item" style="padding-bottom: 0; align-items: flex-start;">
         <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">{{ t('settings.network.basicGroup') }}</h3>
       </div>
       <div class="divider" style="margin-top: 10px;"></div>
-      <div class="setting-item">
+      <div class="setting-item" id="set-network-ipv6">
         <div class="info">
           <h4>{{ t('settings.network.ipv6') }}</h4>
           <p>{{ t('settings.network.ipv6Desc') }}</p>
@@ -27,7 +29,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-network-allowLan">
         <div class="info">
           <h4>{{ t('settings.network.allowLan') }}</h4>
           <p>{{ t('settings.network.allowLanDesc') }}</p>
@@ -39,7 +41,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-network-unifiedDelay">
         <div class="info">
           <h4>{{ t('settings.network.unifiedDelay') }}</h4>
           <p>{{ t('settings.network.unifiedDelayDesc') }}</p>
@@ -51,7 +53,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-network-tcpConcurrent">
         <div class="info">
           <h4>{{ t('settings.network.tcpConcurrent') }}</h4>
           <p>{{ t('settings.network.tcpConcurrentDesc') }}</p>
@@ -63,7 +65,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-network-tcpKeepAlive">
         <div class="info">
           <h4>{{ t('settings.network.tcpKeepAlive') }}</h4>
           <p>{{ t('settings.network.tcpKeepAliveDesc') }}</p>
@@ -77,7 +79,7 @@
       <Transition name="dropdown">
         <div v-if="netConfig.tcpKeepAlive" class="tcp-keep-alive-sub-items">
           <div class="divider"></div>
-          <div class="setting-item">
+          <div class="setting-item" id="set-network-keepAliveInterval">
             <div class="info">
               <h4>{{ t('settings.network.keepAliveInterval') }}</h4>
               <p>{{ t('settings.network.keepAliveIntervalDesc') }}</p>
@@ -98,7 +100,7 @@
 
       <div class="divider"></div>
 
-      <div class="setting-item col-item">
+      <div class="setting-item col-item" id="set-network-delayTestUrl">
         <div class="info">
           <h4>{{ t('settings.network.delayTestUrl') }}</h4>
           <p>{{ t('settings.network.delayTestUrlDesc') }}</p>
@@ -115,7 +117,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item col-item">
+      <div class="setting-item col-item" id="set-network-hosts">
         <div class="info">
           <h4>{{ t('settings.network.hosts') }}</h4>
           <p>{{ t('settings.network.hostsDesc') }}</p>
@@ -146,7 +148,7 @@
       </div>
       <div class="divider" style="margin-top: 10px;"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-network-mixedPort">
         <div class="info">
           <h4>{{ t('settings.network.mixedPort') }}</h4>
           <p>{{ t('settings.network.mixedPortDesc') }}</p>
@@ -161,7 +163,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-network-socksPort">
         <div class="info">
           <h4>{{ t('settings.network.socksPort') }}</h4>
           <p>{{ t('settings.network.socksPortDesc') }}</p>
@@ -176,7 +178,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-network-httpPort">
         <div class="info">
           <h4>{{ t('settings.network.httpPort') }}</h4>
           <p>{{ t('settings.network.httpPortDesc') }}</p>
@@ -197,7 +199,7 @@
       </div>
       <div class="divider" style="margin-top: 10px;"></div>
 
-      <div class="setting-item">
+      <div class="setting-item" id="set-network-customExtController">
         <div class="info">
           <h4>{{ t('settings.network.customExtController') }}</h4>
           <p>{{ t('settings.network.customExtControllerDesc') }}</p>
@@ -209,7 +211,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item col-item">
+      <div class="setting-item col-item" id="set-network-extControllerAddress">
         <div class="info">
           <h4>{{ t('settings.network.extControllerAddress') }}</h4>
           <p>{{ t('settings.network.extControllerAddressDesc') }}</p>
@@ -226,7 +228,7 @@
       </div>
       <div class="divider"></div>
 
-      <div class="setting-item col-item">
+      <div class="setting-item col-item" id="set-network-extControllerSecret">
         <div class="info">
           <h4>{{ t('settings.network.extControllerSecret') }}</h4>
           <p>{{ t('settings.network.extControllerSecretDesc') }}</p>
@@ -250,6 +252,7 @@
 import { onMounted, ref, watch } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
 import { ICONS } from '../utils/icons';
+import DeviationStrip from './DeviationStrip.vue';
 import ModernNumberInput from './ModernNumberInput.vue';
 import { t } from '../locales';
 
@@ -258,6 +261,7 @@ const props = defineProps<{ resetKey: number }>();
 defineEmits<{ navigate: [view: 'main']; reset: [module: 'network'] }>();
 
 const loading = ref(true);
+const deviationRef = ref<InstanceType<typeof DeviationStrip> | null>(null);
 const netConfig = ref({
   ipv6: false,
   allowLan: false,
@@ -328,6 +332,7 @@ const saveNet = async () => {
   if (loading.value) return;
   try {
     await (API.SaveNetworkConfig as any)(netConfig.value);
+    void deviationRef.value?.refresh();
   } catch (e) {
     console.error('网络配置保存失败', e);
   }

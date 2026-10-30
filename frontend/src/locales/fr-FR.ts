@@ -239,6 +239,9 @@ export default {
     detailDest: 'Destination',
     detailRule: 'Règle',
     detailChain: 'Chaîne de proxy',
+    expand: 'Afficher',
+    collapse: 'Réduire',
+    calculating: 'Calcul…',
     detailUpload: 'Envoi',
     detailDownload: 'Réception',
     detailTime: 'Connecté à',
@@ -325,6 +328,8 @@ export default {
     discardConfirmTitle: 'Ignorer les modifications',
   },
   settings: {
+    searchPlaceholder: 'Rechercher un réglage',
+    searchEmpty: 'Aucun réglage correspondant',
     resetConfirmTitle: 'Confirmer la réinitialisation',
     resetConfirmMsg: 'Êtes-vous sûr de vouloir restaurer les paramètres par défaut pour {name} ? Cette action est irréversible.',
     saveFailed: 'Échec de l\'enregistrement des paramètres : {error}',
@@ -728,5 +733,19 @@ export default {
     replacing: 'Remplacement en cours...',
     replaceSuccess: 'Le noyau a été remplacé avec succès par la version intégrée !',
     replaceFailed: 'Échec du remplacement du noyau : {error}',
+  },
+  diag: {
+    notApplied: '{count} paramètres non appliqués',
+    view: 'Afficher',
+    hide: 'Masquer',
+    close: 'Fermer',
+    dnsResolver: 'Résolveur',
+    dnsBasis: 'Base',
+    dnsFakeIp: 'Fake-IP',
+    dnsNoConfig: 'Configuration DNS indisponible',
+    dnsSourcePolicy: 'Politique de domaine',
+    dnsSourceFallback: 'Repli',
+    dnsSourceMain: 'DNS principal',
+    dnsSourceDefault: 'Par défaut'
   }
 };

@@ -66,10 +66,11 @@
             </div>
           </div>
         </div>
-        <div v-else class="empty-state">
-          <p v-if="connections.length > 0">{{ t('connections.noCategoryConns') }}</p>
-          <p v-else>{{ t('connections.noTraffic') }}</p>
-        </div>
+        <EmptyState
+          v-else
+          :icon="ICONS.connections"
+          :title="connections.length > 0 ? t('connections.noCategoryConns') : t('connections.noTraffic')"
+        />
       </div>
       </div>
 
@@ -87,6 +88,18 @@
           <div class="detail-row"><span>{{ t('connections.detailSource') }}:</span> <span class="font-mono">{{ selectedConn.metadata.sourceIP }}:{{ selectedConn.metadata.sourcePort }}</span></div>
           <div class="detail-row"><span>{{ t('connections.detailDest') }}:</span> <span class="font-mono">{{ selectedConn.metadata.destinationIP || selectedConn.metadata.host }}:{{ selectedConn.metadata.destinationPort }}</span></div>
           <div class="detail-row"><span>{{ t('connections.detailRule') }}:</span> <span>{{ selectedConn.rule }} {{ selectedConn.rulePayload ? `(${selectedConn.rulePayload})` : '' }}</span></div>
+          <div class="detail-row"><span>DNS</span><span class="path-chain" style="cursor:pointer" @click="toggleDNS">{{ dnsOpen ? t('connections.collapse') : t('connections.expand') }}</span></div>
+          <div v-if="dnsOpen" class="match-panel">
+            <div v-if="dnsLoading" class="match-empty">{{ t('connections.calculating') }}</div>
+            <div v-else-if="dnsError" class="match-empty">{{ dnsError }}</div>
+            <template v-else-if="dnsResult">
+              <div class="match-line">{{ t('diag.dnsBasis') }} {{ dnsSourceLabel }}<template v-if="dnsResult.policyKey"> · {{ dnsResult.policyKey }}</template></div>
+              <div class="match-line match-meta">{{ t('diag.dnsResolver') }} {{ dnsResult.resolver || '—' }}</div>
+              <div class="match-line match-meta">{{ t('diag.dnsFakeIp') }} {{ dnsResult.fakeIp ? 'ON' : 'OFF' }}</div>
+              <div v-for="(n, i) in dnsNotes" :key="'dns-' + i" class="match-line match-skip">ⓘ {{ n }}</div>
+            </template>
+            <div v-else class="match-empty">{{ t('diag.dnsNoConfig') }}</div>
+          </div>
           <div class="detail-row"><span>{{ t('connections.detailChain') }}:</span> <span class="path-chain">{{ selectedConn.chains.join(' ➔ ') }}</span></div>
           <div class="detail-row"><span>{{ t('connections.detailUpload') }}:</span> <span class="font-mono">{{ selectedConn.uploadStr }}</span></div>
           <div class="detail-row"><span>{{ t('connections.detailDownload') }}:</span> <span class="font-mono">{{ selectedConn.downloadStr }}</span></div>
@@ -108,11 +121,32 @@ import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { showConfirm, showAlert } from '../store';
 import { ICONS } from '../utils/icons';
 import { t } from '../locales';
+import EmptyState from './EmptyState.vue';
 
 const connections = ref<any[]>([]);
 const isPaused = ref(false);
 const selectedConn = ref<any>(null);
 const filterMode = ref(localStorage.getItem('goclashz_connFilter') || 'all');
+
+// DNS 解释面板状态（纯静态推演，内核未启动也能算）
+const dnsOpen = ref(false);
+const dnsLoading = ref(false);
+const dnsResult = ref<any>(null);
+const dnsError = ref('');
+let dnsLoaded = false;
+
+const dnsSourceLabel = computed(() => {
+  const key = String(dnsResult.value?.source || 'default');
+  const map: Record<string, string> = {
+    policy: 'diag.dnsSourcePolicy',
+    fallback: 'diag.dnsSourceFallback',
+    main: 'diag.dnsSourceMain',
+    default: 'diag.dnsSourceDefault',
+  };
+  return t(map[key] || map.default);
+});
+
+const dnsNotes = computed<any[]>(() => (Array.isArray(dnsResult.value?.notes) ? dnsResult.value.notes : []));
 
 const tabsTrackRef = ref<HTMLElement | null>(null);
 const connTabEl = ref<HTMLElement | null>(null);
@@ -243,12 +277,53 @@ const getProxyName = (conn: any) => {
   return 'Unknown';
 };
 
+const resetDetailPanels = () => {
+  dnsOpen.value = false;
+  dnsLoading.value = false;
+  dnsResult.value = null;
+  dnsError.value = '';
+  dnsLoaded = false;
+};
+
 const openDetail = (conn: any) => {
+  resetDetailPanels();
   selectedConn.value = conn;
 };
 
 const closeDetail = () => {
   selectedConn.value = null;
+  resetDetailPanels();
+};
+
+// 展开/收起 DNS 解释：首次展开才向后端请求
+const toggleDNS = async () => {
+  if (dnsLoading.value) return;
+  if (dnsOpen.value) {
+    dnsOpen.value = false;
+    return;
+  }
+  if (!selectedConn.value) return;
+  dnsOpen.value = true;
+  if (dnsLoaded) return;
+
+  const requestConnId = selectedConn.value.id;
+  const query = selectedConn.value.metadata.host || selectedConn.value.metadata.destinationIP;
+  dnsLoading.value = true;
+  dnsError.value = '';
+
+  try {
+    const r = await API.ExplainDNS(query);
+    if (!selectedConn.value || selectedConn.value.id !== requestConnId) return;
+    dnsResult.value = r;
+    dnsLoaded = true;
+  } catch (e) {
+    if (!selectedConn.value || selectedConn.value.id !== requestConnId) return;
+    dnsError.value = String(e);
+  } finally {
+    if (selectedConn.value && selectedConn.value.id === requestConnId) {
+      dnsLoading.value = false;
+    }
+  }
 };
 
 const closeAll = async () => {

@@ -2,15 +2,15 @@
   <div class="settings-container">
     <Transition name="slide-fade" mode="out-in">
       <div :key="view" class="settings-view-wrapper">
-        <SettingsHome v-if="view === 'main'" @navigate="view = $event" @enter-uwp="handleEnterUwp" />
-        <SettingsUpdate v-else-if="view === 'update'" :behavior="behavior" @navigate="view = $event" @save-behavior="saveBehavior" />
-        <SettingsTun v-else-if="view === 'tun'" :reset-key="resetVersions.tun" @navigate="view = $event" @reset="confirmReset" />
-        <SettingsDns v-else-if="view === 'dns'" :reset-key="resetVersions.dns" @navigate="view = $event" @reset="confirmReset" />
-        <SettingsNetwork v-else-if="view === 'network'" :reset-key="resetVersions.network" @navigate="view = $event" @reset="confirmReset" />
-        <SettingsLan v-else-if="view === 'lan'" :reset-key="resetVersions.lan" @navigate="view = $event" @reset="confirmReset" />
-        <SettingsBehavior v-else-if="view === 'behavior'" :behavior="behavior" :loading="behaviorLoading" :reset-key="resetVersions.behavior" @navigate="view = $event" @reset="confirmReset" @save="saveBehavior" @startup-change="handleStartupWithOSChange" />
-        <SettingsAbout v-else-if="view === 'about'" :behavior="behavior" :loading="behaviorLoading" @navigate="view = $event" @save="saveBehavior" />
-        <SettingsUwp v-else-if="view === 'uwp'" :entry="uwpEntry" @navigate="view = $event" />
+        <SettingsHome v-if="view === 'main'" @navigate="onNavigate" @enter-uwp="handleEnterUwp" />
+        <SettingsUpdate v-else-if="view === 'update'" :behavior="behavior" @navigate="onNavigate" @save-behavior="saveBehavior" />
+        <SettingsTun v-else-if="view === 'tun'" :reset-key="resetVersions.tun" @navigate="onNavigate" @reset="confirmReset" />
+        <SettingsDns v-else-if="view === 'dns'" :reset-key="resetVersions.dns" @navigate="onNavigate" @reset="confirmReset" />
+        <SettingsNetwork v-else-if="view === 'network'" :reset-key="resetVersions.network" @navigate="onNavigate" @reset="confirmReset" />
+        <SettingsLan v-else-if="view === 'lan'" :reset-key="resetVersions.lan" @navigate="onNavigate" @reset="confirmReset" />
+        <SettingsBehavior v-else-if="view === 'behavior'" :behavior="behavior" :loading="behaviorLoading" :reset-key="resetVersions.behavior" @navigate="onNavigate" @reset="confirmReset" @save="saveBehavior" @startup-change="handleStartupWithOSChange" />
+        <SettingsAbout v-else-if="view === 'about'" :behavior="behavior" :loading="behaviorLoading" @navigate="onNavigate" @save="saveBehavior" />
+        <SettingsUwp v-else-if="view === 'uwp'" :entry="uwpEntry" @navigate="onNavigate" />
       </div>
     </Transition>
     <Transition name="pop"><div v-if="showResetConfirm" class="modal-overlay" @click="showResetConfirm = false"><div class="custom-modal-card" @click.stop><div class="modal-header"><h3 class="danger-text">{{ t('settings.resetConfirmTitle') }}</h3></div><div class="modal-body"><p class="global-modal-msg">{{ t('settings.resetConfirmMsg', { name: resetModuleName }) }}</p><div class="modal-footer"><button class="action-btn flex-1" @click="showResetConfirm = false">{{ t('common.cancel') }}</button><button class="primary-btn accent-btn red-text-btn flex-1" @click="handleReset">{{ t('common.confirm') }}</button></div></div></div></div></Transition>
@@ -55,6 +55,33 @@ const handleEnterUwp = async () => {
   view.value = 'uwp';
   uwpEntry.value += 1;
 };
+// ===== 设置项搜索跳转：切页后定位到具体字段并短暂高亮 =====
+const pendingAnchor = ref('');
+
+const applyAnchor = (retry = 0) => {
+  const id = pendingAnchor.value;
+  if (!id) return;
+  const el = document.getElementById(id);
+  if (!el) {
+    // 目标项可能因 v-if 未渲染：重试几次后放弃，停留在页面顶部
+    if (retry < 6) setTimeout(() => applyAnchor(retry + 1), 120);
+    else pendingAnchor.value = '';
+    return;
+  }
+  el.scrollIntoView({ block: 'center' });
+  el.classList.add('setting-flash');
+  setTimeout(() => el.classList.remove('setting-flash'), 1900);
+  pendingAnchor.value = '';
+};
+
+const onNavigate = (next: string, anchor?: string) => {
+  view.value = next as typeof view.value;
+  if (!anchor) return;
+  pendingAnchor.value = anchor;
+  // 等待 Transition 结束、子页挂载完成
+  setTimeout(() => applyAnchor(), 360);
+};
+
 const showResetConfirm = ref(false);
 const resetModule = ref('');
 const resetModuleName = ref('');

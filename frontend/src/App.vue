@@ -153,6 +153,9 @@
       </div>
     </Transition>
 
+    <!-- 轻提示（成功/中性反馈，不打断操作） -->
+    <Toast />
+
     <!-- 种子内核对比更新提示卡片 -->
     <Transition name="pop">
       <div v-if="showCoreSeedModal" class="modal-overlay" @click.self="handleCoreSeedCancel">
@@ -202,6 +205,7 @@ import Connections from './components/Connections.vue';
 import Rules from './components/Rules.vue';
 import Settings from './components/Settings.vue';
 import YamlEditor from './components/YamlEditor.vue';
+import Toast from './components/Toast.vue';
 import { 
   startWaveSampling, 
   stopWaveSampling, 

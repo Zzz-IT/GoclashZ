@@ -1977,3 +1977,18 @@ func (c *Controller) ExportDiagnostics() error {
 	}
 	return ExportDiagnosticsToFile(path)
 }
+
+// GetConfigDeviations 返回当前设置中「保存了但不会按字面生效」的配置项，module 为空表示全部模块
+func (c *Controller) GetConfigDeviations(module string) ([]clash.ConfigDeviation, error) {
+	return clash.GetConfigDeviations(module)
+}
+
+// ExplainDNS 静态推演某个域名会用哪个 DNS 解析器（不发起真实查询）
+func (c *Controller) ExplainDNS(domain string) (*clash.DNSExplain, error) {
+	return clash.ExplainDNS(domain)
+}
+
+// ApplyUwpExemptionChanges 只按传入的差异增删 UWP 环回豁免，绝不触碰其它已豁免项
+func (c *Controller) ApplyUwpExemptionChanges(added []string, removed []string) error {
+	return sys.ApplyUwpExemptionChanges(added, removed)
+}

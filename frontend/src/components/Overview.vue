@@ -69,8 +69,9 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue';
 import * as API from '../../wailsjs/go/main/App';
-import { globalState, showAlert, showConfirm, updateStateFromBackend, settleSystemProxyIntent, settleTunIntent, setSystemProxyIntent, setTunIntent } from '../store';
+import { globalState, showAlert, showToast, showConfirm, updateStateFromBackend, settleSystemProxyIntent, settleTunIntent, setSystemProxyIntent, setTunIntent } from '../store';
 import { ICONS } from '../utils/icons';
+import { toUserError } from '../utils/errors';
 import { t } from '../locales';
 import TrafficCard from './TrafficCard.vue';
 
@@ -181,10 +182,11 @@ const handleRestartCore = async () => {
   try {
     await (API as any).RestartCore();
     isRestarting.value = false;
-    await showAlert(t('overview.restartSuccess'), t('common.success'));
+    showToast(t('overview.restartSuccess'), 'success');
   } catch (e) {
     isRestarting.value = false;
-    await showAlert(t('overview.restartError', { error: String(e) }), t('common.error'));
+    const u = toUserError(e);
+    await showAlert(u.message, t('common.error'), true, u.detail);
   }
 };
 
@@ -228,7 +230,8 @@ const toggleSysProxy = async () => {
     if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
       showAlert(`${t('overview.errNoConfigTitle')}\n\n${t('overview.errNoConfigMsg')}`, t('common.notice'));
     } else {
-      showAlert(t('overview.errToggleProxy', { error: msg }), t('common.error'), true);
+      const u = toUserError(err);
+      showAlert(u.message, t('common.error'), true, u.detail);
     }
   } finally {
     globalState.systemProxyPending = false;
@@ -285,7 +288,8 @@ const toggleTun = async () => {
     } else if (msg.includes('wintun_missing') || msg.includes('Wintun')) {
       showAlert(t('overview.errWintunMissing'), t('common.error'), true);
     } else {
-      showAlert(t('overview.errToggleTun', { error: msg }), t('common.error'), true);
+      const u = toUserError(err);
+      showAlert(u.message, t('common.error'), true, u.detail);
     }
   } finally {
     globalState.tunPending = false;
