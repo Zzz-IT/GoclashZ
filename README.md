@@ -1,9 +1,9 @@
 <!-- markdownlint-disable MD033 -->
 # <img src="docs/assets/logo.png" width="45" alt="GoclashZ Logo" style="vertical-align: middle; margin-right: 10px;"> GoclashZ
 
-基于 Wails 构建的高性能、工业级实色美学 Mihomo (Clash Meta) 桌面控制端
+基于 Wails v3 构建的 Mihomo (Clash Meta) 桌面控制端，面向 Windows
 
-![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v3.1-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
+![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v3.1-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-AGPL--v3.0-blue?style=flat-square)
 
 <p align="center">
   <b>简体中文</b> | <a href="README_zh-TW.md">繁體中文（台灣）</a> | <a href="README_zh-HK.md">繁體中文（香港）</a> | <a href="README_en.md">English</a> | <a href="README_ja.md">日本語</a> | <a href="README_ru.md">Русский</a>
@@ -11,7 +11,9 @@
 
 ---
 
-GoclashZ 诞生于对现代桌面应用过度臃肿的抗拒。本项目摒弃传统的 Electron 架构，利用 Go 语言的系统级并发能力与 Wails 的原生渲染特性，将内存足迹与系统资源占用压缩至物理极限。视觉层面坚持高对比度、黑白实色的极简工业美学，剔除一切无意义的渐变与装饰。它不仅是一个控制界面，更是一套经过严苛加固的网络状态管理系统。
+GoclashZ 是一个 Mihomo (Clash Meta) 的 Windows 桌面控制端。Go 承担内核编排与系统级操作，Vue 3 + WebView2 承担界面，二者通过 Wails v3 的绑定层通信。视觉上是黑白为主的实色面板，没有渐变与装饰性元素。
+
+程序不打算做通用的跨平台客户端：只面向 Windows，托盘、热键、TUN、UWP 环回、系统代理都直接调用 Win32，不经过抽象层。
 
 ## 界面预览
 
@@ -22,139 +24,138 @@ GoclashZ 诞生于对现代桌面应用过度臃肿的抗拒。本项目摒弃�
 | <img src="docs/assets/订阅-黑.png" width="400" alt="订阅管理深色模式"> | <img src="docs/assets/订阅-白.png" width="400" alt="订阅管理浅色模式"> |
 <!-- markdownlint-enable MD033 -->
 
-## 核心功能
+## 功能
 
-### 网络接管与控制
+### 网络接管
 
-* **独立的 Helper 提权架构**：引入完全隔离的本地后台服务（Named Pipe IPC），负责安全管控高权限操作（TUN 模式、UWP 解除、服务启停），主程序永远保持在普通权限下运行。
-* **智能 TUN 引擎**：内建 Wintun 虚拟网卡驱动的自动化部署与状态自愈机制。支持全系统级网络流量透明接管。
-* **UWP 环回免除**：一键解除 Universal Windows Platform 应用的本地网络隔离限制，底层拦截与处理由 Helper 服务安全接管。
-* **局域网安全与管控**：全面支持局域网代理共享，内建 SOCKS5 专属端口管理、身份验证 (Auth) 及细粒度的 IP 访问控制列表 (ACL)。
-* **系统代理管控**：精准控制 Windows 注册表级代理设置，提供毫无延迟的路由切换体验。
+* **Helper 提权服务**：高权限操作（TUN 网卡、UWP 环回豁免、服务启停）交给独立的 `GoclashZHelper` 服务，通过 Named Pipe 与 SID 鉴权通信。主程序始终以普通用户权限运行，日常操作不会触发 UAC。
+* **TUN 模式**：内置 Wintun 虚拟网卡的部署与状态检查，可对全系统流量做透明接管。
+* **UWP 环回豁免**：解除 Windows Store 应用对本机代理端口的隔离限制。
+* **局域网共享**：SOCKS5 / HTTP 端口、用户名密码认证、按 IP 的访问控制列表。
+* **系统代理**：直接读写 Windows 注册表代理设置，切换即时生效。
 
-### 性能与并发探测
+### 性能与探测
 
-* **路由感知与双栈探测**：全新重构的出站探测机制，强制通过内部代理端口测试，避免 TUN 模式下直连误判。原生支持 IPv4 / IPv6 并发探测，基于 First-Valid 模型提供超低延迟的真实出口地址侦测与防闪烁展示。
-* **全局并发节流**：在节点测速与更新链路中引入信号量管理，实施严格的并发数限制，防止系统 I/O 阻塞及底层端口耗尽。
-* **流式监控引擎**：摒弃低效轮询，通过 WebSocket 与 Stream API 实时拉取内核状态数据，实现零延迟的连接拓扑与流量图表展示。
-* **原生生命周期挂载**：内核进程启动后写入 PID 文件，主程序崩溃时通过进程镜像名二次校验后强制终止残留进程，确保底层服务绝对同步销毁。
+* **出站地址探测**：IPv4 / IPv6 并发探测取首个有效结果；探测走内部代理端口，避免 TUN 模式下被直连误判。
+* **节点测速**：按组批量测速，带并发上限与信号量控制；测速期间冻结排序快照，避免卡片跳动。
+* **实时数据**：连接列表与流量走 WebSocket / Stream 推送，不轮询。
+* **内核生命周期**：内核进程启动写入 PID，主程序退出时按进程镜像名校验后清理残留进程。
 
-### 配置与状态管控
+### 配置与状态
 
-* **统一状态协调器**：重构底层意图存储引擎，引入 ControlCoordinator 消除多入口（UI、托盘、后台自愈）并发控制时的状态覆盖与脏读冲突，确保底层意图与内核状态毫秒级一致。
-* **配置自愈体系 (Self-Healing)**：全新引入的 JSON 解析修补引擎。在版本升级或导入旧版外部备份时，系统会自动将缺失的最新高级字段进行内存级热合并，并静默持久化至磁盘，实现配置文件的无损自我进化。
-* **全效灾备体系**：专有 `.gocz` 备份格式支持订阅、主题、网络及行为配置的一键事务化封存。内置严格的防呆机制，回滚式还原失败时将自动退回安全快照。
-* **多源并发更新引擎**：彻底重构的组件与 Geo 数据库更新调度器。内建工业级断点续传下载机制，全面支持网络异常中断后的进度保留与无缝续传。任务流支持并行、暂停、销毁等全生命周期控制。
-* **原子级事务保护**：关键配置写入与内核升级强制实施 “.tmp 写入 -> 校验 -> 重命名覆盖” 的原子替换策略，根绝断电或杀进程导致的配置文件损坏死局。
+* **状态协调**：UI、托盘、后台自愈三条路径的控制意图统一经 ControlCoordinator 收敛，避免互相覆盖。
+* **配置自愈**：升级或导入旧备份时，对缺失的新字段做内存级合并并落盘，配置文件可无损演进。
+* **备份与还原**：`.gocz` 归档封装订阅、主题、网络与行为配置；还原支持全部 / 仅订阅（替换或合并）/ 仅设置四种模式，失败时回退到安全快照。
+* **组件与 Geo 库更新**：内核、Wintun、GeoIP / GeoSite / MMDB / ASN 由统一调度器管理，下载支持断点续传，任务可并行、暂停、销毁。
+* **原子写入**：配置与内核升级走「写 .tmp → 校验 → rename 覆盖」，避免中途断电损坏文件。
 
-### 全面国际化与多语系支持 (i18n)
+### 界面与交互
 
-* **自研零依赖响应式引擎**：基于 Vue 3 响应式系统与本地存储预热机制，实现秒级无刷新切换，零第三方重型包负担。
-* **支持 8 大常用国际语系**：简体中文、繁體中文（台灣）、繁體中文（香港）、English、日本語、Русский、Français、Deutsch 达成 100% 页面与控制字段全量对齐。
-* **智能自适应排版防御**：外语长单词场景下侧边栏宽度动态自适应拓展至 205px，配合全局 Windows 原生字体回退栈与表单防挤压弹性布局，彻底根绝文本截断与组件变形。
-* **全链路系统托盘联动**：Windows 原生系统托盘右键菜单实时联动多语言切换，实现从桌面系统级交互到控制面板的全方位本土化体验。
+* **主题引擎**：12 套预设配色、自定义强调色、圆角三档、浅色 / 深色 / 跟随系统；首屏用本地缓存同步应用，不会先渲染默认主题再跳变。
+* **8 种语言**：简体中文、繁體中文（台灣）、繁體中文（香港）、English、日本語、Русский、Français、Deutsch，文案与字段全量对齐；外语长词下侧栏宽度自动加宽，避免截断。
+* **设置搜索**：10 个设置页共 103 个设置项统一索引，按页分组检索，点击直达并高亮定位。
+* **应用诊断**：设置 → 关于 → 应用诊断，给出组件状态（Mihomo 内核 / Wintun / 内置种子）、六条目录路径与一键复制，可导出诊断包（版本、系统信息、脱敏配置、近三天日志）。
+* **错误提示**：一句话结论 + 可展开的技术详情；成功类操作走轻提示，不打断当前操作。
+* **空态**：列表为空时展示图标与说明，而不是单行灰字。
+* **系统托盘**：托盘右键菜单跟随语言切换。
 
-### 开机自启与系统集成
+### 开机自启
 
-* **原生注册表自启集成**：通过 Windows 原生 Run 注册表键实现极速、高可靠的用户登录自动启动，无需管理员权限，彻底告别 Task Scheduler 在精简系统下的 COM 异常与超时问题。
-* **全局热键退出**：注册系统级全局热键 (Ctrl+Alt+Q)，当系统托盘无响应时仍可安全退出程序。
-
-### 诊断与可读性
-* **项级设置搜索**：8 个设置页共 87 个设置项统一索引，按页面分组检索，点击直达并高亮定位；
-* **配置偏差回执**：保存后提示不会按字面生效的配置项（端口冲突、认证缺失、协议栈限制），单条展开、多条折叠；
-* **DNS 解析解释**：连接详情展示命中的名称服务器策略与解析器，无法静态判定的场景明确标注；
-* **分层错误提示**：一句话结论 + 可展开的技术详情，成功类操作改用轻提示不再打断；
-* **统一空态**：列表为空时展示图标与说明，替代单行灰字。
+* 通过注册表 Run 键实现用户登录自启，无需管理员权限。
+* 全局热键 `Ctrl+Alt+Q` 可在托盘无响应时安全退出。
 
 ## 部署与使用
 
-### 安装指南
+### 安装
 
-访问项目的 [Releases](https://github.com/Zzz-IT/GoclashZ/releases) 页面，下载合适版本。
+从 [Releases](https://github.com/Zzz-IT/GoclashZ/releases) 下载对应版本安装包。
 
 ### 运行权限
 
-基于最新的前后端权限分离架构，主程序 `GoclashZ.exe` 在**任何场景下均只需以普通用户权限运行**，彻底告别每次启动时的 UAC 弹窗骚扰。
+主程序 `GoclashZ.exe` 在任何场景下都只需要普通用户权限。
 
-如需开启 **TUN 虚拟网卡模式** 或修改 **UWP 网络隔离配置**，需进入软件设置页面一键安装 **GoclashZHelper 服务**。该服务静默运行于后台系统权限下，与主程序通过安全命名管道（Named Pipe）和严格的 SID 鉴权机制通信，保障安全的同时实现无缝的高权限功能提权。
+需要 **TUN 虚拟网卡模式** 或修改 **UWP 网络隔离配置** 时，在设置页一键安装 `GoclashZHelper` 服务。该服务在后台以系统权限运行，与主程序通过 Named Pipe 和 SID 鉴权通信。
+
+### 依赖
+
+运行期依赖 WebView2（Windows 11 自带，安装器对老系统提供引导安装）。
 
 ## 工程目录结构
 
 ```text
 GoclashZ/
-├── main.go                       # 应用入口 (Wails 启动、单实例互斥、崩溃恢复)
-├── app.go                        # App 结构体与 Wails 绑定方法
-├── tray_service_windows.go       # 系统托盘管理与右键菜单事件调度
-├── hotkey_windows.go             # 全局热键注册与系统级快捷键响应
+├── main.go                        # 应用入口：Wails 创建、单实例互斥、崩溃恢复
+├── app.go                         # App 绑定层，把 108 个方法路由到 core
+├── services_v3_mapping.go         # Wails v3 Service 拆分（App/Core/Update）
+├── tray_runtime_windows.go        # Win32 系统托盘与右键菜单
+├── hotkey_windows.go              # 全局热键注册与响应
 ├── core/
-│   ├── appcore/                  # 业务控制器、状态管理、事件调度、自动更新引擎
-│   ├── clash/                    # Mihomo 内核生命周期、配置构建、API 通信
-│   ├── sys/                      # Windows 底层操作 (代理、TUN、UWP、计划任务)
-│   ├── traffic/                  # 流量监控与连接状态流式处理
-│   ├── downloader/               # 断点续传下载引擎与原子校验
-│   ├── tasks/                    # 后台任务管理器 (去重、并发控制)
-│   ├── logger/                   # 日志缓冲与流式推送
-│   ├── utils/                    # 路径管理、设置持久化、进程工具
-│   ├── version/                  # 应用版本常量与版本解析逻辑
-│   └── backup/                   # 备份归档打包与事务化还原机制
+│   ├── appcore/                   # 控制器、状态协调、事件调度、更新编排、诊断
+│   ├── clash/                     # Mihomo 内核生命周期、配置构建、API 通信
+│   ├── sys/                       # Windows 系统操作（代理、TUN、UWP、Helper、目录布局）
+│   ├── runtimeassets/             # 运行组件资产状态与内置 seed 清单
+│   ├── traffic/                   # 连接与流量的流式采集
+│   ├── downloader/                # 断点续传下载与校验
+│   ├── tasks/                     # 后台任务管理（去重、并发、取消）
+│   ├── logger/                    # 日志缓冲与流式推送
+│   ├── backup/                    # .gocz 归档打包与事务化还原
+│   ├── jsonutil/                  # JSON 解析修补（配置自愈）
+│   ├── utils/                     # 路径管理、设置持久化、进程工具
+│   └── version/                   # 版本常量与解析
+├── cmd/goclashz-helper/           # Helper 服务（高权限操作，Named Pipe + SID 鉴权）
 └── frontend/
     └── src/
-        ├── App.vue               # 根组件、事件监听、全局模态框
-        ├── store.ts              # 响应式全局状态 (reactive)
-        ├── trafficWaveState.ts   # 流量波形采样与路径构建引擎
-        ├── style.css             # 全局样式与 CSS 变量
-        ├── components/           # 页面组件 (Overview, Proxies, 模块化 Settings 等)
-        └── utils/                # SVG 图标定义
+        ├── App.vue                # 根组件、事件监听、全局模态框
+        ├── store.ts               # 响应式全局状态
+        ├── components/            # 页面组件（Overview、Proxies、Connections、Settings 等）
+        ├── settings/              # 设置项清单（搜索索引的单一数据源）
+        ├── locales/               # 8 种语言文案
+        └── styles/                # tokens / surfaces / layout
 ```
 
 ## 开发者指南
 
 ### 环境依赖
 
-* Go 1.25.0 或更高版本
-* Node.js 18 或更高版本
-* Wails CLI v3.1+ (`go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0`)
+* Go 1.27.0 或更高
+* Node.js 18 或更高
+* Wails CLI v3.1+（`go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0`）
 
-### 编译与构建
+### 构建
 
-启动带热重载功能的本地开发服务器：
+启动带热重载的本地开发服务器：
 
 ```bash
 wails3 dev
 ```
 
-编译 Windows 发行版可执行文件：
+编译 Windows 发行版：
 
 ```bash
 wails3 build
 ```
 
-## 声明与后续计划
+安装包用 Inno Setup（`package.iss`）打包，发布流程见 `.github/workflows/release.yml`。前端构建前会跑两个校验脚本：`scripts/validate-settings-manifest.mjs`（设置项锚点与清单一致）、`scripts/check-i18n.mjs`（8 种语言 key 对齐）。
 
-### 社区致谢与免责声明
+## 声明
 
-* **衷心致谢**：衷心感谢所有使用 GoclashZ 以及在 GitHub 上积极提交 Issue、提出宝贵建议和参与技术讨论的开发者与用户。每一条反馈与关注都是推动本项目不断打磨、追求极致体验的重要动力。
-* **独立开源与免责声明**：
-  1. 本项目（GoclashZ）仅为个人出于对 Go 语言并发架构、系统级网络编程及桌面端轻量化美学的学术研究与技术探索而开发的自由开源工具，按 MIT 许可证原样提供。
-  2. **开发者从未在任何第三方平台（包括但不限于各类社交媒体、视频平台、论坛社区、即时通讯群组或电商渠道）进行过任何形式的商业宣传、推广引流或背书，亦未授权任何组织或个人代表本项目进行宣发与二次分发**。
-  3. 网络上任何第三方发布的关于本软件的介绍视频、推文、分发包、使用教程或商业行为，**均属于第三方独立个人或机构的单方面行为，概与本软件开发者无任何关系**。
-  4. 使用者应在遵守当地法律法规的前提下合规使用本软件。因使用、分发或依据第三方宣传使用本软件而产生的任何风险、责任与后果，**均由相关主体及使用者自行承担，开发者不承担任何直接、间接或连带法律责任**。
+* 本项目是个人出于对 Go 并发架构、系统级网络编程与桌面客户端的技术探索而写的自由软件，按 AGPLv3 原样提供。
+* 开发者没有在任何社交平台、视频平台、论坛、即时通讯群组或电商渠道做过商业推广、引流或背书，也没有授权任何组织或个人代表本项目宣传或二次分发。
+* 网络上第三方发布的介绍视频、推文、分发包、教程或商业行为，均属第三方独立行为，与开发者无关。
+* 使用者应在遵守当地法律法规的前提下使用本软件；因使用、分发或依据第三方宣传使用而产生的风险与责任，由使用者自行承担。
 
-### Wails v3 迁移完成（本分支）
+## 开源协议
 
-本分支已从 Wails v2.12 完整迁移到 **Wails v3.1.0**，功能与 v1.4.0 保持一致：
+本项目采用 **GNU Affero General Public License v3.0（AGPLv3）** 发布，全文见 [`LICENSE`](LICENSE)。
 
-* **架构升级**：`application.New` + 单一 Service（108 个绑定方法）+ `Events.On` 事件模型；自研 Win32 托盘/热键/单实例互斥层保持不变。
-* **WebView2 仍是运行期依赖**：v3 并未消除 WebView2；本次迁移的收益是 API 现代化、生命周期与构建链统一，安装器按 Windows 标准环境提供 WebView2。
-* **构建链**：`wails3 build`（Taskfile）+ Inno Setup `package.iss`，发布流程见 `.github/workflows/release.yml`。
+与常见的宽松协议不同，AGPLv3 要求：如果你修改了本项目并**通过网络提供服务**（包括把它部署成在线服务、SaaS 或托管在服务器上供他人使用），你必须向这些用户提供对应版本的完整源码。仅在本地自用、或只做二进制分发而不提供网络服务的场景，也需随分发附带源码与协议文本。
 
-## 开源协议与项目支持
+> **注意**：`data/core/`、`build/runtime-assets/` 等目录下的 Mihomo 内核与 Geo 数据库文件来自 [MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo) 等上游项目，遵循各自的开源协议，不受本仓库 AGPLv3 约束。
 
-本项目遵循 **MIT** 开源许可协议发布。
-
-GoclashZ 的稳定运行与高性能表现离不开以下卓越的开源项目支持，特此致谢：
+## 致谢
 
 * [Mihomo (Clash Meta)](https://github.com/MetaCubeX/mihomo) - 核心网络处理引擎
-* [Wails](https://wails.io/) - 跨平台原生框架体系
-* [go-ole](https://github.com/go-ole/go-ole) - Windows COM/OLE 接口绑定 (Task Scheduler 2.0)
+* [Wails](https://wails.io/) - Go + WebView2 桌面框架
+* [go-ole](https://github.com/go-ole/go-ole) - Windows COM/OLE 接口绑定
 * [systray](https://github.com/getlantern/systray) - 系统托盘交互组件
+* 以及每一位提交 Issue、提出建议、参与讨论的用户与开发者。

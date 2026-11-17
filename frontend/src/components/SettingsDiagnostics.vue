@@ -1,7 +1,7 @@
 <template>
   <div class="settings-page ui-page-shell">
     <div class="sub-header ui-page-header">
-      <button class="back-btn" :title="t('common.back')" @click="$emit('navigate', 'main')">
+      <button class="back-btn" :title="t('common.back')" @click="$emit('navigate', 'about')">
         <span class="back-icon-svg" v-html="ICONS.arrowLeft"></span>
       </button>
       <h3>{{ t('settings.diagnostics.title') }}</h3>
@@ -151,7 +151,7 @@ import { displayErrorMessage, toUserError } from '../utils/errors';
 import { reportError } from '../utils/report';
 import { t } from '../locales';
 
-defineEmits<{ navigate: [view: 'main'] }>();
+defineEmits<{ navigate: [view: 'about'] }>();
 
 const SEED_TOTAL = 6;
 

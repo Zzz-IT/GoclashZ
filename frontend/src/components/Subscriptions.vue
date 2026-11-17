@@ -88,10 +88,9 @@
           <span class="sub-hint">{{ t('subs.clickToApply') }}</span>
           <div class="sub-actions">
             <button class="icon-btn" @click.stop="toggleMenu(config.id, $event)" v-html="ICONS.more"></button>
-            <div v-if="activeMenu === config.id" class="menu-click-overlay" @click.stop="activeMenu = null"></div>
             <Teleport to="body">
-            <Transition name="dropdown">
-              <div v-if="activeMenu === config.id" ref="menuRef" class="dropdown-menu ui-surface-overlay" :style="menuStyle">
+            <Transition name="card-menu">
+              <div v-if="activeMenu === config.id" :data-menu-id="config.id" class="dropdown-menu ui-surface-overlay" :class="{ 'is-up': menuUp }" :style="menuStyle">
                 <button v-if="config.type === 'remote'" class="menu-item" @click.stop="handleUpdateSingle(config)">{{ t('subs.menuUpdate') }}</button>
                 <button class="menu-item" @click.stop="openRenameModal(config)">{{ t('subs.menuRename') }}</button>
                 <button class="menu-item" @click.stop="handleEditFile(config)">{{ t('subs.menuEdit') }}</button>
@@ -197,7 +196,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 import { App } from '../api';
 import * as clash from '../../bindings/goclashz/core/clash';
 import { Events } from '@wailsio/runtime';
@@ -491,40 +490,107 @@ const confirmDelete = async () => {
   }
 };
 
-const menuRef = ref<HTMLElement | null>(null);
 const menuAnchor = ref<HTMLElement | null>(null);
 /* 菜单和下拉一样 teleport 到 body：留在卡片里时 backdrop-filter 只采样卡片
    这一层，背后其它行的内容永远不会被糊到（表现为"只有半透明填充"）。
    离开文档流后定位改 fixed，锚点是触发它的那个 ⋮ 按钮。 */
 const menuStyle = ref<Record<string, string>>({});
+const menuUp = ref(false);
+
+// 菜单在 v-for 里且同一时刻只可能有一个打开，用当前 id 取元素比维护 ref 更稳
+const menuElement = (): HTMLElement | null => {
+  const id = activeMenu.value;
+  if (!id) return null;
+  return document.querySelector<HTMLElement>(`.dropdown-menu[data-menu-id="${id}"]`);
+};
+
+const MENU_GAP = 6;
+const VIEWPORT_MARGIN = 8;
 
 const updateMenuPosition = (anchor?: HTMLElement | null) => {
   const el = anchor || menuAnchor.value;
   if (!el) return;
   const rect = el.getBoundingClientRect();
+  /* 量 scrollHeight 而不是 offsetHeight：菜单有 overflow:hidden，极端情况下
+     （窗口很矮、max-height 被截断）offsetHeight 会小于内容真实高度，翻转判断会失效。
+     注：本菜单已改用 card-menu 动画，不再受全局 .dropdown-* 的 max-height 0→250 影响。 */
+  const menuHeight = menuElement()?.scrollHeight ?? 0;
+  const spaceBelow = window.innerHeight - rect.bottom - MENU_GAP - VIEWPORT_MARGIN;
+  const spaceAbove = rect.top - MENU_GAP - VIEWPORT_MARGIN;
+  // 只有「下方确实放不下、且上方更宽松」时才翻上去，避免在两行卡片之间来回跳
+  const openUp = menuHeight > 0 && menuHeight > spaceBelow && spaceAbove > spaceBelow;
+  const room = Math.max(48, openUp ? spaceAbove : spaceBelow);
+  // 唯一放不下的情况才截断成内部滚动；放得下就交给入场动画的 max-height，别抢它的动画
+  const clamped = menuHeight > room;
+  menuUp.value = openUp;
   menuStyle.value = {
     position: 'fixed',
     left: 'auto',
-    right: Math.max(0, window.innerWidth - rect.right) + 'px',
-    top: (rect.bottom + 6) + 'px',
-    bottom: 'auto',
-    // 必须高于 .menu-click-overlay(9)：否则点击穿透层会盖住菜单
+    right: Math.max(VIEWPORT_MARGIN, window.innerWidth - rect.right) + 'px',
+    top: openUp ? 'auto' : (rect.bottom + MENU_GAP) + 'px',
+    bottom: openUp ? (window.innerHeight - rect.top + MENU_GAP) + 'px' : 'auto',
+    maxHeight: clamped ? room + 'px' : '',
+    overflowY: clamped ? 'auto' : '',
     zIndex: '20',
   };
 };
 
 const onMenuViewportChange = () => {
-  if (activeMenu.value) updateMenuPosition();
+  if (!activeMenu.value) return;
+  const anchor = menuAnchor.value;
+  if (anchor) {
+    const rect = anchor.getBoundingClientRect();
+    // 锚点被滚出可视区后菜单再跟着走只会贴着窗口边悬空，直接收起
+    if (rect.bottom <= 0 || rect.top >= window.innerHeight) {
+      activeMenu.value = null;
+      return;
+    }
+  }
+  updateMenuPosition();
 };
 
-const toggleMenu = (id: string, ev?: MouseEvent) => {
+/* 首帧锚点样式：只依赖按钮 rect，不需要菜单高度。
+   必须在 activeMenu 置位之前同步算好 —— 否则菜单会先用 .dropdown-menu 的静态定位
+   （top:30px; right:0，即窗口右上角）渲染一帧，再跳到按钮下方；
+   配合曾经的 transition:all，这一步就是用户看到的「飞进来」。 */
+const anchorMenuStyle = (el: HTMLElement): Record<string, string> => {
+  const rect = el.getBoundingClientRect();
+  return {
+    position: 'fixed',
+    left: 'auto',
+    right: Math.max(VIEWPORT_MARGIN, window.innerWidth - rect.right) + 'px',
+    top: rect.bottom + MENU_GAP + 'px',
+    bottom: 'auto',
+    zIndex: '20',
+  };
+};
+
+const toggleMenu = async (id: string, ev?: MouseEvent) => {
   if (activeMenu.value === id) {
     activeMenu.value = null;
     return;
   }
-  menuAnchor.value = (ev?.currentTarget as HTMLElement) || null;
-  updateMenuPosition(menuAnchor.value);
+  const anchor = (ev?.currentTarget as HTMLElement) || null;
+  menuAnchor.value = anchor;
+  menuUp.value = false;
+  // 同步给出锚定位置（首帧即正确），挂载后再按真实高度决定是否翻转/截断
+  menuStyle.value = anchor ? anchorMenuStyle(anchor) : {};
   activeMenu.value = id;
+  await nextTick();
+  updateMenuPosition(menuAnchor.value);
+};
+
+/* 关闭菜单不再铺全屏透明遮罩：遮罩挂在卡片内部时，指针停在哪里都算停在卡片上，
+   那张卡片会一直保持 :hover（表现为"展开菜单的卡片一直带着选中遮罩"）。
+   改为捕获阶段监听 document —— 点菜单外部先关菜单并吞掉这次点击，交互等价于
+   原来的遮罩，但不再拦住 hover。 */
+const onDocumentClick = (e: MouseEvent) => {
+  if (!activeMenu.value) return;
+  const target = e.target as Node | null;
+  if (target && menuElement()?.contains(target)) return;
+  activeMenu.value = null;
+  e.stopPropagation();
+  e.preventDefault();
 };
 
 const closeAllModals = () => {
@@ -543,6 +609,7 @@ onMounted(() => {
   // fixed 定位不再跟着卡片走，滚动/缩放时手动重算
   window.addEventListener('scroll', onMenuViewportChange, true);
   window.addEventListener('resize', onMenuViewportChange);
+  document.addEventListener('click', onDocumentClick, true);
 
   unsubSubsUpdateStart = Events.On("subs-update-start", () => {
     isUpdating.value = true;
@@ -571,6 +638,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('scroll', onMenuViewportChange, true);
   window.removeEventListener('resize', onMenuViewportChange);
+  document.removeEventListener('click', onDocumentClick, true);
   unsubConfigChanged?.();
   unsubSubsUpdateStart?.();
   unsubSubsUpdateSuccess?.();
@@ -730,14 +798,7 @@ onUnmounted(() => {
 .modal-hint-text { padding: 4px 0 12px 0; color: var(--text-sub); font-size: 0.85rem; line-height: 1.6; }
 .danger-text { color: var(--danger) !important; }
 
-/* --- 菜单遮罩 --- */
-.menu-click-overlay {
-  position: fixed;
-  top: 0; left: 0; width: 100vw; height: 100vh;
-  z-index: 9;
-  background: transparent;
-}
-
+/* --- 菜单 --- */
 .dropdown-menu { 
   position: absolute; right: 0; top: 30px; width: 150px; z-index: 10; overflow: hidden;
 }
@@ -746,17 +807,35 @@ onUnmounted(() => {
 .menu-item.danger { color: var(--danger) !important; font-weight: 600; }
 .subs-loading { padding: 30px; text-align: center; color: var(--ui-text-muted); font-size: 0.85rem; }
 
-/* --- 下拉菜单动画 --- */
-.dropdown-enter-active, .dropdown-leave-active {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+/* --- 卡片菜单动画 ---
+   刻意不复用全局 .dropdown-* 那套（style.css 里是给设置页展开面板用的：
+   transition: all .5s + max-height 0→250 + translateY(-8px)）。
+   它有两个副作用会让人看着「像飞进来」：
+     1) transition: all 会把 top/right 一起动画 —— 而菜单定位是在挂载后下一帧
+        才量出来的，于是菜单从页面右上角「飞」到按钮下方；
+     2) max-height 0→250 对弹层毫无意义，只会让高度跟着抽搐。
+   这里只动 opacity/transform，且把 transform-origin 钉在按钮那一侧，
+   观感是「从按钮旁长出来」，不是从别处飞过来。 */
+.card-menu-enter-active, .card-menu-leave-active {
+  transition: opacity 0.16s ease-out, transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: top right;
 }
-.dropdown-enter-from, .dropdown-leave-to {
+.card-menu-enter-from, .card-menu-leave-to {
   opacity: 0;
-  transform: translateY(-8px) scale(0.95);
+  transform: translateY(-4px) scale(0.96);
 }
-.dropdown-enter-to, .dropdown-leave-from {
+.card-menu-enter-to, .card-menu-leave-from {
   opacity: 1;
   transform: translateY(0) scale(1);
+}
+/* 向上展开时从底边生长，方向与弹出方向一致 */
+.dropdown-menu.is-up.card-menu-enter-active,
+.dropdown-menu.is-up.card-menu-leave-active {
+  transform-origin: bottom right;
+}
+.dropdown-menu.is-up.card-menu-enter-from,
+.dropdown-menu.is-up.card-menu-leave-to {
+  transform: translateY(4px) scale(0.96);
 }
 
 .spin :deep(svg) {

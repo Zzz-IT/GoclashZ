@@ -42,8 +42,11 @@ const props = defineProps({ initialView: { type: String, default: 'main' } });
 const view = ref(props.initialView as 'main' | 'uwp' | 'tun' | 'dns' | 'network' | 'lan' | 'theme' | 'behavior' | 'update' | 'about' | 'diagnostics');
 const uwpEntry = ref(0);
 
-/** 设置页过渡方向：进子页=前进（从右来），回主页=后退（从左来），子页之间按前进处理 */
+/** 设置页过渡方向：进子页=前进（从右来），回上一级=后退（从左来），同级之间按前进处理 */
 const viewDirection = ref<'forward' | 'back'>('forward');
+
+/** 二级子页的上一级：诊断页挂在「关于应用」下面，返回要回关于而不是设置首页 */
+const PAGE_PARENT: Partial<Record<string, string>> = { diagnostics: 'about' };
 
 /* 设置子页固定横向切换。撑住与收起全部由 useEdgeFade 的计时器驱动，
    不接过渡结束钩子：连切时旧过渡的 after-leave 会把当前的带子提前收掉。
@@ -56,7 +59,8 @@ const {
 } = useEdgeFade();
 
 watch(view, (next, prev) => {
-  viewDirection.value = next === 'main' && prev !== 'main' ? 'back' : 'forward';
+  const isBack = (next === 'main' && prev !== 'main') || PAGE_PARENT[prev] === next;
+  viewDirection.value = isBack ? 'back' : 'forward';
   edgeFadeBegin('edge-fade-x');
 });
 

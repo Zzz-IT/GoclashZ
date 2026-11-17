@@ -3,7 +3,7 @@
 
 基於 Wails 構建的高性能、工業級實色美學 Mihomo (Clash Meta) 桌面控制端
 
-![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v3.1-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
+![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v3.1-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-AGPL--v3.0-blue?style=flat-square)
 
 <p align="center">
   <a href="README.md">简体中文</a> | <a href="README_zh-TW.md">繁體中文（台灣）</a> | <b>繁體中文（香港）</b> | <a href="README_en.md">English</a> | <a href="README_ja.md">日本語</a> | <a href="README_ru.md">Русский</a>
@@ -79,7 +79,7 @@ wails3 build
 
 * **衷心致謝**：衷心感謝所有使用 GoclashZ 以及在 GitHub 上積極提交 Issue、提出寶貴建議與參與技術討論的開發者及用戶。每一則回饋與關注都是推動本項目持續打磨、追求極致體驗的重要動力。
 * **獨立開源與免責聲明**：
-  1. 本項目（GoclashZ）純屬個人出於對 Go 語言並發架構、系統級網絡編程及桌面端輕量化美學的學術研究與技術探索所開發的自由開源工具，按 MIT 許可協議原樣提供。
+  1. 本項目（GoclashZ）純屬個人出於對 Go 語言並發架構、系統級網絡編程及桌面端輕量化美學的學術研究與技術探索所開發的自由開源工具，按 AGPLv3 許可協議原樣提供。
   2. **開發者從未在任何第三方平台（包括但不限於各類社交媒體、影片平台、論壇社區、即時通訊群組或電商渠道）進行過任何形式的商業宣傳、推廣引流或背書，亦未授權任何組織或個人代表本項目進行宣傳與轉載分發**。
   3. 網絡上任何第三方發布關於本軟件的介紹影片、圖文、分發包、使用教程或商業行為，**均屬第三方獨立個人或機構的單方面行為，概與本軟件開發者無任何關係**。
   4. 用戶應在遵守當地法律法規的前提下合規使用本軟件。因使用、分發或依據第三方宣傳使用本軟件而產生的任何風險、責任與後果，**均由相關主體及用戶自行承擔，開發者不承擔任何直接、間接或連帶法律責任**。
@@ -93,4 +93,4 @@ wails3 build
 
 ## 開源許可
 
-本項目遵循 **MIT** 許可協議發布。
+本項目遵循 **GNU Affero General Public License v3.0 (AGPLv3)** 許可協議發布，全文見 [`LICENSE`](LICENSE)。

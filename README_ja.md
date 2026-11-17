@@ -3,7 +3,7 @@
 
 Wails をベースに構築された、高性能かつミニマルなインダストリアル美学を持つ Mihomo (Clash Meta) デスクトップクライアント。
 
-![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v3.1-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
+![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v3.1-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-AGPL--v3.0-blue?style=flat-square)
 
 <p align="center">
   <a href="README.md">简体中文</a> | <a href="README_zh-TW.md">繁體中文（台灣）</a> | <a href="README_zh-HK.md">繁體中文（香港）</a> | <a href="README_en.md">English</a> | <b>日本語</b> | <a href="README_ru.md">Русский</a>
@@ -73,7 +73,7 @@ wails3 build
 
 * **心よりの感謝**: GoclashZ をご利用いただき、GitHub 上で Issue の報告、貴重なご意見、技術的なディスカッションにご参加いただいているすべての開発者・ユーザーの皆様に心より感謝申し上げます。皆様からのフィードバックが、本プロジェクトを磨き上げる最大の原動力となっています。
 * **独立したオープンソースと免責事項**:
-  1. 本プロジェクト (GoclashZ) は、Go 言語の並行処理アーキテクチャ、システムレベルのネットワークプログラミング、および軽量デスクトップクライアントの研究と技術的探求を目的として個人が開発したオープンソースツールであり、MIT ライセンスのもと現状有姿で提供されます。
+  1. 本プロジェクト (GoclashZ) は、Go 言語の並行処理アーキテクチャ、システムレベルのネットワークプログラミング、および軽量デスクトップクライアントの研究と技術的探求を目的として個人が開発したオープンソースツールであり、GNU Affero General Public License v3.0 (AGPLv3) のもと現状有姿で提供されます。
   2. **開発者は、いかなるサードパーティ製プラットフォーム (SNS、動画配信サイト、コミュニティフォーラム、メッセージングアプリ、商用販売サイト等を含みますがこれらに限定されません) においても、商業的な宣伝、集客、プロモーション活動を一切行って折らず、公認・推奨もしておりません。また、いかなる組織や個人に対しても本プロジェクトの宣伝・二次配布を委託・許可していません**。
   3. ネット上に存在する本ソフトウェアに関する紹介動画、記事、再配布アーカイブ、解説マニュアル、または商業行為等は、**すべて第三者による単独の行為であり、本ソフトウェアの開発者とは一切関係がありません**。
   4. 利用者は、現地の法令を遵守した上で自己責任において本ソフトウェアを利用するものとします。本ソフトウェアの利用、配布、または第三者の宣伝に基づいて生じた一切のトラブル、損害、法的責任について、**開発者は直接的・間接的・連帯的な責任を一切負いません**。
@@ -87,4 +87,4 @@ wails3 build
 
 ## ライセンス
 
-本プロジェクトは **MIT** ライセンスのもとで公開されています。
+本プロジェクトは **GNU Affero General Public License v3.0 (AGPLv3)** のもとで公開されています。全文は [`LICENSE`](LICENSE) を参照してください。ネットワーク経由でサービスとして提供する場合、AGPLv3 はソースコードの提供を義務付けます。

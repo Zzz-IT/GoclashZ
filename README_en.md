@@ -3,7 +3,7 @@
 
 A high-performance, industrial solid-aesthetic Mihomo (Clash Meta) desktop client built with Wails.
 
-![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v3.1-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
+![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v3.1-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-AGPL--v3.0-blue?style=flat-square)
 
 <p align="center">
   <a href="README.md">简体中文</a> | <a href="README_zh-TW.md">繁體中文（台灣）</a> | <a href="README_zh-HK.md">繁體中文（香港）</a> | <b>English</b> | <a href="README_ja.md">日本語</a> | <a href="README_ru.md">Русский</a>
@@ -93,7 +93,7 @@ wails3 build
 
 * **Acknowledgments**: Sincere gratitude to everyone who uses GoclashZ and contributes to GitHub Issues, discussions, and technical feedback. Your insights and support are the driving force behind the continuous refinement of this project.
 * **Independent Open-Source & Disclaimer**:
-  1. This project (GoclashZ) is a free and open-source tool developed purely for personal study, academic research into Go concurrency architectures, and technical exploration of lightweight desktop interfaces, provided "as is" under the MIT License.
+  1. This project (GoclashZ) is a free and open-source tool developed purely for personal study, academic research into Go concurrency architectures, and technical exploration of lightweight desktop interfaces, provided "as is" under the GNU Affero General Public License v3.0 (AGPLv3).
   2. **The developer has never engaged in, authorized, or endorsed any commercial promotion, marketing campaigns, user acquisition, or advertisements on any third-party platforms (including but not limited to social media, video platforms, forums, messaging channels, or e-commerce sites), nor has any party been authorized to represent or distribute this project**.
   3. Any third-party videos, articles, distribution mirrors, tutorials, or commercial packaging found online are **strictly the independent actions of third parties and bear no affiliation, endorsement, or connection with the developer of this software**.
   4. Users are solely responsible for ensuring that their use of this software complies with applicable local laws and regulations. **The developer assumes no liability for any direct, indirect, incidental, or consequential damages or legal disputes arising from the use, distribution, or reliance on third-party representations of this software**.
@@ -108,4 +108,4 @@ This branch has been fully migrated from Wails v2.12 to **Wails v3.1.0**, with f
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [GNU Affero General Public License v3.0 (AGPLv3)](LICENSE). If you modify this project and offer it as a network service, AGPLv3 requires you to provide the corresponding source to your users.
