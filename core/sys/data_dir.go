@@ -3,7 +3,7 @@
 package sys
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"os"
 	"path/filepath"
 
@@ -103,7 +103,7 @@ func GetDataDirInfo() DataDirInfo {
 			SourceDeleted bool   `json:"sourceDeleted"`
 			DeleteError   string `json:"deleteError"`
 		}
-		if json.Unmarshal(data, &meta) == nil {
+		if jsonv2.Unmarshal(data, &meta) == nil {
 			info.Migrated = true
 			if !meta.SourceDeleted {
 				info.LastError = meta.DeleteError
@@ -116,7 +116,7 @@ func GetDataDirInfo() DataDirInfo {
 		var errMeta struct {
 			Error string `json:"error"`
 		}
-		if json.Unmarshal(data, &errMeta) == nil && errMeta.Error != "" {
+		if jsonv2.Unmarshal(data, &errMeta) == nil && errMeta.Error != "" {
 			info.LastError = "迁移失败: " + errMeta.Error
 		}
 	}

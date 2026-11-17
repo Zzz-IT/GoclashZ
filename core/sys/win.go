@@ -3,6 +3,7 @@
 package sys
 
 import (
+	"context"
 	"time"
 	"unsafe"
 
@@ -46,6 +47,28 @@ type MainWindowState struct {
 	Visible    bool
 	Minimized  bool
 	Foreground bool
+}
+
+// sleepCtx 是可取消的 sleep：等待期间 ctx 到期会立即返回 false。
+//
+// SCM / 提权 / 窗口等待路径上原来一律用裸 time.Sleep，既不可取消也不可观测
+// （F-A0-05）；需要等待的地方统一改走这里，并在返回 false 时让上层给出
+// "等待被取消" 的明确错误，而不是继续傻等。
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	if ctx == nil || d <= 0 {
+		if d > 0 {
+			time.Sleep(d)
+		}
+		return ctx == nil || ctx.Err() == nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 // FindMainWindow 根据窗口标题查找主窗口句柄
@@ -128,20 +151,28 @@ func FlashWindowTwice(hwnd uintptr) {
 	}
 	procFlashWindowEx.Call(uintptr(unsafe.Pointer(&finfo)))
 
-	// 3. 异步延时等待闪烁动作完成，然后强制清空状态位
-	go func() {
-		time.Sleep(800 * time.Millisecond)
-		StopTaskbarFlash(hwnd)
-	}()
+	// 3. 延时等待闪烁动作完成，然后强制清空状态位。
+	//    用 AfterFunc 而不是 go + time.Sleep：少一个常驻 goroutine，
+	//    也没有一处无法取消的 Sleep 阻塞点（F-A0-05）。
+	time.AfterFunc(800*time.Millisecond, func() { StopTaskbarFlash(hwnd) })
 }
 
-// WaitMainWindowHandle 等待主窗口句柄出现（带重试）
+// WaitMainWindowHandle 等待主窗口句柄出现（带重试，最多约 300ms）
 func WaitMainWindowHandle() uintptr {
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	return WaitMainWindowHandleCtx(ctx)
+}
+
+// WaitMainWindowHandleCtx 是 WaitMainWindowHandle 的可取消版本。
+func WaitMainWindowHandleCtx(ctx context.Context) uintptr {
 	for i := 0; i < 10; i++ {
 		if hwnd := FindMainWindow(); hwnd != 0 {
 			return hwnd
 		}
-		time.Sleep(30 * time.Millisecond)
+		if !sleepCtx(ctx, 30*time.Millisecond) {
+			return 0
+		}
 	}
 	return 0
 }
@@ -176,6 +207,12 @@ func SafeHideMainWindowWin32() {
 
 // EnsureMainWindowHiddenSilently 在后台守护短时间，确保静默启动时不被偶发系统事件或渲染初始化唤醒窗口
 func EnsureMainWindowHiddenSilently(shouldStayHidden func() bool) {
+	EnsureMainWindowHiddenSilentlyCtx(context.Background(), shouldStayHidden)
+}
+
+// EnsureMainWindowHiddenSilentlyCtx 是可取消版本（F-A0-05）：
+// ctx 到期立即停止守护，不再固定睡满整段节奏且无法中断。
+func EnsureMainWindowHiddenSilentlyCtx(ctx context.Context, shouldStayHidden func() bool) {
 	go func() {
 		checkIntervals := []time.Duration{
 			50 * time.Millisecond,
@@ -186,7 +223,9 @@ func EnsureMainWindowHiddenSilently(shouldStayHidden func() bool) {
 			1000 * time.Millisecond,
 		}
 		for _, interval := range checkIntervals {
-			time.Sleep(interval)
+			if !sleepCtx(ctx, interval) {
+				return
+			}
 			if shouldStayHidden != nil && !shouldStayHidden() {
 				return
 			}

@@ -107,7 +107,7 @@ textarea,
     --layout-padding: 10px;
     /* 进一步收窄全局边距，提升视觉张力 */
     --layout-gap: 16px;
-    --content-px: 36px;
+    --content-px: 24px;
     --content-py: 32px;
 
     /* ☀️ 日间模式：纯净黑白灰，无色彩干扰 */
@@ -118,8 +118,8 @@ textarea,
 
     --text-main: #1A1A1A;
     /* 主文字：极深灰 */
-    --text-sub: #777777;
-    /* 次要文字：中灰 */
+    --text-sub: #6B6B6B;
+    /* 次要文字：中灰（4.5:1，旧值 #777 仅 3.93:1） */
     --text-muted: #AAAAAA;
     /* 禁用态：浅灰 */
 
@@ -134,6 +134,12 @@ textarea,
 
     --status-online: #1A1A1A;
     /* 呼吸灯使用纯黑，通过动画而非颜色表达 */
+
+    /* 唯一允许出现的彩色：危险操作 */
+    --danger: #E81123;
+
+    /* 玻璃调色板已由 styles/tokens.css 的 --glass-fill-* 取代；
+       旧的 --glass-glow/band/fill/sheen/edge 在新分层模型下无人消费，已移除。 */
 }
 
 /* 🌍 国际化适配：当语言为外语（英文/日文/俄文/法文/德文）时，动态自适应侧边栏宽度，为 Subscriptions、サブスクリプション、Verbindungen、Соединения 等长单词提供充裕空间 */
@@ -218,8 +224,18 @@ html[lang="de-DE"],
     justify-content: flex-end;
 }
 
-/* 🌙 暗色模式：深沉纯黑灰，层次靠明度递进 */
+/* 🌙 暗色模式：深沉纯黑灰，层次靠明度递进
+
+   ⚠️ 调色变量全部放进 html:not([data-theme-mode]) 的守卫里：
+   App.vue 把 .dark 挂在 .app-shell 上，若这里无条件写 --app-bg/--surface/--text-main，
+   就会盖掉 utils/theme.ts 写在 <html> 上的内联主题变量 ——
+   表现是「换成彩色预设后，暗色主题的底色/强调色不生效」。
+   主题引擎没接管时（纯 CSS 场景）才用这套兜底。 */
 .dark {
+    --danger: #E81123;
+}
+
+html:not([data-theme-mode]) .dark {
     --app-bg: #111111;
     /* 底色：极深灰黑 */
     --surface-panel: #1A1A1A;
@@ -227,7 +243,7 @@ html[lang="de-DE"],
 
     --text-main: #E8E8E8;
     /* 主文字：柔和白 */
-    --text-sub: #888888;
+    --text-sub: #9A9A9A;
     --text-muted: #555555;
 
     --accent: #E8E8E8;
@@ -246,28 +262,31 @@ html[lang="de-DE"],
     margin: 0;
     padding: 0;
     font-family: var(--font-sans) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
 }
 
+/* 背景一体化（A 方案，只处理背景、不动卡片）：
+   窗口底 / 侧栏 / 内容面板统一使用「面板色」，于是内容面板与窗口之间不再有色差边界，
+   侧栏也不再像一块贴上去的板子 —— 整屏读作一张纸。
+   卡片仍然用 --surface（比纸略深/略亮一档），层次只由卡片自己承担。
+   玻璃模式下这条不生效（html/body 全透明，底色来自窗口着色层）。 */
 html,
 body,
 #app {
-    background: var(--app-bg) !important;
+    background: var(--surface-panel) !important;
     height: 100vh;
     width: 100vw;
     overflow: hidden;
     color: var(--text-main);
-    transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    /* 不做 background-color 过渡：black/white 切换时两层背景（窗口底 + 内容面板）
+       各自过渡会出现短暂色差，看起来就像"内外轮廓又出现了"，所以直接瞬时切换。 */
 }
 
-/* 面板：无边框，纯靠色差 */
+/* 面板：无边框，纯靠色差；与窗口底同色（背景一体化），切换瞬时完成 */
 .card-panel {
     background: var(--surface-panel);
     border: none;
     border-radius: 12px;
     box-shadow: none;
-    transition: background-color 0.3s;
 }
 
 ::-webkit-scrollbar {
@@ -295,24 +314,257 @@ body,
     flex: 1;
 }
 
-.page-sticky-mask {
-    position: sticky;
-    top: 0;
-    z-index: 30;
-    isolation: isolate;
-    --sticky-mask-bleed: 4px;
+/* 玻璃模式：3 组模糊各管各自的一层。
+   「内容卡片」这一组只给静止卡片，不给滚动容器（.ui-page-body）：
+   1) WebView2(DirectComposition) 对滚动容器做实时背景模糊会出拖影/条纹，滚动越频繁越明显；
+   2) 这类容器在玻璃 v3 里本来就是"卡片+填充"的单一面，模糊与否肉眼无差。
+   浮层与控件凹槽照常模糊（它们叠在有内容的背景上，模糊是真效果）。 */
+html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
+    -webkit-backdrop-filter: blur(var(--glass-blur-overlay)) saturate(160%);
+    backdrop-filter: blur(var(--glass-blur-overlay)) saturate(160%);
 }
 
-.page-sticky-mask::before {
-    content: "";
-    position: absolute;
-    left: -8px;
-    right: -8px;
-    top: -1px;
-    bottom: calc(-1 * var(--sticky-mask-bleed));
-    background: var(--surface-panel);
-    z-index: -1;
-    pointer-events: none;
+/* 说明：卡片 / 控件 / 分段控件这些"贴在路上"的面不再做 backdrop-filter。
+   1) 它们背后就是同一层窗口着色，模糊出来没有视觉差异；
+   2) WebView2 会在首帧之后再做一次背景模糊合成，表现为"页面出来了卡片才进一步渲染"的闪烁；
+   3) 现在只有浮层（弹窗 / 下拉 / Toast）使用模糊，它们出现即定位，不会闪。 */
+
+/* ================================== */
+/* 页面切换过渡：整面平移 · 接续式 */
+/* ================================== */
+/* 做法：两页各占满容器，一起沿同一根轴平移整整一屏。
+   旧页移出视口的同时新页移入，二者在**空间上相邻**而不是叠放，
+   所以不需要任何大幅透明度变化，也就不可能出现重影 ——
+   这正是"接续式"和"交叉淡化"的本质区别。
+
+   一镜到底的关键是：进场与离场**时长、缓动、起点完全相同，且没有延迟**。
+   两个元素像同一块刚性曲面在一起移动；一旦给某一边加延迟，
+   运动就会被读成两段独立动画。
+
+   方向语义（由 JS 按导航层级决定，不在这里猜）：
+     pane-up    内容向上流动 —— 顶栏切到更靠后的页
+     pane-down  内容向下流动 —— 顶栏切回更靠前的页
+     pane-left  内容向左推入 —— 进入子页面（下钻）
+     pane-right 内容向右推回 —— 从子页面返回
+
+   为什么横向不多走一点：容器已经改成 inset:0 + 内部 padding，
+   所以 translateX(100%) 正好是整宽，边缘不会漏出旧页。
+   vertical 同理，padding 在竖直方向为 0，100% 即整高。 */
+:root {
+  --pane-duration: 0.5s;
+  /* 强减速曲线：起步就动，末尾极缓收住。整面平移靠它才有"镜头推移"感。 */
+  --pane-ease: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.pane-up-enter-active,
+.pane-down-enter-active,
+.pane-left-enter-active,
+.pane-right-enter-active,
+.pane-up-leave-active,
+.pane-down-leave-active,
+.pane-left-leave-active,
+.pane-right-leave-active {
+  will-change: transform;
+  transition: transform var(--pane-duration) var(--pane-ease);
+}
+
+/* 离场页不再可点击，避免滑动过程中点到了正在离开的内容 */
+.pane-up-leave-active,
+.pane-down-leave-active,
+.pane-left-leave-active,
+.pane-right-leave-active {
+  pointer-events: none;
+}
+
+/* 竖向：整页高度 */
+.pane-up-leave-to {
+  transform: translateY(-100%);
+}
+.pane-up-enter-from {
+  transform: translateY(100%);
+}
+
+.pane-down-leave-to {
+  transform: translateY(100%);
+}
+.pane-down-enter-from {
+  transform: translateY(-100%);
+}
+
+/* 横向：整页宽度 */
+.pane-left-leave-to {
+  transform: translateX(-100%);
+}
+.pane-left-enter-from {
+  transform: translateX(100%);
+}
+
+.pane-right-leave-to {
+  transform: translateX(100%);
+}
+.pane-right-enter-from {
+  transform: translateX(-100%);
+}
+
+/* 不要在这里加 *-enter-to / *-leave-from 的 will-change:auto ——
+   那两个类与 *-active 同时存在且源码顺序在后，会把上面的 will-change 覆盖掉，
+   反而在动画期间取消了合成层。Vue 在过渡结束时会移除 *-active，
+   will-change 随之自动失效，本就不需要额外清理。 */
+
+@media (prefers-reduced-motion: reduce) {
+  .pane-up-enter-active,
+  .pane-down-enter-active,
+  .pane-left-enter-active,
+  .pane-right-enter-active,
+  .pane-up-leave-active,
+  .pane-down-leave-active,
+  .pane-left-leave-active,
+  .pane-right-leave-active {
+    transition-duration: 1ms;
+  }
+}
+
+/* ================================== */
+/* 切换时的裁切处柔化：容器边缘淡出 */
+/* ================================== */
+/* 整面平移会让页面在容器边缘被硬切一刀。这里让内容在裁切边淡出到背景，
+   而不是被切断 —— 观感是"化开"，不是"磨砂"。
+
+   为什么用 mask 挂在容器上，而不是在页面上加模糊层：
+   1) 效应必须固定在容器的裁切边上。挂在会移动的页面上，
+      淡化带会跟着内容一起跑，裁切处依旧是硬切。
+   2) mask 直接降低像素的 alpha，被遮掉的部分露出的是容器背景色，
+      天然就是"淡出到背景"，不需要知道背景是什么颜色。
+   3) 不碰 backdrop-filter。整页/整条 backdrop-filter 需要逐帧重算背景，
+      在 WebView2 上既是性能负担也是有记录的闪烁来源。
+
+   轴上由 JS 打在容器上的 edge-fade-y / edge-fade-x 类决定：
+   纵向滑动只淡上下，横向只淡左右。不要退回 :has() —— 用选择器反推轴
+   会多一层不可控的失败点。
+
+   为什么这些边能平滑长出/收回：
+   mask-image 本身不可插值（linear-gradient(...) 与 none 之间是离散切换），
+   直接加/去类就是"唰"地出现、"唰"地消失。
+   layout.css 已经把 --ui-fade-* 注册成 <length>，注册过的自定义属性可以被
+   transition 驱动，mask 每帧按新值重算，于是进出都有缓动。
+
+   由此带来两个约定：
+   · mask-image 必须常驻在方向类上。四条边都为 0px 时它是一张完全不透明的
+     遮罩，视觉上等于没有；一旦把方向类整个移掉，mask 被瞬间移除，过渡就没了。
+   · 所以"关掉"不是移除方向类，而是摘掉 edge-fade-on。
+     方向类只允许在四条边都为 0（两次过渡之间）时换向。 */
+
+:root {
+  /* 过渡时裁切边的淡出带宽度 */
+  --pane-edge-fade: 40px;
+  /* 撑住必须瞬时：位移一开始就是全速，柔化晚到哪怕 100ms，那一百毫秒里
+     裁切边就是裸露的。所以这里不设渐入时长（0s），首帧即满带宽。
+     带子出现的那一刻位移正好起步，运动本身会把"啪"地出现盖住。 */
+  --pane-edge-fade-in: 0s;
+  /* 收起用时。useEdgeFade 会读这个值反推提前量，
+     让收起正好在滑动落定那一刻收干净 —— 改这里，提前量自动跟着变。 */
+  --pane-edge-fade-out: 0.22s;
+}
+
+/* 复用 layout.css 里那套 --ui-fade-* 注册变量，不另立一套：
+   同一批 @property（inherits:false，不会漏给后代的 .ui-page-body）、
+   同一条 0.22s 曲线、同一个"用 mask 淡出内容"的做法。
+   滚动渐隐看的是滚动位置，这里看的是过渡方向，但表达的是同一个东西。
+
+   mask 和 transition 必须挂在"容器"上，不能挂在 .view-transition-wrapper 上：
+   容器本身没有 .pane-* 类，不会和位移过渡抢 transition 声明。
+   反过来说，如果在 wrapper 上写 transition（哪怕只为淡化），
+   它的特异性高于 .pane-*-active，会把 transition: transform 整条覆盖掉，
+   结果就是页面完全不做位移——动画"消失"。
+
+   弹窗不受影响，是因为它们已经全部 Teleport 到 body，
+   不在 .view-scroller / .settings-container 的子树里，mask 裁不到。
+
+   连接页也在列：列表↔详情是横向整面推入，内容贴着左右边缘进出，
+   裁切边需要淡化把它"化"开。注意淡化挂在 .connections-view（容器）上，
+   不挂在 .connections-list-wrapper / .detail-page（它们身上有 .pane-* 类，
+   在它们上面写 transition 会把 transform 过渡覆盖掉）。 */
+.view-scroller,
+.settings-container,
+.connections-view,
+.rules-page-viewport {
+  --ui-fade-top: 0px;
+  --ui-fade-bottom: 0px;
+  --ui-fade-left: 0px;
+  --ui-fade-right: 0px;
+  transition: --ui-fade-top var(--pane-edge-fade-out) cubic-bezier(0.4, 0, 0.2, 1),
+              --ui-fade-bottom var(--pane-edge-fade-out) cubic-bezier(0.4, 0, 0.2, 1),
+              --ui-fade-left var(--pane-edge-fade-out) cubic-bezier(0.4, 0, 0.2, 1),
+              --ui-fade-right var(--pane-edge-fade-out) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 长出用更快的时长，两套 transition 分别给"开"和"关" */
+.view-scroller.edge-fade-on,
+.settings-container.edge-fade-on,
+.connections-view.edge-fade-on,
+.rules-page-viewport.edge-fade-on {
+  transition: --ui-fade-top var(--pane-edge-fade-in) cubic-bezier(0.4, 0, 0.2, 1),
+              --ui-fade-bottom var(--pane-edge-fade-in) cubic-bezier(0.4, 0, 0.2, 1),
+              --ui-fade-left var(--pane-edge-fade-in) cubic-bezier(0.4, 0, 0.2, 1),
+              --ui-fade-right var(--pane-edge-fade-in) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 纵向：上下两条边 */
+.view-scroller.edge-fade-y,
+.settings-container.edge-fade-y,
+.connections-view.edge-fade-y,
+.rules-page-viewport.edge-fade-y {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--ui-fade-top),
+    #000 calc(100% - var(--ui-fade-bottom)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--ui-fade-top),
+    #000 calc(100% - var(--ui-fade-bottom)),
+    transparent 100%
+  );
+}
+
+.view-scroller.edge-fade-y.edge-fade-on,
+.settings-container.edge-fade-y.edge-fade-on,
+.connections-view.edge-fade-y.edge-fade-on,
+.rules-page-viewport.edge-fade-y.edge-fade-on {
+  --ui-fade-top: var(--pane-edge-fade);
+  --ui-fade-bottom: var(--pane-edge-fade);
+}
+
+/* 横向：左右两条边 */
+.view-scroller.edge-fade-x,
+.settings-container.edge-fade-x,
+.connections-view.edge-fade-x,
+.rules-page-viewport.edge-fade-x {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--ui-fade-left),
+    #000 calc(100% - var(--ui-fade-right)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--ui-fade-left),
+    #000 calc(100% - var(--ui-fade-right)),
+    transparent 100%
+  );
+}
+
+.view-scroller.edge-fade-x.edge-fade-on,
+.settings-container.edge-fade-x.edge-fade-on,
+.connections-view.edge-fade-x.edge-fade-on,
+.rules-page-viewport.edge-fade-x.edge-fade-on {
+  --ui-fade-left: var(--pane-edge-fade);
+  --ui-fade-right: var(--pane-edge-fade);
 }
 
 /* ================================== */
@@ -339,7 +591,8 @@ body,
     overflow: hidden;
     padding: 24px;
     border-radius: 16px;
-    background: var(--surface-panel);
+    /* 浮层组：背景走 overlay token（玻璃模式下自动半透明），不再写死 panel 色 */
+    background: var(--ui-surface-overlay);
     border: 1px solid var(--surface-hover);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
 }
@@ -420,7 +673,7 @@ body,
 }
 
 .danger-text {
-    color: #ff4d4f !important;
+    color: var(--danger) !important;
 }
 
 /* ================================== */
@@ -480,6 +733,8 @@ body,
 }
 
 /* 3. 按钮体系 (按照 Subscriptions 重命名按钮对齐) */
+/* 主操作按钮吃强调色：默认石墨主题下 --ui-accent 就是原来的 --text-main，
+   所以不换主题时观感完全一致；换彩色预设后所有主按钮跟着变色。 */
 .primary-btn {
     display: flex;
     align-items: center;
@@ -489,8 +744,8 @@ body,
     padding: 0 20px;
     border-radius: 8px;
     border: none;
-    background: var(--text-main);
-    color: var(--accent-fg);
+    background: var(--ui-accent-block);
+    color: var(--ui-accent-fg);
     font-weight: 600;
     cursor: pointer;
     /* 🚀 统一去特效：非弹出卡片按钮保持完全静止 */
@@ -546,9 +801,22 @@ body,
     color: var(--accent-fg) !important;
 }
 
-/* 危险操作红字 */
+/* 危险操作红字（用于纯文字的次要按钮，如 Connections 的「断开连接」） */
 .red-text-btn {
-    color: #ff4d4f !important;
+    color: var(--danger) !important;
+}
+
+/* 危险操作实心按钮：accent-btn 会把底色设成强调色，
+   彩色主题下「红字压彩色底」的对比度会低到读不清（例如靛蓝底红字 ≈ 1.2:1），
+   所以危险确认按钮统一改成危险色实心 + 白字。 */
+.accent-btn.red-text-btn {
+    background: var(--danger) !important;
+    color: #FFFFFF !important;
+}
+
+.accent-btn.red-text-btn:hover:not(:disabled) {
+    background: var(--danger) !important;
+    filter: brightness(1.12) !important;
 }
 
 .hover-accent:hover:not(:disabled) {
@@ -568,9 +836,11 @@ body,
     vertical-align: middle;
 }
 
+/* 图标统一渲染 12px：viewBox 是 24，缩放 0.5 时 stroke-width=2 正好落在 1 个整数像素上。
+   原来写 14px（缩放 0.583）描边是 1.167px，细线图标在工具栏上就是一圈毛边。 */
 .btn-icon svg {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     display: block;
 }
 
@@ -647,4 +917,607 @@ body,
   opacity: 0;
   max-height: 0;
   transform: translateY(-8px);
+}
+
+/* ================================== */
+/* 初始化动画抑制：设置子页面数据未加载完成前，
+   禁用所有 transition/animation，杜绝"默认值→真实值"
+   被渲染成开关滑动 / 下拉展开的伪交互动画。
+   各子页面在 loading 期间给根容器加 .no-anim，
+   数据就绪 nextTick 后移除即可恢复正常动画。 */
+/* ================================== */
+.no-anim,
+.no-anim *,
+.no-anim *::before,
+.no-anim *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* ================================== */
+/* Toast 轻提示：成功/中性反馈，不打断操作（错误仍走模态框） */
+/* 无阴影、无渐变：仅用色差与 1px 边框，符合实色美学 */
+/* ================================== */
+.toast-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* 必须高于模态遮罩(.modal-overlay = 9999)，否则模态期间的成功提示会被盖住 */
+  z-index: 10000;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: stretch;
+  width: 320px;
+  background: var(--surface-panel);
+  border: 1px solid var(--surface-hover);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.toast__bar {
+  width: 3px;
+  flex: 0 0 3px;
+  background: var(--accent);
+}
+
+.toast--success .toast__bar {
+  background: var(--accent);
+}
+
+.toast--info .toast__bar {
+  background: var(--text-sub);
+}
+
+.toast--error .toast__bar {
+  background: var(--danger);
+}
+
+.toast__body {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+}
+
+.toast__title {
+  margin-bottom: 3px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.toast__text {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-sub);
+  word-break: break-word;
+}
+
+.toast__close {
+  padding: 0 10px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.toast__close:hover {
+  color: var(--text-main);
+}
+
+.toast-enter-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.toast-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.toast-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.toast-leave-to {
+  opacity: 0;
+}
+
+/* ================================== */
+/* 规则匹配面板（为什么走这条） */
+/* 复用 --surface 凹槽 + 反色命中行，全部 mono */
+/* ================================== */
+.match-panel {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.7;
+  color: var(--text-main);
+}
+
+.match-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.match-meta {
+  color: var(--text-sub);
+}
+
+.match-skip {
+  color: var(--text-muted);
+}
+
+/* DNS 推断标签与“详情”折叠按钮：保持紧凑，不抢主信息 */
+.dns-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid var(--text-muted);
+  border-radius: 999px;
+  color: var(--text-sub);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  cursor: help;
+  vertical-align: 1px;
+}
+
+.dns-toggle {
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-sub);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.dns-toggle:hover {
+  color: var(--text-main);
+}
+
+.match-empty {
+  padding: 10px 0;
+  color: var(--text-sub);
+  font-size: 0.82rem;
+}
+
+/* ================================== */
+/* 生效回执条（设置保存后的配置偏差提示） */
+/* 不打断、不弹窗；无偏差时整条不渲染 */
+/* ================================== */
+.deviation-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.deviation-strip__bar {
+  width: 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.deviation-strip__text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.82rem;
+  color: var(--text-main);
+}
+
+.deviation-strip__action {
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-sub);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.deviation-strip__action:hover {
+  color: var(--text-main);
+}
+
+.deviation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 0 14px 10px;
+}
+
+.deviation-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.8rem;
+}
+
+.deviation-item__field {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  color: var(--text-main);
+}
+
+.deviation-item__reason {
+  color: var(--text-sub);
+}
+
+.deviation-strip__close {
+  flex: 0 0 auto;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.deviation-strip__close:hover {
+  color: var(--text-main);
+}
+
+/* 设置页保持原来的单层视觉：内容面板就是唯一背景，
+   设置组不再叠一层卡片。
+   注意：玻璃模式下必须让设置组自己成为一层毛玻璃面，
+   否则整页文字直接压在透出的背景上（这是旧版玻璃模式最严重的可读性问题）。 */
+html:not([data-glass="on"]) .settings-page .ui-surface-group {
+  background: transparent;
+}
+
+/* ================================== */
+/* 设置项锚点定位与高亮（设置搜索跳转用） */
+/* 只改背景色，不加色相、不加边框 */
+/* ================================== */
+.setting-item[id],
+.uwp-list-wrapper[id] {
+  scroll-margin-top: 16px;
+}
+
+@keyframes settingFlash {
+  0% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+/* 高亮遮罩用伪元素向外扩一圈：
+   1) 能盖住整行以及行间留白，不再"勉强包住文字"；
+   2) 不改 padding / margin，所以动画结束不会引起布局跳动；
+   3) 圆角 12px，与可点行一致。 */
+.setting-flash {
+  position: relative;
+  /* 建立独立层叠上下文，保证负 z-index 的遮罩不会掉到卡片背景后面 */
+  isolation: isolate;
+  border-radius: 12px;
+}
+
+.setting-flash::before {
+  content: "";
+  position: absolute;
+  inset: -7px -12px;
+  border-radius: 12px;
+  background: var(--surface-hover);
+  opacity: 0;
+  z-index: -1;
+  pointer-events: none;
+  animation: settingFlash 1.8s ease-out;
+}
+
+/* 卡片 / 列表容器参与高亮时，向内收一点，避免顶到容器边缘 */
+.glass-card.setting-flash::before,
+.uwp-list-wrapper.setting-flash::before {
+  inset: -6px;
+}
+
+/* ================================== */
+/* 空态（EmptyState 组件）：图标 + 一句话 + 可选动作 */
+/* ================================== */
+/* 空态：默认给一个舒适的最小高度；
+   如果父级是 flex 容器（列表页都是），flex:1 会把它撑满剩余空间并垂直居中，
+   不会再出现"提示字挤在页面上半部分"的问题。 */
+.empty-state-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 200px;
+  padding: 24px;
+  text-align: center;
+  /* 光学居中：内容比几何中心略高一点，视觉上才"正" */
+  padding-bottom: clamp(40px, 9vh, 96px);
+}
+
+/* 列表类页面的空态：在「整页」范围里居中（含页头与筛选条），
+   而不是只在筛选条以下的列表区居中——后者会明显偏下。
+   绝对定位 + pointer-events:none，既不影响布局也不挡页头/筛选条的点击。 */
+.ui-page-shell {
+  position: relative;
+}
+.scroll-content > .empty-state-block,
+.scroll-content > .empty-state,
+.subs-list > .empty-state-block {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  /* 覆盖整页后居中会略低于"内容视觉中心"，底部再留一档把它轻轻提上去 */
+  padding: 0 24px 56px;
+}
+.scroll-content > .empty-state-block > *,
+.scroll-content > .empty-state > *,
+.subs-list > .empty-state-block > * {
+  pointer-events: auto;
+}
+
+.empty-state-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+/* 24px 同样是整数倍：22px 时缩放 0.917，描边 1.83px 会发虚 */
+.empty-state-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.empty-state-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.empty-state-hint {
+  max-width: 420px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-sub);
+}
+
+/* ================================== */
+/* 玻璃质感 v2（设置 → 应用主题 → 玻璃质感） */
+/* ================================== */
+/* 设计原则（对齐 Apple Liquid Glass / Fluent Acrylic 的克制）：
+   1) 只有一个「面」：桌面透视层上直接浮卡片；
+      中间不再垫一层半透明内容面板 —— 多层半透明叠加会把界面糊成一片发白牛奶，
+      而且每一层都会在圆角面板里画出自己的矩形边。
+   2) 单色：玻璃不引入任何色相，深度只靠亮度与一条顶部高光，不用强调色染色。
+   3) 少装饰：卡片不四边描边、不投影，只在顶边留 1px specular 高光。
+   4) 几何一致：所有面统一 --ui-radius-*，不留方形边框（吸顶条/侧栏尤其）。 */
+
+html[data-glass="on"],
+html[data-glass="on"] body,
+html[data-glass="on"] #app {
+  background: transparent !important;
+}
+
+/* 第 1 层：窗口着色。桌面由 DWM Acrylic 在窗口背后模糊，这里只负责压色。 */
+html[data-glass="on"] .app-shell {
+  position: relative;
+  isolation: isolate;
+  background: var(--glass-tint-bg) !important;
+}
+
+html[data-glass="on"] .main-layout {
+  background: transparent !important;
+}
+
+/* 主内容面板在玻璃下完全不参与绘制：
+   少一层半透明，卡片直接浮在窗口着色层上 —— 更透、更轻、不糊。 */
+html[data-glass="on"] .content {
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* 侧边栏完全融入窗口着色层：背景一体化后不再有任何矩形或渐变块，
+   整窗是一整片玻璃，导航只靠排版定位。 */
+html[data-glass="on"] .sidebar {
+  background: transparent !important;
+}
+
+/* ---------- 应用内柔光（单色） ---------- */
+/* 只做两件事：给 backdrop-filter 一点可模糊的明暗层次、给玻璃一点光源感。
+   刻意不使用强调色 —— 这套 UI 的品牌是黑白灰，彩色光晕正是"不极简"的根源。 */
+.glass-aura {
+  display: none;
+}
+
+html[data-glass="on"][data-theme-aura="on"] .glass-aura {
+  display: block;
+  position: fixed;
+  inset: -12%;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.85;
+  background:
+    radial-gradient(56% 50% at 20% 4%, color-mix(in srgb, var(--text-main) 7%, transparent) 0%, transparent 70%),
+    radial-gradient(46% 44% at 84% 96%, color-mix(in srgb, var(--text-main) 5%, transparent) 0%, transparent 72%);
+  /* 静态一次性模糊，跑在合成线程上；不参与任何动画 */
+  filter: blur(44px);
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html[data-glass="on"][data-theme-aura="off"] .glass-aura {
+  display: none;
+}
+
+/* 少量"半自绘"控件在玻璃下也要换材质，否则它们会变成不透明补丁：
+   设置页搜索框、日志终端这类自己写了 background: var(--surface) 的块。 */
+html[data-glass="on"] .settings-search {
+  background: var(--ui-surface-control);
+}
+
+/* ---------- 玻璃模式下必须靠自己撑住的文字 ----------
+   侧栏状态行和窗口控件都没有填充层托底，直接压在窗口着色层上。
+   厚度低时背景亮度完全由壁纸决定：--text-sub 压在 #CECECE 上只有 3.4:1，
+   压在更暗的壁纸底上更低。着色层虽然已经抬过一档（tintAlpha 0.38 起），
+   但单靠它到不了 4.5:1，所以这两处直接提到 --text-main。 */
+html[data-glass="on"] .status-text,
+html[data-glass="on"] .ctrl-btn {
+  color: var(--text-main);
+}
+
+/* ---------- 状态指示灯（侧栏 6px 圆点 / 控制台 10px 圆点）----------
+   指示灯不复用文字 token：文字那三档这轮为了可读性被压到了 text-main@86/76%，
+   而 graphite 的 --ui-accent 就是 --text-main，跟着用会让熄灭态和运行态撞色
+   （实测亮度比只有 1.2~1.6×，等于只剩辉光在区分）。
+   这里单独取 text-main 的 62%：浅色约 #6A6A6A、深色约 #9B9B9B，
+   在玻璃卡片上 ≥3:1（非文字图形的 WCAG 门槛），
+   与运行态（--ui-accent-block，84%）的亮度比拉到 3.0× / 1.8×。
+   运行态另有静态辉光和脉冲扩散。 */
+html[data-glass="on"] .dot,
+html[data-glass="on"] .orb {
+  background: color-mix(in srgb, var(--text-main) 62%, transparent);
+}
+
+html[data-glass="on"] .terminal-box,
+html[data-glass="on"] .empty-state-icon {
+  background: var(--glass-fill-soft);
+}
+
+/* 卡片不做任何描边/高光：玻璃的质感来自「透出来的背景」，而不是加一圈白线。
+   曾经用 inset 0 1px 0 的 specular 高光模拟厚度，在浅色与深色下都像一条脏边，已移除。 */
+html[data-glass="on"] :is(.ui-surface-card, .ui-surface-group) {
+  box-shadow: none;
+}
+
+html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
+  box-shadow: var(--ui-shadow-overlay);
+}
+
+/* Toast 也是浮层：玻璃模式下同样用毛玻璃面，避免"小方块贴在最上层" */
+html[data-glass="on"] .toast {
+  background: var(--glass-fill-overlay);
+  border-color: var(--glass-hairline);
+  -webkit-backdrop-filter: blur(var(--glass-blur-overlay));
+  backdrop-filter: blur(var(--glass-blur-overlay));
+}
+
+/* ModernSelect 自己实现了浮层，但模板里没挂 .ui-surface-overlay，
+   背景写死 --surface（不透明），所以它是玻璃体系里唯一漏掉的下拉。
+   这里按浮层组统一处理，做法与上面的 .toast 完全一致 —— 只影响玻璃模式。 */
+html[data-glass="on"] .select-dropdown {
+  background-color: var(--glass-fill-overlay);
+  border-color: var(--glass-hairline);
+  -webkit-backdrop-filter: blur(var(--glass-blur-overlay)) saturate(160%);
+  backdrop-filter: blur(var(--glass-blur-overlay)) saturate(160%);
+}
+
+/* 触发器也是控件凹槽：玻璃下跟 .settings-search 一样走 --ui-surface-control，
+   否则菜单透了、触发器还是块不透明的 --surface-hover，两个贴在一起会很割裂。
+   禁用态优先级更高（.modern-custom-select.disabled .select-trigger），且带
+   opacity:.5，本来就是半透明的，这条不会盖到它。 */
+html[data-glass="on"] .select-trigger {
+  background-color: var(--ui-surface-control);
+}
+
+/* 选中行原来是 100% 不透明的面板色，压在刚变半透明的菜单上会像一块补丁。
+   换成强调色薄底，与 .follow-btn.active / .preset-tile.active 同一套"选中"语义。
+   选择器要多带一层 .select-dropdown：scoped 的 .select-option.active 是 (0,3,0)，
+   只写 html[data-glass="on"] .select-option.active 只有 (0,2,1)，压不过它。 */
+html[data-glass="on"] .select-dropdown .select-option.active {
+  background-color: var(--ui-accent-soft);
+}
+
+/* ---------- 玻璃下把文本三档整体压深 ----------
+   --text-main / --text-sub / --text-muted 由 applyTheme 直接内联写在 <html> 上，
+   任何选择器都压不过内联样式。但自定义属性会往下继承，所以在 <body> 上重新声明
+   一份就能覆盖整棵子树 —— 这是不用改 JS 的唯一挂点。
+   为什么必须压：浅色主题这三档是照 #FFFFFF 面板挑的，玻璃下背景由壁纸决定。
+   实测 --text-sub(#6B6B6B) 压在 #909090 上只有 1.7:1、压在 #B4B4B4 上 2.6:1，
+   全不达标，所以「新规则自动置于首位」「共 41 条」这类字才会糊成一片。
+   用 alpha 混合而不是写死色值：半透明色合成后永远落在「文字色」和「背景色」之间，
+   浅底自动变浅、深底自动变深，12 套预设和明暗都不必单独配。
+   代价是主/次两档的色差被压缩 —— 层级改由字号和字重承担，这是玻璃模式绕不开的取舍。 */
+html[data-glass="on"] body {
+  --text-sub: color-mix(in srgb, var(--text-main) 86%, transparent);
+  --text-muted: color-mix(in srgb, var(--text-main) 76%, transparent);
+}
+
+/* 空态图标块：44px 的方块原来也是不透明的 --surface */
+html[data-glass="on"] .empty-state-icon {
+  background: var(--ui-surface-card);
+}
+
+/* ---------- 玻璃下仍写死 --surface 的控件 / 内容面 ----------
+   这些类原本都是 background: var(--surface)（不透明）。玻璃模式下 --surface
+   是一块实心色，压在会透出壁纸的卡片上就是一张贴纸。按面积分两档，
+   与已有的 .settings-search / .select-trigger / 分段控件保持同一套材质：
+     --ui-surface-control (厚度 50 时 48%)  ← 输入框、圆形按钮这些"控件体"
+     --ui-surface-card    (厚度 50 时 62%)  ← 列表行、小块内容面
+   刻意保持实心的（不要顺手改）：
+     · .cm-editor / 编辑器正文 —— 长文本滚动区，半透明会让代码读不清，
+       而且项目本来就明确不给滚动容器上 backdrop-filter；
+     · .page-btn / .action-btn / .n-protocol —— 20~30px 的小按钮与标签，
+       面积太小，半透明只会糊，实心反而更清楚；
+     · .nav-item:hover 这类瞬时 hover —— 不参与材质体系，改了两头不讨好。 */
+html[data-glass="on"] :is(.back-btn, .search-bar, .search-input, .uwp-search) {
+  background: var(--ui-surface-control);
+}
+
+html[data-glass="on"] :is(.rule-preview, .update-task-row, .uwp-app-item) {
+  background: var(--ui-surface-card);
+}
+
+/* 弹窗遮罩：模糊 + 压暗，不引入任何色彩 */
+html[data-glass="on"] .modal-overlay {
+  background: color-mix(in srgb, var(--ui-scrim) 86%, transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur-overlay));
+  backdrop-filter: blur(var(--glass-blur-overlay));
+}
+
+/* ================================== */
+/* 浮层的材质定义
+   亚克力浮层看起来"是一块材质"，不靠那点模糊，靠的是这四样：
+   比页面更实的填充（浮层 82% vs 卡片 62%）、1px 顶部 specular 高光、
+   1px hairline 描边、明显的悬空阴影。
+   缺了高光和描边，多高的不透明度都只是一块半透明色板 —— 这是"半透明"
+   和"材质"的真正分界。模糊保留，它只在浮层压到内容上时才可见；
+   悬空区域背后是透明的，那里本来就没有可糊的东西。 */
+html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card),
+html[data-glass="on"] .select-dropdown {
+  background-color: var(--glass-fill-overlay);
+  border: 1px solid var(--glass-hairline);
+  box-shadow: inset 0 1px 0 var(--glass-specular), var(--ui-shadow-overlay);
+}
+
+/* 强制浮层进独立合成层。
+   WebView2 在透明窗口（DirectComposition）下有一处与桌面 Chrome 不同：
+   元素自身带 backdrop-filter 但没被提升为合成层时，取到的背景可能是空的，
+   结果就是"只有填充色、完全没有模糊"。translateZ(0) 把它钉成自己的层。
+   只给两种下拉加，不动 .custom-modal-card —— 它内部可能有 fixed 定位的浮层，
+   加 transform 会改变它们的包含块。 */
+html[data-glass="on"] :is(.ui-surface-overlay, .select-dropdown) {
+  transform: translateZ(0);
 }

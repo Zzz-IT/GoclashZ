@@ -1,0 +1,27 @@
+# Normalize line endings so a checkout produces clean diffs and gofmt passes.
+# Go/Vue/TS/docs are LF; Windows scripts stay CRLF; binary artefacts are binary.
+*.go text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.vue text eol=lf
+*.css text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.html text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.woff2 binary
+*.dll binary
+*.exe binary
+*.dat binary
+*.mmdb binary
+*.metadb binary
+*.syso binary

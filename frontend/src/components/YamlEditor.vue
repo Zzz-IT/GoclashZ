@@ -1,6 +1,6 @@
 <template>
-  <div class="yaml-editor-view">
-    <div class="yaml-toolbar">
+  <div class="yaml-editor-view ui-page-shell">
+    <div class="yaml-toolbar ui-page-header">
       <div class="editor-left">
         <button class="back-btn" @click="$emit('back')" :title="t('common.back')">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
@@ -27,7 +27,7 @@
       </div>
     </div>
 
-    <div class="editor-body" ref="editorContainer"></div>
+    <div class="editor-body ui-page-body" ref="editorContainer"></div>
 
     <div v-if="props.configType === 'remote'" class="remote-warning">
       <span>{{ t('yamlEditor.remoteWarning') }}</span>
@@ -52,7 +52,7 @@ import { HighlightStyle, syntaxHighlighting, indentOnInput, bracketMatching, fol
 import { closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
 import { searchKeymap } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
-import * as API from '../../wailsjs/go/main/App';
+import { App } from '../api';
 import { globalState, showConfirm, showAlert } from '../store';
 import { t } from '../locales';
 
@@ -263,7 +263,7 @@ const createExtensions = () => [
 const loadConfig = async () => {
   loading.value = true;
   try {
-    const result = await API.ReadConfigText(props.configId);
+    const result = await App.ReadConfigText(props.configId);
     fileName.value = result.name;
     originalContent.value = result.content;
     isModified.value = false;
@@ -310,7 +310,7 @@ const handleSave = async () => {
   statusText.value = t('yamlEditor.saving');
   try {
     const content = editorView.value?.state.doc.toString() || '';
-    await API.SaveConfigText(props.configId, content);
+    await App.SaveConfigText(props.configId, content);
     originalContent.value = content;
     isModified.value = false;
     statusText.value = t('yamlEditor.saved');
@@ -332,7 +332,7 @@ const handleValidate = async () => {
   validating.value = true;
   try {
     const content = editorView.value?.state.doc.toString() || '';
-    await API.ValidateConfigText(content);
+    await App.ValidateConfigText(content);
     yamlError.value = '';
     statusText.value = t('yamlEditor.syntaxValid');
 
@@ -394,10 +394,9 @@ onUnmounted(() => {
 
 <style scoped>
 .yaml-editor-view {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-  overflow: visible;
+  /* PageShell：toolbar 固定，编辑器区占用剩余高度（不再用 min-height:100%） */
+  flex: 1 1 auto;
+  min-width: 0;
   gap: 16px;
 }
 
@@ -503,8 +502,8 @@ onUnmounted(() => {
 }
 
 .accent-btn {
-  background: var(--text-main);
-  color: var(--accent-fg);
+  background: var(--ui-accent-block);
+  color: var(--ui-accent-fg);
 }
 
 .accent-btn:hover:not(:disabled) {
@@ -517,16 +516,24 @@ onUnmounted(() => {
 
 /* 编辑区 */
 .editor-body {
-  flex: 1;
-  height: calc(100vh - 260px);
+  /* body 槽位只负责撑满高度；真正的滚动交给 CodeMirror 内部 .cm-scroller，
+     避免页面滚动与编辑器滚动互抢，也不再依赖 100vh 减法算高度 */
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
   overflow: hidden;
+  padding: 0 !important;
   border: none;
   border-radius: 0;
   background: transparent;
 }
 
 .editor-body :deep(.cm-editor) {
-  height: calc(100vh - 260px);
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
   border-radius: 12px;
   background: var(--surface);
 }

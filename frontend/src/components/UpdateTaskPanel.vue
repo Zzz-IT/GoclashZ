@@ -15,7 +15,8 @@
 import { computed, watch } from 'vue';
 import { globalState } from '../store';
 import UpdateTaskRow from './UpdateTaskRow.vue';
-import * as API from '../../wailsjs/go/main/App';
+import { App } from '../api';
+import { reportError } from '../utils/report';
 import { t } from '../locales';
 
 const tasks = computed(() => {
@@ -29,9 +30,9 @@ const tasks = computed(() => {
 
 const clearFinishedTasks = async () => {
   try {
-    await (API as any).ClearFinishedUpdateTasks();
+    await App.ClearFinishedUpdateTasks();
   } catch (e) {
-    console.error('Failed to clear finished tasks:', e);
+    reportError(e, 'updateTasks.clearFinished');
   }
 };
 
@@ -47,7 +48,9 @@ watch(tasks, (newTasks) => {
 
 <style scoped>
 .update-task-panel {
-  margin-top: 20px;
+  /* 作为页面内容的第一个块，随内容一起滚动 —— 不再固定在滚动区上方
+     永久占住阅读高度、也不再有"浮在页面上"的观感。 */
+  margin-bottom: 12px;
   background: var(--surface-panel);
   border-radius: 12px;
   padding: 16px;

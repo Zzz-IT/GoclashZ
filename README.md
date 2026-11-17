@@ -3,7 +3,7 @@
 
 基于 Wails 构建的高性能、工业级实色美学 Mihomo (Clash Meta) 桌面控制端
 
-![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v2.12-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
+![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v3.1-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
 
 <p align="center">
   <b>简体中文</b> | <a href="README_zh-TW.md">繁體中文（台灣）</a> | <a href="README_zh-HK.md">繁體中文（香港）</a> | <a href="README_en.md">English</a> | <a href="README_ja.md">日本語</a> | <a href="README_ru.md">Русский</a>
@@ -59,6 +59,13 @@ GoclashZ 诞生于对现代桌面应用过度臃肿的抗拒。本项目摒弃�
 * **原生注册表自启集成**：通过 Windows 原生 Run 注册表键实现极速、高可靠的用户登录自动启动，无需管理员权限，彻底告别 Task Scheduler 在精简系统下的 COM 异常与超时问题。
 * **全局热键退出**：注册系统级全局热键 (Ctrl+Alt+Q)，当系统托盘无响应时仍可安全退出程序。
 
+### 诊断与可读性
+* **项级设置搜索**：8 个设置页共 87 个设置项统一索引，按页面分组检索，点击直达并高亮定位；
+* **配置偏差回执**：保存后提示不会按字面生效的配置项（端口冲突、认证缺失、协议栈限制），单条展开、多条折叠；
+* **DNS 解析解释**：连接详情展示命中的名称服务器策略与解析器，无法静态判定的场景明确标注；
+* **分层错误提示**：一句话结论 + 可展开的技术详情，成功类操作改用轻提示不再打断；
+* **统一空态**：列表为空时展示图标与说明，替代单行灰字。
+
 ## 部署与使用
 
 ### 安装指南
@@ -106,20 +113,20 @@ GoclashZ/
 
 * Go 1.25.0 或更高版本
 * Node.js 18 或更高版本
-* Wails CLI v2.12+ (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
+* Wails CLI v3.1+ (`go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0`)
 
 ### 编译与构建
 
 启动带热重载功能的本地开发服务器：
 
 ```bash
-wails dev
+wails3 dev
 ```
 
 编译 Windows 发行版可执行文件：
 
 ```bash
-wails build
+wails3 build
 ```
 
 ## 声明与后续计划
@@ -133,12 +140,13 @@ wails build
   3. 网络上任何第三方发布的关于本软件的介绍视频、推文、分发包、使用教程或商业行为，**均属于第三方独立个人或机构的单方面行为，概与本软件开发者无任何关系**。
   4. 使用者应在遵守当地法律法规的前提下合规使用本软件。因使用、分发或依据第三方宣传使用本软件而产生的任何风险、责任与后果，**均由相关主体及使用者自行承担，开发者不承担任何直接、间接或连带法律责任**。
 
-### 并行计划：转向 Wails v3 架构，探索彻底摆脱 WebView2
+### Wails v3 迁移完成（本分支）
 
-为了追求更纯粹的桌面原生体验并彻底解决环境依赖痛点，项目近期计划建立并行的实验分支（转向 **Wails v3** 架构）：
+本分支已从 Wails v2.12 完整迁移到 **Wails v3.1.0**，功能与 v1.4.0 保持一致：
 
-* **摆脱 WebView2 强依赖**：当前版本依赖 Windows 系统的 Microsoft Edge WebView2 运行时，部分精简系统或老旧环境中常因缺少组件而影响开箱即用体验。转向 Wails v3 将深入探索解耦外部运行时、轻量化嵌入或原生渲染的技术可行性。
-* **架构演进与多窗口治理**：利用 Wails v3 重构的跨平台原生窗口调度、无头后台通信与深度系统集成能力，进一步缩减内存与启动耗时，打造真正开箱即用、完全零外部运行时依赖的极简控制端。
+* **架构升级**：`application.New` + 单一 Service（108 个绑定方法）+ `Events.On` 事件模型；自研 Win32 托盘/热键/单实例互斥层保持不变。
+* **WebView2 仍是运行期依赖**：v3 并未消除 WebView2；本次迁移的收益是 API 现代化、生命周期与构建链统一，安装器按 Windows 标准环境提供 WebView2。
+* **构建链**：`wails3 build`（Taskfile）+ Inno Setup `package.iss`，发布流程见 `.github/workflows/release.yml`。
 
 ## 开源协议与项目支持
 

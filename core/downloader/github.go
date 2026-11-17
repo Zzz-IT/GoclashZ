@@ -4,8 +4,8 @@ package downloader
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	jsonutil "goclashz/core/jsonutil"
 	"net/http"
 	"net/url"
 	"path"
@@ -151,7 +151,7 @@ func fetchGitHubReleaseDigestsOnce(ctx context.Context, client *http.Client, api
 	}
 
 	var release githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := jsonutil.NewDecoder(resp.Body).Decode(&release); err != nil {
 		return nil, err
 	}
 

@@ -4,9 +4,9 @@ package traffic
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	jsonutil "goclashz/core/jsonutil"
 	"io"
 	"net"
 	"net/http"
@@ -36,6 +36,9 @@ type ConnectionMetadata struct {
 	SourcePort      string `json:"sourcePort"`
 	DestinationPort string `json:"destinationPort"`
 	Host            string `json:"host"`
+	// DNSMode 是 Mihomo 对这条连接的真实 DNS 模式（如 normal / fake-ip / hosts），
+	// 用于在连接详情里区分“真实连接信息”和“静态 DNS 推断”。
+	DNSMode string `json:"dnsMode"`
 }
 
 // RawConnection 对应 Clash API 返回的原始连接项
@@ -114,7 +117,7 @@ func StreamTraffic(ctx context.Context, apiURL string, callback func(upRaw, down
 		}
 
 		const trafficIdleTimeout = 70 * time.Second
-		decoder := json.NewDecoder(resp.Body)
+		decoder := jsonutil.NewDecoder(resp.Body)
 		idleTimer := time.NewTimer(trafficIdleTimeout)
 		stopIdle := make(chan struct{})
 

@@ -4,7 +4,7 @@ package appcore
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"goclashz/core/clash"
 	"goclashz/core/logger"
 	"goclashz/core/traffic"
@@ -171,7 +171,7 @@ func (m *TrafficStreamManager) sampleProxyConnections(currentGen int) {
 		Connections []traffic.RawConnection `json:"connections"`
 	}
 
-	if err := json.Unmarshal(raw, &payload); err != nil {
+	if err := jsonv2.Unmarshal(raw, &payload); err != nil {
 		m.emitErrorLog(err)
 		return
 	}

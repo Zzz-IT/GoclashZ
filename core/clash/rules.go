@@ -3,7 +3,7 @@
 package clash
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"goclashz/core/utils"
 	"os"
@@ -70,7 +70,7 @@ func GetCustomRules(id string) ([]string, error) {
 
 	var set CustomRuleSet
 	// 修改：增加错误抛出，防止文件损坏时返回空切片导致前端覆写
-	if err := json.Unmarshal(data, &set); err != nil {
+	if err := jsonv2.Unmarshal(data, &set); err != nil {
 		return nil, err
 	}
 	return set.CustomRules, nil
@@ -142,7 +142,7 @@ func SaveCustomRules(id string, rules []string) error {
 
 	// 使用校验并清洗过的数据落盘
 	set := CustomRuleSet{CustomRules: sanitizedRules}
-	data, _ := json.Marshal(set)
+	data, _ := jsonv2.Marshal(set)
 
 	// 原子操作写入
 	if err := os.WriteFile(tmpPath, data, 0644); err != nil {

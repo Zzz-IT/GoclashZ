@@ -3,10 +3,12 @@
 package sys
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
 
+	"goclashz/core/logger"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
@@ -195,6 +197,14 @@ func uninstallServiceSCM(name string) error {
 
 // startServiceSCM 通过 SCM 启动服务（支持普通用户 DACL 权限及已运行时容错）
 func startServiceSCM(name string) error {
+	// 兼容旧调用点：给出覆盖「3 次重试 + 10s 状态等待」的预算。
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return startServiceSCMCtx(ctx, name)
+}
+
+// startServiceSCMCtx 是可取消版本：等待期间 ctx 到期会立刻返回（F-A0-05）。
+func startServiceSCMCtx(ctx context.Context, name string) error {
 	m, err := connectSCM(windows.SC_MANAGER_CONNECT)
 	if err != nil {
 		return fmt.Errorf("SCM connect failed: %w", err)
@@ -222,7 +232,9 @@ func startServiceSCM(name string) error {
 		}
 		// 若因开机时 SCM 数据库短暂锁定，稍候避让重试
 		if errors.Is(startErr, windows.ERROR_SERVICE_DATABASE_LOCKED) {
-			time.Sleep(100 * time.Millisecond)
+			if !sleepCtx(ctx, 100*time.Millisecond) {
+				return fmt.Errorf("启动服务等待被取消: %w", ctx.Err())
+			}
 			continue
 		}
 		break
@@ -234,6 +246,9 @@ func startServiceSCM(name string) error {
 	// 等待服务进入 Running 状态
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("等待服务启动被取消: %w", err)
+		}
 		status, err := s.Query()
 		if err != nil {
 			return fmt.Errorf("query service status failed: %w", err)
@@ -244,14 +259,24 @@ func startServiceSCM(name string) error {
 		if status.State != svc.StartPending && status.State != svc.ContinuePending {
 			return fmt.Errorf("service entered unexpected state: %v", status.State)
 		}
-		time.Sleep(200 * time.Millisecond)
+		if !sleepCtx(ctx, 200*time.Millisecond) {
+			return fmt.Errorf("等待服务启动被取消: %w", ctx.Err())
+		}
 	}
 
+	logger.Warnf("服务 %s 未在 10s 内进入 Running（SCM 可能卡在 StartPending）", name)
 	return fmt.Errorf("service did not start within timeout")
 }
 
 // stopServiceSCM 通过 SCM 停止服务
 func stopServiceSCM(name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return stopServiceSCMCtx(ctx, name)
+}
+
+// stopServiceSCMCtx 是可取消版本：等待期间 ctx 到期会立刻返回（F-A0-05）。
+func stopServiceSCMCtx(ctx context.Context, name string) error {
 	m, err := connectSCM(windows.SC_MANAGER_CONNECT)
 	if err != nil {
 		return fmt.Errorf("SCM connect failed: %w", err)
@@ -280,6 +305,9 @@ func stopServiceSCM(name string) error {
 	// 等待服务停止
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("等待服务停止被取消: %w", err)
+		}
 		status, err := s.Query()
 		if err != nil {
 			return nil // 服务可能已删除
@@ -287,9 +315,12 @@ func stopServiceSCM(name string) error {
 		if status.State == svc.Stopped {
 			return nil
 		}
-		time.Sleep(200 * time.Millisecond)
+		if !sleepCtx(ctx, 200*time.Millisecond) {
+			return fmt.Errorf("等待服务停止被取消: %w", ctx.Err())
+		}
 	}
 
+	logger.Warnf("服务 %s 未在 10s 内停止（SCM 可能卡在 StopPending）", name)
 	return fmt.Errorf("service did not stop within timeout")
 }
 

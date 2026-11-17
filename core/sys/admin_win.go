@@ -3,7 +3,7 @@
 package sys
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +12,7 @@ import (
 	"time"
 	"unsafe"
 
+	"goclashz/core/logger"
 	"golang.org/x/sys/windows"
 )
 
@@ -33,6 +34,36 @@ func CheckAdmin() bool {
 // IsAdmin 是 CheckAdmin 的别名
 func IsAdmin() bool {
 	return CheckAdmin()
+}
+
+// beforeElevatedExit 是「提权（UAC）重启前」的清理回调。
+//
+// RequestAdmin / RequestAdminWithArgs 走的是 os.Exit(0)，defer 一律不执行；
+// 如果不先停内核、摘掉系统代理，普通用户进程消失后注册表里的
+// ProxyServer 仍然指向 127.0.0.1，用户会直接断网。
+//
+// 方向约束：sys 不能 import appcore（会形成环），因此用函数变量反向注入。
+var beforeElevatedExit func()
+
+// SetBeforeElevatedExit 注册提权退出前的清理回调（由 appcore 在 NewController 里注册）。
+// 传 nil 可清除。回调内部 panic 会被吞掉并记录，绝不影响提权流程。
+func SetBeforeElevatedExit(fn func()) {
+	beforeElevatedExit = fn
+}
+
+// runBeforeElevatedExit 执行清理回调；未注册时是空操作（例如启动期 --repair-permissions
+// 分支上的提权，此时还没有 Controller 实例）。
+func runBeforeElevatedExit() {
+	fn := beforeElevatedExit
+	if fn == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("提权退出前清理回调 panic: %v", r)
+		}
+	}()
+	fn()
 }
 
 // RequestAdmin 呼出 UAC 窗口并以管理员身份重新启动当前程序
@@ -65,7 +96,9 @@ func RequestAdmin() error {
 		return err
 	}
 
-	// 提权成功后，退出当前普通用户权限的进程
+	// 提权成功后，退出当前普通用户权限的进程。
+	// os.Exit 不会执行 defer，代理/内核必须在退出前手动收拾。
+	runBeforeElevatedExit()
 	os.Exit(0)
 	return nil
 }
@@ -92,6 +125,8 @@ func RequestAdminWithArgs(extraArgs string) error {
 		return err
 	}
 
+	// 同 RequestAdmin：os.Exit 前先跑一遍清理。
+	runBeforeElevatedExit()
 	os.Exit(0)
 	return nil
 }
@@ -123,6 +158,17 @@ var (
 const (
 	SEE_MASK_NOCLOSEPROCESS = 0x00000040
 )
+
+// elevatedChildWaitTimeout 是等待管理员子进程的最长时间。
+//
+// 默认 10 分钟：正常提权任务（装/删/重启服务、修权限、UWP 豁免）都是秒级，
+// 这个上限只用来兜住「SCM 卡在 STOP_PENDING」「子进程被系统对话框挂住」这类
+// 会让 UI 永久转圈的情况。超时后强杀子进程并返回可读错误，不再无限等待。
+var elevatedChildWaitTimeout = 10 * time.Minute
+
+// waitTimeoutEvent 是 WaitForSingleObject 的超时返回值（winbase.h: WAIT_TIMEOUT）。
+// x/sys/windows 只导出了 WAIT_OBJECT_0 / WAIT_ABANDONED / WAIT_FAILED，这里补一个。
+const waitTimeoutEvent uint32 = 0x00000102
 
 // RunElevatedWithArgsWait 以管理员身份运行指定参数的自身进程，并等待其执行完毕，不会退出当前进程
 func RunElevatedWithArgsWait(args ...string) error {
@@ -169,9 +215,16 @@ func RunElevatedWithArgsWait(args ...string) error {
 	}
 	defer windows.CloseHandle(sei.HProcess)
 
-	_, err = windows.WaitForSingleObject(sei.HProcess, windows.INFINITE)
-	if err != nil {
-		return fmt.Errorf("等待管理员子进程失败: %w", err)
+	waitMS := uint32(elevatedChildWaitTimeout / time.Millisecond)
+	waitEvent, waitErr := windows.WaitForSingleObject(sei.HProcess, waitMS)
+	if waitErr != nil {
+		return fmt.Errorf("等待管理员子进程失败: %w", waitErr)
+	}
+	if waitEvent == waitTimeoutEvent {
+		// 超时：子进程被服务管理器/系统对话框挂住时，UI 不能跟着无限等。
+		_ = windows.TerminateProcess(sei.HProcess, 1)
+		return fmt.Errorf("管理员子进程超过 %s 未完成，已强制终止；请重试，或改用「以管理员身份重启」后手动执行",
+			elevatedChildWaitTimeout)
 	}
 
 	var exitCode uint32
@@ -212,7 +265,7 @@ func WriteAdminTaskResult(operation string, err error) {
 	if err != nil {
 		res.Error = err.Error()
 	}
-	data, _ := json.Marshal(res)
+	data, _ := jsonv2.Marshal(res)
 	_ = os.WriteFile(getAdminTaskResultPath(), data, 0666)
 }
 
@@ -224,7 +277,7 @@ func readAdminTaskError() string {
 	}
 	_ = os.Remove(path) // 读完删除
 	var res AdminTaskResult
-	if err := json.Unmarshal(data, &res); err == nil && !res.OK {
+	if err := jsonv2.Unmarshal(data, &res); err == nil && !res.OK {
 		return res.Error
 	}
 	return ""

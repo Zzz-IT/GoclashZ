@@ -1,15 +1,36 @@
 <template>
-  <div class="proxies-view">
-    <div class="proxy-toolbar page-sticky-mask">
+  <div class="proxies-view ui-page-shell">
+    <div class="proxy-toolbar ui-page-header">
       <div class="proxy-toolbar-card">
         <div class="proxy-tabs-viewport">
-          <div class="proxy-tabs-track" ref="tabsTrackRef">
+          <!-- 自绘滚动指示条：画在按钮行下方，不覆盖任何标签；只有它能拖动 -->
+          <i
+            v-show="railThumbVisible"
+            class="proxy-rail-thumb"
+            :class="{ 'is-dragging': thumbDragging }"
+            :style="railThumbStyle"
+            role="scrollbar"
+            aria-orientation="horizontal"
+            :aria-valuenow="Math.round(thumbScrollLeft)"
+            aria-valuemin="0"
+            :aria-valuemax="thumbScrollMax"
+            @pointerdown="onThumbPointerDown"
+            @pointermove="onThumbPointerMove"
+            @pointerup="onThumbPointerUp"
+            @pointercancel="onThumbPointerUp"
+          ></i>
+          <div
+            class="proxy-tabs-track"
+            ref="tabsTrackRef"
+            @wheel="onTrackWheel"
+            @scroll.passive="updateTrackOverflow"
+          >
             <button
               v-for="group in localGroups"
               :key="group.name"
               :ref="(el) => { if (group.name === currentGroup) activeTabEl = el as HTMLElement | null }"
               :class="['proxy-tab-btn', { active: currentGroup === group.name }]"
-              @click="currentGroup = group.name"
+              @click="onTabClick(group.name)"
             >
               {{ group.name }}
               <span class="count">({{ group.proxies?.length || 0 }})</span>
@@ -62,7 +83,7 @@
       </div>
     </div>
 
-    <div class="scroll-content">
+    <div class="scroll-content ui-page-body">
       <div v-if="activeGroupData" :key="activeGroupData.name" class="group-section">
         <TransitionGroup 
           tag="div" 
@@ -72,7 +93,7 @@
           name="node-card"
         >
             <div v-for="node in filteredAndSortedNodes" :key="node.name"
-                 :class="['node-item', { active: activeGroupData.now === node.name, readonly: !activeGroupData.selectable }]"
+                 :class="['node-item', 'ui-surface-card', 'ui-hover-surface', { active: activeGroupData.now === node.name, readonly: !activeGroupData.selectable }]"
                  @click="selectNode(activeGroupData.name, node.name)">
 
             <div class="node-main-area">
@@ -119,10 +140,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed, watch, nextTick, TransitionGroup } from 'vue';
-import * as API from '../../wailsjs/go/main/App';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { showAlert, globalState, scheduleOutboundIPRefresh, setProxyCardMode, ProxyCardMode } from '../store';
+import { App } from '../api';
+import { Events } from '@wailsio/runtime';
+import { showAlert, showToast, globalState, scheduleOutboundIPRefresh, setProxyCardMode, ProxyCardMode } from '../store';
 import { ICONS } from '../utils/icons';
+import { toUserError } from '../utils/errors';
+import { reportError } from '../utils/report';
 import { t } from '../locales';
 
 const localGroups = ref<any[]>([]);
@@ -136,6 +159,93 @@ const activeTabEl = ref<HTMLElement | null>(null);
 const sliderStyle = ref({ left: '0px', width: '0px' });
 const sliderReady = ref(false);
 const sliderVisible = ref(false);
+
+/* ------------------------------------------------------------------
+ * 分组条横向溢出处理
+ * 轨道不再显示原生滚动条（它会把轨道撑高 8px，导致组名与测速按钮不居中），
+ * 所以这里补三件事：滚轮横向滚动、按住拖动滚动、左右边缘渐隐提示。
+ * ---------------------------------------------------------------- */
+const canScrollLeft = ref(false);
+const canScrollRight = ref(false);
+
+/* 自绘横向滚动指示条（原生滚动条会压住选项卡底边，所以改成画在按钮行下方） */
+const railThumbVisible = ref(false);
+const railThumbStyle = ref<Record<string, string>>({ left: '0px', width: '0px' });
+
+const updateRailThumb = () => {
+  const el = tabsTrackRef.value;
+  if (!el) return;
+  const overflow = el.scrollWidth - el.clientWidth;
+  if (overflow <= 4) {
+    railThumbVisible.value = false;
+    return;
+  }
+  const track = el.clientWidth;
+  const width = Math.max(28, Math.round((track / el.scrollWidth) * track));
+  const left = Math.round((el.scrollLeft / overflow) * (track - width));
+  railThumbVisible.value = true;
+  railThumbStyle.value = { left: left + 'px', width: width + 'px' };
+  thumbScrollLeft.value = el.scrollLeft;
+  thumbScrollMax.value = overflow;
+};
+
+const updateTrackOverflow = () => {
+  const el = tabsTrackRef.value;
+  if (!el) return;
+  canScrollLeft.value = el.scrollLeft > 2;
+  canScrollRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+  updateRailThumb();
+};
+
+/** 竖向滚轮也用于横向浏览分组（触控板横向手势照旧生效） */
+const onTrackWheel = (e: WheelEvent) => {
+  const el = tabsTrackRef.value;
+  if (!el || el.scrollWidth <= el.clientWidth) return;
+  const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  if (!delta) return;
+  e.preventDefault();
+  el.scrollLeft += delta;
+};
+
+/* 只有「滚动指示条」可以拖动（像真正的滚动条那样）；
+   选项卡区域只负责点击切换分组，不再被拖拽逻辑抢占，避免"想点分组却把条拖走"。 */
+const thumbDragging = ref(false);
+const thumbScrollLeft = ref(0);
+const thumbScrollMax = ref(0);
+let thumbStartX = 0;
+let thumbStartScroll = 0;
+
+const onThumbPointerDown = (e: PointerEvent) => {
+  const el = tabsTrackRef.value;
+  if (!el || e.button !== 0) return;
+  e.preventDefault();
+  thumbDragging.value = true;
+  thumbStartX = e.clientX;
+  thumbStartScroll = el.scrollLeft;
+  (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+};
+
+const onThumbPointerMove = (e: PointerEvent) => {
+  const el = tabsTrackRef.value;
+  const thumb = e.currentTarget as HTMLElement;
+  if (!thumbDragging.value || !el) return;
+  const maxScroll = el.scrollWidth - el.clientWidth;
+  const thumbWidth = thumb.offsetWidth;
+  const trackWidth = el.clientWidth;
+  const travel = Math.max(1, trackWidth - thumbWidth);
+  const dx = e.clientX - thumbStartX;
+  el.scrollLeft = thumbStartScroll + (dx / travel) * maxScroll;
+};
+
+const onThumbPointerUp = (e: PointerEvent) => {
+  if (!thumbDragging.value) return;
+  thumbDragging.value = false;
+  (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+};
+
+const onTabClick = (name: string) => {
+  currentGroup.value = name;
+};
 
 const updateSlider = () => {
   if (localGroups.value.length === 0) return;
@@ -170,8 +280,21 @@ watch(currentGroup, (v) => {
   frozenSortedNodes.value = null;
   nextTick(updateSlider); 
 });
-watch(() => localGroups.value.length, () => { resetSlider(); });
-onMounted(() => resetSlider());
+watch(() => localGroups.value.length, () => {
+  resetSlider();
+  nextTick(updateTrackOverflow);
+});
+let trackResizeObserver: ResizeObserver | null = null;
+
+onMounted(() => {
+  resetSlider();
+  nextTick(updateTrackOverflow);
+  // 窗口/轨道尺寸变化或分组数量变化时更新左右渐隐提示
+  if (typeof ResizeObserver !== 'undefined' && tabsTrackRef.value) {
+    trackResizeObserver = new ResizeObserver(() => updateTrackOverflow());
+    trackResizeObserver.observe(tabsTrackRef.value);
+  }
+});
 onActivated(() => {
   // Give browser time to restore DOM and scroll positions before re-enabling animation
   setTimeout(() => { sliderReady.value = true; }, 50);
@@ -403,14 +526,17 @@ const activeGroupData = computed(() => {
 const loadData = async () => {
   // 👇 新增：预加载配置以决定样式和保留逻辑
   try {
-    const bh = await (API.GetAppBehavior as any)();
+    const bh = await App.GetAppBehavior();
     if (bh) {
       isColorMode.value = bh.colorDelay === true;
     }
-  } catch (e) {}
+  } catch (e) {
+    // 取不到行为配置不影响节点列表，但必须留痕（F-A4-11）
+    reportError(e, 'proxies.loadBehavior');
+  }
 
   try {
-    const data: any = await API.GetInitialData();
+    const data: any = await App.GetInitialData();
     if (data && data.groups) {
       const processedGroups: any[] = [];
       
@@ -457,7 +583,7 @@ const loadData = async () => {
       }
     }
   } catch (e) {
-    console.error("加载代理组失败", e);
+    reportError(e, 'proxies.load');
   }
 };
 
@@ -474,7 +600,7 @@ const selectNode = async (groupName: string, nodeName: string) => {
   }
 
   try {
-    await API.SelectProxy(groupName, nodeName);
+    await App.SelectProxy(groupName, nodeName);
     
     // 🚀 核心修复：以内核返回的真实 now 为准，不再本地乐观修改
     // 重新拉取一次数据确保同步
@@ -519,9 +645,9 @@ const toggleTestAllDelays = async () => {
 
 const stopTesting = async () => {
   try {
-    await API.StopDelayTest();
+    await App.StopDelayTest();
   } catch (e) {
-    console.error("停止测速失败:", e);
+    reportError(e, 'proxies.stopTest');
   } finally {
     isTesting.value = false;
     frozenSortedNodes.value = null;
@@ -548,13 +674,16 @@ const testAllDelays = async () => {
 
   if (nodesArray.length > 0) {
     try {
-      await API.TestAllProxies(nodesArray);
+      await App.TestAllProxies(nodesArray);
     } catch (e) {
+      // F-A4-10：以前这里完全静默，用户点「测速全部」失败后毫无反馈
+      reportError(e, 'proxies.testAll');
       isTesting.value = false;
       frozenSortedNodes.value = null;
       proxies.forEach((n: any) => {
         n.testing = false;
       });
+      showToast(t('proxies.speedTestFailed', { error: toUserError(e).message }), 'error');
     }
   } else {
     isTesting.value = false;
@@ -569,14 +698,16 @@ const testSingleDelay = async (node: any) => {
   node.testing = true;
 
   try {
-    await API.TestProxy(node.name);
+    await App.TestProxy(node.name);
   } catch (e) {
-    const msg = String(e);
-    if (msg.includes('DELAY_TEST_BUSY') || msg.includes('已有测速任务') || msg.includes('busy')) {
+    // 只认后端确定会产出的 code（core/appcore/delay_manager.go: ErrDelayTestBusy）；
+    // 以前还匹配 'busy' 这类泛化子串，会把「内核忙」之类的真实错误一起吞掉。
+    if (String(e).includes('DELAY_TEST_BUSY')) {
+      showToast(t('proxies.speedTestBusy'), 'info');
       return;
     }
-
-    console.error("单点测速失败:", e);
+    reportError(e, 'proxies.testSingle');
+    showToast(t('proxies.speedTestFailed', { error: toUserError(e).message }), 'error');
   } finally {
     node.testing = false;
   }
@@ -608,7 +739,7 @@ const getDelayColorClass = (delayInfo: any) => {
 
 onMounted(async () => {
   // 🎯 接收并保存取消函数
-  unsubStart = EventsOn("proxy-test-start", (nodeName: string) => {
+  unsubStart = Events.On("proxy-test-start", ({ data: nodeName }: { data: string }) => {
     if (!localGroups.value) return;
     localGroups.value.forEach(g => {
       if (!g.proxies) return;
@@ -620,7 +751,7 @@ onMounted(async () => {
   });
 
   // 接收到“结果”信号，仅负责关掉 UI 上的转圈动画
-  unsubUpdate = EventsOn("proxy-delay-update", (data: any) => {
+  unsubUpdate = Events.On("proxy-delay-update", ({ data }: { data: any }) => {
     if (!data || !localGroups.value) return;
     localGroups.value.forEach(g => {
       if (!g.proxies) return;
@@ -631,11 +762,11 @@ onMounted(async () => {
     });
   });
 
-  unsubChanged = EventsOn("config-changed", async () => {
+  unsubChanged = Events.On("config-changed", async () => {
       await loadData();
   });
 
-  unsubFinish = (EventsOn as any)("proxy-test-finished", () => {
+  unsubFinish = Events.On("proxy-test-finished", () => {
     isTesting.value = false;
     frozenSortedNodes.value = null;
     
@@ -649,7 +780,7 @@ onMounted(async () => {
   });
 
   // 🚀 新增：轻量化策略组状态同步，处理 Fallback/URLTest 的自动切换
-  unsubProxyState = (EventsOn as any)("proxy-state-sync", async (states: any[]) => {
+  unsubProxyState = Events.On("proxy-state-sync", async ({ data: states }: { data: any[] }) => {
     if (!Array.isArray(states)) return;
 
     // 🛡️ 核心优化：如果收到一个当前 UI 中不存在的组（可能是配置切换后的残余或新发现的组）
@@ -679,6 +810,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  trackResizeObserver?.disconnect();
+  trackResizeObserver = null;
   unsubStart?.();
   unsubUpdate?.();
   unsubChanged?.();
@@ -694,45 +827,56 @@ onUnmounted(() => {
 .proxies-view { 
   display: flex; 
   flex-direction: column; 
-  min-height: 100%; 
-  overflow: visible; 
 }
 
 .proxy-toolbar {
   width: 100%;
-  --sticky-mask-bleed: 4px;
 }
 
+/* 分组名 + 测速按钮共用一条"滑轨"（与连接页的选项卡轨道同一套观感）：
+   圆角底板 + 内缩 6px，选项卡的高亮胶囊就落在轨道里，不再悬空。 */
+/* 滑轨比按钮高"一圈"：上 6px + 按钮 36px + 滚动条 4px + 下 2px = 48px。
+   这样既容得下原生横向滚动条，组名与测速按钮的垂直中轴又都落在 24px 处（视觉居中）。 */
+/* 滑轨比按钮行高一圈：上下各 10px 留白里容纳"按钮行 + 下方 3px 滚动指示条"，
+   按钮中心 = 滑轨中心（10 + 18 = 28），指示条画在 bottom -7px 处，不覆盖任何标签。 */
 .proxy-toolbar-card {
-  position: relative;
-  z-index: 1;
   display: flex;
-  align-items: flex-start; /* 改为 flex-start 以精确控制垂直位置 */
+  align-items: flex-start;
   width: 100%;
-  min-height: 60px;
-  padding: 12px 12px 4px 12px; /* 顶部12px，底部4px。配合 track 的 44px 高度，总高度精确为 60px */
-  gap: 12px;
+  padding: 10px 6px;
+  gap: 10px;
   border-radius: 12px;
-  background: var(--surface);
+  background: var(--surface-hover);
+}
+
+html[data-glass="on"] .proxy-toolbar-card {
+  background: var(--glass-fill-card);
 }
 
 .proxy-tabs-viewport {
+  position: relative;
   flex: 1;
   min-width: 0;
-  height: 44px; /* 36px 按钮 + 8px 滚动条空间 */
+  height: 36px;
   border-radius: 8px;
 }
 
+/* 原生横向滚动条已经回到轨道内，这里不再需要边缘渐隐遮罩 */
+
 .proxy-tabs-track {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
-  height: 44px;
+  height: 36px;
   min-width: 0;
   width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0 0 8px 0;
+  padding: 0;
+  /* 轨道 = 36px 按钮 + 4px 滚动条；滚动条占的是轨道自己的高度，
+     所以按钮仍然贴着轨道顶部，与右侧测速按钮同轴。 */
+  scrollbar-width: none;
+  scroll-behavior: auto;
   user-select: none;
   -webkit-user-select: none;
   overscroll-behavior-x: contain;
@@ -740,9 +884,50 @@ onUnmounted(() => {
 }
 
 .proxy-tabs-track::-webkit-scrollbar {
-  height: 4px; /* 与全局竖向滚动条宽度一致 */
-  display: block;
+  height: 0;
+  display: none;
 }
+
+/* 自绘滚动指示条：位于按钮行下方 6px，3px 高，不覆盖标签 */
+.proxy-rail-thumb {
+  position: absolute;
+  bottom: -7px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--text-muted);
+  opacity: 0.75;
+  /* 只有指示条本身可以拖（和原生滚动条一致），选项卡区域保持点击切换。
+     光标刻意用 default：系统滚动条移上去不会变手，自绘条跟它保持一致。 */
+  pointer-events: auto;
+  cursor: default;
+  transition: left 0.08s linear, width 0.08s linear, opacity 0.2s ease, background-color 0.15s ease;
+}
+
+/* 视觉上仍是 3px，但上下各扩 4px 命中区，方便按住 */
+.proxy-rail-thumb::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -4px;
+  bottom: -4px;
+}
+
+.proxy-rail-thumb:hover {
+  background: var(--text-sub);
+  opacity: 1;
+}
+
+.proxy-rail-thumb.is-dragging {
+  background: var(--ui-accent-block);
+  opacity: 1;
+}
+
+html[data-glass="on"] .proxy-rail-thumb {
+  background: var(--text-sub);
+}
+
+
 
 .proxy-tabs-track::-webkit-scrollbar-button {
   display: none;
@@ -786,7 +971,7 @@ onUnmounted(() => {
 }
 
 .proxy-tab-btn.active {
-  color: var(--accent-fg);
+  color: var(--ui-accent-fg);
   font-weight: 800;
 }
 
@@ -804,7 +989,7 @@ onUnmounted(() => {
   position: absolute;
   top: 0;
   height: 36px;
-  background: var(--accent);
+  background: var(--ui-accent-block);
   border-radius: 8px;
   z-index: 0;
   pointer-events: none;
@@ -817,7 +1002,7 @@ onUnmounted(() => {
 .proxy-toolbar-actions {
   flex-shrink: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   height: 36px;
 }
 
@@ -923,13 +1108,13 @@ onUnmounted(() => {
 }
 
 .tool-btn:hover {
-  background: var(--surface-hover);
-  color: var(--text-main);
+  background: var(--ui-surface-hover);
+  color: var(--ui-text-primary);
 }
 
 .tool-btn.active {
-  color: var(--accent);
-  background: var(--surface); /* 启用状态与节点卡片(未选中)背景色一致 */
+  color: var(--ui-accent);
+  background: var(--ui-accent-soft);
 }
 
 .tool-btn .btn-icon {
@@ -940,11 +1125,13 @@ onUnmounted(() => {
   justify-content: center;
 }
 
+/* 唯一滚动区：节点网格自己滚动，工具栏固定 */
 .scroll-content { 
   flex: 1; 
   min-height: 0;
-  overflow: visible; 
   padding-top: 4px;
+  display: flex;
+  flex-direction: column;
 }
 
 .group-section { margin-bottom: 24px; }
@@ -1068,9 +1255,7 @@ onUnmounted(() => {
   min-width: 0;
   box-sizing: border-box;
   border: none;
-  border-radius: 12px;
   cursor: pointer;
-  background: var(--surface);
   position: relative;
   overflow: hidden;
   transition: 
@@ -1086,30 +1271,29 @@ onUnmounted(() => {
 .node-item.readonly {
   cursor: default;
 }
-.node-item:hover { background: var(--surface-hover); }
 .node-item.active { 
-  background: var(--accent); 
-  color: var(--accent-fg);
+  background: var(--ui-accent-block); 
+  color: var(--ui-accent-fg);
   font-weight: 600; 
   position: relative;
   z-index: 2;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--ui-shadow-2);
 }
 
 .node-item.active .n-name { 
-  color: var(--accent-fg); 
+  color: var(--ui-accent-fg); 
 }
 
 /* 🎯 修复：保持字重一致，仅通过不透明度拉开深浅，避免黑色模式下字体显得过细 */
-.node-item.active .t-fast { color: var(--accent-fg) !important; opacity: 1; font-weight: 700; }
-.node-item.active .t-mid { color: var(--accent-fg) !important; opacity: 0.6; font-weight: 700; }
-.node-item.active .t-slow { color: var(--accent-fg) !important; opacity: 0.3; font-weight: 700; }
-.node-item.active .t-fail { color: var(--accent-fg) !important; opacity: 1; font-weight: 700; }
-.node-item.active .t-unknown { color: var(--accent-fg) !important; opacity: 0.3; font-weight: 700; }
+.node-item.active .t-fast { color: var(--ui-accent-fg) !important; opacity: 1; font-weight: 700; }
+.node-item.active .t-mid { color: var(--ui-accent-fg) !important; opacity: 0.6; font-weight: 700; }
+.node-item.active .t-slow { color: var(--ui-accent-fg) !important; opacity: 0.3; font-weight: 700; }
+.node-item.active .t-fail { color: var(--ui-accent-fg) !important; opacity: 1; font-weight: 700; }
+.node-item.active .t-unknown { color: var(--ui-accent-fg) !important; opacity: 0.3; font-weight: 700; }
 
 /* 确保选中节点（active）的图标完全不透明且使用反色（白色） */
 .node-item.active .ping-idle {
-  color: var(--accent-fg) !important; /* 在日间模式选中时为白色 */
+  color: var(--ui-accent-fg) !important; /* 在日间模式选中时为白色 */
   opacity: 1 !important;
   transform: none !important;        /* 选中后禁止悬停缩放，保持静止 */
 }
@@ -1123,11 +1307,11 @@ onUnmounted(() => {
 
 /* 确保测速中的动画在选中态也是反色 */
 .node-item.active .scanner-track {
-  stroke: var(--accent-fg) !important;
+  stroke: var(--ui-accent-fg) !important;
   stroke-opacity: 0.15; /* 🚀 核心：让底圈更浅、更通透 */
 }
 .node-item.active .scanner-bar {
-  stroke: var(--accent-fg) !important;
+  stroke: var(--ui-accent-fg) !important;
 }
 
 .node-main-area { 
@@ -1172,16 +1356,16 @@ onUnmounted(() => {
 /* 情况 1：未选中的节点卡片 */
 /* 照抄顶部“已选中的代理组 Tab”的高亮逻辑 */
 .node-item:not(.active) .n-protocol {
-  background: var(--surface-panel); 
-  color: var(--text-main);
+  background: var(--surface); 
+  color: var(--ui-text-primary);
 }
 
 /* 情况 2：已选中的节点卡片 (反色态) */
 /* 严格照抄 Overview.vue 中 .on .icon-ring 的夜间/激活模式处理逻辑 */
 .node-item.active .n-protocol { 
-  /* 这里的 rgba(128, 128, 128, 0.25) 是 Overview 中定义的标准半透明遮罩 */
-  background: rgba(128, 128, 128, 0.25) !important; 
-  color: var(--accent-fg) !important;
+  /* 选中态标签：accent-fg 半透明遮罩，与 Overview 的 on 态保持一致，不再用色值字面量 */
+  background: color-mix(in srgb, var(--ui-accent-fg) 25%, transparent) !important; 
+  color: var(--ui-accent-fg) !important;
   /* 确保完全没有边框或阴影干扰，保持通透感 */
   box-shadow: none; 
   border: none;
@@ -1217,7 +1401,7 @@ onUnmounted(() => {
 }
 .scanner-track {
   fill: none;
-  stroke: var(--surface-hover);
+  stroke: var(--ui-surface-hover);
   stroke-width: 3;
 }
 .scanner-bar {
@@ -1275,8 +1459,11 @@ onUnmounted(() => {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 200px;
+  flex: 1 1 auto;
+  min-height: 240px;
   color: var(--text-muted);
   font-style: italic;
+  text-align: center;
 }
+.empty-state p { margin: 0; }
 </style>

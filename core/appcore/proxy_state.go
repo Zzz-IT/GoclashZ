@@ -4,7 +4,7 @@ package appcore
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"sync"
 	"time"
@@ -117,7 +117,7 @@ func (m *ProxyStateMonitor) Start(ctx context.Context) {
 				}
 
 				// 使用 JSON 哈希简单的对比数据是否变化
-				payload, _ := json.Marshal(states)
+				payload, _ := jsonv2.Marshal(states)
 				hash := string(payload)
 				if hash == lastHash {
 					continue

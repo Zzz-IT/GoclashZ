@@ -1,6 +1,6 @@
 <template>
-  <div class="subs-view" @click="activeMenu = null">
-    <div class="page-header page-sticky-mask">
+  <div class="subs-view ui-page-shell" @click="activeMenu = null">
+    <div class="page-header ui-page-header">
       <div class="header-text">
         <h2 class="main-title">{{ t('subs.title') }}</h2>
         <span class="sub-text">
@@ -28,15 +28,27 @@
     </div>
 
     <!-- 列表过渡动画 -->
-    <TransitionGroup name="list" tag="div" class="subs-list">
-      <div v-if="localConfigs.length === 0" class="empty-state" key="empty">
-        {{ t('subs.emptyState') }}
+    <TransitionGroup name="list" tag="div" class="subs-list ui-page-body">
+      <!-- 首次加载：先显示轻量占位，避免把“还没返回”误判成“本地没有配置” -->
+      <div
+        v-if="configsLoading && localConfigs.length === 0"
+        key="loading"
+        class="subs-loading ui-surface-card"
+      >
+        {{ t('common.loading') }}
       </div>
+
+      <EmptyState
+        v-else-if="!configsLoading && localConfigs.length === 0"
+        key="empty"
+        :icon="ICONS.subs"
+        :title="t('subs.emptyState')"
+      />
 
       <div
         v-for="(config, index) in localConfigs"
         :key="config.id"
-        class="sub-card clickable"
+        class="sub-card clickable ui-surface-card ui-hover-surface"
         :class="{ 'active-card': isCurrentConfig(config.id), 'is-sorting': isSortingMode }"
         @click="!isSortingMode && handleSelectConfig(config)"
       >
@@ -75,10 +87,11 @@
         <div class="sub-footer" v-show="!isSortingMode">
           <span class="sub-hint">{{ t('subs.clickToApply') }}</span>
           <div class="sub-actions">
-            <button class="icon-btn" @click.stop="toggleMenu(config.id)" v-html="ICONS.more"></button>
+            <button class="icon-btn" @click.stop="toggleMenu(config.id, $event)" v-html="ICONS.more"></button>
             <div v-if="activeMenu === config.id" class="menu-click-overlay" @click.stop="activeMenu = null"></div>
+            <Teleport to="body">
             <Transition name="dropdown">
-              <div v-if="activeMenu === config.id" class="dropdown-menu card-panel">
+              <div v-if="activeMenu === config.id" ref="menuRef" class="dropdown-menu ui-surface-overlay" :style="menuStyle">
                 <button v-if="config.type === 'remote'" class="menu-item" @click.stop="handleUpdateSingle(config)">{{ t('subs.menuUpdate') }}</button>
                 <button class="menu-item" @click.stop="openRenameModal(config)">{{ t('subs.menuRename') }}</button>
                 <button class="menu-item" @click.stop="handleEditFile(config)">{{ t('subs.menuEdit') }}</button>
@@ -87,14 +100,18 @@
                 <button class="menu-item danger" @click.stop="openDeleteModal(config)">{{ t('subs.menuDelete') }}</button>
               </div>
             </Transition>
+            </Teleport>
           </div>
         </div>
       </div>
     </TransitionGroup>
 
     <!-- 统一模态框系统 -->
-    <Transition name="pop">
-      <div v-if="activeModal" class="modal-overlay" @click="closeAllModals">
+    <!-- Teleport 到 body：弹窗必须在 .view-transition-wrapper 之外，
+         否则会被过渡的 mask-image 一起裁切（position:fixed 也逃不出父级 mask） -->
+    <Teleport to="body">
+      <Transition name="pop">
+        <div v-if="activeModal" class="modal-overlay" @click="closeAllModals">
         <!-- 导入主入口弹窗 -->
         <div v-if="activeModal === 'import'" class="custom-modal-card" @click.stop>
           <div class="modal-header">
@@ -174,18 +191,22 @@
           </div>
         </div>
       </div>
-    </Transition>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
-import * as API from '../../wailsjs/go/main/App';
-import { clash } from '../../wailsjs/go/models';
-import { EventsOn, BrowserOpenURL } from '../../wailsjs/runtime/runtime';
-import { showAlert, showConfirm, globalState } from '../store';
+import { App } from '../api';
+import * as clash from '../../bindings/goclashz/core/clash';
+import { Events } from '@wailsio/runtime';
+import { showAlert, openModal, showToast, globalState } from '../store';
 import { formatBytes } from '../utils/format';
 import { ICONS } from '../utils/icons';
+import { displayErrorMessage, toUserError } from '../utils/errors';
+import { reportError } from '../utils/report';
+import EmptyState from './EmptyState.vue';
 import { t } from '../locales';
 
 const emit = defineEmits<{
@@ -202,6 +223,7 @@ const isRenaming = ref(false);
 const isDeleting = ref(false);
 
 const localConfigs = ref<clash.SubIndexItem[]>([]);
+const configsLoading = ref(true);
 const activeMenu = ref<string | null>(null);
 
 // --- 导入相关状态 ---
@@ -243,16 +265,20 @@ const isCurrentConfig = (id: string) => {
 };
 
 const fetchConfigs = async () => {
+  // 列表请求返回前保持 loading，空状态只在“确认没有配置”后出现
+  configsLoading.value = true;
   try {
-    localConfigs.value = await API.GetLocalConfigs() || [];
-    const data: any = await API.GetInitialData();
+    localConfigs.value = await App.GetLocalConfigs() || [];
+    const data: any = await App.GetInitialData();
     if (data && data.activeConfig !== undefined) {
       globalState.activeConfigId = data.activeConfig;
       globalState.activeConfigName = data.activeConfigName || '';
       globalState.activeConfigType = data.activeConfigType || '';
     }
   } catch (e) {
-    console.error("同步状态失败:", e);
+    reportError(e, 'subs.syncState');
+  } finally {
+    configsLoading.value = false;
   }
 };
 
@@ -273,7 +299,7 @@ const handleSelectConfig = async (config: clash.SubIndexItem) => {
   
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      await API.SelectLocalConfig(config.id);
+      await App.SelectLocalConfig(config.id);
       lastError = null;
       break;
     } catch (error) {
@@ -299,7 +325,7 @@ const handleUpdateAll = async () => {
   }
 
   // 🚀 发起异步任务，具体状态由事件监听器控制
-  API.UpdateAllSubsAsync().catch(() => {});
+  App.UpdateAllSubsAsync().catch((e: unknown) => reportError(e, 'subs.updateAll'));
 };
 
 const handleUpdateSingle = async (config: clash.SubIndexItem) => {
@@ -307,11 +333,13 @@ const handleUpdateSingle = async (config: clash.SubIndexItem) => {
   activeMenu.value = null;
   isUpdating.value = true;
   try {
-    await API.UpdateSingleSub(config.id);
+    await App.UpdateSingleSub(config.id);
     await fetchConfigs();
-    await showAlert(t('subs.updateSingleSuccess'), t('subs.updateDone'));
+    // F-A4-12：成功用 toast（文案较长，给足停留时间并压平换行）
+    showToast(t('subs.updateSingleSuccess').replace(/\s+/g, ' '), 'success', { duration: 5000 });
   } catch (e) {
-    await showAlert(t('subs.updateError', { error: String(e) }), t('common.error'));
+    const u = toUserError(e);
+    await showAlert(u.message, t('common.error'), true, u.detail);
   } finally {
     isUpdating.value = false;
   }
@@ -327,7 +355,7 @@ const handleDownload = () => {
 
 const handlePickFile = async () => {
   try {
-    const result = await API.SelectLocalFile();
+    const result = await App.SelectLocalFile();
     if (result && result.path) {
       pendingImportPath.value = result.path;
       configNameInput.value = result.name;
@@ -345,16 +373,17 @@ const confirmImport = async () => {
   try {
     const finalName = configNameInput.value.trim() || (isImportingRemote.value ? t('subs.unnamedSub') : t('subs.unnamedFile'));
     if (isImportingRemote.value) {
-      await API.UpdateSub(finalName, pendingImportPath.value);
+      await App.UpdateSub(finalName, pendingImportPath.value);
     } else {
-      await API.DoLocalImport(pendingImportPath.value, finalName);
+      await App.DoLocalImport(pendingImportPath.value, finalName);
     }
     await fetchConfigs();
     closeAllModals();
     newSubUrl.value = '';
   } catch (e) {
-    console.error("导入失败:", e);
-    await showAlert(t('subs.importFailed', { error: String(e) }), t('common.error'));
+    reportError(e, 'subs.import');
+    const u = toUserError(e);
+    await showAlert(t('subs.importFailed', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
   } finally {
     isImporting.value = false;
   }
@@ -371,12 +400,13 @@ const confirmRename = async () => {
   if (!renameValue.value) return;
   isRenaming.value = true;
   try {
-    await API.RenameConfig(targetId.value, renameValue.value);
+    await App.RenameConfig(targetId.value, renameValue.value);
     await fetchConfigs();
     closeAllModals();
   } catch (e) {
-    console.error("重命名失败:", e);
-    await showAlert(t('subs.renameFailed', { error: String(e) }), t('common.error'));
+    reportError(e, 'subs.rename');
+    const u = toUserError(e);
+    await showAlert(t('subs.renameFailed', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
   } finally {
     isRenaming.value = false;
   }
@@ -385,6 +415,18 @@ const confirmRename = async () => {
 const handleEditFile = async (config: clash.SubIndexItem) => {
   activeMenu.value = null;
   emit('edit-config', config.id, config.name, config.type as 'local' | 'remote');
+};
+
+// 订阅链接脱敏：保留协议+主机与尾部 4 位，中间的 token/path 打码（F-A4-19）
+const maskUrl = (url: string): string => {
+  try {
+    const u = new URL(url);
+    const tail = url.slice(-4);
+    return u.protocol + '//' + u.host + '/***' + tail;
+  } catch {
+    // 解析失败时也不要露出前段（可能是 token 开头），只保留尾部 4 位便于用户核对
+    return url.length > 8 ? '***' + url.slice(-4) : '***';
+  }
 };
 
 const handleShareLink = async (config: clash.SubIndexItem) => {
@@ -397,41 +439,31 @@ const handleShareLink = async (config: clash.SubIndexItem) => {
   } catch {
     status = t('subs.copyFailed');
   }
-  globalState.modal = {
-    show: true,
+  // 走受管模态：排队 + 保证 settle（旧式直写会顶掉别的确认框）
+  void openModal({
+    type: 'alert',
     title: t('subs.shareLinkTitle'),
     message: status,
-    detail: config.url,
-    type: 'alert',
-    isDanger: false,
-    onConfirm: () => { globalState.modal.show = false; },
-    onCancel: null,
-  };
+    // 剪贴板里是完整链接（用户要能用），界面上只显示脱敏后的形态
+    detail: maskUrl(config.url),
+  });
 };
 
 const handleExport = (config: clash.SubIndexItem) => {
   activeMenu.value = null;
-  globalState.modal = {
-    show: true,
+  // 修复 F-A4-19：以前「取消 / 点遮罩」也会执行 doExport(id, false)，
+  // 用户以为取消了却多出一个文件。现在取消 = 不导出。
+  void openModal({
+    type: 'confirm',
     title: t('subs.menuExport'),
     message: t('subs.exportReplaceRulesPrompt'),
-    detail: '',
-    type: 'confirm',
-    isDanger: false,
-    onConfirm: async () => {
-      globalState.modal.show = false;
-      await doExport(config.id, true);
-    },
-    onCancel: async () => {
-      globalState.modal.show = false;
-      await doExport(config.id, false);
-    },
-  };
+    onConfirm: () => doExport(config.id, true),
+  });
 };
 
 const doExport = async (id: string, useCustomRules: boolean) => {
   try {
-    await API.ExportConfig(id, useCustomRules);
+    await App.ExportConfig(id, useCustomRules);
   } catch (e) {
     await showAlert(t('subs.exportFailed', { error: String(e) }), t('common.error'));
   }
@@ -447,19 +479,52 @@ const openDeleteModal = (config: clash.SubIndexItem) => {
 const confirmDelete = async () => {
   isDeleting.value = true;
   try {
-    await API.DeleteConfig(targetId.value);
+    await App.DeleteConfig(targetId.value);
     await fetchConfigs();
     closeAllModals();
   } catch (e) {
-    console.error("删除失败:", e);
-    await showAlert(t('subs.deleteFailed', { error: String(e) }), t('common.error'));
+    reportError(e, 'subs.delete');
+    const u = toUserError(e);
+    await showAlert(t('subs.deleteFailed', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
   } finally {
     isDeleting.value = false;
   }
 };
 
-const toggleMenu = (id: string) => {
-  activeMenu.value = activeMenu.value === id ? null : id;
+const menuRef = ref<HTMLElement | null>(null);
+const menuAnchor = ref<HTMLElement | null>(null);
+/* 菜单和下拉一样 teleport 到 body：留在卡片里时 backdrop-filter 只采样卡片
+   这一层，背后其它行的内容永远不会被糊到（表现为"只有半透明填充"）。
+   离开文档流后定位改 fixed，锚点是触发它的那个 ⋮ 按钮。 */
+const menuStyle = ref<Record<string, string>>({});
+
+const updateMenuPosition = (anchor?: HTMLElement | null) => {
+  const el = anchor || menuAnchor.value;
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  menuStyle.value = {
+    position: 'fixed',
+    left: 'auto',
+    right: Math.max(0, window.innerWidth - rect.right) + 'px',
+    top: (rect.bottom + 6) + 'px',
+    bottom: 'auto',
+    // 必须高于 .menu-click-overlay(9)：否则点击穿透层会盖住菜单
+    zIndex: '20',
+  };
+};
+
+const onMenuViewportChange = () => {
+  if (activeMenu.value) updateMenuPosition();
+};
+
+const toggleMenu = (id: string, ev?: MouseEvent) => {
+  if (activeMenu.value === id) {
+    activeMenu.value = null;
+    return;
+  }
+  menuAnchor.value = (ev?.currentTarget as HTMLElement) || null;
+  updateMenuPosition(menuAnchor.value);
+  activeMenu.value = id;
 };
 
 const closeAllModals = () => {
@@ -475,23 +540,27 @@ let unsubSubsUpdateError: (() => void) | null = null;
 
 onMounted(() => {
   fetchConfigs();
+  // fixed 定位不再跟着卡片走，滚动/缩放时手动重算
+  window.addEventListener('scroll', onMenuViewportChange, true);
+  window.addEventListener('resize', onMenuViewportChange);
 
-  unsubSubsUpdateStart = EventsOn("subs-update-start", () => {
+  unsubSubsUpdateStart = Events.On("subs-update-start", () => {
     isUpdating.value = true;
   });
 
-  unsubSubsUpdateSuccess = EventsOn("subs-update-success", async () => {
+  unsubSubsUpdateSuccess = Events.On("subs-update-success", async () => {
     isUpdating.value = false;
     await fetchConfigs();
-    await showAlert(t('subs.updateAllSuccessMsg'), t('subs.updateSuccessTitle'));
+    showToast(t('subs.updateAllSuccessMsg').replace(/\s+/g, ' '), 'success', { duration: 5000 });
   });
 
-  unsubSubsUpdateError = EventsOn("subs-update-error", async (err: string) => {
+  unsubSubsUpdateError = Events.On("subs-update-error", async ({ data: err }: { data: string }) => {
     isUpdating.value = false;
-    await showAlert(t('subs.updateFailedMsg', { error: String(err) }), t('subs.updateResultTitle'));
+    const u = toUserError(err);
+    await showAlert(u.message, t('common.error'), true, u.detail);
   });
 
-  unsubConfigChanged = EventsOn("config-changed", (newId: string) => {
+  unsubConfigChanged = Events.On("config-changed", ({ data: newId }: { data: string }) => {
     if (newId) {
       globalState.activeConfigId = newId;
       fetchConfigs();
@@ -500,6 +569,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener('scroll', onMenuViewportChange, true);
+  window.removeEventListener('resize', onMenuViewportChange);
   unsubConfigChanged?.();
   unsubSubsUpdateStart?.();
   unsubSubsUpdateSuccess?.();
@@ -511,8 +582,6 @@ onUnmounted(() => {
 .subs-view { 
   display: flex; 
   flex-direction: column; 
-  min-height: 100%; 
-  overflow: visible;
   color: var(--text-main); 
 }
 .page-header { 
@@ -523,9 +592,6 @@ onUnmounted(() => {
   padding: 4px 0 12px 0;
   background: transparent;
 }
-.page-header.page-sticky-mask {
-  --sticky-mask-bleed: 4px;
-}
 .main-title { font-size: 1.6rem; font-weight: 600; margin-bottom: 4px; }
 .sub-text { font-size: 0.85rem; color: var(--text-sub); }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -534,23 +600,23 @@ onUnmounted(() => {
   padding: 0 14px !important;
 }
 
-.subs-list { flex: 1; position: relative; }
+/* 唯一滚动区：列表自己滚动，页头固定 */
+.subs-list { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
 
-/* 卡片基础样式 */
+/* 卡片基础样式：背景由 ui-surface-card 提供，hover 由 ui-hover-surface 提供 */
 .sub-card { 
-  position: relative; padding: 20px; border-radius: 12px; 
-  background: var(--surface); margin-bottom: 16px; 
+  position: relative; padding: 20px; 
+  margin-bottom: 16px; 
   transition: 0.2s; border: 1px solid transparent; 
 }
-.sub-card:not(.is-sorting):hover { background: var(--surface-hover); }
 .sub-card.is-sorting { cursor: default; }
 
 .active-card { 
-  background: var(--accent) !important; 
-  color: var(--accent-fg) !important; 
-  border-color: var(--accent) !important;
+  background: var(--ui-accent-block) !important; 
+  color: var(--ui-accent-fg) !important; 
+  border-color: var(--ui-accent) !important;
 }
-.active-card .sub-path, .active-card .sub-hint, .active-card .icon-btn { color: var(--accent-fg) !important; opacity: 0.8; }
+.active-card .sub-path, .active-card .sub-hint, .active-card .icon-btn { color: var(--ui-accent-fg) !important; opacity: 0.8; }
 .sub-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
 .sub-info { display: flex; align-items: center; gap: 16px; }
 .sub-name { font-size: 0.95rem; font-weight: 600; margin: 0; }
@@ -581,13 +647,13 @@ onUnmounted(() => {
 .header-actions { display: flex; gap: 12px; align-items: center; }
 
 .sorting-active {
-  background: var(--surface-hover) !important; 
-  color: var(--text-main) !important;
+  background: var(--ui-accent-soft) !important; 
+  color: var(--ui-accent) !important;
   font-weight: 600;
 }
 
 .sorting-active .btn-icon {
-  color: var(--text-main) !important;
+  color: var(--ui-accent) !important;
   opacity: 1;
 }
 
@@ -618,16 +684,16 @@ onUnmounted(() => {
 
 .arrow-btn :deep(svg) { width: 14px; height: 14px; }
 .arrow-btn:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text-main);
-  border-color: var(--text-sub);
+  background: var(--ui-surface-hover);
+  color: var(--ui-text-primary);
+  border-color: var(--ui-border-strong);
 }
-.active-card .arrow-btn { color: var(--accent-fg); opacity: 0.7; }
+.active-card .arrow-btn { color: var(--ui-accent-fg); opacity: 0.7; }
 .active-card .arrow-btn:hover:not(:disabled) {
-  background: rgba(0,0,0,0.1);
-  color: var(--accent-fg);
+  background: color-mix(in srgb, var(--ui-accent-fg) 18%, transparent);
+  color: var(--ui-accent-fg);
   opacity: 1;
-  border-color: var(--accent-fg);
+  border-color: var(--ui-accent-fg);
 }
 .arrow-btn:disabled {
   opacity: 0.2;
@@ -653,16 +719,16 @@ onUnmounted(() => {
   background: none; border: none; cursor: pointer; color: var(--text-sub); border-radius: 4px;
 }
 .icon-btn :deep(svg) { width: 14px !important; height: 14px !important; }
-.icon-btn:hover { background: var(--surface-hover); color: var(--text-main); }
+.icon-btn:hover { background: var(--ui-surface-hover); color: var(--ui-text-primary); }
 .active-card .icon-btn:hover { background: transparent !important; }
 
 .mini-btn { height: 44px; padding: 0 20px; font-weight: 700; border-radius: 12px; }
 .divider-text { text-align: center; margin: 15px 0; color: var(--text-muted); font-size: 0.75rem; position: relative; }
-.divider-text::before, .divider-text::after { content: ""; position: absolute; top: 50%; width: 35%; height: 1px; background: var(--surface-hover); }
+.divider-text::before, .divider-text::after { content: ""; position: absolute; top: 50%; width: 35%; height: 1px; background: var(--ui-border-subtle); }
 .divider-text::before { left: 0; } .divider-text::after { right: 0; }
 .w-full-btn { width: 100%; justify-content: center; padding: 14px; font-weight: 600; border-radius: 10px; border: none; background: var(--surface-hover); color: var(--text-main); cursor: pointer; display: flex; align-items: center; gap: 8px; }
 .modal-hint-text { padding: 4px 0 12px 0; color: var(--text-sub); font-size: 0.85rem; line-height: 1.6; }
-.danger-text { color: #ff4d4f !important; }
+.danger-text { color: var(--danger) !important; }
 
 /* --- 菜单遮罩 --- */
 .menu-click-overlay {
@@ -673,13 +739,12 @@ onUnmounted(() => {
 }
 
 .dropdown-menu { 
-  position: absolute; right: 0; top: 30px; width: 150px; border-radius: 8px; z-index: 10; overflow: hidden;
-  background: var(--surface); border: 1px solid var(--surface-hover); box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  position: absolute; right: 0; top: 30px; width: 150px; z-index: 10; overflow: hidden;
 }
-.menu-item { width: 100%; padding: 10px 16px; border: none; background: transparent; text-align: left; cursor: pointer; font-size: 0.85rem; color: var(--text-main); }
-.menu-item:hover { background: var(--surface-hover); }
-.menu-item.danger { color: #ff4d4f !important; font-weight: 600; }
-.empty-state { padding: 30px; text-align: center; color: var(--text-muted); border: none; border-radius: 10px; background: var(--surface); }
+.menu-item { width: 100%; padding: 10px 16px; border: none; background: transparent; text-align: left; cursor: pointer; font-size: 0.85rem; color: var(--ui-text-primary); }
+.menu-item:hover { background: var(--ui-surface-hover); }
+.menu-item.danger { color: var(--danger) !important; font-weight: 600; }
+.subs-loading { padding: 30px; text-align: center; color: var(--ui-text-muted); font-size: 0.85rem; }
 
 /* --- 下拉菜单动画 --- */
 .dropdown-enter-active, .dropdown-leave-active {
@@ -721,7 +786,7 @@ onUnmounted(() => {
 
 .traffic-fill {
   height: 100%;
-  background: var(--text-main); 
+  background: var(--ui-accent-block); 
   border-radius: 6px;
   transition: width 0.4s ease;
 }

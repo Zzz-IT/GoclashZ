@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$AssetRoot = ".\build\runtime-assets"
 )
 
@@ -53,14 +53,14 @@ Write-Host ""
 
 # === 1. 二进制可执行文件校验 ===
 
-# 主程序
-if (Assert-FileExists ".\build\bin\GoclashZ.exe" "主程序") {
-    Assert-MZHeader ".\build\bin\GoclashZ.exe" "主程序" | Out-Null
+# 主程序（Wails v3 产物目录为仓库根的 bin/）
+if (Assert-FileExists ".\bin\GoclashZ.exe" "主程序") {
+    Assert-MZHeader ".\bin\GoclashZ.exe" "主程序" | Out-Null
 }
 
-# Helper
-if (Assert-FileExists ".\build\bin\GoclashZHelper.exe" "Helper 服务") {
-    Assert-MZHeader ".\build\bin\GoclashZHelper.exe" "Helper 服务" | Out-Null
+# Helper（build_all.bat / CI 构建到 bin/）
+if (Assert-FileExists ".\bin\GoclashZHelper.exe" "Helper 服务") {
+    Assert-MZHeader ".\bin\GoclashZHelper.exe" "Helper 服务" | Out-Null
 }
 
 # === 2. Mihomo 内核校验 ===

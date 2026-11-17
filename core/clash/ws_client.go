@@ -4,7 +4,7 @@ package clash
 
 import (
 	"context"
-	"encoding/json"
+	jsonutil "goclashz/core/jsonutil"
 	"goclashz/core/traffic"
 	"net/http"
 	"sync"
@@ -68,7 +68,7 @@ func StartConnectionMonitor(ctx context.Context) error {
 				var data struct {
 					Connections []traffic.RawConnection `json:"connections"`
 				}
-				if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+				if err := jsonutil.NewDecoder(resp.Body).Decode(&data); err != nil {
 					resp.Body.Close()
 					continue
 				}

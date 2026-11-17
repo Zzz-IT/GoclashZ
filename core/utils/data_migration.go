@@ -3,8 +3,10 @@
 package utils
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
+
 	"fmt"
+	jsonutil "goclashz/core/jsonutil"
 	"io"
 	"os"
 	"os/exec"
@@ -154,7 +156,7 @@ func writeMigrationError(target, from, errMsg string) {
 		Error:       errMsg,
 		Recoverable: true,
 	}
-	data, err := json.MarshalIndent(meta, "", "  ")
+	data, err := jsonutil.MarshalIndent(meta, "", "  ")
 	if err == nil {
 		_ = os.WriteFile(errFile, data, 0644)
 	}
@@ -167,7 +169,7 @@ func tryDeleteLegacyDir(legacy, target string) {
 		return
 	}
 	var meta MigrationMeta
-	if err := json.Unmarshal(data, &meta); err != nil {
+	if err := jsonv2.Unmarshal(data, &meta); err != nil {
 		return
 	}
 	if !meta.SourceDeleted {
@@ -384,7 +386,7 @@ func verifyCopied(src, dst string, skipFunc func(string) bool) error {
 }
 
 func saveMigrationMeta(target string, meta MigrationMeta) error {
-	data, err := json.MarshalIndent(meta, "", "  ")
+	data, err := jsonutil.MarshalIndent(meta, "", "  ")
 	if err != nil {
 		return err
 	}

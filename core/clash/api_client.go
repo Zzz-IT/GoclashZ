@@ -5,8 +5,10 @@ package clash
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
+
 	"fmt"
+	jsonutil "goclashz/core/jsonutil"
 	"io"
 	"net"
 	"net/http"
@@ -251,7 +253,7 @@ func FetchLogs(ctx context.Context, level string, onLog func(data interface{})) 
 		}
 
 		const logIdleTimeout = 70 * time.Second
-		decoder := json.NewDecoder(resp.Body)
+		decoder := jsonutil.NewDecoder(resp.Body)
 		idleTimer := time.NewTimer(logIdleTimeout)
 		stopIdle := make(chan struct{})
 
@@ -343,7 +345,7 @@ func GetProxyDelay(ctx context.Context, proxyName string, testUrl string, timeou
 		Delay int `json:"delay"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := jsonutil.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return -1, err
 	}
 
@@ -401,7 +403,7 @@ func doKernelGetWithContext[T any](ctx context.Context, path string) (T, error) 
 		return result, err
 	}
 
-	err = json.NewDecoder(resp.Body).Decode(&result)
+	err = jsonutil.NewDecoder(resp.Body).Decode(&result)
 	return result, err
 }
 
@@ -409,7 +411,7 @@ func doKernelRequest(ctx context.Context, method, path string, body any, okStatu
 	var reader io.Reader
 
 	if body != nil {
-		payload, err := json.Marshal(body)
+		payload, err := jsonv2.Marshal(body)
 		if err != nil {
 			return err
 		}

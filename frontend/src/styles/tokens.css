@@ -1,0 +1,145 @@
+﻿/* ============================================================
+   GoclashZ semantic UI tokens
+   Imported after style.css so these values win over legacy tokens.
+   Components should consume --ui-* only.
+   ============================================================ */
+
+:root {
+  /* accent：默认主题保持单色（黑白反色）；未来主题包可覆盖为品牌色 */
+  --ui-accent: #1a1a1a;
+  --ui-accent-fg: #ffffff;
+  --ui-accent-hover: #000000;
+  --ui-accent-soft: rgba(26, 26, 26, 0.08);
+  --ui-accent-ring: rgba(26, 26, 26, 0.20);
+  /* 实心强调块（选中药丸 / 开关轨道 / 主按钮）：普通模式下就是纯强调色。
+     玻璃模式下由 html[data-glass="on"] 稀释一档 —— 一块 100% 不透明的黑
+     贴在会移动的半透明面上会"跳"出来，稀释后它才是材质的一部分。 */
+  --ui-accent-block: var(--ui-accent);
+
+  /* legacy accent now follows the theme accent */
+  --accent: var(--ui-accent);
+  --accent-fg: var(--ui-accent-fg);
+
+  /* surfaces */
+  --ui-surface-nav: transparent;
+  --ui-surface-card: var(--surface);
+  --ui-surface-group: var(--surface);
+  --ui-surface-overlay: var(--surface-panel);
+  --ui-surface-row: transparent;
+  --ui-surface-hover: var(--surface-hover);
+  /* 控件凹槽（分段控件 / 图表槽等）：不带 border-radius，形状由控件自己决定 */
+  --ui-surface-control: var(--surface-panel);
+
+  /* borders / text */
+  --glass-border: var(--ui-border-subtle);
+  --ui-border-subtle: color-mix(in srgb, var(--text-main) 10%, transparent);
+  --ui-border-strong: color-mix(in srgb, var(--text-main) 18%, transparent);
+  --ui-text-primary: var(--text-main);
+  --ui-text-secondary: var(--text-sub);
+  --ui-text-muted: var(--text-muted);
+  --ui-danger: var(--danger);
+
+  /* shape */
+  --ui-radius-sm: 8px;
+  --ui-radius-md: 10px;
+  --ui-radius-lg: 12px;
+  --ui-radius-full: 999px;
+  --ui-page-bottom: 24px;
+
+  /* elevation */
+  --ui-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --ui-shadow-2: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --ui-shadow-overlay: 0 18px 48px rgba(0, 0, 0, 0.22);
+
+  /* glass */
+  --ui-glass-tint: var(--app-bg);
+  --ui-glass-alpha: 0.42;
+  --ui-glass-border: color-mix(in srgb, var(--text-main) 16%, transparent);
+  --ui-scrim: rgba(8, 8, 10, 0.42);
+
+  /* glass：3 组独立模糊半径 + 1 个背景 tint。
+     具体 px / alpha 由 utils/glass.ts 写到根元素（--glass-blur-content/overlay/control、--glass-tint-bg），
+     这里只是 data-glass 未写入时的兜底默认值。 */
+  /* glass：浮层模糊现在是一个设计常量，不再挂钩滑条。
+     半径越大可糊的东西越多，而浮层背后是应用自己的内容，28px 已经能把
+     卡片、文字、分隔线抹成一整片柔和的明暗，再大就只剩一片平色。 */
+  --glass-blur-content: 12px;
+  --glass-blur-overlay: 40px;
+  --glass-blur-control: 8px;
+  /* 玻璃染色：滑条只改"染成什么颜色"，不改透明度。
+     --glass-tint-target 由 applyTheme 跟随主题强调色写入（单色主题退回中性冷色）。
+     染色结果是 utils/glass.ts 在 HSL 里算完后直接写 --glass-tint-bg，
+     所以这里只需要一个"无色玻璃"的兜底：面板色 + 58% 透明度（厚度 50 那一档）。 */
+  --glass-tint-target: #6E8FC7;
+  --glass-tint-bg: color-mix(in srgb, var(--surface-panel) 58%, transparent);
+
+  /* 玻璃质感的分层填充（v2）：
+     玻璃不是"把所有卡片调成半透明"，而是「桌面(系统 Acrylic) → 窗口着色 → 应用内光晕 → 毛玻璃面」四层。
+     下面的 fill 是第 4 层的填充色，alpha 必须足够高才能保证压在任意壁纸上的正文仍然 >= 4.5:1。
+     四级全部以 --surface-panel 为底色，只差透明度 —— 底色不统一的话，浅色主题下
+     控件凹槽会比卡片暗一档，看起来就是一块没擦干净的灰。
+     具体数值由 utils/glass.ts 按 glassDepth 缩放后写到根元素，这里只是兜底默认值。
+     - overlay: 弹窗 / 下拉 / 菜单（浮在最上层）
+     - card   : 内容卡片 / 列表容器
+     - soft   : 控件凹槽（分段控件底槽、图表槽）
+     - content: 页面级大面板（设置页整块、内容主面板）
+
+     浮层填充是独立常量，不参与厚度缩放。实测高于 45% 时 backdrop-filter
+     就完全没有产出（浮层退化成半透明色板），所以固定 38%：
+     背后的卡片、文字会被真正糊开，同时给正文留一层底。 */
+  --glass-fill-card: color-mix(in srgb, var(--surface-panel) 62%, transparent);
+  --glass-fill-content: color-mix(in srgb, var(--surface-panel) 44%, transparent);
+  --glass-fill-overlay: color-mix(in srgb, var(--surface-panel) 46%, transparent);
+  --glass-fill-soft: color-mix(in srgb, var(--surface-panel) 48%, transparent);
+  /* 玻璃的"厚度"只靠顶部一线高光表达（Apple Liquid Glass 的做法）：
+     四边描边会在深色壁纸上把每张卡片画成方盒子，极简感立刻消失。 */
+  --glass-specular: color-mix(in srgb, #ffffff 62%, transparent);
+  --glass-hairline: color-mix(in srgb, var(--text-main) 8%, transparent);
+  --glass-highlight: color-mix(in srgb, #ffffff 42%, transparent);
+
+  /* z-index */
+  --ui-z-sticky: 10;
+  --ui-z-dropdown: 20;
+  --ui-z-modal: 30;
+  --ui-z-toast: 40;
+  --ui-z-tooltip: 50;
+}
+
+/* 暗色下与主题引擎无关、必须跟着明暗走的量（玻璃着色、遮罩、描边） */
+.dark {
+  --ui-scrim: rgba(8, 8, 10, 0.52);
+  --glass-specular: color-mix(in srgb, #ffffff 14%, transparent);
+  --glass-hairline: color-mix(in srgb, var(--text-main) 14%, transparent);
+  --glass-highlight: color-mix(in srgb, #ffffff 10%, transparent);
+}
+
+/* ⚠️ 守卫必须存在：App.vue 会把 .dark 挂在 .app-shell 上，
+   如果这里无条件重定义 --ui-accent，就会盖掉 utils/theme.ts 写在 <html> 上的内联变量，
+   导致暗色 + 彩色预设时侧边栏选中项、开关、按钮全退回灰白（强调色失效）。
+   主题引擎接管后（html 带 data-theme-mode）这一整块都不生效，只作纯 CSS 兜底。 */
+html:not([data-theme-mode]) .dark {
+  --ui-accent: #e8e8e8;
+  --ui-accent-fg: #111111;
+  --ui-accent-hover: #ffffff;
+  --ui-accent-soft: rgba(232, 232, 232, 0.12);
+  --ui-accent-ring: rgba(232, 232, 232, 0.24);
+
+  --accent: var(--ui-accent);
+  --accent-fg: var(--ui-accent-fg);
+
+  --ui-border-subtle: color-mix(in srgb, var(--text-main) 12%, transparent);
+  --ui-border-strong: color-mix(in srgb, var(--text-main) 22%, transparent);
+}
+
+/* Glass mode：玻璃层不再统一成同一个 alpha。
+   纸张感来自「越靠外的容器越透、越靠近文字的容器越实」的层次，
+   否则整屏会糊成一片发白的薄纱（旧实现的渲染问题之一）。 */
+html[data-glass="on"] {
+  --ui-surface-card: var(--glass-fill-card);
+  --ui-surface-group: var(--glass-fill-card);
+  --ui-surface-overlay: var(--glass-fill-overlay);
+  --ui-surface-control: var(--glass-fill-soft);
+  /* 实心强调块稀释一档：16% 的透光足以让玻璃纹理透上来，
+     又不至于把 --ui-accent-fg 的白字对比度拉低（稀释后仍有 10:1 以上）。 */
+  --ui-accent-block: color-mix(in srgb, var(--ui-accent) 84%, transparent);
+}

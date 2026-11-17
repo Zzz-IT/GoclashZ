@@ -5,9 +5,9 @@ package clash
 import (
 	"archive/zip"
 	"context"
-	"encoding/json"
 	"fmt"
 	"goclashz/core/downloader"
+	jsonutil "goclashz/core/jsonutil"
 	"goclashz/core/runtimeassets"
 	"goclashz/core/sys"
 	"goclashz/core/utils"
@@ -20,15 +20,22 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // PrepareEnv 检查内核并生成基础配置
 func PrepareEnv(ctx context.Context) error {
-	status, err := runtimeassets.EnsureReady(ctx, runtimeassets.RequireCoreOnly, runtimeassets.RepairInvalid)
-	if err != nil {
-		core := status.Assets[runtimeassets.AssetCore]
-		return fmt.Errorf("内核不可用: %s (%s)", core.Error, core.Path)
+	// 快检优先（F-A2-02）：这一步在「起内核」的同步路径上，不能每次都跑
+	// clash.exe -v 与 95MB 哈希。只有快检明确不可用（缺失/目录/PE 损坏）时，
+	// 才回落全量 EnsureReady 走 seed 自愈。
+	fast := runtimeassets.GetStatusFast(ctx)
+	if core := fast.Assets[runtimeassets.AssetCore]; !core.Ready && !core.Valid {
+		status, err := runtimeassets.EnsureReady(ctx, runtimeassets.RequireCoreOnly, runtimeassets.RepairInvalid)
+		if err != nil {
+			blocked := status.Assets[runtimeassets.AssetCore]
+			return fmt.Errorf("内核不可用: %s (%s)", blocked.Error, blocked.Path)
+		}
 	}
 
 	_ = os.MkdirAll(utils.GetSubscriptionsDir(), 0755)
@@ -59,6 +66,30 @@ func ClearLocalCoreVersionCache() {
 	localCoreVersionCache.size = 0
 	localCoreVersionCache.modTime = 0
 	localCoreVersionCache.version = ""
+
+	// 让无锁快照也失效，避免替换内核后 UI 继续显示旧版本（F-A2-15）。
+	cachedCoreVersion.Store("")
+}
+
+// cachedCoreVersion 是无锁版本快照（atomic），供 GetAppState 这类高频调用读取。
+// 历史实现让 GetAppState → GetLocalCoreVersion → coreBinaryMu，内核更新（下载/替换）
+// 期间会把整个状态同步阻塞住（F-A2-15）。
+var cachedCoreVersion atomic.Value // string
+
+// CachedCoreVersion 返回最近一次已知的内核版本，绝不 spawn 子进程、绝不持锁。
+// 从未计算过时返回 "未知"，由后台预热（Bootstrap）或首次 GetLocalCoreVersion 填充。
+func CachedCoreVersion() string {
+	if v, ok := cachedCoreVersion.Load().(string); ok && strings.TrimSpace(v) != "" {
+		return v
+	}
+	return "未知"
+}
+
+func storeCachedCoreVersion(v string) {
+	if strings.TrimSpace(v) == "" {
+		return
+	}
+	cachedCoreVersion.Store(v)
 }
 
 func getLocalCoreVersionLocked(ctx context.Context) string {
@@ -66,6 +97,7 @@ func getLocalCoreVersionLocked(ctx context.Context) string {
 
 	stat, err := os.Stat(path)
 	if err != nil || stat.IsDir() {
+		storeCachedCoreVersion("未安装")
 		return "未安装"
 	}
 
@@ -76,6 +108,7 @@ func getLocalCoreVersionLocked(ctx context.Context) string {
 		localCoreVersionCache.version != "" {
 		version := localCoreVersionCache.version
 		localCoreVersionCache.mu.Unlock()
+		storeCachedCoreVersion(version)
 		return version
 	}
 	localCoreVersionCache.mu.Unlock()
@@ -89,6 +122,7 @@ func getLocalCoreVersionLocked(ctx context.Context) string {
 	localCoreVersionCache.version = version
 	localCoreVersionCache.mu.Unlock()
 
+	storeCachedCoreVersion(version)
 	return version
 }
 
@@ -179,10 +213,12 @@ func extractKernelToFile(zipPath, targetExe string) error {
 
 var coreBinaryMu sync.Mutex
 
+// PrepareCoreUpdate 下载并解压新内核到 <exe>.new（staging），**不触碰运行中的 clash.exe**。
+//
+// 注意（F-A2-15）：这里刻意不持有 coreBinaryMu —— 历史实现把整个 61MB 下载
+// 都罩在锁里，导致 GetLocalCoreVersion / 内核替换 / 状态同步全被阻塞。
+// 只有 CommitCoreUpdate（真正替换运行文件的那一步）才需要该锁。
 func PrepareCoreUpdate(ctx context.Context, assetURL string, strategy func() downloader.DownloadStrategy, onProgress func(int64, int64, int64, int64)) (map[string]string, error) {
-	coreBinaryMu.Lock()
-	defer coreBinaryMu.Unlock()
-
 	binDir := utils.GetCoreBinDir()
 	exePath := filepath.Join(binDir, "clash.exe")
 	zipPath := filepath.Join(binDir, "clash.update.zip")
@@ -313,7 +349,7 @@ found:
 					lastErr = fmt.Errorf("GitHub API 返回 HTTP %d", resp.StatusCode)
 					return
 				}
-				lastErr = json.NewDecoder(resp.Body).Decode(&release)
+				lastErr = jsonutil.NewDecoder(resp.Body).Decode(&release)
 			}()
 
 			if lastErr == nil && release.TagName != "" {

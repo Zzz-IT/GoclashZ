@@ -2,8 +2,14 @@
 ; GoclashZ - 智能适配安装脚本 (适配 paths.go 逻辑)
 ; =========================================================
 
+; ---------------------------------------------------------
+; 版本号来源：scripts/set_version.ps1 会同步写入这里的默认值；
+; CI 可用 ISCC.exe /DMyAppVersion=1.4.0 package.iss 覆盖（单一来源 build/config.yml）。
+; ---------------------------------------------------------
 #define MyAppName "GoclashZ"
-#define MyAppVersion "1.3.3"
+#ifndef MyAppVersion
+  #define MyAppVersion "1.4.0"
+#endif
 #define MyAppPublisher "Zzz"
 #define MyAppExeName "GoclashZ.exe"
 
@@ -12,7 +18,7 @@ AppMutex=Global\GoclashZ_Single_Instance_Mutex
 CloseApplications=yes
 RestartApplications=no
 WizardStyle=modern dynamic includetitlebar
-VersionInfoVersion=1.3.3.0
+VersionInfoVersion={#MyAppVersion}.0
 VersionInfoCompany=Zzz
 VersionInfoDescription=GoclashZ Installer
 VersionInfoCopyright=Copyright (C) 2026 Zzz
@@ -48,11 +54,12 @@ Name: "chinesesimp"; MessagesFile: "ChineseSimplified.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
+; v3 产物目录为仓库根的 bin/（wails3 build -> bin/GoclashZ.exe）
 ; 1. 打包主程序
-Source: ".\build\bin\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: ".\bin\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
 ; 2. 打包 Helper 服务程序 (用于 TUN、内核更新等高权限操作)
-Source: ".\build\bin\GoclashZHelper.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: ".\bin\GoclashZHelper.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; CI 拉取的最新资产只作为 seed
 Source: ".\build\runtime-assets\core\bin\*"; DestDir: "{app}\seed\core\bin"; Flags: ignoreversion recursesubdirs createallsubdirs

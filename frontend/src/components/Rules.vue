@@ -1,10 +1,10 @@
 <template>
-  <div class="rules-view">
+  <div class="rules-view ui-page-shell">
     <div v-if="!globalState.activeConfigId" class="empty-state-view">
       <div class="empty-msg">{{ t('rules.noConfigWarning') }}</div>
     </div>
     <template v-else>
-      <div class="rules-header page-sticky-mask">
+      <div class="rules-header ui-page-header">
         <div v-if="isRemote" class="rules-tabs-viewport">
           <div class="rules-tabs-track" ref="tabsTrackRef">
             <button :ref="(el) => { if (ruleTab === 'subscription') ruleTabEl = el as HTMLElement | null }" class="rules-tab-btn" :class="{ active: ruleTab === 'subscription' }" @click="ruleTab = 'subscription'" :title="t('rules.tabCurrentTooltip')">{{ t('rules.tabCurrent') }}</button>
@@ -26,38 +26,54 @@
         </button>
       </div>
 
-      <div class="rules-grid">
-        <div v-for="rule in paginatedRules" :key="rule.originalIndex" class="rule-card">
-          <div class="rule-main">
-            <div class="rule-type tag-primary">{{ rule.type }}</div>
-            <div class="rule-payload truncate" :title="rule.payload">{{ rule.payload }}</div>
+      <div
+        class="rules-page-viewport"
+        ref="pageViewportRef"
+        :class="[edgeFadeAxis, { 'edge-fade-on': edgeFadeOn }]"
+      >
+        <Transition :name="pageTransitionName">
+          <div class="rules-grid ui-page-body" :key="currentPage">
+          <div v-for="rule in paginatedRules" :key="rule.originalIndex" class="rule-card ui-surface-card ui-hover-surface">
+            <div class="rule-main">
+              <div class="rule-type tag-primary">{{ rule.type }}</div>
+              <div class="rule-payload" :title="rule.payload">{{ rule.payload }}</div>
+            </div>
+            <div class="rule-footer">
+              <div class="rule-policy">{{ rule.policy }}</div>
+              <button class="delete-btn" @click="handleDelete(rule.originalIndex)" :title="deleteBtnTitle">
+                <span v-html="ICONS.trash"></span>
+              </button>
+            </div>
           </div>
-          <div class="rule-footer">
-            <div class="rule-policy">{{ rule.policy }}</div>
-            <button class="delete-btn" @click="handleDelete(rule.originalIndex)" :title="deleteBtnTitle">
-              <span v-html="ICONS.trash"></span>
-            </button>
-          </div>
+
+          <EmptyState
+            v-if="!loading && !hasFilteredRules && searchQuery"
+            :icon="ICONS.search"
+            :title="t('rules.noMatchingRules')"
+          />
+          <EmptyState
+            v-else-if="!loading && !hasFilteredRules"
+            :icon="ICONS.rules"
+            :title="t('rules.noRules')"
+          />
         </div>
-        
-        <div v-if="!loading && !hasFilteredRules" class="loading-state">
-          {{ searchQuery ? t('rules.noMatchingRules') : t('rules.noRules') }}
-        </div>
+        </Transition>
       </div>
 
       <div class="pagination-bar" v-if="hasFilteredRules">
         <span class="page-info">{{ t('rules.totalFiltered', { count: totalFilteredCount }) }}</span>
         
         <div class="pagination-controls">
-          <button class="page-btn" @click="currentPage--" :disabled="currentPage <= 1">{{ t('rules.prevPage') }}</button>
+          <button class="page-btn" @click="goPage(-1)" :disabled="currentPage <= 1">{{ t('rules.prevPage') }}</button>
           <span class="page-status">{{ currentPage }} / {{ totalPages }}</span>
-          <button class="page-btn" @click="currentPage++" :disabled="currentPage >= totalPages">{{ t('rules.nextPage') }}</button>
+          <button class="page-btn" @click="goPage(1)" :disabled="currentPage >= totalPages">{{ t('rules.nextPage') }}</button>
         </div>
 
         <div class="tip-text">{{ t('rules.newRuleHint') }}</div>
       </div>
     </template>
 
+    <Teleport to="body">
     <Transition name="pop">
       <div v-if="showAddModal" class="modal-overlay" @click.self="showAddModal = false">
         <div class="custom-modal-card" style="overflow: visible;" @click.stop>
@@ -106,15 +122,20 @@
         </div>
       </div>
     </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, shallowRef, onMounted, onUnmounted, onActivated, computed, watch, nextTick } from 'vue';
-import * as API from '../../wailsjs/go/main/App';
-import { showAlert, showConfirm, globalState } from '../store';
+import { App } from '../api';
+import { showAlert, showConfirm, showToast, globalState } from '../store';
 import { ICONS } from '../utils/icons';
+import { displayErrorMessage, toUserError } from '../utils/errors';
+import { useEdgeFade } from '../utils/edgeFade';
+import { reportError } from '../utils/report';
 import ModernSelect from './ModernSelect.vue';
+import EmptyState from './EmptyState.vue';
 import { t } from '../locales';
 
 const rulePageData = shallowRef<any>(null);
@@ -211,7 +232,7 @@ const openAddModal = async () => {
 
   loading.value = true;
   try {
-    const options = await API.GetRuleFormOptions(globalState.activeConfigId);
+    const options = await App.GetRuleFormOptions(globalState.activeConfigId);
     ruleFormOptions.value = options;
 
     selectedRuleType.value = options.types?.[0]?.value || 'DOMAIN-SUFFIX';
@@ -223,7 +244,9 @@ const openAddModal = async () => {
     rulePayload.value = '';
     showAddModal.value = true;
   } catch (e) {
-    await showAlert(String(e), t('rules.loadOptionsError', { error: String(e) }));
+    // F-A4-13：title 不再塞原始错误；人话进正文，原文进 detail
+    const u = toUserError(e);
+    await showAlert(t('rules.loadOptionsError', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
   } finally {
     loading.value = false;
   }
@@ -231,6 +254,31 @@ const openAddModal = async () => {
 
 const currentPage = ref(1);
 const pageSize = ref(42); 
+
+/* 翻页复用整页切页那套横滑，方向由操作决定。
+   两页重叠对滑（不设 mode）：这才是翻页器该有的样子，
+   旧页向左退、新页从右进，中途两页同屏。
+   裁切处的边缘淡化也一并复用 —— 淡化挂在 .rules-page-viewport 上，
+   它只包住网格区，不含页头和分页条，所以那两处不会被一起糊掉。 */
+const pageDir = ref<'next' | 'prev'>('next');
+const pageTransitionName = computed(() =>
+  pageDir.value === 'next' ? 'pane-left' : 'pane-right'
+);
+
+const pageViewportRef = ref<HTMLElement | null>(null);
+const {
+  axis: edgeFadeAxis,
+  on: edgeFadeOn,
+  begin: edgeFadeBegin,
+} = useEdgeFade(() => pageViewportRef.value);
+
+const goPage = (delta: number) => {
+  const target = currentPage.value + delta;
+  if (target < 1 || target > totalPages.value) return;
+  pageDir.value = delta > 0 ? 'next' : 'prev';
+  currentPage.value = target;
+  edgeFadeBegin('edge-fade-x');
+};
 
 const isRemote = computed(() => globalState.activeConfigType === 'remote');
 const isLocal = computed(() => globalState.activeConfigType === 'local' || !globalState.activeConfigType);
@@ -279,10 +327,10 @@ const loadRules = async () => {
   if (!globalState.activeConfigId) return;
   loading.value = true;
   try {
-    const data = await API.GetRulePageData(globalState.activeConfigId);
+    const data = await App.GetRulePageData(globalState.activeConfigId);
     rulePageData.value = data;
   } catch (e) {
-    console.error("加载规则失败", e);
+    reportError(e, 'rules.load');
   } finally {
     loading.value = false;
   }
@@ -347,13 +395,36 @@ watch(totalPages, (newTotal) => {
   }
 });
 
+/** 按"顶层逗号"切分一条规则，括号内的逗号不算分隔符。
+    AND / OR / NOT / SUB-RULE 的逻辑表达式本身带括号和逗号，例如
+      AND,((NETWORK,UDP),(DST-PORT,443)),REJECT
+    直接 split(',') 会切成 ["AND","((NETWORK","UDP)","(DST-PORT","443))","REJECT"]，
+    payload 只剩 "((NETWORK"、剩下的全被当成 policy —— 就是规则卡显示异常的原因。 */
+function splitRuleTopLevel(text: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of text) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    if (ch === ',' && depth === 0) {
+      out.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
 const paginatedRules = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value;
   const end = start + pageSize.value;
   return filteredIndices.value.slice(start, end).map(index => {
     const text = currentRulesList.value[index];
-    const parts = text.split(',');
-    
+    const parts = splitRuleTopLevel(text);
+
     const ruleType = parts[0]?.trim().toUpperCase() || 'UNKNOWN';
     let payloadStr = '';
     let policyStr = '';
@@ -384,7 +455,7 @@ const handleAddFromForm = async () => {
       targetSection = ruleTab.value; // 'subscription', 'add', or 'delete'
     }
 
-    await API.AddRuleFromForm(globalState.activeConfigId, targetSection, {
+    await App.AddRuleFromForm(globalState.activeConfigId, targetSection, {
       type: selectedRuleType.value,
       payload: rulePayload.value.trim(),
       policy: selectedPolicy.value,
@@ -396,9 +467,11 @@ const handleAddFromForm = async () => {
     showAddModal.value = false;
     searchQuery.value = '';
     currentPage.value = 1;
-    await showAlert(t('rules.addSuccess'), t('common.notice'));
+    // F-A4-12：成功用 toast
+    showToast(t('rules.addSuccess'), 'success');
   } catch (e) {
-    await showAlert(String(e), t('rules.addError', { error: String(e) }));
+    const u = toUserError(e);
+    await showAlert(t('rules.addError', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
   } finally {
     loading.value = false;
   }
@@ -421,10 +494,11 @@ const handleDelete = async (idx: number) => {
         targetSection = ruleTab.value;
       }
       
-      await API.DeleteRule(globalState.activeConfigId, targetSection, idx);
+      await App.DeleteRule(globalState.activeConfigId, targetSection, idx);
       await loadRules();
     } catch (e) {
-      await showAlert(t('rules.deleteError', { error: String(e) }), t('common.error'));
+      const u = toUserError(e);
+      await showAlert(t('rules.deleteError', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
     } finally {
       loading.value = false;
     }
@@ -446,8 +520,6 @@ onActivated(() => {
 .rules-view { 
   display: flex; 
   flex-direction: column; 
-  min-height: 100%; 
-  overflow: visible;
 }
 .empty-state-view { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 0.9rem; }
 
@@ -472,7 +544,7 @@ onActivated(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: var(--surface-hover);
+  background: var(--ui-surface-hover);
   padding: 6px;
   border-radius: 12px;
   user-select: none;
@@ -505,7 +577,7 @@ onActivated(() => {
 }
 
 .rules-tab-btn.active {
-  color: var(--accent-fg);
+  color: var(--ui-accent-fg);
   font-weight: 800;
 }
 
@@ -513,7 +585,7 @@ onActivated(() => {
   position: absolute;
   top: 6px;
   height: 36px;
-  background: var(--accent);
+  background: var(--ui-accent-block);
   border-radius: 8px;
   z-index: 0;
   pointer-events: none;
@@ -536,13 +608,11 @@ onActivated(() => {
   padding: 0 14px !important;
 }
 
-.rules-header.page-sticky-mask {
-  --sticky-mask-bleed: 2px;
-}
 
-.search-bar { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--surface-hover); border-radius: 8px; padding: 8px 12px; flex: 1; }
+.search-bar { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--ui-border-subtle); border-radius: 8px; padding: 8px 12px; flex: 1; }
 .search-bar input { border: none; background: transparent; color: var(--text-main); outline: none; margin-left: 8px; width: 100%; }
 
+/* 唯一滚动区：规则网格自己滚动，页头与分页条固定 */
 .rules-grid { 
   flex: 1; 
   min-height: 0; 
@@ -550,28 +620,62 @@ onActivated(() => {
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); 
   align-content: start; 
   gap: 16px; 
-  overflow: visible; 
   padding-top: 4px;
   padding-bottom: 20px; 
 }
 
+/* 翻页视口：只包住网格区，作为滑动的裁切容器、也是边缘淡化的承载层。
+   页头与分页条在它外面，所以不会被一起淡化。 */
+.rules-page-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  /* 翻页比整页切页快一档：连翻多页时 0.5s 一次太拖。
+     useEdgeFade 会从这个元素读时长，淡化收尾因此和位移对齐。 */
+  --pane-duration: 0.34s;
+}
+
+.rules-page-viewport > .rules-grid {
+  height: 100%;
+  box-sizing: border-box;
+}
+
+/* 过渡期两页并存，必须脱流叠放：否则它们会平分 flex 高度，各剩半屏 */
+.rules-page-viewport > .pane-left-leave-active,
+.rules-page-viewport > .pane-left-enter-active,
+.rules-page-viewport > .pane-right-leave-active,
+.rules-page-viewport > .pane-right-enter-active {
+  position: absolute;
+  inset: 0;
+}
+
+/* 必须在这里重新声明一次 transform 过渡。
+   .rules-grid 同时是 .ui-page-body，而 layout.css 里的
+   `.ui-page-body { transition: --ui-fade-* }` 在 main.ts 中晚于 style.css 加载，
+   同特异性下会把 style.css 里 .pane-*-active 的 `transition: transform` 压掉 ——
+   表现就是"翻页完全不动"。这里用 .rules-page-viewport > 提高特异性拿回来。 */
+.rules-page-viewport > .pane-left-enter-active,
+.rules-page-viewport > .pane-left-leave-active,
+.rules-page-viewport > .pane-right-enter-active,
+.rules-page-viewport > .pane-right-leave-active {
+  transition: transform var(--pane-duration) var(--pane-ease);
+}
+
 .rule-card { 
-  background: var(--surface); 
   border: none; 
-  border-radius: 10px; 
   padding: 14px 16px; 
   display: flex; 
   flex-direction: column; 
   gap: 10px; 
-  transition: background 0.2s; 
+  transition: background-color 0.2s; 
   height: 110px; 
   box-sizing: border-box;
   justify-content: space-between;
 }
-.rule-card:hover { background: var(--surface-hover); }
 .rule-main { display: flex; flex-direction: column; gap: 8px; } 
 .rule-type { font-size: 0.7rem; font-weight: 700; padding: 4px 8px; border-radius: 6px; width: fit-content; border: none; flex-shrink: 0; }
-.tag-primary { background: var(--text-main); color: var(--surface); } 
+.tag-primary { background: var(--ui-accent-block); color: var(--ui-accent-fg); } 
 .rule-payload { 
   font-size: 1rem; 
   color: var(--text-main); 
@@ -581,10 +685,20 @@ onActivated(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.rule-footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
-.rule-policy { font-size: 0.75rem; color: var(--text-sub); font-weight: 600; }
+.rule-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: auto; }
+/* 必须截断：规则被错误解析时 policy 可能是一长串，会撑破固定高度的卡片。
+   min-width: 0 让 flex 子项能被压缩，否则 text-overflow 不生效。 */
+.rule-policy {
+  font-size: 0.75rem;
+  color: var(--text-sub);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-.delete-btn { background: transparent; color: #ff4d4f; border: none; cursor: pointer; opacity: 0; transition: opacity 0.2s; padding: 4px; }
+.delete-btn { background: transparent; color: var(--danger); border: none; cursor: pointer; opacity: 0; transition: opacity 0.2s; padding: 4px; }
 .rule-card:hover .delete-btn { opacity: 1; }
 
 .loading-state { grid-column: 1 / -1; text-align: center; padding: 20px; color: var(--text-muted); font-size: 0.85rem; }
@@ -630,8 +744,8 @@ onActivated(() => {
 }
 
 .page-btn:hover:not(:disabled) {
-  background: var(--text-main);
-  color: var(--surface);
+  background: var(--ui-accent-block);
+  color: var(--ui-accent-fg);
 }
 
 .page-btn:active:not(:disabled) {
@@ -699,5 +813,12 @@ onActivated(() => {
   font-size: 0.78rem;
   color: var(--text-main);
   word-break: break-all;
+}
+
+/* 空态块放在规则网格里，必须占满整行，否则会被当成一个 300px 的格子 */
+.rules-grid :deep(.empty-state-block) {
+  grid-column: 1 / -1;
+  /* 网格里没有 flex 撑开，给一个和列表页气质一致的最小高度，避免空态挤在顶部 */
+  min-height: 320px;
 }
 </style>

@@ -25,7 +25,9 @@ func (c *Controller) SaveConfigText(ctx context.Context, id string, content stri
 		c.events.Emit("delay-cache-clear", "config-save")
 
 		if state.IsRunning || state.SystemProxy || state.Tun {
-			if err := c.RestartCoreWithReason(ctx, "config-save"); err != nil {
+			// 运行中配置内容变化：走 ControlCoordinator 的配置重载事务
+			// （stop → 载入新配置 → start → 等 API/代理组 → 恢复 TUN/系统代理）
+			if err := c.controls.ReloadConfig(ctx, "config-save"); err != nil {
 				return fmt.Errorf("保存成功，但重载运行配置失败: %w", err)
 			}
 		}

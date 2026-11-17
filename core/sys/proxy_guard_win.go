@@ -3,8 +3,10 @@
 package sys
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
+
 	"fmt"
+	jsonutil "goclashz/core/jsonutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,7 +42,7 @@ func markSystemProxyOwnedLocked(host string, port int) {
 		EnabledAt: time.Now().Unix(),
 	}
 
-	data, err := json.MarshalIndent(state, "", "  ")
+	data, err := jsonutil.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return
 	}
@@ -69,7 +71,7 @@ func readOwnedProxyStateLocked() (ownedProxyState, bool) {
 	}
 
 	var state ownedProxyState
-	if err := json.Unmarshal(data, &state); err != nil {
+	if err := jsonv2.Unmarshal(data, &state); err != nil {
 		return ownedProxyState{}, false
 	}
 

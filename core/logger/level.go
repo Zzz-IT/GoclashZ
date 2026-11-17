@@ -2,15 +2,6 @@ package logger
 
 import "strings"
 
-type Level int
-
-const (
-	LevelDebug Level = iota
-	LevelInfo
-	LevelWarn
-	LevelError
-)
-
 func NormalizeLevel(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "debug", "trace":

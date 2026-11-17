@@ -3,6 +3,7 @@
 package sys
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,8 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
+	"goclashz/core/logger"
 	"goclashz/core/utils"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -31,8 +34,8 @@ const (
 )
 
 type StartupTaskInfo struct {
-	Exists           bool        `json:"exists"`
-	Enabled          bool        `json:"enabled"`
+	Exists  bool `json:"exists"`
+	Enabled bool `json:"enabled"`
 	// SchedulerEnabled 兼容旧前端和 controller 状态字段
 	SchedulerEnabled bool        `json:"schedulerEnabled"`
 	Mode             StartupMode `json:"mode"`
@@ -105,22 +108,46 @@ func extractArgValue(fields []string, key string) string {
 	return ""
 }
 
-func hasLegacyTaskSchedulerTask() bool {
-	cmd := exec.Command("schtasks", "/Query", "/TN", tsTaskName)
+// schtasksTimeout 是单次 schtasks 调用的硬上限。
+//
+// 这条路在「打开设置页 / 启动 Bootstrap」的同步路径上，杀软环境下 schtasks 偶发
+// 卡数秒；以前用裸 exec.Command 无限等待（F-A5-17）。
+var schtasksTimeout = 3 * time.Second
+
+// runSchtasks 带超时地执行一次 schtasks，并把超时变成可读错误。
+func runSchtasks(args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), schtasksTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "schtasks", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	return cmd.Run() == nil
+
+	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		logger.Warnf("schtasks %v 超过 %s 未返回，已放弃等待", args, schtasksTimeout)
+		return fmt.Errorf("schtasks 超时（%s）", schtasksTimeout)
+	}
+	return err
+}
+
+func hasLegacyTaskSchedulerTask() bool {
+	return runSchtasks("/Query", "/TN", tsTaskName) == nil
 }
 
 func DeleteLegacyTaskSchedulerTask() {
-	cmd := exec.Command("schtasks", "/Delete", "/TN", tsTaskName, "/F")
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	_ = cmd.Run()
+	if err := runSchtasks("/Delete", "/TN", tsTaskName, "/F"); err != nil {
+		logger.Infof("清理旧版计划任务未执行或不存在: %v", err)
+	}
 }
 
 func checkAndMigrateLegacyTask(info StartupTaskInfo, expected string) (StartupTaskInfo, error) {
 	if hasLegacyTaskSchedulerTask() {
-		// 发现存在旧版任务计划程序自启，无感迁移至注册表 Run 项
+		// 发现存在旧版任务计划程序自启，无感迁移至注册表 Run 项。
+		// F-A5-17：这是「检查」路径上的写副作用（用户没点任何按钮就会写 HKCU\Run）；
+		// 保留它是因为 main.go 启动时会删除旧计划任务——不迁移等于悄悄丢掉老用户的自启，
+		// 但至少要让它可观测，所以这里落一条明确日志。
 		if err := CreateStartupTask(expected); err == nil {
+			logger.Infof("检测到旧版计划任务自启，已迁移到注册表 Run 项: %s", expected)
 			info.Exists = true
 			info.Enabled = true
 			info.SchedulerEnabled = true
@@ -132,6 +159,8 @@ func checkAndMigrateLegacyTask(info StartupTaskInfo, expected string) (StartupTa
 			info.Arguments = fmt.Sprintf(`--startup --silent --data-dir "%s"`, info.ExpectedDataDir)
 			info.ActualArgs = info.Arguments
 			return info, nil
+		} else {
+			logger.Warnf("旧版计划任务迁移失败，开机自启可能丢失: %v", err)
 		}
 	}
 

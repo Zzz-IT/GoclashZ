@@ -3,7 +3,9 @@
 package appcore
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
+
+	jsonutil "goclashz/core/jsonutil"
 	"goclashz/core/utils"
 	"os"
 	"path/filepath"
@@ -36,7 +38,7 @@ func (s *OfflineNodeStore) Load(defaultProfileID string) {
 
 	// 1. 先尝试新版格式 (profileID -> group -> node)
 	var nested map[string]map[string]string
-	if err := json.Unmarshal(data, &nested); err == nil && nested != nil {
+	if err := jsonv2.Unmarshal(data, &nested); err == nil && nested != nil {
 		// 检查是否真的解出了嵌套结构，防止由于 map[string]interface{} 兼容性导致的假成功
 		// (虽然 map[string]map[string]string 比较严格)
 		s.nodes = nested
@@ -45,7 +47,7 @@ func (s *OfflineNodeStore) Load(defaultProfileID string) {
 
 	// 2. 再尝试旧版扁平格式 (group -> node)
 	var legacy map[string]string
-	if err := json.Unmarshal(data, &legacy); err == nil && legacy != nil {
+	if err := jsonv2.Unmarshal(data, &legacy); err == nil && legacy != nil {
 		if defaultProfileID == "" {
 			defaultProfileID = "default"
 		}
@@ -65,7 +67,7 @@ func (s *OfflineNodeStore) Load(defaultProfileID string) {
 
 func (s *OfflineNodeStore) Save() {
 	s.mu.RLock()
-	data, err := json.MarshalIndent(s.nodes, "", "  ")
+	data, err := jsonutil.MarshalIndent(s.nodes, "", "  ")
 	s.mu.RUnlock()
 
 	if err == nil {

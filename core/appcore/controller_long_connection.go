@@ -3,8 +3,10 @@
 package appcore
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -151,7 +153,17 @@ func (c *Controller) HasActiveLongConnection() bool {
 	return snap.HasActiveLongConnection
 }
 
+// deferredActionQueued 保证同一时刻只有一个"待执行的延迟动作"（F-A2-18）。
+// 历史实现每次失败都起一个 10s ticker goroutine（watchdog 每 5s 触发 → 30 分钟内可累计数百个），
+// 且长连接结束时它们会各自调用一次 RestartCore，形成重复重启。
+var deferredActionQueued atomic.Bool
+
 func (c *Controller) queuePendingDisruptiveAction(reason string) {
+	if !deferredActionQueued.CompareAndSwap(false, true) {
+		c.logInfo("已有待执行的延迟任务，本次不再重复排队 (%s)", reason)
+		return
+	}
+
 	// Simple background poller for pending disruptive action
 	action := PendingDisruptiveAction{
 		Reason:    reason,
@@ -159,13 +171,25 @@ func (c *Controller) queuePendingDisruptiveAction(reason string) {
 		Deadline:  time.Now().Add(30 * time.Minute),
 	}
 
+	// F-A4-14：排队时也给出稳定 code（此前只有"放弃/恢复"两条通知，排队阶段是静默的）。
+	c.notify("info", "DEFERRED_RESTART_QUEUED",
+		fmt.Sprintf("检测到长连接活动，已排队延迟执行 (%s)，长连接结束后将自动继续", action.Reason),
+		"deferred-action")
+
+	baseCtx := c.ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+
 	go func() {
+		defer deferredActionQueued.Store(false)
+
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 
 		for {
 			select {
-			case <-c.ctx.Done():
+			case <-baseCtx.Done():
 				return
 			case now := <-ticker.C:
 				if now.After(action.Deadline) {

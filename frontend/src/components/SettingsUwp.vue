@@ -1,6 +1,6 @@
 <template>
-  <div class="settings-page">
-    <div class="sub-header page-sticky-mask">
+  <div class="settings-page ui-page-shell">
+    <div class="sub-header ui-page-header">
       <button class="back-btn" @click="$emit('navigate', 'main')">
         <span class="icon back-icon-svg" v-html="ICONS.arrowLeft"></span>
       </button>
@@ -8,8 +8,8 @@
     </div>
 
     <!-- 非管理员权限提示卡片 -->
-    <div v-if="!globalState.isAdmin" class="glass-card setting-group">
-      <div class="setting-item">
+    <div v-if="!globalState.isAdmin" class="glass-card setting-group ui-surface-group">
+      <div class="setting-item" id="set-uwp-adminPromptTitle">
         <div class="info">
           <h4>{{ t('settings.uwp.adminPromptTitle') }}</h4>
           <p>{{ t('settings.uwp.notAdminBanner') }}</p>
@@ -30,7 +30,12 @@
       </div>
     </div>
 
-    <div class="uwp-list-wrapper scrollable">
+    <div class="uwp-list-wrapper scrollable ui-page-body" id="set-uwp-exemptList">
+      <!-- 列表没加载成功时既没有可改的项，也不允许提交，这里给一行提示（复用全局空态样式） -->
+      <div v-if="!uwpLoaded" class="empty-state-block">
+        <div class="empty-state-hint">{{ t('common.empty') }}</div>
+      </div>
+
       <div
         v-for="app in filteredUwpApps"
         :key="app.sid"
@@ -57,7 +62,7 @@
     </div>
 
     <div class="uwp-footer">
-      <button class="apply-btn" :disabled="savingUwp" @click="saveUwpChanges">
+      <button class="apply-btn" id="set-uwp-applyBtn" :disabled="savingUwp || !uwpLoaded" @click="saveUwpChanges">
         <span v-if="!savingUwp">{{ t('settings.uwp.applyBtn') }}</span>
         <span v-else class="loading-spinner">{{ t('settings.uwp.saving') }}</span>
       </button>
@@ -67,8 +72,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import * as API from '../../wailsjs/go/main/App';
-import { globalState, showAlert, showConfirm } from '../store';
+import { App } from '../api';
+import { globalState, showAlert, showConfirm, showToast } from '../store';
+import { displayErrorMessage, toUserError } from '../utils/errors';
 import { ICONS } from '../utils/icons';
 import { t } from '../locales';
 
@@ -81,20 +87,36 @@ defineEmits<{
 const uwpApps = ref<any[]>([]);
 const uwpSearch = ref('');
 const savingUwp = ref(false);
+// 列表是否成功加载过：false 时禁止提交，避免「空列表 = 用户取消了全部」的误判
+const uwpLoaded = ref(false);
+// 加载成功那一刻的 isEnabled 快照：保存时据此算出真正的 added / removed
+const initialEnabled = ref<Record<string, boolean>>({});
 
 const handleRestartAdmin = async () => {
   try {
-    await (API as any).RestartAsAdmin();
+    await App.RestartAsAdmin();
   } catch (e: any) {
-    await showAlert(t('common.error') + ': ' + (e?.message || e), t('common.error'), true);
+    const u = toUserError(e);
+    await showAlert(displayErrorMessage(e), t('common.error'), true, u.detail);
   }
 };
 
 const enterUwpManager = async () => {
   try {
-    uwpApps.value = await (API as any).GetUwpApps();
+    // bindings 中 GetUwpApps() 返回 UwpApp[] | null，取不到时按空列表处理（保持 v2 行为）
+    const list = (await App.GetUwpApps()) ?? [];
+    uwpApps.value = list;
+
+    const snapshot: Record<string, boolean> = {};
+    for (const app of list) snapshot[app.sid] = !!app.isEnabled;
+    initialEnabled.value = snapshot;
+
+    uwpLoaded.value = true;
   } catch (e) {
-    showAlert(t('settings.uwp.fetchFailed', { error: String(e) }), t('common.error'));
+    // 加载失败保持 false：按钮继续禁用，避免把「没拿到列表」当成「用户取消了全部」
+    uwpLoaded.value = false;
+    const u = toUserError(e);
+    showAlert(t('settings.uwp.fetchFailed', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
   }
 };
 
@@ -119,14 +141,18 @@ const filteredUwpApps = computed(() => {
 });
 
 const toggleAllUwp = (val: boolean) => {
-  if (val) {
-    uwpApps.value.forEach(app => app.isEnabled = true);
-  } else {
-    uwpApps.value.forEach(app => app.isEnabled = !app.isEnabled);
-  }
+  // 「全不选」= 全部关闭，不是逐项取反（F-A4-20：原实现会把已关闭的反向打开）
+  uwpApps.value.forEach(app => { app.isEnabled = val; });
 };
 
+// 清空确认文案：settings.uwp.clearAllConfirm 已在 8 个语言包中就位（F-A4-17），
+// 不再需要用返回值猜 key 是否存在的回退层。
+const clearAllConfirmText = (): string => t('settings.uwp.clearAllConfirm');
+
 const saveUwpChanges = async () => {
+  // 列表没成功加载时不允许提交（按钮已 disabled，这里兜底）
+  if (!uwpLoaded.value) return;
+
   if (!globalState.isAdmin) {
     const ok = await showConfirm(
       t('settings.uwp.applyConfirmMsg'),
@@ -136,13 +162,47 @@ const saveUwpChanges = async () => {
     if (!ok) return;
   }
 
+  const targetSids = uwpApps.value.filter(a => a.isEnabled).map(a => a.sid);
+
+  // 目标为空 = 用户取消了全部勾选：走专门的「清空全部豁免」接口与确认，
+  // 不能把它当普通差异提交，否则和「列表没加载出来」无法区分。
+  if (targetSids.length === 0) {
+    const ok = await showConfirm(clearAllConfirmText(), t('settings.uwp.applyConfirmTitle'), false);
+    if (!ok) return;
+
+    savingUwp.value = true;
+    try {
+      await App.ClearAllUwpExemptions();
+      await enterUwpManager();
+      showToast(t('settings.uwp.saveSuccess'), 'success');
+    } catch (e: any) {
+      const u = toUserError(e);
+      await showAlert(t('settings.uwp.saveFailed', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
+    } finally {
+      savingUwp.value = false;
+    }
+    return;
+  }
+
+  // 差异式应用：只提交用户真正勾上 / 取消的 SID，未出现在本次枚举里的系统豁免一律不动
+  const added: string[] = [];
+  const removed: string[] = [];
+  for (const app of uwpApps.value) {
+    const wasEnabled = !!initialEnabled.value[app.sid];
+    const nowEnabled = !!app.isEnabled;
+    if (nowEnabled === wasEnabled) continue;
+    if (nowEnabled) added.push(app.sid);
+    else removed.push(app.sid);
+  }
+
   savingUwp.value = true;
   try {
-    const sids = uwpApps.value.filter(a => a.isEnabled).map(a => a.sid);
-    await (API as any).SaveUwpExemptions(sids);
-    await showAlert(t('settings.uwp.saveSuccess'), t('common.confirm'));
+    await App.ApplyUwpExemptionChanges(added, removed);
+    await enterUwpManager();
+    showToast(t('settings.uwp.saveSuccess'), 'success');
   } catch (e: any) {
-    await showAlert(t('settings.uwp.saveFailed', { error: String(e?.message || e) }), t('common.error'));
+    const u = toUserError(e);
+    await showAlert(t('settings.uwp.saveFailed', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
   } finally {
     savingUwp.value = false;
   }
@@ -150,13 +210,12 @@ const saveUwpChanges = async () => {
 </script>
 
 <style scoped>
-.settings-page { display: flex; flex-direction: column; flex: 1; min-height: 100%; overflow: visible; }
+.settings-page { flex: 1 1 auto; min-width: 0; }
 h3 { margin: 0 0 8px 0; color: var(--text-main); font-size: 1.25rem; padding-bottom: 4px; }
 .sub-header { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; padding: 0 0 12px 0; background: transparent; }
-.sub-header.page-sticky-mask { --sticky-mask-bleed: 4px; }
 .sub-header h3 { margin: 0; border: none; padding: 0; }
 .back-btn { background: var(--surface); border: none; color: var(--text-main); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; }
-.back-btn:hover { background: var(--surface-hover); }
+.back-btn:hover { background: var(--ui-surface-hover); }
 .back-btn .icon svg { width: 18px; height: 18px; display: block; }
 .back-icon-svg :deep(svg) { width: 18px; height: 18px; }
 
@@ -167,30 +226,30 @@ h4 { margin: 0 0 4px 0; color: var(--text-main); font-size: 0.95rem; }
 p { margin: 0; font-size: 0.85rem; color: var(--text-sub); line-height: 1.5; }
 
 .uwp-toolbar { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
-.uwp-search { flex: 1; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--surface-hover); border-radius: 10px; padding: 0 12px; height: 40px; transition: all 0.2s; }
-.uwp-search:focus-within { border-color: var(--accent); background: var(--surface-panel); }
+.uwp-search { flex: 1; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--ui-surface-hover); border-radius: 10px; padding: 0 12px; height: 40px; transition: all 0.2s; }
+.uwp-search:focus-within { border-color: var(--ui-accent); background: var(--ui-surface-card); }
 .uwp-search input { flex: 1; border: none; background: transparent; color: var(--text-main); outline: none; margin-left: 8px; font-size: 0.9rem; }
 .search-icon, .clear-icon { display: flex; align-items: center; color: var(--text-sub); }
 .clear-icon { cursor: pointer; padding: 4px; }
 .uwp-batch { display: flex; gap: 8px; }
-.batch-btn { background: var(--surface-hover); color: var(--text-main); border: none; padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
-.batch-btn:hover { background: var(--surface-panel); }
+.batch-btn { background: var(--ui-surface-hover); color: var(--text-main); border: none; padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
+.batch-btn:hover { background: var(--ui-surface-card); }
 .uwp-list-wrapper { display: flex; flex-direction: column; gap: 10px; flex: 1; padding-right: 4px; }
 .uwp-app-item { background: var(--surface); border-radius: 12px; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); border: 1px solid transparent; }
-.uwp-app-item:hover { background: var(--surface-hover); }
-.uwp-app-item.active { background: var(--accent); box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
+.uwp-app-item:hover { background: var(--ui-surface-hover); }
+.uwp-app-item.active { background: var(--ui-accent-block); box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
 .app-main-content { display: flex; align-items: center; gap: 16px; overflow: hidden; flex: 1; }
-.app-avatar { width: 42px; height: 42px; background: var(--surface-panel); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.3rem; color: var(--text-sub); flex-shrink: 0; }
-.uwp-app-item.active .app-avatar { background: rgba(255, 255, 255, 0.15); color: var(--accent-fg); }
+.app-avatar { width: 42px; height: 42px; background: var(--ui-surface-card); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.3rem; color: var(--text-sub); flex-shrink: 0; }
+.uwp-app-item.active .app-avatar { background: rgba(255, 255, 255, 0.15); color: var(--ui-accent-fg); }
 .app-details { display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
 .app-name { font-size: 0.95rem; font-weight: 700; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.uwp-app-item.active .app-name { color: var(--accent-fg); }
+.uwp-app-item.active .app-name { color: var(--ui-accent-fg); }
 .app-pkg { font-size: 0.75rem; color: var(--text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.7; }
-.uwp-app-item.active .app-pkg { color: var(--accent-fg); opacity: 0.8; }
-.uwp-status-tag { font-size: 0.7rem; letter-spacing: 0; font-weight: 600; padding: 3px 10px; border-radius: 4px; text-transform: uppercase; transition: all 0.2s; background: var(--surface-panel); color: var(--text-main); }
-.uwp-app-item.active .uwp-status-tag { background: var(--accent-fg) !important; color: var(--accent) !important; opacity: 0.8; }
+.uwp-app-item.active .app-pkg { color: var(--ui-accent-fg); opacity: 0.8; }
+.uwp-status-tag { font-size: 0.7rem; letter-spacing: 0; font-weight: 600; padding: 3px 10px; border-radius: 4px; text-transform: uppercase; transition: all 0.2s; background: var(--ui-surface-card); color: var(--text-main); }
+.uwp-app-item.active .uwp-status-tag { background: var(--ui-accent-fg) !important; color: var(--ui-accent) !important; opacity: 0.8; }
 .uwp-footer { margin-top: 20px; padding-top: 10px; }
-.apply-btn { width: 100%; padding: 14px; background: var(--accent); color: var(--accent-fg); border: none; border-radius: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1); }
+.apply-btn { width: 100%; padding: 14px; background: var(--ui-accent-block); color: var(--ui-accent-fg); border: none; border-radius: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1); }
 .apply-btn:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
 .apply-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .loading-spinner { display: flex; align-items: center; justify-content: center; gap: 8px; }

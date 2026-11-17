@@ -1,6 +1,6 @@
 <template>
-  <div class="settings-page">
-    <div class="sub-header section-header page-sticky-mask">
+  <div class="settings-page ui-page-shell" :class="{ 'no-anim': loading }">
+    <div class="sub-header section-header ui-page-header">
       <button class="back-btn" @click="$emit('navigate', 'main')">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="19" y1="12" x2="5" y2="12"></line>
@@ -13,166 +13,175 @@
       </button>
     </div>
 
-    <div class="glass-card setting-group scrollable">
-      <!-- 总开关 -->
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.lan.allowLan') }}</h4>
-          <p>{{ t('settings.lan.allowLanDesc') }}</p>
-        </div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="lanConfig.allowLan" @change="save" :disabled="loading">
-          <span class="slider"></span>
-        </label>
-      </div>
+    <DeviationStrip ref="deviationRef" module="lan" />
 
-      <div class="divider"></div>
-
-        <!-- 认证配置 -->
-        <div class="section-label">
-          <span class="section-label-text">{{ t('settings.lan.authSection') }}</span>
-          <span class="section-label-sub">{{ t('settings.lan.authSectionSub') }}</span>
-        </div>
-
-        <div class="setting-item col-item">
+    <div class="ui-page-body">
+      <div class="glass-card setting-group ui-surface-group scrollable">
+        <!-- 总开关 -->
+        <div class="setting-item" id="set-lan-allowLan">
           <div class="info">
-            <h4>{{ t('settings.lan.userLabel') }}</h4>
+            <h4>{{ t('settings.lan.allowLan') }}</h4>
+            <p>{{ t('settings.lan.allowLanDesc') }}</p>
           </div>
-          <input
-            type="text"
-            class="modern-input full-input"
-            v-model="lanConfig.lanAuthUser"
-            @blur="save"
-            :disabled="loading"
-            :placeholder="t('settings.lan.authPlaceholder')"
-            autocomplete="off"
-          />
+          <label class="modern-switch">
+            <input type="checkbox" v-model="lanConfig.allowLan" @change="save" :disabled="loading">
+            <span class="slider"></span>
+          </label>
         </div>
+
         <div class="divider"></div>
 
-        <div class="setting-item col-item">
-          <div class="info">
-            <h4>{{ t('settings.lan.passLabel') }}</h4>
+          <!-- 认证配置 -->
+          <div class="section-label">
+            <span class="section-label-text">{{ t('settings.lan.authSection') }}</span>
+            <span class="section-label-sub">{{ t('settings.lan.authSectionSub') }}</span>
           </div>
-          <div class="password-wrap">
+
+          <div class="setting-item col-item" id="set-lan-userLabel">
+            <div class="info">
+              <h4>{{ t('settings.lan.userLabel') }}</h4>
+            </div>
             <input
-              :type="showPassword ? 'text' : 'password'"
+              type="text"
               class="modern-input full-input"
-              v-model="lanConfig.lanAuthPass"
+              v-model="lanConfig.lanAuthUser"
               @blur="save"
               :disabled="loading"
               :placeholder="t('settings.lan.authPlaceholder')"
-              autocomplete="new-password"
+              autocomplete="off"
             />
-            <button class="eye-btn" @click="showPassword = !showPassword" type="button" tabindex="-1">
-              <svg v-if="!showPassword" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                <circle cx="12" cy="12" r="3"></circle>
-              </svg>
-              <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"></path>
-                <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"></path>
-                <line x1="1" y1="1" x2="23" y2="23"></line>
-              </svg>
-            </button>
           </div>
-        </div>
+          <div class="divider"></div>
 
-        <div class="divider"></div>
-
-        <!-- 允许连接的 IP -->
-        <div class="setting-item col-item">
-          <div class="info">
-            <h4>{{ t('settings.lan.allowedIPs') }}</h4>
-            <p>{{ t('settings.lan.allowedIPsDesc') }}</p>
-            <p class="example-hint">{{ t('settings.lan.exampleHint', { example: '192.168.1.0/24' }) }}</p>
-          </div>
-          <div class="textarea-wrap">
-            <textarea
-              class="modern-textarea"
-              v-model="lanConfig.lanAllowedIPs"
-              @blur="saveAndValidate('allowed')"
-              @input="validateCIDR(lanConfig.lanAllowedIPs, 'allowed')"
-              :disabled="loading"
-              rows="4"
-              placeholder="192.168.1.0/24"
-            ></textarea>
-            <div v-if="errors.allowed" class="validation-error">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="warn-icon" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <span>{{ errors.allowed }}</span>
+          <div class="setting-item col-item" id="set-lan-passLabel">
+            <div class="info">
+              <h4>{{ t('settings.lan.passLabel') }}</h4>
+            </div>
+            <div class="password-wrap">
+              <input
+                :type="showPassword ? 'text' : 'password'"
+                class="modern-input full-input"
+                v-model="lanConfig.lanAuthPass"
+                @blur="save"
+                :disabled="loading"
+                :placeholder="t('settings.lan.authPlaceholder')"
+                autocomplete="new-password"
+              />
+              <button class="eye-btn" @click="showPassword = !showPassword" type="button" tabindex="-1">
+                <svg v-if="!showPassword" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"></path>
+                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"></path>
+                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                </svg>
+              </button>
             </div>
           </div>
-        </div>
-        <div class="divider"></div>
 
-        <!-- 禁止连接的 IP -->
-        <div class="setting-item col-item">
-          <div class="info">
-            <h4>{{ t('settings.lan.disallowedIPs') }}</h4>
-            <p>{{ t('settings.lan.disallowedIPsDesc') }}</p>
-            <p class="example-hint">{{ t('settings.lan.exampleHint', { example: '192.168.1.100/32' }) }}</p>
-          </div>
-          <div class="textarea-wrap">
-            <textarea
-              class="modern-textarea"
-              v-model="lanConfig.lanDisallowedIPs"
-              @blur="saveAndValidate('disallowed')"
-              @input="validateCIDR(lanConfig.lanDisallowedIPs, 'disallowed')"
-              :disabled="loading"
-              rows="4"
-              placeholder="192.168.1.100/32"
-            ></textarea>
-            <div v-if="errors.disallowed" class="validation-error">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="warn-icon" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <span>{{ errors.disallowed }}</span>
+          <div class="divider"></div>
+
+          <!-- 允许连接的 IP -->
+          <div class="setting-item col-item" id="set-lan-allowedIPs">
+            <div class="info">
+              <h4>{{ t('settings.lan.allowedIPs') }}</h4>
+              <p>{{ t('settings.lan.allowedIPsDesc') }}</p>
+              <p class="example-hint">{{ t('settings.lan.exampleHint', { example: '192.168.1.0/24' }) }}</p>
+            </div>
+            <div class="textarea-wrap">
+              <textarea
+                class="modern-textarea"
+                v-model="lanConfig.lanAllowedIPs"
+                @blur="saveAndValidate('allowed')"
+                @input="validateCIDR(lanConfig.lanAllowedIPs, 'allowed')"
+                :disabled="loading"
+                rows="4"
+                placeholder="192.168.1.0/24"
+              ></textarea>
+              <div v-if="errors.allowed" class="validation-error">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="warn-icon" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <span>{{ errors.allowed }}</span>
+              </div>
             </div>
           </div>
-        </div>
-        <div class="divider"></div>
+          <div class="divider"></div>
 
-        <!-- 跳过认证的 IP -->
-        <div class="setting-item col-item">
-          <div class="info">
-            <h4>{{ t('settings.lan.skipAuthIPs') }}</h4>
-            <p>{{ t('settings.lan.skipAuthIPsDesc') }}</p>
-            <p class="example-hint">{{ t('settings.lan.exampleHint', { example: '127.0.0.1/8' }) }}</p>
-          </div>
-          <div class="textarea-wrap">
-            <textarea
-              class="modern-textarea"
-              v-model="lanConfig.lanSkipAuthIPs"
-              @blur="saveAndValidate('skipAuth')"
-              @input="validateCIDR(lanConfig.lanSkipAuthIPs, 'skipAuth')"
-              :disabled="loading"
-              rows="4"
-              placeholder="127.0.0.1/8"
-            ></textarea>
-            <div v-if="errors.skipAuth" class="validation-error">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="warn-icon" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <span>{{ errors.skipAuth }}</span>
+          <!-- 禁止连接的 IP -->
+          <div class="setting-item col-item" id="set-lan-disallowedIPs">
+            <div class="info">
+              <h4>{{ t('settings.lan.disallowedIPs') }}</h4>
+              <p>{{ t('settings.lan.disallowedIPsDesc') }}</p>
+              <p class="example-hint">{{ t('settings.lan.exampleHint', { example: '192.168.1.100/32' }) }}</p>
+            </div>
+            <div class="textarea-wrap">
+              <textarea
+                class="modern-textarea"
+                v-model="lanConfig.lanDisallowedIPs"
+                @blur="saveAndValidate('disallowed')"
+                @input="validateCIDR(lanConfig.lanDisallowedIPs, 'disallowed')"
+                :disabled="loading"
+                rows="4"
+                placeholder="192.168.1.100/32"
+              ></textarea>
+              <div v-if="errors.disallowed" class="validation-error">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="warn-icon" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <span>{{ errors.disallowed }}</span>
+              </div>
             </div>
           </div>
-        </div>
+          <div class="divider"></div>
+
+          <!-- 跳过认证的 IP -->
+          <div class="setting-item col-item" id="set-lan-skipAuthIPs">
+            <div class="info">
+              <h4>{{ t('settings.lan.skipAuthIPs') }}</h4>
+              <p>{{ t('settings.lan.skipAuthIPsDesc') }}</p>
+              <p class="example-hint">{{ t('settings.lan.exampleHint', { example: '127.0.0.1/8' }) }}</p>
+            </div>
+            <div class="textarea-wrap">
+              <textarea
+                class="modern-textarea"
+                v-model="lanConfig.lanSkipAuthIPs"
+                @blur="saveAndValidate('skipAuth')"
+                @input="validateCIDR(lanConfig.lanSkipAuthIPs, 'skipAuth')"
+                :disabled="loading"
+                rows="4"
+                placeholder="127.0.0.1/8"
+              ></textarea>
+              <div v-if="errors.skipAuth" class="validation-error">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="warn-icon" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <span>{{ errors.skipAuth }}</span>
+              </div>
+            </div>
+          </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref, watch } from 'vue';
-import * as API from '../../wailsjs/go/main/App';
+import { App } from '../api';
+import { showToast } from '../store';
+import { toUserError } from '../utils/errors';
+import { reportError } from '../utils/report';
 import { ICONS } from '../utils/icons';
+import DeviationStrip from './DeviationStrip.vue';
 import { t } from '../locales';
 
 const props = defineProps<{ resetKey: number }>();
 defineEmits<{ navigate: [view: 'main']; reset: [module: 'network'] }>();
 
 const loading = ref(true);
+const deviationRef = ref<InstanceType<typeof DeviationStrip> | null>(null);
 const showPassword = ref(false);
 
 const lanConfig = reactive({
@@ -221,7 +230,7 @@ function validateAll(): boolean {
 const loadData = async () => {
   loading.value = true;
   try {
-    const cfg = await (API.GetNetworkConfig as any)();
+    const cfg = await App.GetNetworkConfig();
     if (cfg) {
       lanConfig.allowLan       = cfg.allowLan       ?? false;
       lanConfig.lanAuthUser    = cfg.lanAuthUser     ?? '';
@@ -231,9 +240,14 @@ const loadData = async () => {
       lanConfig.lanSkipAuthIPs = cfg.lanSkipAuthIPs  ?? '';
     }
   } catch (e) {
-    console.error('加载局域网代理配置失败', e);
+    reportError(e, 'lan.load');
   } finally {
-    loading.value = false;
+    // 必须等浏览器真正绘制一帧（rAF）后再解除 no-anim。
+    // 若用 nextTick，解除发生在绘制之前，浏览器首次绘制时 transition 已恢复，
+    // 会把"默认值→真实值"当成状态变化播成滑动动画，抑制形同无效。
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => { loading.value = false; });
+    });
   }
 };
 
@@ -242,7 +256,7 @@ const save = async () => {
   try {
     // Merge LAN fields into the full network config to avoid overwriting
     // other network settings that may be managed in SettingsNetwork.
-    const current = await (API.GetNetworkConfig as any)();
+    const current = await App.GetNetworkConfig();
     const merged = {
       ...current,
       allowLan:         lanConfig.allowLan,
@@ -252,9 +266,14 @@ const save = async () => {
       lanDisallowedIPs: lanConfig.lanDisallowedIPs,
       lanSkipAuthIPs:   lanConfig.lanSkipAuthIPs,
     };
-    await (API.SaveNetworkConfig as any)(merged);
+    await App.SaveNetworkConfig(merged as any);
+    void deviationRef.value?.refresh();
   } catch (e) {
-    console.error('局域网代理配置保存失败', e);
+    reportError(e, 'lan.save');
+    // 自动保存失败必须让用户看见，否则界面显示新值、磁盘仍是旧值
+    const u = toUserError(e);
+    showToast(t('settings.saveFailed', { error: u.message }), 'error');
+    void deviationRef.value?.refresh();
   }
 };
 
@@ -272,15 +291,9 @@ watch(() => props.resetKey, () => { void loadData(); });
 </script>
 
 <style scoped>
-.settings-page {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 100%;
-  overflow: visible;
-}
+.settings-page { flex: 1 1 auto; min-width: 0; }
 .setting-group { padding: 20px 24px; margin-bottom: 12px; }
-.setting-group.scrollable { padding-bottom: 20px; overflow: visible; max-height: none; }
+.setting-group.scrollable { padding-bottom: 20px; }
 
 h3 { margin: 0 0 8px 0; color: var(--text-main); font-size: 1.25rem; padding-bottom: 4px; }
 h4 { margin: 0 0 4px 0; color: var(--text-main); font-size: 1rem; }
@@ -289,7 +302,7 @@ p { margin: 0; font-size: 0.85rem; color: var(--text-sub); line-height: 1.5; }
 .info { flex: 1; padding-right: 24px; min-width: 0; }
 .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; }
 .col-item { flex-direction: column; align-items: stretch; gap: 10px; padding: 16px 0; }
-.divider { height: 1px; background: var(--glass-border); opacity: 0.5; margin: 0; }
+.divider { height: 1px; background: var(--ui-border-subtle); opacity: 0.5; margin: 0; }
 
 /* section label */
 .section-label {
@@ -318,7 +331,7 @@ p { margin: 0; font-size: 0.85rem; color: var(--text-sub); line-height: 1.5; }
 /* inputs */
 .full-input {
   width: 100%;
-  background: var(--surface-hover);
+  background: var(--ui-surface-hover);
   border: none;
   color: var(--text-main);
   padding: 10px 14px;
@@ -350,7 +363,7 @@ p { margin: 0; font-size: 0.85rem; color: var(--text-sub); line-height: 1.5; }
 .eye-btn:hover { color: var(--text-main); }
 
 .modern-textarea {
-  background: var(--surface-hover);
+  background: var(--ui-surface-hover);
   border: none;
   color: var(--text-main);
   padding: 10px 14px;
@@ -370,11 +383,11 @@ p { margin: 0; font-size: 0.85rem; color: var(--text-sub); line-height: 1.5; }
 /* switch */
 .modern-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
 .modern-switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--surface-hover); transition: .3s; border-radius: 24px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--ui-surface-hover); transition: .3s; border-radius: 24px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
 .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
 input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
-input:checked + .slider { background-color: var(--accent); }
-input:checked + .slider:before { transform: translateX(20px); background-color: var(--accent-fg); }
+input:checked + .slider { background-color: var(--ui-accent-block); }
+input:checked + .slider:before { transform: translateX(20px); background-color: var(--ui-accent-fg); }
 
 /* validation */
 .validation-error {
@@ -404,7 +417,7 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 }
 .sub-header.section-header h3 { flex: 1; margin: 0; border: none; padding: 0; margin-left: 12px; }
 .back-btn { background: var(--surface); border: none; color: var(--text-main); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; flex-shrink: 0; }
-.back-btn:hover { background: var(--surface-hover); }
+.back-btn:hover { background: var(--ui-surface-hover); }
 .mini-btn-reset { height: 36px !important; padding: 0 14px !important; font-size: 0.85rem !important; border-radius: 8px !important; }
 .mini-btn-reset :deep(.btn-icon) svg { width: 16px; height: 16px; }
 </style>

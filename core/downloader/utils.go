@@ -3,6 +3,7 @@
 package downloader
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 
@@ -76,18 +77,31 @@ func VerifySHA256(path string, expected string) error {
 
 var githubHostSem = make(chan struct{}, 4)
 
-func acquireHostLimiter(rawURL string) func() {
+// acquireHostLimiter 限制同一 GitHub 主机族的并发下载数（4）。
+//
+// 返回值 release 必须调用。ctx 取消时返回错误而不是无限阻塞在信号量上
+// （F-A5-16：之前用户点「暂停」后，协程仍卡在这里，直到前 4 个下载自然超时
+// 才轮到它，UI 显示"已暂停"但后台还在排队）。
+func acquireHostLimiter(ctx context.Context, rawURL string) (func(), error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return func() {}
+		return func() {}, nil
 	}
 
 	host := strings.ToLower(u.Host)
-	if strings.Contains(host, "github.com") ||
-		strings.Contains(host, "githubusercontent.com") {
-		githubHostSem <- struct{}{}
-		return func() { <-githubHostSem }
+	if !strings.Contains(host, "github.com") && !strings.Contains(host, "githubusercontent.com") {
+		return func() {}, nil
 	}
 
-	return func() {}
+	if ctx == nil {
+		githubHostSem <- struct{}{}
+		return func() { <-githubHostSem }, nil
+	}
+
+	select {
+	case githubHostSem <- struct{}{}:
+		return func() { <-githubHostSem }, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("等待 GitHub 下载并发额度被取消: %w", ctx.Err())
+	}
 }

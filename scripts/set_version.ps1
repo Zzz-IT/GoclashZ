@@ -1,40 +1,80 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)]
     [string]$Version
 )
 
-$Version = $Version.TrimStart("v")
+# GoclashZ (Wails v3) - 版本号注入脚本
+# 单一版本来源: build/config.yml 的 info.version；本脚本把它同步到所有需要的文件。
+#   1. core/version/version.go         -> var AppVersion = "vX.Y.Z"
+#   2. build/config.yml                -> info.version: "X.Y.Z"
+#   3. build/windows/info.json         -> Windows VERSIONINFO (file_version/product_version/FileVersion/ProductVersion)
+#   4. build/windows/wails.exe.manifest-> assemblyIdentity version
+#   5. package.iss                     -> #define MyAppVersion 默认值
+#   6. frontend/package.json           -> "version"
+# v2 的 wails.json 与 frontend/package.json.md5 已随迁移删除，不再写入。
+# 脚本可重复执行（幂等）：内容未变化的文件不会被重写。
+
+$Version = $Version.Trim()
+
+if ($Version -match '^[vV]') { $Version = $Version.Substring(1) }
 
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
     throw "Invalid version: $Version. Expected X.Y.Z"
 }
 
+$Root = Split-Path -Parent $PSScriptRoot
+Set-Location $Root
+
 Write-Host "Setting GoclashZ version to $Version..."
 
-function Write-Utf8NoBom($Path, $Content) {
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText((Resolve-Path $Path), $Content, $utf8NoBom)
+function Read-Utf8PreserveBom([string]$Path) {
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+    $offset = 0
+    if ($hasBom) { $offset = 3 }
+    $text = (New-Object System.Text.UTF8Encoding($false)).GetString($bytes, $offset, $bytes.Length - $offset)
+    return [pscustomobject]@{ Text = $text; HasBom = $hasBom }
 }
 
-# version.go
-$vgo = Get-Content core/version/version.go -Raw -Encoding UTF8
-$vgo = $vgo -replace 'var AppVersion = ".*"', "var AppVersion = `"v$Version`""
-Write-Utf8NoBom "core/version/version.go" $vgo
+function Write-Utf8PreserveBom([string]$Path, [string]$Text, [bool]$HasBom) {
+    $enc = New-Object System.Text.UTF8Encoding($HasBom)
+    [System.IO.File]::WriteAllText($Path, $Text, $enc)
+}
 
-# wails.json
-$wails = Get-Content wails.json -Raw -Encoding UTF8
-$wails = $wails -replace '"productVersion"\s*:\s*"[^"]*"', "`"productVersion`": `"$Version`""
-Write-Utf8NoBom "wails.json" $wails
+# 用正则就地替换，保持文件其余内容/换行/编码不变；返回是否有改动。
+function Update-File([string]$Path, [string]$Pattern, [string]$Replacement, [string]$Label) {
+    if (-not (Test-Path $Path)) {
+        throw "Missing file: $Path ($Label)"
+    }
+    $state = Read-Utf8PreserveBom $Path
+    $updated = [regex]::Replace($state.Text, $Pattern, $Replacement)
+    if ($updated -ceq $state.Text) {
+        Write-Host "  [same]  $Label"
+        return $false
+    }
+    Write-Utf8PreserveBom $Path $updated $state.HasBom
+    Write-Host "  [write] $Label"
+    return $true
+}
 
-# frontend/package.json
-$pkg = Get-Content frontend/package.json -Raw -Encoding UTF8
-$pkg = $pkg -replace '"version"\s*:\s*"[^"]*"', "`"version`": `"$Version`""
-Write-Utf8NoBom "frontend/package.json" $pkg
+$changed = 0
 
-# package.iss
-$iss = Get-Content package.iss -Raw -Encoding UTF8
-$iss = $iss -replace '#define MyAppVersion ".*"', "#define MyAppVersion `"$Version`""
-$iss = $iss -replace 'VersionInfoVersion=.*', "VersionInfoVersion=$Version.0"
-Write-Utf8NoBom "package.iss" $iss
+# 1. core/version/version.go
+if (Update-File "core/version/version.go" '(?m)^(var AppVersion = ")[^"]*(")' ('${1}v' + $Version + '${2}') "core/version/version.go") { $changed++ }
 
-Write-Host "Version successfully updated to $Version."
+# 2. build/config.yml (info.version, 2 空格缩进)
+if (Update-File "build/config.yml" '(?m)^([ \t]{2}version:[ \t]*")[^"]*(")' ('${1}' + $Version + '${2}') "build/config.yml (info.version)") { $changed++ }
+
+# 3. build/windows/info.json (VERSIONINFO -> syso)
+if (Update-File "build/windows/info.json" '("(?:file_version|product_version|FileVersion|ProductVersion)":[ \t]*")[^"]*(")' ('${1}' + $Version + '${2}') "build/windows/info.json") { $changed++ }
+
+# 4. build/windows/wails.exe.manifest (assemblyIdentity version)
+if (Update-File "build/windows/wails.exe.manifest" '(name="com\.zzzdream\.goclashz" version=")[^"]*(")' ('${1}' + $Version + '${2}') "build/windows/wails.exe.manifest") { $changed++ }
+
+# 5. package.iss (默认值；CI 仍可用 /DMyAppVersion= 覆盖)
+if (Update-File "package.iss" '(?m)^([ \t]*#define MyAppVersion ")[^"]*(")' ('${1}' + $Version + '${2}') "package.iss (MyAppVersion)") { $changed++ }
+
+# 6. frontend/package.json
+if (Update-File "frontend/package.json" '(?m)^([ \t]{2}"version":[ \t]*")[^"]*(")' ('${1}' + $Version + '${2}') "frontend/package.json") { $changed++ }
+
+Write-Host "Version successfully updated to $Version ($changed file(s) changed)."

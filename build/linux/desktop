@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=GoclashZ
+Comment=A modern Clash client
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/goclashz.exe %u
+Terminal=false
+Type=Application
+Icon=goclashz.exe
+Categories=Utility;
+StartupWMClass=goclashz.exe
+
+ 

@@ -10,7 +10,12 @@ import (
 	"time"
 
 	"goclashz/core/clash"
+	"goclashz/core/logger"
 )
+
+// ErrComponentUpdateBusy 表示已有组件更新事务在推进（内核/驱动），
+// 调用方应立即返回而不是阻塞在锁上（F-A5-05）。
+var ErrComponentUpdateBusy = errors.New("组件更新进行中（内核/驱动），请等待完成后再试")
 
 type ComponentUpdateOptions struct {
 	Name         string
@@ -32,6 +37,8 @@ func (c *Controller) runComponentUpdateTransaction(
 	// goroutine starts) closes the race window where a rapid second call would
 	// see no active entry in UpdateTasks and proceed to cancel the first task.
 	if existing, ok := c.UpdateTasks.Get(taskName); ok && existing.Status == "running" {
+		// 静默跳过也要留痕：否则用户连点两次「更新」时，第二次被丢掉完全无迹可查（F-A5-06）。
+		logger.Warnf("组件更新 | task=%s 已有实例在运行（stage=%s），本次请求被忽略", taskName, existing.Stage)
 		return
 	}
 	c.UpdateTasks.Set(taskName, UpdateTaskState{
@@ -42,8 +49,10 @@ func (c *Controller) runComponentUpdateTransaction(
 		StartedAt: time.Now().Unix(),
 	})
 
+	// 事件契约（F-A5-23）：-start / -success / -cancelled / -error 一律由任务框架
+	// （core/tasks.Manager）统一发一次。事务内部以前还会再发一遍，导致同一动作前端
+	// 收到两次同名事件；如果将来两处 payload 类型不一致，wails 会直接 cancel 事件。
 	c.Tasks.Run(ctx, taskName, true, func(ctx context.Context) error {
-		c.events.Emit(taskName + "-start")
 		// Refresh the state entry that was pre-registered above; preserve
 		// StartedAt so the UI doesn't reset the elapsed-time counter.
 		state, _ := c.UpdateTasks.Get(taskName)
@@ -54,11 +63,10 @@ func (c *Controller) runComponentUpdateTransaction(
 		state.Error = ""
 		c.UpdateTasks.Set(taskName, state)
 
-		// 1. 获取组件更新全局锁，避免多个组件同时更新
-		c.componentUpdateMu.Lock()
-		defer c.componentUpdateMu.Unlock()
-
-		// 2. Prepare 阶段：内核仍然运行，允许使用本地代理下载大文件
+		// 1. Prepare 阶段（下载）**不**持组件更新全局锁：
+		//    61MB 内核 / 驱动包的下载可能持续几分钟，持锁会让「还原备份」「用种子替换内核」
+		//    等入口无限期阻塞且没有任何反馈（F-A5-05）。
+		//    真正的互斥收敛到 commit 窗口（第 3 步），那一段是可控的秒级操作。
 		startedAt := time.Now().Unix()
 		prepared, err := opt.Prepare(ctx, func(bytesDone, totalBytes, speedBps, etaSec int64) {
 			state, _ := c.UpdateTasks.Get(taskName)
@@ -89,14 +97,16 @@ func (c *Controller) runComponentUpdateTransaction(
 			if isCanceled {
 				state.Status = "cancelled"
 				state.Error = "已暂停"
+				logger.Warnf("组件更新 | task=%s stage=prepare 已取消（耗时 %ds）", taskName, time.Now().Unix()-startedAt)
 			} else {
 				state.Status = "error"
 				state.Error = fmt.Sprintf("准备失败: %v", err)
+				// F-A5-06：更新失败必须落日志，否则「无日志、无提示、只有任务行」的复盘黑洞依旧。
+				logger.Errorf("组件更新失败 | task=%s stage=prepare err=%v", taskName, err)
 			}
 			state.FinishedAt = time.Now().Unix()
 			c.UpdateTasks.Set(taskName, state)
 
-			c.events.Emit(taskName+"-error", err.Error())
 			return fmt.Errorf("%s准备失败: %w", opt.Name, err)
 		}
 
@@ -105,7 +115,13 @@ func (c *Controller) runComponentUpdateTransaction(
 		state.Stage = "committing"
 		c.UpdateTasks.Set(taskName, state)
 
-		// 3. 获取内核生命周期锁，准备短暂停机替换文件
+		// 3. commit 窗口独占组件更新锁 + 内核生命周期锁：
+		//    只覆盖「停核 → 替换文件 → 起核」，等待上限与其它事务的 commit 时长同阶。
+		//    加锁顺序固定为 componentUpdateMu → coreLifecycleMu，与
+		//    ReplaceCoreWithSeed / RestoreBackup 一致，不会死锁。
+		c.componentUpdateMu.Lock()
+		defer c.componentUpdateMu.Unlock()
+
 		c.coreLifecycleMu.Lock()
 
 		wasRunning := clash.IsRunning()
@@ -145,7 +161,8 @@ func (c *Controller) runComponentUpdateTransaction(
 				Error:      fmt.Sprintf("提交失败: %v", err),
 				FinishedAt: time.Now().Unix(),
 			})
-			c.events.Emit(taskName+"-error", err.Error())
+			// F-A5-06：commit 失败（文件被占用 / 权限 / helper 超时）必须落日志。
+			logger.Errorf("组件更新失败 | task=%s stage=commit err=%v", taskName, err)
 			return fmt.Errorf("%s失败: %w", opt.Name, err)
 		}
 
@@ -167,7 +184,8 @@ func (c *Controller) runComponentUpdateTransaction(
 					Error:      fmt.Sprintf("内核恢复失败: %v", err),
 					FinishedAt: time.Now().Unix(),
 				})
-				c.events.Emit(taskName+"-error", err.Error())
+				// 文件已替换成功但起不来：这是最需要复盘的一类「半成功」。
+				logger.Errorf("组件更新半成功 | task=%s stage=restart err=%v（文件已替换，内核未能恢复运行）", taskName, err)
 				return fmt.Errorf("%s成功，但内核恢复启动失败: %w", opt.Name, err)
 			}
 		}
@@ -179,7 +197,7 @@ func (c *Controller) runComponentUpdateTransaction(
 			Progress:   100,
 			FinishedAt: time.Now().Unix(),
 		})
-		c.events.Emit(taskName + "-success")
+		logger.Infof("组件更新成功 | task=%s 耗时 %ds（含下载）", taskName, time.Now().Unix()-startedAt)
 
 		c.SyncState()
 		return nil

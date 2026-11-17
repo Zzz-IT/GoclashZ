@@ -1,6 +1,7 @@
 package runtimeassets
 
 import (
+	"context"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,17 +11,26 @@ import (
 	"goclashz/core/utils"
 )
 
-// MigrateLegacyAssets 迁移旧版本的核心资产
+// MigrateLegacyAssets 迁移旧版本的核心资产。
+// 与 CleanupLegacyAssets 共用 "legacy-migrate" 资产锁：两者会操作同一批目录，
+// 并发跑会互相删/移（F-A1-16）。
 func MigrateLegacyAssets() {
+	_ = withAssetLock(context.Background(), "legacy-migrate", 5*time.Second, func() error {
+		migrateLegacyAssetsLocked()
+		return nil
+	})
+}
+
+func migrateLegacyAssetsLocked() {
 	targetDir := utils.GetCoreBinDir()
 	_ = os.MkdirAll(targetDir, 0755)
 
 	appDir := utils.GetAppDir()
 
 	legacyDirs := []string{
-		filepath.Join(appDir, "core", "bin"),                // 旧版安装器打包的 core/bin
-		utils.GetLegacyDataCoreBinDir(),                     // 旧的 Roaming DataDir/core/bin
-		utils.GetDataDir(),                                  // 旧的 DataDir 根目录（旧架构可能直接放根目录）
+		filepath.Join(appDir, "core", "bin"), // 旧版安装器打包的 core/bin
+		utils.GetLegacyDataCoreBinDir(),      // 旧的 Roaming DataDir/core/bin
+		utils.GetDataDir(),                   // 旧的 DataDir 根目录（旧架构可能直接放根目录）
 	}
 
 	assets := []string{
@@ -35,9 +45,9 @@ func MigrateLegacyAssets() {
 
 		targetExists := false
 		var targetHash string
+		targetHashKnown := false
 		if st, err := os.Stat(target); err == nil && !st.IsDir() {
 			targetExists = true
-			targetHash, _ = calculateSHA256(target)
 		}
 
 		isCore := name == "clash.exe" || name == "wintun.dll"
@@ -50,7 +60,13 @@ func MigrateLegacyAssets() {
 
 			if targetExists {
 				if isCore {
-					// 核心资产：比较哈希，相同则删除，不同则备份
+					// 核心资产：比较哈希，相同则删除，不同则备份。
+					// 目标哈希只在这里算一次：没有旧布局文件时启动期 0 次 SHA256
+					// （此前每次启动会对 6 个资产无条件哈希 ≈91MB，F-A5-14）。
+					if !targetHashKnown {
+						targetHash, _ = calculateSHA256(target)
+						targetHashKnown = true
+					}
 					oldHash, _ := calculateSHA256(oldPath)
 					if oldHash != "" && oldHash == targetHash {
 						_ = os.Remove(oldPath)
@@ -90,8 +106,16 @@ func MigrateLegacyAssets() {
 	}
 }
 
-// CleanupLegacyAssets 安全清理残余的旧二进制目录及旧文件
+// CleanupLegacyAssets 安全清理残余的旧二进制目录及旧文件。
+// 与 MigrateLegacyAssets 互斥（同一批目录），见 F-A1-16。
 func CleanupLegacyAssets() {
+	_ = withAssetLock(context.Background(), "legacy-migrate", 10*time.Second, func() error {
+		cleanupLegacyAssetsLocked()
+		return nil
+	})
+}
+
+func cleanupLegacyAssetsLocked() {
 	appDir := utils.GetAppDir()
 	dataDir := utils.GetDataDir()
 
@@ -110,6 +134,21 @@ func CleanupLegacyAssets() {
 
 	backupDir := filepath.Join(dataDir, "backups", "legacy-core", time.Now().Format("20060102150405"))
 
+	// active 文件哈希复用：同一轮清理里，同一个 active 目标最多只读一次
+	// （最坏情况 12 个旧文件 × 61MB 会被重复读成 700MB+，F-A5-14）。
+	activeHashCache := make(map[string]string)
+	activeHash := func(path string) (string, error) {
+		if v, ok := activeHashCache[path]; ok {
+			return v, nil
+		}
+		h, err := calculateSHA256(path)
+		if err != nil {
+			return "", err
+		}
+		activeHashCache[path] = h
+		return h, nil
+	}
+
 	// 辅助函数：安全删除或备份文件
 	cleanOrBackupFile := func(path string, activePath string) {
 		if _, err := os.Stat(path); err != nil {
@@ -119,7 +158,7 @@ func CleanupLegacyAssets() {
 		// 检查它是否和 activePath 的文件哈希相同。如果相同，可以直接删除。
 		same := false
 		h1, err1 := calculateSHA256(path)
-		h2, err2 := calculateSHA256(activePath)
+		h2, err2 := activeHash(activePath)
 		if err1 == nil && err2 == nil && h1 == h2 {
 			same = true
 		}
@@ -131,13 +170,27 @@ func CleanupLegacyAssets() {
 			}
 		}
 
-		// 如果不同或者是 .old 之外的有用二进制，备份到 backups 目录
+		// 归档冲突旧资产：rename 同卷最快；跨卷（AppDir 在 D:、DataDir 在 C: 很常见）
+		// 必然失败，此时改为"复制 + 校验字节数"，**绝不再直接删除**（F-A1-16）。
 		_ = os.MkdirAll(backupDir, 0755)
 		backupPath := filepath.Join(backupDir, filepath.Base(path))
 		if err := os.Rename(path, backupPath); err == nil {
 			log.Printf("[runtimeassets] 备份并归档冲突旧资产: %s -> %s", path, backupPath)
-		} else {
-			_ = os.Remove(path) // 退而求其次，直接删掉
+			return
+		}
+
+		if err := utils.CopyFile(path, backupPath); err != nil {
+			log.Printf("[runtimeassets] 归档失败，保留原文件不动: %s: %v", path, err)
+			return
+		}
+		srcStat, srcErr := os.Stat(path)
+		dstStat, dstErr := os.Stat(backupPath)
+		if srcErr == nil && dstErr == nil && srcStat.Size() != dstStat.Size() {
+			log.Printf("[runtimeassets] 归档校验失败（大小不一致 %d vs %d），保留原文件: %s", srcStat.Size(), dstStat.Size(), path)
+			return
+		}
+		if err := os.Remove(path); err != nil {
+			log.Printf("[runtimeassets] 已归档但源文件无法移除（保留）: %s: %v", path, err)
 		}
 	}
 

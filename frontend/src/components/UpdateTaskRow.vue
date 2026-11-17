@@ -41,7 +41,7 @@ import { computed } from 'vue';
 import type { UpdateTaskState } from '../store';
 import { ICONS } from '../utils/icons';
 import { formatBytes, formatSpeed, formatEtaTime } from '../utils/format';
-import * as API from '../../wailsjs/go/main/App';
+import { App } from '../api';
 import { t } from '../locales';
 
 const props = defineProps<{
@@ -67,7 +67,7 @@ const statusText = computed(() => {
 
 const handleTogglePause = async () => {
   if (props.task.status === 'running') {
-    await (API as any).CancelUpdateTask(props.task.key);
+    await App.CancelUpdateTask(props.task.key);
   } else {
     // Resume
     await startTask();
@@ -75,23 +75,23 @@ const handleTogglePause = async () => {
 };
 
 const handleRemove = async () => {
-  await (API as any).RemoveUpdateTask(props.task.key);
+  await App.RemoveUpdateTask(props.task.key);
 };
 
 const handleForceRetry = async () => {
   // 彻底删除缓存，重新下载
-  await (API as any).ClearUpdateCache(props.task.key);
+  await App.ClearUpdateCache(props.task.key);
   await startTask();
 };
 
 const startTask = async () => {
   const key = props.task.key;
   if (key === 'core-update') {
-    await (API as any).UpdateCoreComponentAsync();
+    await App.UpdateCoreComponentAsync();
   } else if (key === 'driver-install') {
-    await (API as any).InstallTunDriverAsync(true);
+    await App.InstallTunDriverAsync(true);
   } else {
-    await (API as any).UpdateGeoDatabaseAsync(key);
+    await App.UpdateGeoDatabaseAsync(key);
   }
 };
 </script>

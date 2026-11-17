@@ -4,7 +4,7 @@ package appcore
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"sync"
 	"time"
 
@@ -20,6 +20,7 @@ type ConnectionMetadataDTO struct {
 	SourcePort      string `json:"sourcePort"`
 	DestinationPort string `json:"destinationPort"`
 	Host            string `json:"host"`
+	DNSMode         string `json:"dnsMode"`
 }
 
 type ConnectionDTO struct {
@@ -64,6 +65,7 @@ func toConnectionDTO(v traffic.ConnectionVO) ConnectionDTO {
 			SourcePort:      v.Metadata.SourcePort,
 			DestinationPort: v.Metadata.DestinationPort,
 			Host:            v.Metadata.Host,
+			DNSMode:         v.Metadata.DNSMode,
 		},
 		Upload:      v.Upload,
 		Download:    v.Download,
@@ -87,7 +89,7 @@ func (m *ConnectionMonitorManager) GetSnapshot() (ConnectionsSnapshot, error) {
 		Connections []traffic.RawConnection `json:"connections"`
 	}
 
-	if err := json.Unmarshal(raw, &payload); err != nil {
+	if err := jsonv2.Unmarshal(raw, &payload); err != nil {
 		return ConnectionsSnapshot{}, err
 	}
 

@@ -63,19 +63,19 @@ type SeedCatalog struct {
 }
 
 type SeedAssetHealth struct {
-	Key   AssetKey    `json:"key"`
-	Name  string      `json:"name"`
-	Label string      `json:"label"`
-	Path  string      `json:"path"`
-	Ready bool        `json:"ready"`
-	Error string      `json:"error,omitempty"`
-	SHA256 string     `json:"sha256,omitempty"`
+	Key    AssetKey `json:"key"`
+	Name   string   `json:"name"`
+	Label  string   `json:"label"`
+	Path   string   `json:"path"`
+	Ready  bool     `json:"ready"`
+	Error  string   `json:"error,omitempty"`
+	SHA256 string   `json:"sha256,omitempty"`
 }
 
 type SeedCatalogStatus struct {
-	ManifestExists bool            `json:"manifestExists"`
-	ManifestOK     bool            `json:"manifestOK"`
-	ManifestError  string          `json:"manifestError,omitempty"`
+	ManifestExists bool              `json:"manifestExists"`
+	ManifestOK     bool              `json:"manifestOK"`
+	ManifestError  string            `json:"manifestError,omitempty"`
 	Assets         []SeedAssetHealth `json:"assets"`
 }
 
@@ -136,12 +136,12 @@ func GetSeedCatalogStatus(ctx context.Context) SeedCatalogStatus {
 		seedHealth := checkAssetByPath(ctx, def.Key, def.Label, seedPath)
 
 		sh := SeedAssetHealth{
-			Key:   def.Key,
-			Name:  def.Name,
-			Label: def.Label,
-			Path:  seedPath,
-			Ready: seedHealth.Ready,
-			Error: seedHealth.Error,
+			Key:    def.Key,
+			Name:   def.Name,
+			Label:  def.Label,
+			Path:   seedPath,
+			Ready:  seedHealth.Ready,
+			Error:  seedHealth.Error,
 			SHA256: seedHealth.SHA256,
 		}
 		status.Assets = append(status.Assets, sh)
@@ -150,25 +150,50 @@ func GetSeedCatalogStatus(ctx context.Context) SeedCatalogStatus {
 	return status
 }
 
+// checkAssetByPath 对任意路径做深检（不计算哈希）。
 func checkAssetByPath(ctx context.Context, key AssetKey, label, path string) AssetHealth {
+	return checkAssetByPathWithHash(ctx, key, label, path, false)
+}
+
+// checkAssetByPathWithHash 是 checkAssetByPath 的按需哈希版本：
+// 只有自愈/升级比对需要 SHA256 时才置 withHash=true（F-A1-14）。
+func checkAssetByPathWithHash(ctx context.Context, key AssetKey, label, path string, withHash bool) AssetHealth {
 	switch key {
 	case AssetCore:
-		return checkCoreByPath(ctx, path)
+		return checkCoreByPath(ctx, path, withHash)
 	case AssetWintun:
-		return checkWintunByPath(path)
+		return checkWintunByPath(path, withHash)
 	default:
-		return checkDataFileByPath(key, label, path)
+		return checkDataFileByPath(key, label, path, withHash)
 	}
 }
 
+// checkRuntimeAsset 检查运行目录里的资产（不计算哈希）。
 func checkRuntimeAsset(ctx context.Context, key AssetKey, label, name string) AssetHealth {
+	return checkRuntimeAssetWithHash(ctx, key, label, name, false)
+}
+
+// checkRuntimeAssetWithHash 是自愈路径专用的检查：withHash=true 时额外算 SHA256，
+// 供"升级覆盖"时判断用户是否手动改过文件。
+func checkRuntimeAssetWithHash(ctx context.Context, key AssetKey, label, name string, withHash bool) AssetHealth {
+	if !withHash {
+		switch key {
+		case AssetCore:
+			return CheckCore(ctx)
+		case AssetWintun:
+			return CheckWintun()
+		default:
+			return CheckDataFile(key, label, name)
+		}
+	}
+
 	switch key {
 	case AssetCore:
-		return CheckCore(ctx)
+		return checkCoreByPath(ctx, filepath.Join(utils.GetCoreBinDir(), "clash.exe"), true)
 	case AssetWintun:
-		return CheckWintun()
+		return checkWintunByPath(filepath.Join(utils.GetCoreBinDir(), "wintun.dll"), true)
 	default:
-		return CheckDataFile(key, label, name)
+		return checkDataFileByPath(key, label, filepath.Join(utils.GetCoreBinDir(), name), true)
 	}
 }
 

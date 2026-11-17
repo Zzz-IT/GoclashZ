@@ -34,20 +34,22 @@ func CleanLegacyFiles(currentAppVersion string) {
 		}
 	}
 
-	// 遍历并清理可能由于异常退出导致的 .tmp 和 .zip 残留
-	if tmpFiles, err := filepath.Glob(filepath.Join(binDir, "*.tmp")); err == nil {
-		for _, f := range tmpFiles {
-			_ = os.Remove(f)
-		}
+	// 清理本程序自己产生的更新残留（F-A5-24）。
+	//
+	// 这里以前用 *.tmp / *.zip / *.meta.json 三个通配：corein 同时是内核、驱动、
+	// geo 三方更新的工作目录，通配删除与下载产物共用同一命名空间——一旦出现并发
+	// 下载或多开，就会把别人的断点/临时文件当成垃圾删掉。改成显式白名单。
+	staleUpdateFiles := []string{
+		"clash.update.zip", "clash.update.zip.tmp", "clash.update.zip.tmp.meta.json",
+		"wintun.dll.zip", "wintun.dll.zip.tmp", "wintun.dll.zip.tmp.meta.json",
+		"clash.exe.new", "wintun.dll.new",
 	}
-	if zipFiles, err := filepath.Glob(filepath.Join(binDir, "*.zip")); err == nil {
-		for _, f := range zipFiles {
-			_ = os.Remove(f)
-		}
+	for _, name := range staleUpdateFiles {
+		_ = os.Remove(filepath.Join(binDir, name))
 	}
-	if metaFiles, err := filepath.Glob(filepath.Join(binDir, "*.meta.json")); err == nil {
-		for _, f := range metaFiles {
-			_ = os.Remove(f)
+	for _, db := range []string{"geoip.metadb", "geosite.dat", "country.mmdb", "asn.dat"} {
+		for _, suffix := range []string{".tmp", ".tmp.meta.json"} {
+			_ = os.Remove(filepath.Join(binDir, db+suffix))
 		}
 	}
 }

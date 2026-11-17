@@ -5,9 +5,12 @@ package backup
 import (
 	"archive/zip"
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
+
+	"errors"
 	"fmt"
 	"goclashz/core/clash"
+	jsonutil "goclashz/core/jsonutil"
 	"goclashz/core/utils"
 	"io"
 	"os"
@@ -81,7 +84,7 @@ func Export(dataDir, destPath string, appVersion string) error {
 		CreatedAt:     time.Now().Unix(),
 		Contains:      contains,
 	}
-	mBytes, err := json.MarshalIndent(manifest, "", "  ")
+	mBytes, err := jsonutil.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return fmt.Errorf("生成备份 manifest 失败: %w", err)
 	}
@@ -94,12 +97,12 @@ func Export(dataDir, destPath string, appVersion string) error {
 	if err != nil {
 		return fmt.Errorf("创建备份文件失败: %v", err)
 	}
-	defer f.Close()
+	// 成功路径显式 Close 并检查错误；这里的 defer 只做失败兜底，避免覆盖真实错误。
+	defer func() { _ = f.Close() }()
 
 	zw := zip.NewWriter(f)
-	defer zw.Close()
 
-	return filepath.Walk(stagingDir, func(path string, info os.FileInfo, err error) error {
+	walkErr := filepath.Walk(stagingDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
 		}
@@ -115,6 +118,28 @@ func Export(dataDir, destPath string, appVersion string) error {
 		_, err = w.Write(content)
 		return err
 	})
+	if walkErr != nil {
+		_ = zw.Close()
+		_ = os.Remove(destPath)
+		return walkErr
+	}
+
+	// zip 的中央目录是在 Close 里写的：这一步的错误必须上抛，
+	// 否则磁盘满/写失败会产出一个「看起来成功」的坏包。
+	// 失败时顺手删掉半成品，避免用户之后拿它去还原。
+	if err := zw.Close(); err != nil {
+		_ = os.Remove(destPath)
+		return fmt.Errorf("写入备份包索引失败: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		_ = os.Remove(destPath)
+		return fmt.Errorf("备份包落盘失败: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(destPath)
+		return fmt.Errorf("关闭备份包失败: %w", err)
+	}
+	return nil
 }
 
 // BackupStagingResult 解压到 staging 后的结果
@@ -136,7 +161,14 @@ func RestoreTransactional(ctx context.Context, dataDir, archivePath, mode string
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(workDir)
+	// 回滚也失败时必须保留工作目录：rollback/ 里是用户当前数据唯一的副本，
+	// 不能跟着 defer 一起被删掉（错误信息里会把路径告诉用户）。
+	keepWorkDir := false
+	defer func() {
+		if !keepWorkDir {
+			_ = os.RemoveAll(workDir)
+		}
+	}()
 
 	stagingDir := filepath.Join(workDir, "staging")
 	rollbackDir := filepath.Join(workDir, "rollback")
@@ -144,7 +176,10 @@ func RestoreTransactional(ctx context.Context, dataDir, archivePath, mode string
 	os.MkdirAll(rollbackDir, 0755)
 
 	// 3. 解压并归一化到 staging (Zip Bomb 防护在内部执行)
-	stagingResult, err := extractAndNormalizeToStaging(archivePath, stagingDir)
+	if err := ctxErr(ctx); err != nil {
+		return err
+	}
+	stagingResult, err := extractAndNormalizeToStaging(ctx, archivePath, stagingDir)
 	if err != nil {
 		return err
 	}
@@ -179,7 +214,7 @@ func RestoreTransactional(ctx context.Context, dataDir, archivePath, mode string
 	}
 
 	// 6. 备份当前受影响的目标到 rollback 目录，用于失败回滚
-	if err := backupCurrentTargets(dataDir, plan, rollbackDir); err != nil {
+	if err := backupCurrentTargets(ctx, dataDir, plan, rollbackDir); err != nil {
 		return fmt.Errorf("备份当前数据失败，取消恢复: %v", err)
 	}
 
@@ -191,10 +226,16 @@ func RestoreTransactional(ctx context.Context, dataDir, archivePath, mode string
 	}
 
 	// 7. 执行原子替换逻辑
-	if err := applyRestorePlan(dataDir, stagingDir, plan, mode, stagingResult.Index); err != nil {
-		// 8. 执行失败，尝试从 rollback 目录恢复
-		_ = rollbackRestorePlan(dataDir, rollbackDir, plan)
-		return fmt.Errorf("恢复执行失败，已尝试自动回滚: %v", err)
+	if err := applyRestorePlan(ctx, dataDir, stagingDir, plan, mode, stagingResult.Index); err != nil {
+		// 8. 执行失败，尝试从 rollback 目录恢复。
+		// 回滚本身也可能失败（磁盘满、目标被占用）：这一层必须如实上报，
+		// 不能再用「已尝试自动回滚」掩盖「数据处于混合状态」的事实。
+		if rbErr := rollbackRestorePlan(dataDir, rollbackDir, plan); rbErr != nil {
+			keepWorkDir = true
+			return fmt.Errorf("恢复执行失败（%w），且自动回滚也失败（%v）；数据可能处于混合状态，回滚副本已保留在 %s",
+				err, rbErr, rollbackDir)
+		}
+		return fmt.Errorf("恢复执行失败，已成功回滚到操作前状态: %w", err)
 	}
 
 	return nil
@@ -248,14 +289,17 @@ func validateRestorePlanInputs(stagingDir string, plan *RestorePlan, mode string
 	return nil
 }
 
-func applyRestorePlan(dataDir, stagingDir string, plan *RestorePlan, mode string, backupIndex []clash.SubIndexItem) error {
+func applyRestorePlan(ctx context.Context, dataDir, stagingDir string, plan *RestorePlan, mode string, backupIndex []clash.SubIndexItem) error {
 	// A. 替换式目录：先删再考
 	for _, dir := range plan.ReplaceDirs {
+		if err := ctxErr(ctx); err != nil {
+			return err
+		}
 		src := filepath.Join(stagingDir, dir)
 		dst := filepath.Join(dataDir, dir)
 		if _, err := os.Stat(src); err == nil {
 			_ = os.RemoveAll(dst)
-			if err := copyDir(src, dst); err != nil {
+			if err := copyDirCtx(ctx, src, dst); err != nil {
 				return err
 			}
 		}
@@ -263,10 +307,13 @@ func applyRestorePlan(dataDir, stagingDir string, plan *RestorePlan, mode string
 
 	// B. 替换式文件：直接覆盖
 	for _, file := range plan.ReplaceFiles {
+		if err := ctxErr(ctx); err != nil {
+			return err
+		}
 		src := filepath.Join(stagingDir, file)
 		dst := filepath.Join(dataDir, file)
 		if _, err := os.Stat(src); err == nil {
-			if err := copyFile(src, dst); err != nil {
+			if err := copyFileCtx(ctx, src, dst); err != nil {
 				return err
 			}
 		}
@@ -274,10 +321,13 @@ func applyRestorePlan(dataDir, stagingDir string, plan *RestorePlan, mode string
 
 	// C. 合并式目录：仅 Subscriptions 目录在 subs-merge 模式下执行增量复制
 	if mode == "subs-merge" {
+		if err := ctxErr(ctx); err != nil {
+			return err
+		}
 		src := filepath.Join(stagingDir, "Subscriptions")
 		dst := filepath.Join(dataDir, "Subscriptions")
 		if _, err := os.Stat(src); err == nil {
-			if err := copyDir(src, dst); err != nil {
+			if err := copyDirCtx(ctx, src, dst); err != nil {
 				return err
 			}
 		}
@@ -296,12 +346,15 @@ func applyRestorePlan(dataDir, stagingDir string, plan *RestorePlan, mode string
 	return nil
 }
 
-func backupCurrentTargets(dataDir string, plan *RestorePlan, rollbackDir string) error {
+func backupCurrentTargets(ctx context.Context, dataDir string, plan *RestorePlan, rollbackDir string) error {
 	allTargets := append([]string{}, plan.ReplaceDirs...)
 	allTargets = append(allTargets, plan.ReplaceFiles...)
 	allTargets = append(allTargets, plan.MergeDirs...)
 
 	for _, target := range allTargets {
+		if err := ctxErr(ctx); err != nil {
+			return err
+		}
 		src := filepath.Join(dataDir, target)
 		dst := filepath.Join(rollbackDir, target)
 
@@ -314,11 +367,11 @@ func backupCurrentTargets(dataDir string, plan *RestorePlan, rollbackDir string)
 		}
 
 		if info.IsDir() {
-			if err := copyDir(src, dst); err != nil {
+			if err := copyDirCtx(ctx, src, dst); err != nil {
 				return fmt.Errorf("备份目录失败 %s: %w", target, err)
 			}
 		} else {
-			if err := copyFile(src, dst); err != nil {
+			if err := copyFileCtx(ctx, src, dst); err != nil {
 				return fmt.Errorf("备份文件失败 %s: %w", target, err)
 			}
 		}
@@ -332,6 +385,7 @@ func rollbackRestorePlan(dataDir, rollbackDir string, plan *RestorePlan) error {
 	allTargets = append(allTargets, plan.ReplaceFiles...)
 	allTargets = append(allTargets, plan.MergeDirs...)
 
+	var errs []error
 	for _, target := range allTargets {
 		src := filepath.Join(rollbackDir, target)
 		dst := filepath.Join(dataDir, target)
@@ -340,17 +394,28 @@ func rollbackRestorePlan(dataDir, rollbackDir string, plan *RestorePlan) error {
 		_ = os.RemoveAll(dst)
 
 		if _, err := os.Stat(src); err == nil {
-			info, _ := os.Stat(src)
+			info, statErr := os.Stat(src)
+			if statErr != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", target, statErr))
+				continue
+			}
 			if info.IsDir() {
-				_ = copyDir(src, dst)
+				if err := copyDir(src, dst); err != nil {
+					errs = append(errs, fmt.Errorf("%s: %w", target, err))
+				}
 			} else {
-				_ = copyFile(src, dst)
+				if err := copyFile(src, dst); err != nil {
+					errs = append(errs, fmt.Errorf("%s: %w", target, err))
+				}
 			}
 		}
 	}
 
 	// 回滚完成后，重新从磁盘加载订阅索引到内存，确保内存与磁盘一致
 	_ = clash.LoadIndex()
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
 	return nil
 }
 
@@ -377,7 +442,7 @@ func validateManifest(stagingDir string) error {
 	}
 
 	var manifest Manifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
+	if err := jsonv2.Unmarshal(data, &manifest); err != nil {
 		return fmt.Errorf("备份 manifest 格式损坏: %w", err)
 	}
 
@@ -400,7 +465,7 @@ func validateManifest(stagingDir string) error {
 	return nil
 }
 
-func extractAndNormalizeToStaging(archivePath, stagingDir string) (*BackupStagingResult, error) {
+func extractAndNormalizeToStaging(ctx context.Context, archivePath, stagingDir string) (*BackupStagingResult, error) {
 	zr, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return nil, err
@@ -422,6 +487,10 @@ func extractAndNormalizeToStaging(archivePath, stagingDir string) (*BackupStagin
 	var totalUncompressed uint64
 
 	for _, f := range zr.File {
+		// 最多 300MB / 1000 个文件，逐个 entry 检查取消点。
+		if err := ctxErr(ctx); err != nil {
+			return nil, err
+		}
 		if f.FileInfo().IsDir() {
 			continue
 		}
@@ -444,7 +513,7 @@ func extractAndNormalizeToStaging(archivePath, stagingDir string) (*BackupStagin
 			result.HasIndex = true
 			rc, err := f.Open()
 			if err == nil {
-				result.IndexErr = json.NewDecoder(rc).Decode(&result.Index)
+				result.IndexErr = jsonutil.NewDecoder(rc).Decode(&result.Index)
 				rc.Close()
 			} else {
 				result.IndexErr = err
@@ -487,7 +556,29 @@ func extractAndNormalizeToStaging(archivePath, stagingDir string) (*BackupStagin
 
 // --- Utils ---
 
+// ctxErr 是长流程的「可取消」检查点：还原/回滚/复制都必须在每个目标与每个
+// zip entry 之间看一眼 ctx，否则 RestoreTransactional 收着 ctx 却完全不可中断。
+func ctxErr(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("备份操作已取消: %w", ctx.Err())
+	default:
+		return nil
+	}
+}
+
 func copyFile(src, dst string) error {
+	return copyFileCtx(context.Background(), src, dst)
+}
+
+// copyFileCtx 是 copyFile 的可取消版本。
+func copyFileCtx(ctx context.Context, src, dst string) error {
+	if err := ctxErr(ctx); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
@@ -506,6 +597,14 @@ func copyFile(src, dst string) error {
 }
 
 func copyDir(src, dst string) error {
+	return copyDirCtx(context.Background(), src, dst)
+}
+
+// copyDirCtx 是 copyDir 的可取消版本（逐层检查 ctx）。
+func copyDirCtx(ctx context.Context, src, dst string) error {
+	if err := ctxErr(ctx); err != nil {
+		return err
+	}
 	info, err := os.Stat(src)
 	if err != nil {
 		return err
@@ -518,14 +617,17 @@ func copyDir(src, dst string) error {
 		return err
 	}
 	for _, entry := range entries {
+		if err := ctxErr(ctx); err != nil {
+			return err
+		}
 		srcPath := filepath.Join(src, entry.Name())
 		dstPath := filepath.Join(dst, entry.Name())
 		if entry.IsDir() {
-			if err := copyDir(srcPath, dstPath); err != nil {
+			if err := copyDirCtx(ctx, srcPath, dstPath); err != nil {
 				return err
 			}
 		} else {
-			if err := copyFile(srcPath, dstPath); err != nil {
+			if err := copyFileCtx(ctx, srcPath, dstPath); err != nil {
 				return err
 			}
 		}
@@ -736,7 +838,7 @@ func rebuildIndexFromSubscriptions(stagingDir string) ([]clash.SubIndexItem, err
 	// 🛡️ 核心修复：将重建的索引持久化写入 stagingDir/profiles/index.json，确保物理目录与文件存在
 	profilesDir := filepath.Join(stagingDir, "profiles")
 	if err := os.MkdirAll(profilesDir, 0755); err == nil {
-		if data, err := json.MarshalIndent(items, "", "  "); err == nil {
+		if data, err := jsonutil.MarshalIndent(items, "", "  "); err == nil {
 			_ = os.WriteFile(filepath.Join(profilesDir, "index.json"), data, 0644)
 		}
 	}

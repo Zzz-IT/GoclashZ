@@ -231,18 +231,55 @@ func GetTunConfig() (*TunConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
-	if AdjustTunConfigForCore(cfg, CoreSupportsMips(context.Background())) {
-		_ = utils.SaveSetting("tun", cfg)
-		NotifyMipsFallback()
+	if supported, known := coreSupportsMipsCached(); known {
+		if AdjustTunConfigForCore(cfg, supported) {
+			_ = utils.SaveSetting("tun", cfg)
+			NotifyMipsFallback()
+		}
 	}
 	return cfg, nil
 }
 
 func UpdateTunConfig(newTun *TunConfig) error {
-	if AdjustTunConfigForCore(newTun, CoreSupportsMips(context.Background())) {
+	// F-A5-22：这里以前调 CoreSupportsMips → GetLocalCoreVersion → clash.exe -v，
+	// 一个"保存设置"动作会 spawn 子进程（最坏 5s 超时）。改为读已缓存版本快照，
+	// 版本未知时不做任何降级（宁可保留用户选择，也不误判成不支持 MIPS）。
+	supported, known := coreSupportsMipsCached()
+	if known && AdjustTunConfigForCore(newTun, supported) {
 		NotifyMipsFallback()
 	}
 	return utils.SaveSetting("tun", newTun)
+}
+
+// coreSupportsMipsParts 判断给定版本是否支持 MIPS 协议栈（Mihomo Meta v1.19.31+）。
+func coreSupportsMipsParts(parsed [3]int) bool {
+	if parsed[0] > 1 {
+		return true
+	}
+	if parsed[0] == 1 {
+		if parsed[1] > 19 {
+			return true
+		}
+		if parsed[1] == 19 && parsed[2] >= 31 {
+			return true
+		}
+	}
+	return false
+}
+
+// coreSupportsMipsCached 用无锁版本快照判断 MIPS 支持，绝不 spawn 子进程（F-A5-22）。
+// 返回 known=false 表示版本尚未探测到（缓存未预热），调用方应跳过降级判断。
+func coreSupportsMipsCached() (supported bool, known bool) {
+	ver := CachedCoreVersion()
+	if strings.TrimSpace(ver) == "" || ver == "未知" || ver == "未安装" {
+		return false, false
+	}
+
+	parsed, err := ParseVersionParts(ver)
+	if err != nil {
+		return false, false
+	}
+	return coreSupportsMipsParts(parsed), true
 }
 
 // -------------------- DNS 配置相关 --------------------

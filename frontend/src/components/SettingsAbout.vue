@@ -1,170 +1,163 @@
 <template>
-  <div class="settings-page">
-    <div class="sub-header section-header page-sticky-mask">
+  <div class="settings-page ui-page-shell" :class="{ 'no-anim': loading }">
+    <div class="sub-header section-header ui-page-header">
       <button class="back-btn" @click="$emit('navigate', 'main')">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
       </button>
       <h3>{{ t('settings.about.title') }}</h3>
     </div>
 
-    <div class="glass-card setting-group scrollable">
-      <!-- 软件图标与名称展示行 -->
-      <div class="setting-item" style="padding: 20px 0; display: flex; justify-content: space-between; align-items: center;">
-        <div class="info" style="display: flex; align-items: center; gap: 18px;">
-          <img :src="appLogo" style="width: 52px; height: 52px; border-radius: 12px;" />
-          <h4 style="margin: 0; font-weight: 800; font-size: 1.6rem; letter-spacing: -0.01em;">GoclashZ</h4>
-        </div>
-
-        <!-- 新增：右侧空间显示后台静默下载进度 -->
-        <!-- 新增：右侧空间显示后台静默下载进度 -->
-        <div v-if="globalState.appUpdateProgress" class="app-update-progress-container"
-             :class="{ 'clickable-progress': globalState.appUpdateProgress.isDownloaded }"
-             @click="globalState.appUpdateProgress.isDownloaded ? promptInstallApp(globalState.appUpdateProgress) : null">
-          <div class="progress-info">
-            <span v-if="globalState.appUpdateProgress.isDownloaded" class="speed" style="color: var(--accent); font-weight: 600;">新版本已就绪，点击安装</span>
-            <template v-else>
-              <span class="speed">{{ formatSpeed(globalState.appUpdateProgress.speedBps) }}</span>
-              <span class="divider-dot">·</span>
-              <span class="eta">剩余 {{ formatEtaTime(globalState.appUpdateProgress.etaSec) }}</span>
-            </template>
+    <div class="ui-page-body">
+      <div class="glass-card setting-group ui-surface-group scrollable">
+        <!-- 软件图标与名称展示行 -->
+        <div class="setting-item" style="padding: 20px 0; display: flex; justify-content: space-between; align-items: center;">
+          <div class="info" style="display: flex; align-items: center; gap: 18px;">
+            <img :src="appLogo" style="width: 52px; height: 52px; border-radius: 12px;" />
+            <h4 style="margin: 0; font-weight: 800; font-size: 1.6rem; letter-spacing: -0.01em;">GoclashZ</h4>
           </div>
-          <div class="progress-bar-wrap">
-            <div class="progress-bar-fill" :style="{ width: appUpdatePercent + '%', backgroundColor: globalState.appUpdateProgress.isDownloaded ? 'var(--accent)' : '' }"></div>
-          </div>
-          <div class="progress-size">
-            <span v-if="globalState.appUpdateProgress.isDownloaded">{{ globalState.appUpdateProgress.version }} 下载完成</span>
-            <span v-else>{{ formatBytes(globalState.appUpdateProgress.bytesDone) }} / {{ formatBytes(globalState.appUpdateProgress.totalBytes) }}</span>
-          </div>
-        </div>
-      </div>
 
-      <div class="divider"></div>
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.about.language') }}</h4>
-          <p>{{ t('settings.about.languageDesc') }}</p>
-        </div>
-        <ModernSelect
-          :modelValue="behavior.language || currentLocale"
-          :options="SUPPORTED_LOCALES"
-          @update:modelValue="handleLanguageChange"
-        />
-      </div>
-
-      <div class="divider"></div>
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.about.version') }}</h4>
-          <p>{{ globalState.appVersion || t('settings.about.fetchingVersion') }}</p>
-        </div>
-        <button class="action-btn accent-btn" @click="handleCheckUpdate" :disabled="globalState.appUpdateChecking">
-          {{ globalState.appUpdateChecking ? t('settings.about.checking') : t('settings.about.checkUpdate') }}
-        </button>
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.about.autoUpdate') }}</h4>
-          <p>{{ t('settings.about.autoUpdateDesc') }}</p>
-        </div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="behavior.autoUpdate" @change="$emit('save')" />
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <Transition :name="isInitialized ? 'dropdown' : ''">
-        <div v-if="behavior.autoUpdate" class="auto-update-sub-items">
-          <div class="divider"></div>
-          <div class="setting-item">
-            <div class="info">
-              <h4>{{ t('settings.about.updateMethod') }}</h4>
+          <!-- 新增：右侧空间显示后台静默下载进度 -->
+          <!-- 新增：右侧空间显示后台静默下载进度 -->
+          <div v-if="globalState.appUpdateProgress" class="app-update-progress-container"
+               :class="{ 'clickable-progress': globalState.appUpdateProgress.isDownloaded }"
+               @click="globalState.appUpdateProgress.isDownloaded ? promptInstallApp(globalState.appUpdateProgress) : null">
+            <div class="progress-info">
+              <span v-if="globalState.appUpdateProgress.isDownloaded" class="speed" style="color: var(--ui-accent); font-weight: 600;">新版本已就绪，点击安装</span>
+              <template v-else>
+                <span class="speed">{{ formatSpeed(globalState.appUpdateProgress.speedBps) }}</span>
+                <span class="divider-dot">·</span>
+                <span class="eta">剩余 {{ formatEtaTime(globalState.appUpdateProgress.etaSec) }}</span>
+              </template>
             </div>
-            <ModernSelect
-              v-model="behavior.updateMethod"
-              :options="[
-                { label: t('settings.about.startup'), value: 'startup' },
-                { label: t('settings.about.scheduled'), value: 'scheduled' }
-              ]"
-              @change="$emit('save')"
-            />
+            <div class="progress-bar-wrap">
+              <div class="progress-bar-fill" :style="{ width: appUpdatePercent + '%', backgroundColor: globalState.appUpdateProgress.isDownloaded ? 'var(--ui-accent)' : '' }"></div>
+            </div>
+            <div class="progress-size">
+              <span v-if="globalState.appUpdateProgress.isDownloaded">{{ globalState.appUpdateProgress.version }} 下载完成</span>
+              <span v-else>{{ formatBytes(globalState.appUpdateProgress.bytesDone) }} / {{ formatBytes(globalState.appUpdateProgress.totalBytes) }}</span>
+            </div>
           </div>
+        </div>
 
-          <Transition :name="isInitialized ? 'dropdown' : ''">
-            <div v-if="behavior.updateMethod === 'scheduled'" class="update-interval-sub-items">
-              <div class="divider"></div>
-              <div class="setting-item">
-                <div class="info">
-                  <h4>{{ t('settings.about.updateInterval') }}</h4>
-                </div>
-                <div class="input-with-unit">
-                  <ModernNumberInput
-                    v-model="behavior.updateInterval"
-                    :min="1"
-                    :max="365"
-                    @change="$emit('save')"
-                  />
-                  <span class="unit">{{ t('settings.about.daysUnit') }}</span>
+        <div class="divider"></div>
+        <div class="setting-item" id="set-about-language">
+          <div class="info">
+            <h4>{{ t('settings.about.language') }}</h4>
+            <p>{{ t('settings.about.languageDesc') }}</p>
+          </div>
+          <ModernSelect
+            :modelValue="behavior.language || currentLocale"
+            :options="SUPPORTED_LOCALES"
+            @update:modelValue="handleLanguageChange"
+          />
+        </div>
+
+        <div class="divider"></div>
+        <div class="setting-item" id="set-about-version">
+          <div class="info">
+            <h4>{{ t('settings.about.version') }}</h4>
+            <p>{{ globalState.appVersion || t('settings.about.fetchingVersion') }}</p>
+          </div>
+          <button class="action-btn accent-btn" @click="handleCheckUpdate" :disabled="globalState.appUpdateChecking">
+            {{ globalState.appUpdateChecking ? t('settings.about.checking') : t('settings.about.checkUpdate') }}
+          </button>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item" id="set-about-autoUpdate">
+          <div class="info">
+            <h4>{{ t('settings.about.autoUpdate') }}</h4>
+            <p>{{ t('settings.about.autoUpdateDesc') }}</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="behavior.autoUpdate" @change="$emit('save')" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <Transition :name="isInitialized ? 'dropdown' : ''">
+          <div v-if="behavior.autoUpdate" class="auto-update-sub-items">
+            <div class="divider"></div>
+            <div class="setting-item" id="set-about-updateMethod">
+              <div class="info">
+                <h4>{{ t('settings.about.updateMethod') }}</h4>
+              </div>
+              <ModernSelect
+                v-model="behavior.updateMethod"
+                :options="[
+                  { label: t('settings.about.startup'), value: 'startup' },
+                  { label: t('settings.about.scheduled'), value: 'scheduled' }
+                ]"
+                @change="$emit('save')"
+              />
+            </div>
+
+            <Transition :name="isInitialized ? 'dropdown' : ''">
+              <div v-if="behavior.updateMethod === 'scheduled'" class="update-interval-sub-items">
+                <div class="divider"></div>
+                <div class="setting-item" id="set-about-updateInterval">
+                  <div class="info">
+                    <h4>{{ t('settings.about.updateInterval') }}</h4>
+                  </div>
+                  <div class="input-with-unit">
+                    <ModernNumberInput
+                      v-model="behavior.updateInterval"
+                      :min="1"
+                      :max="365"
+                      @change="$emit('save')"
+                    />
+                    <span class="unit">{{ t('settings.about.daysUnit') }}</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          </Transition>
+            </Transition>
+          </div>
+        </Transition>
+
+        <div class="divider"></div>
+
+        <div class="setting-item" id="set-about-exportBackup">
+          <div class="info">
+            <h4>{{ t('settings.about.exportBackup') }}</h4>
+            <p>{{ t('settings.about.exportBackupDesc') }}</p>
+          </div>
+          <button class="action-btn accent-btn" @click="handleExportBackup">{{ t('settings.about.exportBtn') }}</button>
         </div>
-      </Transition>
 
-      <div class="divider"></div>
+        <div class="divider"></div>
 
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.about.exportBackup') }}</h4>
-          <p>{{ t('settings.about.exportBackupDesc') }}</p>
+        <div class="setting-item" id="set-about-restoreBackup">
+          <div class="info">
+            <h4>{{ t('settings.about.restoreBackup') }}</h4>
+            <p>{{ t('settings.about.restoreBackupDesc') }}</p>
+          </div>
+          <button class="action-btn accent-btn" @click="openRestoreModal">{{ t('settings.about.restoreBtn') }}</button>
         </div>
-        <button class="action-btn accent-btn" @click="handleExportBackup">{{ t('settings.about.exportBtn') }}</button>
-      </div>
 
-      <div class="divider"></div>
+        <div class="divider"></div>
 
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.about.restoreBackup') }}</h4>
-          <p>{{ t('settings.about.restoreBackupDesc') }}</p>
+        <div class="setting-item clickable" id="set-about-diagnostics" @click="emit('navigate', 'diagnostics')">
+          <div class="info">
+            <h4>{{ t('settings.about.diagnostics') }}</h4>
+            <p>{{ t('settings.about.diagnosticsDesc') }}</p>
+          </div>
+          <span class="arrow">➔</span>
         </div>
-        <button class="action-btn accent-btn" @click="openRestoreModal">{{ t('settings.about.restoreBtn') }}</button>
-      </div>
 
-      <div class="divider"></div>
+        <div class="divider"></div>
 
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.about.dataDirDiagnostic') }}</h4>
-          <p>{{ t('settings.about.dataDirDiagnosticDesc') }}</p>
-        </div>
-        <button class="action-btn" @click="openDataDirDiagnosticModal">{{ t('settings.about.viewStatusBtn') }}</button>
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.about.appDiagnosticInfo') }}</h4>
-          <p>{{ t('settings.about.appDiagnosticDesc') }}</p>
-        </div>
-        <button class="action-btn accent-btn" @click="handleExportDiagnostics">{{ t('settings.about.diagnosticsExport') }}</button>
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.about.githubRepo') }}</h4>
-          <a href="javascript:void(0)" @click="openLink('https://github.com/Zzz-IT/GoclashZ')" class="link-item">https://github.com/Zzz-IT/GoclashZ</a>
+        <div class="setting-item" id="set-about-githubRepo">
+          <div class="info">
+            <h4>{{ t('settings.about.githubRepo') }}</h4>
+            <a href="javascript:void(0)" @click="openLink('https://github.com/Zzz-IT/GoclashZ')" class="link-item">https://github.com/Zzz-IT/GoclashZ</a>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- 还原备份弹窗 -->
+    <Teleport to="body">
     <Transition name="pop">
       <div v-if="showRestoreModal" class="modal-overlay" @click.self="showRestoreModal = false">
         <div class="custom-modal-card" style="overflow: visible;" @click.stop>
@@ -201,91 +194,27 @@
         </div>
       </div>
     </Transition>
-
-    <Transition name="pop">
-      <div v-if="showDataDirDiagnosticModal" class="modal-overlay" @click.self="showDataDirDiagnosticModal = false">
-        <div class="custom-modal-card" @click.stop style="max-width: 500px;">
-          <div class="modal-header">
-            <h3>{{ t('settings.about.diagnosticsTitle') }}</h3>
-          </div>
-          <div class="modal-body">
-            <div v-if="dataDirInfo" class="diagnostic-results" style="max-height: 400px; overflow-y: auto;">
-              <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
-                <div class="info">
-                  <h4>{{ t('settings.about.diagnosticsAppDir') }}</h4>
-                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.appDir }}</p>
-                </div>
-              </div>
-              <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
-                <div class="info">
-                  <h4>{{ t('settings.about.diagnosticsDataDir') }}</h4>
-                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.dataDir }}</p>
-                </div>
-              </div>
-              <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
-                <div class="info">
-                  <h4>{{ t('settings.about.diagnosticsSeedDir') }}</h4>
-                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.seedCoreBinDir }}</p>
-                  <p v-if="dataDirInfo.seedManifestExists" style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">{{ t('settings.about.seedManifestLabel', { status: t('settings.about.diagnosticsReady') }) }}</p>
-                  <p v-else style="color: var(--red-text); font-size: 0.8rem; margin-top: 4px;">{{ t('settings.about.seedManifestLabel', { status: t('settings.about.diagnosticsMissing') }) }}</p>
-                </div>
-              </div>
-              <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
-                <div class="info">
-                  <h4>{{ t('settings.about.diagnosticsCoreDir') }}</h4>
-                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.coreBinDir }}</p>
-                  <p v-if="dataDirInfo.layoutOK" style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">{{ t('settings.about.layoutNormal') }}</p>
-                  <p v-else style="color: var(--accent); font-size: 0.8rem; margin-top: 4px;">{{ t('settings.about.layoutAbnormal') }}</p>
-                </div>
-              </div>
-              <div class="setting-item" style="padding: 6px 0; align-items: flex-start;">
-                <div class="info">
-                  <h4>{{ t('settings.about.diagnosticsCompStatus') }}</h4>
-                  <p :style="{ color: dataDirInfo.coreReady ? 'var(--green-text)' : 'var(--red-text)', fontWeight: 600 }">
-                    Mihomo: {{ dataDirInfo.coreReady ? t('settings.about.diagnosticsReady') : (dataDirInfo.coreExists ? t('settings.about.diagnosticsCorrupted') : t('settings.about.diagnosticsMissing')) }}
-                  </p>
-                  <p :style="{ color: dataDirInfo.wintunReady ? 'var(--green-text)' : 'var(--accent)', fontWeight: 600 }">
-                    Wintun: {{ dataDirInfo.wintunReady ? t('settings.about.diagnosticsReady') : (dataDirInfo.wintunExists ? t('settings.about.diagnosticsCorrupted') : t('settings.about.diagnosticsMissing')) }}
-                  </p>
-                </div>
-              </div>
-              <div class="setting-item" style="padding: 6px 0; align-items: flex-start; border-bottom: none;">
-                <div class="info">
-                  <h4>{{ t('settings.about.diagnosticsLegacyDir') }}</h4>
-                  <p class="link-text" style="word-break: break-all;">{{ dataDirInfo.legacyDataDir || t('common.empty') }}</p>
-                  <p v-if="dataDirInfo.legacyExists" style="color: var(--accent); font-size: 0.8rem; margin-top: 4px;">{{ t('settings.about.legacyExists') }}</p>
-                  <p v-else style="color: var(--green-text); font-size: 0.8rem; margin-top: 4px;">{{ t('settings.about.legacyCleaned') }}</p>
-                </div>
-              </div>
-            </div>
-
-            <div class="modal-footer" style="margin-top: 16px;">
-              <button class="action-btn flex-1" @click="openDataDirDiagnosticModal">{{ t('settings.about.diagnosticsRerun') }}</button>
-              <button class="action-btn flex-1" @click="handleExportDiagnostics">{{ t('settings.about.diagnosticsExport') }}</button>
-              <button class="primary-btn accent-btn flex-1" @click="showDataDirDiagnosticModal = false">{{ t('settings.about.diagnosticsDone') }}</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
-import * as API from '../../wailsjs/go/main/App';
-import { BrowserOpenURL, EventsOn } from '../../wailsjs/runtime/runtime';
-import { globalState, showAlert, showConfirm } from '../store';
+import { App } from '../api';
+import { Browser, Events } from '@wailsio/runtime';
+import { globalState, showAlert, showToast, showConfirm } from '../store';
 import { formatBytes, formatEtaTime, formatSpeed } from '../utils/format';
 import { ICONS } from '../utils/icons';
+import { toUserError } from '../utils/errors';
+import { reportError } from '../utils/report';
 import appLogo from '../assets/logo.ico';
 import ModernNumberInput from './ModernNumberInput.vue';
 import ModernSelect from './ModernSelect.vue';
 import { t, currentLocale, setLocale, SUPPORTED_LOCALES, SupportedLocale } from '../locales';
 
-const props = defineProps<{ behavior: Record<string, any> }>();
+const props = defineProps<{ behavior: Record<string, any>; loading?: boolean }>();
 const emit = defineEmits<{
-  navigate: [view: 'main'];
+  navigate: [view: 'main' | 'diagnostics'];
   save: [];
 }>();
 
@@ -307,8 +236,6 @@ const showRestoreModal = ref(false);
 const selectedPath = ref("");
 const restoreMode = ref("all");
 const isRestoring = ref(false);
-const showDataDirDiagnosticModal = ref(false);
-const dataDirInfo = ref<any>(null);
 
 const restoreModeOptions = computed(() => [
   {
@@ -334,16 +261,17 @@ const restoreModeOptions = computed(() => [
 ]);
 
 const openLink = (url: string) => {
-  BrowserOpenURL(url);
+  Browser.OpenURL(url);
 };
 
 const handleCheckUpdate = async () => {
   if (globalState.appUpdateChecking) return;
   try {
     // 🚀 核心改进：调用异步静默下载流，将通知权交给全局监听器 (App.vue)
-    await (API as any).CheckAndDownloadAppUpdateAsync();
+    await App.CheckAndDownloadAppUpdateAsync();
   } catch (e) {
-    await showAlert(t('common.error') + ": " + e, t('common.error'), true);
+    const u = toUserError(e);
+    await showAlert(u.message, t('common.error'), true, u.detail);
   }
 };
 
@@ -363,7 +291,7 @@ const promptInstallApp = async (progress: any) => {
         return;
       }
       try {
-        await (API as any).ApplyAppUpdate(fullPath);
+        await App.ApplyAppUpdate(fullPath);
       } catch (e: any) {
         await showAlert(String(e?.message || e || t('common.error')), t('common.error'), true);
       }
@@ -373,12 +301,13 @@ const promptInstallApp = async (progress: any) => {
 // 导出备份
 const handleExportBackup = async () => {
   try {
-    const res = await (API as any).ExportBackup();
+    const res = await App.ExportBackup();
     if (res === "SUCCESS") {
-      await showAlert(t('settings.about.exportSuccess') || "备份成功导出", t('common.notice'));
+      showToast(t('settings.about.exportSuccess') || "备份成功导出", 'success');
     }
   } catch (e) {
-    await showAlert((t('settings.about.exportFailed') || "导出失败: ") + String(e), t('common.error'));
+    const u = toUserError(e);
+    await showAlert(u.message, t('common.error'), true, u.detail);
   }
 };
 
@@ -392,12 +321,13 @@ const openRestoreModal = () => {
 // 选择还原文件
 const handleSelectFile = async () => {
   try {
-    const path = await (API as any).SelectBackupFile();
+    const path = await App.SelectBackupFile();
     if (path) {
       selectedPath.value = path;
     }
   } catch (e) {
-    console.error("选择文件取消或失败", e);
+    // 选择文件对话框的取消也走 reject，这里只记录不弹窗
+    reportError(e, 'about.selectBackupFile');
   }
 };
 
@@ -423,35 +353,16 @@ const confirmRestore = async () => {
 
   isRestoring.value = true;
   try {
-    const res = await (API as any).ExecuteRestore(selectedPath.value, restoreMode.value);
+    const res = await App.ExecuteRestore(selectedPath.value, restoreMode.value);
     if (res === "SUCCESS") {
       showRestoreModal.value = false;
-      await showAlert(t('settings.about.restoreSuccess') || "数据还原成功！设置及配置已即时生效。", t('common.notice'));
+      showToast(t('settings.about.restoreSuccess') || "数据还原成功！设置及配置已即时生效。", 'success');
     }
   } catch (e) {
-    await showAlert((t('settings.about.restoreFailed') || "还原失败: ") + String(e), t('common.error'));
+    const u = toUserError(e);
+    await showAlert(u.message, t('common.error'), true, u.detail);
   } finally {
     isRestoring.value = false;
-  }
-};
-
-const openDataDirDiagnosticModal = async () => {
-  try {
-    dataDirInfo.value = await API.GetDataDirInfo();
-    showDataDirDiagnosticModal.value = true;
-  } catch (error) {
-    showAlert(t('common.error') + ': ' + error, t('common.error'), true);
-  }
-};
-
-const handleExportDiagnostics = async () => {
-  try {
-    await API.ExportDiagnostics();
-    showAlert('诊断信息导出成功');
-  } catch (error) {
-    if (error && String(error).indexOf('User cancelled') === -1) {
-      showAlert('导出诊断信息失败: ' + error);
-    }
   }
 };
 
@@ -461,7 +372,7 @@ const appUpdatePercent = computed(() => {
   return Math.min(100, Math.floor((p.bytesDone / p.totalBytes) * 100));
 });
 
-const unsubAppUpdateBusy = EventsOn("app-update-busy", () => {
+const unsubAppUpdateBusy = Events.On("app-update-busy", () => {
   globalState.appUpdateChecking = false;
   void showAlert(t('settings.update.appUpdateBusy'), t('common.confirm'));
 });
@@ -482,22 +393,12 @@ onUnmounted(() => {
   margin-bottom: -10px;
 }
 .clickable-progress:hover {
-  background: var(--surface-hover);
+  background: var(--ui-surface-hover);
 }
 
-.settings-page {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 100%;
-  overflow: visible;
-}
+.settings-page { flex: 1 1 auto; min-width: 0; }
 .setting-group { padding: 20px 24px; margin-bottom: 12px; }
-.setting-group.scrollable {
-  padding-bottom: 20px;
-  overflow: visible;
-  max-height: none;
-}
+.setting-group.scrollable { padding-bottom: 20px; }
 
 h3 { margin: 0 0 8px 0; color: var(--text-main); font-size: 1.25rem; padding-bottom: 4px; }
 h4 { margin: 0 0 6px 0; color: var(--text-main); font-size: 1rem;}
@@ -511,15 +412,19 @@ p {
 
 .info { flex: 1; padding-right: 24px; min-width: 0; }
 .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; }
-.divider { height: 1px; background: var(--glass-border); opacity: 0.5; margin: 0; }
+/* 可点击行沿用设置首页的入口样式：整行可点，右侧箭头提示会进入子页 */
+.setting-item.clickable { cursor: pointer; padding: 16px; border-radius: 12px; margin: 0 -16px; transition: 0.2s; }
+.setting-item.clickable:hover { background: var(--ui-surface-hover); }
+.arrow { color: var(--text-sub); font-size: 1.2rem; }
+.divider { height: 1px; background: var(--ui-border-subtle); opacity: 0.5; margin: 0; }
 
 .modern-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
 .modern-switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--surface-hover); transition: .3s; border-radius: 24px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--ui-surface-hover); transition: .3s; border-radius: 24px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
 .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3);}
 input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
-input:checked + .slider { background-color: var(--accent); }
-input:checked + .slider:before { transform: translateX(20px); background-color: var(--accent-fg); }
+input:checked + .slider { background-color: var(--ui-accent-block); }
+input:checked + .slider:before { transform: translateX(20px); background-color: var(--ui-accent-fg); }
 
 .sub-header {
   display: flex;
@@ -529,12 +434,9 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   padding: 0 0 12px 0;
   background: transparent;
 }
-.sub-header.page-sticky-mask {
-  --sticky-mask-bleed: 4px;
-}
 .sub-header h3 { margin: 0; border: none; padding: 0; }
 .back-btn { background: var(--surface); border: none; color: var(--text-main); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; }
-.back-btn:hover { background: var(--surface-hover); }
+.back-btn:hover { background: var(--ui-surface-hover); }
 .section-header { display: flex; justify-content: space-between; align-items: center; }
 .sub-header.section-header h3 { flex: 1; margin-left: 12px; }
 
@@ -556,15 +458,15 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   display: flex; align-items: center; text-align: center; color: var(--text-sub); font-size: 0.75rem;
   font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin: 15px 0;
 }
-.divider-text::before, .divider-text::after { content: ''; flex: 1; border-bottom: 1px solid var(--surface-hover); }
+.divider-text::before, .divider-text::after { content: ''; flex: 1; border-bottom: 1px solid var(--ui-surface-hover); }
 .divider-text::before { margin-right: 10px; }
 .divider-text::after { margin-left: 10px; }
 .restore-actions { display: flex; flex-direction: column; }
-.active-border { border: 1px solid var(--accent) !important; }
+.active-border { border: 1px solid var(--ui-accent) !important; }
 
 /* 关于页面的超链接样式 */
 .link-item {
-  color: var(--accent);
+  color: var(--ui-accent);
   font-size: 0.85rem;
   text-decoration: none;
   transition: opacity 0.2s;
@@ -580,7 +482,7 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   display: flex;
   flex-direction: column;
   gap: 6px;
-  background: var(--surface-hover);
+  background: var(--ui-surface-hover);
   padding: 10px 14px;
   border-radius: 8px;
 }
@@ -599,13 +501,13 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 .progress-bar-wrap {
   width: 100%;
   height: 6px;
-  background: var(--surface-panel);
+  background: var(--ui-surface-card);
   border-radius: 3px;
   overflow: hidden;
 }
 .progress-bar-fill {
   height: 100%;
-  background: var(--accent);
+  background: var(--ui-accent-block);
   transition: width 0.3s ease;
 }
 .progress-size {

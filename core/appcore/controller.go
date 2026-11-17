@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"goclashz/core/clash"
 	"goclashz/core/downloader"
@@ -117,7 +117,22 @@ type Controller struct {
 	coreLifecycleMu   sync.Mutex
 	componentUpdateMu sync.Mutex
 	sysProxyActive    bool
-	tunActive         bool
+	// tunActive 是 TUN 的「实际」状态：只有 sys.ProbeTunAdapter 成功探测到
+	// 真实存在的 Up 适配器时才会被置 true，绝不由 desired.Tun 推导。
+	tunActive    bool
+	tunProbeInfo sys.TunAdapterInfo // 最近一次成功探测到的适配器快照（只读，诊断用）
+	tunProbeOK   bool
+
+	// TUN 就绪静默阶梯：内核以 TUN 模式运行但适配器迟迟未就绪时的升级状态
+	// （有界等待 → 一次内核重启 → 非阻塞提示），避免「启动中」永久静默。
+	tunLadderSince time.Time
+	tunLadderStage int
+
+	// 通知去重：同一条 error 在 notifyDedupWindow 内只发一次。
+	// TUN 就绪这类瞬态状态可能被 watchdog / 事务 / 启动恢复多条路径同时上报，
+	// 逐条弹窗会变成"重启一次弹好几个框"。
+	notifyMu   sync.Mutex
+	notifyLast map[string]time.Time
 
 	// 自动测速任务控制
 	autoTestQuit chan struct{}
@@ -229,6 +244,11 @@ func NewController(opts Options) *Controller {
 	c.UpdateTasks = NewComponentUpdateTaskStore(opts.Events)
 	c.GeoUpdates = NewGeoUpdateManager(opts.Events, c.updateGeoDatabase, c.UpdateTasks)
 
+	// 提权重启（UAC）会在 core/sys 里直接 os.Exit：退出前先把系统代理/内核收拾干净，
+	// 否则注册表里的代理仍指向已退出的内核，用户重开后直接断网。
+	// 方向只能是 appcore → sys（sys 不得 import appcore），所以用回调注入。
+	sys.SetBeforeElevatedExit(c.cleanupBeforeElevatedExit)
+
 	return c
 }
 
@@ -299,6 +319,10 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 	c.ctx = ctx
 	CleanLegacyFiles(c.version)
 
+	// 后台预热内核版本快照：GetAppState 只读无锁原子值（F-A2-15），
+	// 首次填充放到后台，避免 UI 线程上 spawn clash.exe -v。
+	go func() { _ = clash.GetLocalCoreVersion(ctx) }()
+
 	clash.SetOnExitCallback(func(e clash.ExitEvent) {
 		if !e.Intentional {
 			c.mu.Lock()
@@ -319,9 +343,7 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 			c.runtimeState.Clear()
 
 			if wasSysProxy {
-				if err := sys.DisableSystemProxy(); err != nil {
-					c.logWarn("内核异常退出后关闭系统代理失败: %v", err)
-				}
+				c.disableOwnedSystemProxyBestEffort()
 			}
 
 			c.events.Emit("clash-exited", e.Message)
@@ -382,10 +404,11 @@ func (c *Controller) runStartupRestoreJob(ctx context.Context) {
 			return
 		}
 
-		// 根据 desired 类型设置不同的 timeout
+		// 根据 desired 类型设置不同的 timeout。
+		// TUN 的预算必须大于内层 tunAdapterReadyTimeout（20s），否则内层永远等不满就被父 ctx 掐断。
 		restoreTimeout := 8 * time.Second
 		if desired.Tun {
-			restoreTimeout = 15 * time.Second
+			restoreTimeout = tunAdapterReadyTimeout + 15*time.Second
 		}
 
 		attemptCtx, cancel := context.WithTimeout(ctx, restoreTimeout)
@@ -413,11 +436,16 @@ func (c *Controller) runStartupRestoreJob(ctx context.Context) {
 				continue
 			}
 
-			// 5 次重试全部耗尽后，作为最终失败通知用户
+			// 5 次重试全部耗尽后，作为最终失败通知用户。
+			// 例外：TUN 适配器只是"晚一点才 Up"（内核已运行、驱动与助手都正常），
+			// 这种情况由 supervisor 的周期探测接管即可 —— 弹阻塞式模态框只会让用户以为程序坏了，
+			// 且开机时几乎每次都会出现（实测冷启动 wintun 经常 10s 以上才就绪）。
 			if errors.Is(err, ErrHelperRepairRequired) {
 				c.notify("error", "STARTUP_RESTORE_HELPER_REQUIRED", "TUN 启动恢复需要初始化后台服务", "startup")
 			} else if errors.Is(err, ErrWintunMissing) {
 				c.notify("error", "STARTUP_RESTORE_WINTUN_MISSING", "TUN 启动恢复失败：缺少 Wintun 驱动", "startup")
+			} else if isTunAdapterPendingErr(err) {
+				c.logWarn("TUN 启动恢复尚未就绪，转为后台探测（不再弹窗）: %v", err)
 			} else {
 				c.notify("error", "STARTUP_RESTORE_FAILED", fmt.Sprintf("TUN 启动恢复失败: %v", err), "startup")
 			}
@@ -430,6 +458,8 @@ func (c *Controller) runStartupRestoreJob(ctx context.Context) {
 func (c *Controller) syncStartupTaskStateSafe() {
 	info, err := sys.CheckStartupTask()
 	if err != nil {
+		// 该事件在前端没有订阅者（注册但无人消费），补一条日志避免整条链路静默（F-A5-23）。
+		c.logWarn("开机自启状态检查失败: %v", err)
 		c.events.Emit("startup-task-check-warning", err.Error())
 		return
 	}
@@ -468,6 +498,8 @@ func (c *Controller) syncStartupTaskStateSafe() {
 				c.logWarn("自动修复开机自启注册表失败: %v", err)
 			}
 		}
+		// 同上：事件无消费者，补日志留痕（F-A5-23）。
+		c.logWarn("开机自启项不健康: %s", info.LastError)
 		c.events.Emit("startup-task-unhealthy", info.LastError)
 		return
 	}
@@ -552,8 +584,8 @@ func (c *Controller) GetAppState() AppState {
 		ActualTun:          tunActive,
 		SystemProxy:        sysProxy,
 		Tun:                tunActive,
-		Theme:              utils.GetGlobalTheme(),
-		Version:            clash.GetLocalCoreVersion(c.ctx),
+		Theme:              ResolveThemeName(behavior),
+		Version:            clash.CachedCoreVersion(), // 不 spawn、不持锁（F-A2-15）
 		AppVersion:         c.version,
 		ActiveConfig:       activeConfig,
 		DelayRetention:     behavior.DelayRetention,
@@ -607,6 +639,73 @@ func (c *Controller) SyncState() {
 
 // --- 内部方法 (需要提前持有 coreLifecycleMu) ---
 
+// assetReady 判断某个资产在当前状态里是否已就绪；缺失条目按「未就绪」处理，
+// 保证判定不会因为状态缺项而放宽。
+func assetReady(status runtimeassets.RuntimeAssetStatus, key runtimeassets.AssetKey) bool {
+	h, ok := status.Assets[key]
+	return ok && h.Ready
+}
+
+// fastAssetBlocked 判断快检结论是否「明确不可用」（不存在 / 是目录 / PE 损坏）。
+//
+// 快检（runtimeassets.GetStatusFast）只做 stat + PE 头 + 版本资源，不跑 clash.exe -v、
+// 不算 SHA256。它给出的 Ready=false 只有在「明确」时才允许阻断用户动作；
+// 其余模糊情形交给修复/启动路径里的全量 EnsureReady 裁决（F-A2-02）。
+func fastAssetBlocked(h runtimeassets.AssetHealth) bool {
+	return !h.Ready && !h.Valid
+}
+
+// fastRequirementBlocked 判断快检结果是否不满足某个资产要求。
+func fastRequirementBlocked(status runtimeassets.RuntimeAssetStatus, req runtimeassets.Requirement) bool {
+	if req.NeedCore {
+		h, ok := status.Assets[runtimeassets.AssetCore]
+		if !ok || fastAssetBlocked(h) {
+			return true
+		}
+	}
+	if req.NeedWintun {
+		h, ok := status.Assets[runtimeassets.AssetWintun]
+		if !ok || fastAssetBlocked(h) {
+			return true
+		}
+	}
+	if req.NeedGeo {
+		for _, key := range []runtimeassets.AssetKey{
+			runtimeassets.AssetGeoIP,
+			runtimeassets.AssetGeoSite,
+			runtimeassets.AssetMMDB,
+			runtimeassets.AssetASN,
+		} {
+			if h, ok := status.Assets[key]; ok && !h.Ready && !h.Exists {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// fastHelperPing 在给定预算内做一次 helper 可达性探测（Ping 自身预算约 350ms）。
+// 返回 false 表示没能在预算内确认可达——调用方应转为后台唤醒，而不是阻塞用户动作。
+func fastHelperPing(client *sys.HelperClient, budget time.Duration) bool {
+	done := make(chan struct{})
+	var ok bool
+
+	go func() {
+		defer close(done)
+		ok = client.Ping() == nil
+	}()
+
+	timer := time.NewTimer(budget)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+		return ok
+	case <-timer.C:
+		return false
+	}
+}
+
 func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desired DesiredState) error {
 	// 检查当前运行时状态是否已满足期望
 	if c.runtimeSatisfiesCore(RuntimePlan{
@@ -614,30 +713,66 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 		ActiveConfig: desired.ActiveConfig,
 		Mode:         desired.Mode,
 	}) {
+		// 运行时已满足：仍需用真实适配器校正一次 ActualTun，
+		// 避免「上一次探测失败」导致实际状态永久失真（这里不重启内核）。
+		if desired.Tun {
+			if info, err := c.probeTunActual(); err != nil {
+				// 内核已在跑 TUN，只是适配器还没 Up 或探测这一次没命中：
+				// watchdog 的 repairTunActualIfNeeded 会自动校正，不需要打扰用户。
+				c.logWarn("TUN 适配器尚未就绪（内核已运行，不重启，等待后台校正）: %v", err)
+				c.SyncState()
+			} else {
+				c.logInfo("TUN 适配器就绪: %s", info.Summary())
+			}
+		} else {
+			c.clearTunActual()
+		}
 		return nil
 	}
 
-	// 启动核心前强制兜底：从 seed 修补缺失/损坏的 core/wintun（在 activeConfig 检查之前）
+	// 启动核心前兜底：从 seed 修补缺失/损坏的 core/wintun（在 activeConfig 检查之前）。
+	//
+	// 快检优先（F-A2-02）：stat + PE 头就足以回答「能不能启动」，
+	// 不再在每次起内核时先跑 95MB 哈希 + clash.exe -v；只有快检明确不可用时
+	// 才进入全量检查/修复分支（修复本身就要求全量结论）。
 	assetReq := runtimeassets.RequireCoreOnly
 	if desired.Tun {
 		assetReq = runtimeassets.RequireTun
 	}
-	if assetStatus, assetErr := runtimeassets.EnsureReady(ctx, assetReq, runtimeassets.RepairInvalid); assetErr != nil {
-		for _, asset := range assetStatus.Assets {
-			if !asset.Ready && asset.Error != "" {
-				c.logWarn("运行组件不可用: %s path=%s error=%s", asset.Key, asset.Path, asset.Error)
+	if fastStatus := runtimeassets.GetStatusFast(ctx); fastRequirementBlocked(fastStatus, assetReq) {
+		if assetStatus, assetErr := runtimeassets.EnsureReady(ctx, assetReq, runtimeassets.RepairInvalid); assetErr != nil {
+			for _, asset := range assetStatus.Assets {
+				if !asset.Ready && asset.Error != "" {
+					c.logWarn("运行组件不可用: %s path=%s error=%s", asset.Key, asset.Path, asset.Error)
+				}
+			}
+
+			// 资产锁被并发占用（另一个修复/迁移流程正在跑）属于 A 类瞬时可重试，
+			// 绝不能升级成「开关失败」——那会把"稍后再试"变成一次用户可见的失败（F-A1-13）。
+			if errors.Is(assetErr, runtimeassets.ErrAssetLocked) {
+				c.logWarn("运行组件修复被并发占用（瞬时可重试，继续启动，失败会由后台重试）: %v", assetErr)
+			} else {
+				// 修复瑕疵不再升级成「开关失败」：一次 tmp 写失败、rename 被占用、版本探测超时，
+				// 只要内核 / wintun 的文件本身仍判定 Ready，就不该阻断本次启动。
+				// 只有真正 !Ready（文件缺失、PE 损坏）才保留硬失败。
+				coreBlocked := assetReq.NeedCore && !assetReady(assetStatus, runtimeassets.AssetCore)
+				wintunBlocked := assetReq.NeedWintun && !assetReady(assetStatus, runtimeassets.AssetWintun)
+				if coreBlocked || wintunBlocked {
+					return fmt.Errorf("运行组件不可用: %w", assetErr)
+				}
+
+				c.logWarn("运行组件修复未完全成功，但所需资产已就绪，继续启动: %v", assetErr)
 			}
 		}
-		return fmt.Errorf("运行组件不可用: %w", assetErr)
 	}
 
 	if desired.ActiveConfig == "" {
 		return ErrNoActiveConfig
 	}
 
-	// TUN 模式：确保 helper 服务就绪
+	// TUN 模式：确保 helper 服务就绪（可被调用方 ctx 打断，见 F-A2-09）
 	if desired.Tun {
-		if err := c.EnsureHelperReady("tun-start"); err != nil {
+		if err := c.EnsureHelperReadyWithContext(ctx, "tun-start"); err != nil {
 			return err
 		}
 	}
@@ -649,12 +784,18 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 		return err
 	}
 
-	if err := EnsureRuntimeAssets(ctx, behavior); err != nil {
-		c.logWarn("确保运行期资产失败: %v", err)
+	// geo 补齐是网络下载（最多 4×200MB），绝不能挂在用户同步路径上（F-A2-14）：
+	// 转后台并用自己的长预算，失败只记日志，不阻断本次启动。
+	c.ensureRuntimeAssetsAsync(behavior)
+
+	// 调用方预算已耗尽时不要再去 spawn -t：那只会把"没时间了"伪装成"配置错误"。
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("启动已取消: %w", err)
 	}
 
-	// 启动内核前校验生成的运行时配置（秒级拦截语法错误、不支持的协议栈等）
-	if err := clash.ValidateConfig(ctx, utils.GetRuntimeConfigPath()); err != nil {
+	// 启动内核前校验生成的运行时配置（秒级拦截语法错误、不支持的协议栈等）。
+	// 配置内容未变时复用上次校验结论，避免每次起内核都 spawn 一次 clash.exe -t（F-A0-06）。
+	if err := clash.ValidateConfigCached(ctx, utils.GetRuntimeConfigPath()); err != nil {
 		c.logError("运行时配置预检未通过: %v", err)
 		return fmt.Errorf("配置预检未通过: %w", err)
 	}
@@ -730,7 +871,13 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 
 	c.mu.Lock()
 	c.userCoreRunning = true
-	c.tunActive = desired.Tun
+	// ⚠️ 绝不在此处把 desired.Tun 写成 ActualTun：
+	// TUN 的真实状态必须由后面的适配器探测确认。
+	if !desired.Tun {
+		c.tunActive = false
+		c.tunProbeOK = false
+		c.tunProbeInfo = sys.TunAdapterInfo{}
+	}
 	c.coreStartedAt = time.Now()
 	c.mu.Unlock()
 
@@ -750,6 +897,26 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 		StartedAt:    time.Now(),
 	})
 
+	// TUN：内核进程健康不等于 TUN 可用，必须以真实适配器（描述 Meta Tunnel / 设备名）
+	// 探测成功为准；失败则置错误状态并保留实际值（ActualTun 保持 false）。
+	if desired.Tun {
+		if err := c.waitForTunAdapter(ctx); err != nil {
+			if isTunAdapterPendingErr(err) {
+				// 内核已成功起来，只是适配器还没 Up（含"这次没等到"）：
+				// 交给 watchdog 的 repairTunActualIfNeeded 收敛，不弹错误框、也不回滚启动。
+				c.logWarn("TUN 适配器尚未就绪，转为后台探测: %v", err)
+				c.SyncState()
+			} else {
+				c.setLastErrorCode("TUN_ADAPTER_NOT_READY", "TUN 适配器未就绪: "+err.Error())
+				c.logError("TUN 适配器未就绪: %v", err)
+				c.SyncState()
+				return err
+			}
+		}
+	} else {
+		c.clearTunActual()
+	}
+
 	// 内核已有反应，同步状态
 	c.SyncState()
 
@@ -764,8 +931,31 @@ func (c *Controller) ensureCoreRunningWithDesiredState(ctx context.Context, desi
 	return nil
 }
 
-func (c *Controller) stopCoreProcessLocked() {
-	clash.Stop()
+// ensureRuntimeAssetsAsync 在后台补齐 geo 等运行期资产（F-A2-14）。
+// 独立长预算（10 分钟），失败只记日志——绝不阻塞用户动作或内核启动。
+func (c *Controller) ensureRuntimeAssetsAsync(behavior AppBehavior) {
+	base := c.ctx
+	if base == nil {
+		base = context.Background()
+	}
+
+	go func() {
+		bgCtx, cancel := context.WithTimeout(base, 10*time.Minute)
+		defer cancel()
+
+		if err := EnsureRuntimeAssets(bgCtx, behavior); err != nil {
+			c.logWarn("后台补齐运行期资产失败（不阻断启动）: %v", err)
+		}
+	}()
+}
+
+// stopCoreProcessLocked 停止内核并清理运行态；返回 error 表示"停止未被确认"。
+// 停止失败时保留 userCoreRunning / ActualTun，避免主进程与真实内核状态分叉（F-A2-06）。
+func (c *Controller) stopCoreProcessLocked() error {
+	if err := clash.Stop(); err != nil {
+		c.logWarn("停止内核未确认，保留运行态待重试: %v", err)
+		return err
+	}
 	c.mu.Lock()
 	c.userCoreRunning = false
 	// TUN routing ceases the moment the core stops, even though the Wintun
@@ -774,9 +964,12 @@ func (c *Controller) stopCoreProcessLocked() {
 	// during restart/shutdown, which would mislead the frontend into showing
 	// "启动中..." when TUN is actually winding down.
 	c.tunActive = false
+	c.tunProbeOK = false
+	c.tunProbeInfo = sys.TunAdapterInfo{}
 	c.coreStartedAt = time.Time{}
 	c.mu.Unlock()
 	c.runtimeState.Clear()
+	return nil
 }
 
 // classifyProbeError 将探针错误分类为用户可读的诊断信息
@@ -849,7 +1042,9 @@ func (c *Controller) reconcileCoreProcess(ctx context.Context, plan RuntimePlan)
 	}
 
 	if plan.RestartRequired {
-		if err := c.RestartCoreWithReason(ctx, plan.Reason); err != nil {
+		// supervisor 已按 reconcileMu 串行化，直接使用内部实现，
+		// 避免重入 ControlCoordinator 的串行锁。
+		if err := c.restartCoreWithReason(ctx, plan.Reason); err != nil {
 			return fmt.Errorf("restart core failed: %w", err)
 		}
 	} else {
@@ -886,7 +1081,7 @@ func (c *Controller) ensureSystemProxyEnabled() error {
 		"localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>",
 	)
 	if err != nil {
-		c.setLastError("设置 Windows 系统代理失败: " + err.Error())
+		c.setLastErrorCode("SYSTEM_PROXY_SET_FAILED", "设置 Windows 系统代理失败: "+err.Error())
 		c.mu.Lock()
 		c.sysProxyActive = false
 		c.mu.Unlock()
@@ -905,9 +1100,19 @@ func (c *Controller) ensureSystemProxyDisabled() error {
 	}
 
 	if current.Enabled {
+		// 只关闭「可判定为本程序写入」的代理：注册表里若是别的工具写的，
+		// 关掉它会直接打断用户的其它代理（F-A2-07）。
+		if !c.systemProxyOwnedByUs(current) {
+			c.logWarn("系统代理当前指向其它程序(%s)，跳过关闭", current.Server)
+			c.mu.Lock()
+			c.sysProxyActive = false
+			c.mu.Unlock()
+			return nil
+		}
 		if err := sys.DisableSystemProxy(); err != nil {
 			return fmt.Errorf("关闭 Windows 系统代理失败: %w", err)
 		}
+		sys.UnmarkSystemProxyOwned()
 	}
 
 	c.mu.Lock()
@@ -916,40 +1121,588 @@ func (c *Controller) ensureSystemProxyDisabled() error {
 	return nil
 }
 
+// systemProxyOwnedByUs 判断注册表里的系统代理是否指向本程序的本地端口。
+// 用于「关闭意图」时的安全判断：不是我们写的就不要动（F-A2-07）。
+func (c *Controller) systemProxyOwnedByUs(state sys.SystemProxyState) bool {
+	if c.systemProxyActiveNow() {
+		return true
+	}
+	expected := fmt.Sprintf("127.0.0.1:%d", clash.GetProxyPort())
+	return strings.Contains(state.Server, expected) ||
+		strings.Contains(state.Server, fmt.Sprintf("localhost:%d", clash.GetProxyPort()))
+}
+
+// disableOwnedSystemProxyBestEffort 尽力关闭「本程序写入」的系统代理，绝不误伤其它工具。
+// 用于退出 / 关闭代理等收尾路径（F-A2-07）。
+func (c *Controller) disableOwnedSystemProxyBestEffort() {
+	if c.systemProxyActiveNow() {
+		if err := sys.DisableSystemProxy(); err != nil {
+			c.logWarn("关闭系统代理失败: %v", err)
+		}
+		sys.UnmarkSystemProxyOwned()
+	} else {
+		// 状态未知时只在「所有权文件 + 当前注册表」双匹配时才清（proxy_guard 内已判定）。
+		sys.ClearOwnedSystemProxy()
+	}
+	c.mu.Lock()
+	c.sysProxyActive = false
+	c.mu.Unlock()
+}
+
+// setRuntimeStateFromPlan 提交「由 plan 可直接推导」的运行时字段。
+//
+// ⚠️ 这里刻意不再写 tunActive = plan.NeedTun：
+// 历史实现以内核进程健康即认为 TUN 已生效，导致 ActualTun 由 desired 伪造，
+// 实际适配器未创建时前端/托盘仍显示 TUN 已开启（问题根因之一）。
+// 现在 ActualTun 只能来自 probeTunActual/watchForTunAdapter 的真实探测结果；
+// plan 只负责在「不再需要 TUN」时把实际状态归零。
 func (c *Controller) setRuntimeStateFromPlan(plan RuntimePlan) {
 	c.mu.Lock()
-	c.tunActive = plan.NeedTun
+	if !plan.NeedTun {
+		c.tunActive = false
+		c.tunProbeOK = false
+		c.tunProbeInfo = sys.TunAdapterInfo{}
+	}
 	c.userCoreRunning = plan.NeedCore
 	c.mu.Unlock()
 }
 
+// --- TUN 实际状态 / 运行时事务辅助 ---
+
+// isTunAdapterPendingErr 判断错误是否属于「TUN 适配器还没 Up」这类**可自愈**的情况。
+//
+// 这类情况的特点是：内核已经在以 TUN 模式运行，只是 wintun 适配器还没被创建/还没 Up。
+// watchdog 每 5s 的 repairTunActualIfNeeded 会在适配器真正 Up 之后把 ActualTun 自动校正为 true，
+// 所以它不该被当成"故障"弹给用户。
+//
+// 三个来源都要覆盖：
+//  1) 适配器不存在 / 存在但没 Up（真正的 pending）；
+//  2) 等待过程中调用方上下文到期（watchdog / 协调器只给 8s，比 TUN 等待上限 20s 短）；
+//  3) 文案被上层再包一层后的形态。
+func isTunAdapterPendingErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, sys.ErrTunAdapterNotFound) || errors.Is(err, sys.ErrTunAdapterNotReady) {
+		return true
+	}
+	msg := err.Error()
+	// 等待 TUN 被 ctx 掐断：属于"这次没等到"，不是适配器坏了
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return strings.Contains(msg, "TUN")
+	}
+	return (strings.Contains(msg, "TUN 适配器") && strings.Contains(msg, "未就绪")) ||
+		strings.Contains(msg, "等待 TUN 适配器")
+}
+
+const (
+	// tunAdapterReadyTimeout 是内核启动后等待 TUN 适配器真实就绪的上限。
+	// 冷启动（磁盘慢 / 配置大 / 助手服务刚拉起）时 wintun 适配器常常晚于 8s 才 Up，
+	// 8s 会导致"每次开机都报 TUN 未就绪"。20s 仍是有限等待，真正的失败会由后面的分支兜住。
+	tunAdapterReadyTimeout = 20 * time.Second
+	// tunAdapterPollInterval 是 TUN 适配器只读探测的轮询间隔。
+	// 每次探测都要 GetAdaptersAddresses + 两次整表路由遍历（F-A2-22），
+	// 200ms 意味着 20s 内最多 100 次全表扫描；400ms 减半且不影响 Up 检测的时效。
+	tunAdapterPollInterval = 400 * time.Millisecond
+	// helperStopConfirmTimeout 是 helper 托管内核的停止确认上限。
+	helperStopConfirmTimeout = 3 * time.Second
+	// stopConfirmPollInterval 是 helper 停止确认的轮询间隔。
+	stopConfirmPollInterval = 200 * time.Millisecond
+	// providerReadyTimeout 是内核启动后等待代理组/provider 数据就绪的上限。
+	providerReadyTimeout = 10 * time.Second
+	// providerPollInterval 是代理组就绪探测的轮询间隔。
+	providerPollInterval = 250 * time.Millisecond
+)
+
+// tunDeviceName 返回当前 TUN 设置里的设备名。
+// 读取失败时退回内置默认值（探测仍可通过适配器描述 "Meta Tunnel" 命中）。
+func (c *Controller) tunDeviceName() string {
+	if cfg, err := clash.GetTunConfig(); err == nil && cfg != nil {
+		if name := strings.TrimSpace(cfg.Device); name != "" {
+			return name
+		}
+	}
+	return clash.GetDefaultTunConfig().Device
+}
+
+// probeTunActual 执行一次只读探测，成功时把 ActualTun 置为 true 并记录快照。
+// 返回 error 表示适配器未就绪（未创建 / 未 Up），此时 ActualTun 保持原值不变。
+func (c *Controller) probeTunActual() (sys.TunAdapterInfo, error) {
+	info, err := sys.ProbeTunAdapter(c.tunDeviceName())
+	if err != nil {
+		c.mu.Lock()
+		c.tunProbeOK = false
+		c.mu.Unlock()
+		return info, err
+	}
+
+	c.mu.Lock()
+	c.tunActive = true
+	c.tunProbeInfo = info
+	c.tunProbeOK = true
+	c.mu.Unlock()
+	return info, nil
+}
+
+// waitForTunAdapter 在内核就绪后轮询真实 TUN 适配器，只有探测成功才置 ActualTun。
+// 失败时保留既有实际值（绝不用 desired.Tun 兜底），并返回错误由上层置错误状态。
+// tunWaitBudgetKey 让调用方限制「等待 TUN 适配器就绪」的预算。
+// 用于不能把 20s 挂在同步路径上的场景（配置切换 / 后台收敛）。
+type tunWaitBudgetKey struct{}
+
+func withTunWaitBudget(ctx context.Context, d time.Duration) context.Context {
+	return context.WithValue(ctx, tunWaitBudgetKey{}, d)
+}
+
+func (c *Controller) waitForTunAdapter(ctx context.Context) error {
+	timeout := tunAdapterReadyTimeout
+	if b, ok := ctx.Value(tunWaitBudgetKey{}).(time.Duration); ok && b > 0 && b < timeout {
+		timeout = b
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < timeout {
+			timeout = remaining
+		}
+	}
+	if timeout <= 0 {
+		timeout = tunAdapterPollInterval
+	}
+	deadline := time.Now().Add(timeout)
+
+	var lastErr error
+	for {
+		if info, err := c.probeTunActual(); err == nil {
+			c.logInfo("TUN 适配器已就绪: %s", info.Summary())
+			return nil
+		} else {
+			lastErr = err
+		}
+
+		if time.Now().After(deadline) {
+			c.mu.Lock()
+			c.tunProbeOK = false
+			c.mu.Unlock()
+			if lastErr == nil {
+				lastErr = sys.ErrTunAdapterNotFound
+			}
+			return fmt.Errorf("TUN 适配器在 %s 内未就绪: %w", timeout.Round(tunAdapterPollInterval), lastErr)
+		}
+
+		timer := time.NewTimer(tunAdapterPollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("等待 TUN 适配器被取消: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
+// confirmTunActual 做一次只读确认（不轮询等待），用于调和阶段：
+// 内核刚启动时 ensureCoreRunningWithDesiredState 已经完成过轮询等待，
+// 这里只复核一次，避免 watchdog 每 5s 又触发 8s 的长等待。
+func (c *Controller) confirmTunActual() error {
+	c.mu.RLock()
+	active := c.tunActive
+	c.mu.RUnlock()
+	if active {
+		return nil
+	}
+	_, err := c.probeTunActual()
+	return err
+}
+
+// clearTunActual 清空 ActualTun 与探测快照（仅当确定不需要 TUN 时调用）。
+func (c *Controller) clearTunActual() {
+	c.mu.Lock()
+	c.tunActive = false
+	c.tunProbeOK = false
+	c.tunProbeInfo = sys.TunAdapterInfo{}
+	c.mu.Unlock()
+}
+
+// TunProbeSnapshot 返回最近一次成功的 TUN 适配器探测快照（只读，供诊断/验收使用）。
+func (c *Controller) TunProbeSnapshot() (sys.TunAdapterInfo, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.tunProbeInfo, c.tunProbeOK
+}
+
+// repairTunActualIfNeeded 在内核以 TUN 模式运行但 ActualTun 为 false 时做一次
+// 只读校正。不会重启内核、不会清理任何系统资源，避免 watchdog 抖动。
+func (c *Controller) repairTunActualIfNeeded() {
+	if !c.coreLaunchedWithTun() || !clash.IsRunning() {
+		return
+	}
+
+	c.mu.RLock()
+	active := c.tunActive
+	c.mu.RUnlock()
+	if active {
+		return
+	}
+
+	info, err := sys.ProbeTunAdapter(c.tunDeviceName())
+	if err != nil {
+		return
+	}
+
+	c.mu.Lock()
+	c.tunActive = true
+	c.tunProbeInfo = info
+	c.tunProbeOK = true
+	c.mu.Unlock()
+
+	c.logInfo("TUN 实际状态已校正: %s", info.Summary())
+	c.SyncState()
+}
+
+const (
+	// TUN 就绪静默阶梯的阈值（从「内核以 TUN 模式运行且 ActualTun=false」开始计时）。
+	tunLadderWaitAfter    = 15 * time.Second // L1：后台做一次有界等待
+	tunLadderRestartAfter = 40 * time.Second // L2：后台重启一次内核
+	tunLadderNotifyAfter  = 60 * time.Second // L3：非阻塞提示（toast，不弹模态）
+	// tunLadderWaitBudget 是 L1 有界等待的预算。
+	tunLadderWaitBudget = 5 * time.Second
+	// configSwitchTunWaitBudget 是配置切换事务里等待 TUN 适配器的预算：
+	// 事务是用户同步路径，不能按默认 20s 死等（没等到交给静默阶梯收敛）。
+	configSwitchTunWaitBudget = 5 * time.Second
+)
+
+// escalateTunReadinessIfNeeded 在内核已按 TUN 模式运行、但真实适配器迟迟未就绪时，
+// 按静默阶梯升级：L1 后台有界等待 → L2 后台重启一次内核 → L3 非阻塞提示。
+// 只有走到 L3 才会打扰用户，符合「A 类静默重试 / B 类非阻塞提示 / C 类模态」的分级。
+func (c *Controller) escalateTunReadinessIfNeeded() {
+	if !c.coreLaunchedWithTun() || !clash.IsRunning() {
+		c.resetTunLadder()
+		return
+	}
+
+	c.mu.RLock()
+	active := c.tunActive
+	c.mu.RUnlock()
+	if active {
+		c.resetTunLadder()
+		return
+	}
+
+	c.mu.Lock()
+	if c.tunLadderSince.IsZero() {
+		c.tunLadderSince = time.Now()
+	}
+	elapsed := time.Since(c.tunLadderSince)
+	stage := c.tunLadderStage
+	c.mu.Unlock()
+
+	switch {
+	case stage < 1 && elapsed >= tunLadderWaitAfter:
+		c.mu.Lock()
+		c.tunLadderStage = 1
+		c.mu.Unlock()
+		c.logWarn("TUN 适配器 %s 内未就绪，开始后台有界等待（L1）", tunLadderWaitAfter)
+		go c.boundedTunWait()
+	case stage < 2 && elapsed >= tunLadderRestartAfter:
+		c.mu.Lock()
+		c.tunLadderStage = 2
+		c.mu.Unlock()
+		c.logWarn("TUN 适配器 %s 内仍未就绪，尝试后台重启一次内核（L2）", tunLadderRestartAfter)
+		if c.Supervisor != nil {
+			c.Supervisor.ReconcileAsync("tun-not-ready-restart")
+		}
+	case stage < 3 && elapsed >= tunLadderNotifyAfter:
+		c.mu.Lock()
+		c.tunLadderStage = 3
+		c.mu.Unlock()
+		c.notify("warn", "TUN_NOT_READY", "TUN 已开启但网卡迟迟未就绪，正在后台重试；可在首页重试开关或导出诊断包", "appcore")
+	}
+}
+
+// boundedTunWait 是静默阶梯 L1：用自己的短预算再等一次适配器，成功即校正状态。
+func (c *Controller) boundedTunWait() {
+	base := c.ctx
+	if base == nil {
+		base = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(base, tunLadderWaitBudget)
+	defer cancel()
+
+	if err := c.waitForTunAdapter(ctx); err != nil {
+		c.logWarn("后台有界等待 TUN 适配器仍未就绪: %v", err)
+		return
+	}
+	c.logInfo("TUN 适配器在后台有界等待中就绪")
+	c.resetTunLadder()
+	c.SyncState()
+}
+
+// resetTunLadder 清空阶梯状态（TUN 已就绪 / 内核已停 / 意图已变时调用）。
+func (c *Controller) resetTunLadder() {
+	c.mu.Lock()
+	c.tunLadderSince = time.Time{}
+	c.tunLadderStage = 0
+	c.mu.Unlock()
+}
+
+// coreLaunchedWithTun 返回「内核进程是以 TUN 模式启动的」这一事实。
+// 它来自 runtimeState（启动意图记录），与 ActualTun（适配器探测结果）严格分离：
+// 重启判定必须用它，否则适配器探测失败会导致每个 watchdog tick 都误判需要重启。
+func (c *Controller) coreLaunchedWithTun() bool {
+	st := c.runtimeState.Get()
+	return st.Running && st.Purpose == "user" && st.Tun
+}
+
+// stopCoreForTransition 停止内核并尽可能拿到「确实已停止」的证据：
+//   - helper 托管（TUN 模式）：通过 helper core-status 轮询确认停止（停止确认来自 helper）
+//   - 直连模式：clash.Stop() 内部已 Wait 到进程退出，无需额外确认
+//
+// 注意：TUN 的适配器/路由/DNS 回收一律由 helper 与内核自身负责，
+// 主进程在此只做「观测 + 确认」，绝不盲清系统路由或 DNS。
+func (c *Controller) stopCoreForTransition(ctx context.Context) error {
+	wasHelper := clash.StartedViaHelper()
+
+	if err := c.stopCoreProcessLocked(); err != nil {
+		return err
+	}
+
+	if !wasHelper {
+		return nil
+	}
+
+	client := sys.NewHelperClient()
+	deadline := time.Now().Add(helperStopConfirmTimeout)
+	var lastErr error
+
+	for {
+		if status, err := client.CoreStatus(); err == nil {
+			if !status.Running {
+				return nil
+			}
+			lastErr = fmt.Errorf("helper 仍报告内核运行中 (pid=%d)", status.PID)
+		} else {
+			lastErr = err
+		}
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("helper 停止确认超时: %w", lastErr)
+		}
+
+		timer := time.NewTimer(stopConfirmPollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("helper 停止确认被取消: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
+// observeTunAdapterAfterStop 只读观测 TUN 停止后适配器是否仍在系统中短时残留。
+// 仅记录日志，不做任何清理（清理由 helper/内核负责）。
+func (c *Controller) observeTunAdapterAfterStop() {
+	info, err := sys.ProbeTunAdapter(c.tunDeviceName())
+	if err != nil {
+		return
+	}
+	c.logInfo("TUN 停止后适配器仍存在（等待内核/helper 回收）: %s", info.Summary())
+}
+
+// systemProxyActiveNow 返回主进程记录的「系统代理实际已开启」状态。
+func (c *Controller) systemProxyActiveNow() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.sysProxyActive
+}
+
+// systemProxySnapshot 是切换事务开始前的系统代理观测结果。
+type systemProxySnapshot struct {
+	// owned 表示系统代理配置可判定为「本程序写入」，可以安全关闭
+	owned bool
+	// known 为 false 表示注册表读取失败，状态未知 —— 不得据此盲目开启/关闭
+	known bool
+}
+
+// captureSystemProxyState 采集系统代理的真实状态（读失败保留 unknown）。
+func (c *Controller) captureSystemProxyState() systemProxySnapshot {
+	c.mu.RLock()
+	active := c.sysProxyActive
+	c.mu.RUnlock()
+
+	state, err := sys.GetSystemProxyState()
+	if err != nil {
+		c.logWarn("读取系统代理状态失败（按 unknown 处理，不会据此盲目开启）: %v", err)
+		return systemProxySnapshot{owned: active, known: false}
+	}
+
+	owned := active || systemProxyLooksOwned(state)
+	return systemProxySnapshot{owned: owned, known: true}
+}
+
+// systemProxyLooksOwned 判断注册表中的系统代理是否指向本程序的本地代理端口。
+func systemProxyLooksOwned(state sys.SystemProxyState) bool {
+	if !state.Enabled {
+		return false
+	}
+	server := strings.ToLower(strings.TrimSpace(state.Server))
+	return strings.Contains(server, "127.0.0.1") || strings.Contains(server, "localhost")
+}
+
+// waitProxyGroupsReady 等待内核 API 与代理组/provider 数据都就绪。
+// 复用现有内核 API 客户端：/configs + /proxies 均成功且返回至少一个代理组才算就绪。
+func (c *Controller) waitProxyGroupsReady(ctx context.Context) error {
+	timeout := providerReadyTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < timeout {
+			timeout = remaining
+		}
+	}
+	if timeout <= 0 {
+		timeout = providerPollInterval
+	}
+	deadline := time.Now().Add(timeout)
+
+	var lastErr error
+	for {
+		if err := c.proxyGroupsReadyOnce(ctx); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+
+		if time.Now().After(deadline) {
+			if lastErr == nil {
+				lastErr = errors.New("内核尚未返回代理组数据")
+			}
+			return fmt.Errorf("代理组/provider 在 %s 内未就绪: %w", timeout.Round(providerPollInterval), lastErr)
+		}
+
+		timer := time.NewTimer(providerPollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("等待代理组就绪被取消: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
+// proxyGroupsReadyOnce 只读探测一次代理组就绪情况。
+func (c *Controller) proxyGroupsReadyOnce(ctx context.Context) error {
+	data, err := clash.GetInitialDataWithContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	groups, ok := data["groups"].(map[string]interface{})
+	if !ok || len(groups) == 0 {
+		return errors.New("内核尚未返回任何代理组")
+	}
+	return nil
+}
+
 func (c *Controller) setLastError(msg string) {
-	c.notify("error", "RUNTIME_OPERATION_FAILED", msg, "appcore")
+	c.setLastErrorCode("RUNTIME_OPERATION_FAILED", msg)
+}
+
+// setLastErrorCode 同 setLastError，但带上可编程错误码（F-A2-10）：
+// 前端/日志可以按 code 路由，而不是靠文案匹配。
+func (c *Controller) setLastErrorCode(code, msg string) {
+	c.notify("error", code, msg, "appcore")
+}
+
+// notifyDedupWindow 是错误通知的去重时间窗。
+const notifyDedupWindow = 30 * time.Second
+
+// shouldSuppressNotify 判断这条 error 通知是否在去重窗口内已经发过。
+func (c *Controller) shouldSuppressNotify(code, message string) bool {
+	key := code + "|" + message
+	now := time.Now()
+
+	c.notifyMu.Lock()
+	defer c.notifyMu.Unlock()
+
+	if c.notifyLast == nil {
+		c.notifyLast = make(map[string]time.Time)
+	}
+	if last, ok := c.notifyLast[key]; ok && now.Sub(last) < notifyDedupWindow {
+		return true
+	}
+	c.notifyLast[key] = now
+
+	// 顺手清理过期项，避免长期运行堆积
+	if len(c.notifyLast) > 32 {
+		for k, t := range c.notifyLast {
+			if now.Sub(t) > notifyDedupWindow {
+				delete(c.notifyLast, k)
+			}
+		}
+	}
+	return false
 }
 
 func (c *Controller) notify(level, code, message, source string) {
+	if level == "error" && c.shouldSuppressNotify(code, message) {
+		// 去重只抑制 UI 通知，不能连日志一起抑制：
+		// 否则同一错误在 30s 内第二次出现时时间线直接断掉，复盘时看不到上下文。
+		c.logWarn("[通知已去重] %s | code=%s | source=%s", message, code, source)
+		return
+	}
+	if level == "error" {
+		c.logError("%s | code=%s | source=%s", message, code, source)
+	} else {
+		c.logWarn("%s | code=%s | source=%s", message, code, source)
+	}
 	c.events.Emit(EventNotification, Notification{
 		Level:   level,
 		Code:    code,
 		Message: message,
 		Source:  source,
 	})
-	if level == "error" {
-		c.events.Emit(EventNotifyError, message)
-	}
+	// F-A5-23：不再额外发一条 legacy "notify-error"——前端只订阅 app-notification，
+	// 这条事件既没有消费者（死事件），又让同一条错误在事件流里出现两次（同名双发）。
+	// 常量 EventNotifyError 保留，等所有调用方迁移完成后再删（不破坏既有绑定注册）。
 }
 
-// DisableAll 彻底清理并关闭所有功能
+// DisableAll 彻底清理并关闭所有功能。
+// 用于程序退出等「尽快返回」的路径：不做 helper 停止确认，保持既有退出耗时。
 func (c *Controller) DisableAll() {
+	c.disableAll(context.Background(), false)
+}
+
+// disableAllWithConfirmation 用于运行期「关闭 TUN / 系统代理」的路径：
+// 停内核后向 helper 确认停止结果（停止确认来自 helper），
+// 主进程只清 ActualTun，不对系统路由/DNS 做任何清理。
+func (c *Controller) disableAllWithConfirmation(ctx context.Context) {
+	c.disableAll(ctx, true)
+}
+
+func (c *Controller) disableAll(ctx context.Context, confirmStop bool) {
 	c.coreLifecycleMu.Lock()
 	defer c.coreLifecycleMu.Unlock()
 
-	c.stopCoreProcessLocked()
-	_ = sys.DisableSystemProxy()
+	// 先撤系统代理、再停内核（F-A5-13）：停内核可能一直阻塞到 stop-core 的完整预算
+	// （helper 优雅 20s + 强杀 5s），而外层退出链路只给 5s/8s——一旦硬退，
+	// 系统代理就会残留并指向已经死掉的端口，直接导致用户断网。
+	// 撤代理是本地注册表操作（毫秒级），把它放到最前面最安全。
+	// 只清「可判定为本程序写入」的代理，避免误伤其它代理工具（F-A2-07）。
+	c.disableOwnedSystemProxyBestEffort()
+
+	if confirmStop {
+		if err := c.stopCoreForTransition(ctx); err != nil {
+			// 停止未被确认：不要清运行态、更不要把"内核仍在跑"说成已关闭（F-A2-06）。
+			// 保留 ActualTun 状态，由 watchdog 下一轮重试停止。
+			c.logWarn("停止内核并确认停止失败，保留运行态待重试: %v", err)
+			c.SyncState()
+			return
+		}
+	} else {
+		_ = c.stopCoreProcessLocked()
+	}
 
 	c.mu.Lock()
 	c.sysProxyActive = false
 	c.tunActive = false
+	c.tunProbeOK = false
+	c.tunProbeInfo = sys.TunAdapterInfo{}
 	c.userCoreRunning = false
 	c.coreStartedAt = time.Time{}
 	c.mu.Unlock()
@@ -992,6 +1745,31 @@ func (c *Controller) DisableAll() {
 	}
 
 	c.SyncState()
+}
+
+// cleanupBeforeElevatedExit 是提权重启（os.Exit）前的快速清理。
+//
+// 只做本地能立刻完成的动作：停内核 + 摘系统代理 + 复位运行态。
+// 用 3s 上限兜住偶发拖尾（测速内核、失效 helper），保证提权重启不会被无限期挂住；
+// 超时后至少把系统代理摘掉——那是用户断网的直接原因。
+func (c *Controller) cleanupBeforeElevatedExit() {
+	done := make(chan struct{})
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				c.logWarn("提权退出前清理异常: %v", r)
+			}
+			close(done)
+		}()
+		c.disableAll(context.Background(), false)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		c.logWarn("提权退出前清理超时(3s)，直接摘除本程序的系统代理后继续提权")
+		c.disableOwnedSystemProxyBestEffort()
+	}
 }
 
 // 🚀 核心新增：静默测速内核保障机制
@@ -1218,7 +1996,7 @@ func (c *Controller) StartCoreOnly(ctx context.Context, id string) error {
 func (c *Controller) StopCoreProcess() {
 	c.coreLifecycleMu.Lock()
 	defer c.coreLifecycleMu.Unlock()
-	c.stopCoreProcessLocked()
+	_ = c.stopCoreProcessLocked()
 }
 
 func (c *Controller) fillDesiredTarget(d *DesiredState) {
@@ -1240,11 +2018,27 @@ func (c *Controller) ToggleSystemProxyFromCurrentDesired(ctx context.Context) er
 
 // EnsureHelperReady 确保 helper 服务已安装并运行
 // 使用 singleflight 合并并发调用
+// EnsureHelperReady 保持历史签名（无 ctx），内部退化为 Background。
 func (c *Controller) EnsureHelperReady(reason string) error {
-	_, err, _ := helperReadyGroup.Do("helper-ready", func() (any, error) {
+	return c.EnsureHelperReadyWithContext(context.Background(), reason)
+}
+
+// EnsureHelperReadyWithContext 在调用方 ctx 到期时立即返回（F-A2-09）。
+//
+// 历史实现用 singleflight.Group.Do，无法被取消：一次 helper 强修复最坏 ≈45s，
+// 会把 UI 的 25s 预算直接吃穿。这里改用 DoChan + select，超时即返回 ctx.Err()，
+// 后台唤醒仍会继续（singleflight 是进程内共享的，不会因此丢任务）。
+func (c *Controller) EnsureHelperReadyWithContext(ctx context.Context, reason string) error {
+	ch := helperReadyGroup.DoChan("helper-ready", func() (any, error) {
 		return nil, c.ensureHelperReadySlow(reason)
 	})
-	return err
+
+	select {
+	case res := <-ch:
+		return res.Err
+	case <-ctx.Done():
+		return fmt.Errorf("等待后台服务就绪被取消（%s）: %w", reason, ctx.Err())
+	}
 }
 
 func (c *Controller) ensureHelperReadySlow(reason string) error {
@@ -1308,17 +2102,41 @@ func (c *Controller) prepareTunEnable(ctx context.Context) error {
 		return ErrNoActiveConfig
 	}
 
-	if err := c.EnsureHelperReady("tun-prepare"); err != nil {
-		return err
+	// 1) helper：只做 ≤800ms 快 ping（F-A2-02）。
+	// 探不到就转后台唤醒并继续——真正的「服务就绪 + 内核启动」由随后的事务/Reconcile 收敛，
+	// 不再让"服务正在启动"把用户动作卡住几十秒（历史最坏 ≈45s）。
+	client := sys.NewHelperClient()
+	if fastHelperPing(client, 800*time.Millisecond) {
+		_ = client.RegisterParent(os.Getpid())
+	} else {
+		c.logInfo("Helper 未在 800ms 内就绪，转后台唤醒并继续 TUN 启动流程")
+		go func() {
+			if err := c.EnsureHelperReady("tun-prepare-bg"); err != nil {
+				c.logWarn("后台唤醒 Helper 失败: %v", err)
+			}
+		}()
 	}
 
-	assetStatus, assetErr := runtimeassets.EnsureReady(ctx, runtimeassets.RequireTun, runtimeassets.RepairInvalid)
-	if assetErr != nil {
-		w := assetStatus.Assets[runtimeassets.AssetWintun]
-		if !w.Ready {
+	// 2) 资产：只看快检（stat + PE 头）。只有「明确不可用」才拒绝，
+	//    其余交给修复路径与适配器探测裁决——这里不再跑 95MB 哈希 + clash.exe -v。
+	fastStatus := runtimeassets.GetStatusFast(ctx)
+	w := fastStatus.Assets[runtimeassets.AssetWintun]
+	core := fastStatus.Assets[runtimeassets.AssetCore]
+
+	if fastAssetBlocked(w) {
+		// 文案必须与前端 errors.ts 的分类规则对齐，否则会被归成 unknown（无任何引导）：
+		//   "缺少 Wintun 依赖" → wintun_missing：引导安装驱动后自动重试；
+		//   "wintun 已损坏"   → wintun_unavailable：只展示，不强行装驱动。
+		switch w.ErrorCode {
+		case runtimeassets.ErrMissing, runtimeassets.ErrIsDir:
 			return fmt.Errorf("缺少 Wintun 依赖: %s (%s)", w.Error, w.Path)
+		default:
+			return fmt.Errorf("wintun 已损坏（%s）: %s (%s)", w.ErrorCode, w.Error, w.Path)
 		}
-		return assetErr
+	}
+	if fastAssetBlocked(core) {
+		// 内核问题不在这里硬拦：修复分支（EnsureReady + seed 自愈）会处理。
+		c.logWarn("内核快检异常（继续尝试启动，修复交给后续流程）: %s path=%s", core.Error, core.Path)
 	}
 
 	return nil
@@ -1329,13 +2147,23 @@ func (c *Controller) ToggleTunFromCurrentDesired(ctx context.Context) error {
 	return c.controls.ToggleTun(ctx)
 }
 
-// RestartCore 重启内核（默认为内部调用原因）
+// RestartCore 重启内核（默认为内部调用原因）。
+// 对外统一收敛到 ControlCoordinator —— 它是唯一的 runtime 操作入口。
 func (c *Controller) RestartCore(ctx context.Context) error {
-	return c.RestartCoreWithReason(ctx, "internal")
+	return c.controls.RestartCore(ctx, "internal")
 }
 
-// RestartCoreWithReason 重启内核并携带显式原因，决定是否触发缓存清理
+// RestartCoreWithReason 是重启内核的对外入口，统一收敛到 ControlCoordinator
+// （保留导出的方法名是为了兼容 app.go / 托盘等既有调用点）。
+// 真正的重启实现在内部的 restartCoreWithReason：
+// supervisor 调和时会直接调用它，避免在已持有协调器锁的事务中重入协调器造成死锁。
 func (c *Controller) RestartCoreWithReason(ctx context.Context, reason string) error {
+	return c.controls.RestartCore(ctx, reason)
+}
+
+// restartCoreWithReason 是重启内核的内部实现（不再作为对外入口）。
+// 调用方必须已具备串行化语义：ControlCoordinator 事务，或 supervisor 的调和锁。
+func (c *Controller) restartCoreWithReason(ctx context.Context, reason string) error {
 	if err := c.guardDisruptiveAction(reason); err != nil {
 		c.queuePendingDisruptiveAction(reason)
 		return err
@@ -1345,7 +2173,12 @@ func (c *Controller) RestartCoreWithReason(ctx context.Context, reason string) e
 	defer c.coreLifecycleMu.Unlock()
 
 	wasRunning := clash.IsRunning()
-	c.stopCoreProcessLocked()
+	// 停止内核（TUN 宿主随内核一起消失），helper 托管时向 helper 确认停止结果；
+	// 主进程不做任何路由/适配器清理。
+	// 确认失败不阻断重启（helper 可能暂时不可达），仅记录告警，保持既有重试语义。
+	if err := c.stopCoreForTransition(ctx); err != nil {
+		c.logWarn("停止内核/helper 停止确认失败，继续按重启流程处理: %v", err)
+	}
 
 	if wasRunning {
 		// 留出 250ms 缓冲期，确保 Windows 操作系统完成对旧内核 9090 和 7890 端口的 TCP TIME_WAIT 状态回收，
@@ -1370,7 +2203,7 @@ func (c *Controller) RestartCoreWithReason(ctx context.Context, reason string) e
 
 	if !needCore {
 		// 如果原本未开启代理服务，则启动验证成功后立刻关闭，不驻留后台
-		c.stopCoreProcessLocked()
+		_ = c.stopCoreProcessLocked()
 	}
 
 	// 发送通用的重启信号
@@ -1398,7 +2231,7 @@ func (c *Controller) UpdateClashMode(ctx context.Context, mode string) error {
 	// 1. 更新配置并写盘
 	behavior.ActiveMode = mode
 	if err := c.Behavior.SetAndSave(behavior); err != nil {
-		c.events.Emit("notify-error", "模式持久化保存失败: "+err.Error())
+		c.notify("error", "MODE_SAVE_FAILED", "模式持久化保存失败: "+err.Error(), "appcore")
 		c.SyncState()
 		return err
 	}
@@ -1643,13 +2476,13 @@ func (c *Controller) handleStartupWithOSChange(enable bool) error {
 
 	if enable {
 		if createTaskErr := sys.CreateStartupTask(exePath); createTaskErr != nil {
-			c.setLastError("设置开机自启失败: " + createTaskErr.Error())
+			c.setLastErrorCode("STARTUP_TASK_CREATE_FAILED", "设置开机自启失败: "+createTaskErr.Error())
 			c.events.Emit("app-state-sync", c.GetAppState())
 			return createTaskErr
 		}
 	} else {
 		if deleteTaskErr := sys.DeleteStartupTask(); deleteTaskErr != nil {
-			c.setLastError("关闭开机自启失败: " + deleteTaskErr.Error())
+			c.setLastErrorCode("STARTUP_TASK_DELETE_FAILED", "关闭开机自启失败: "+deleteTaskErr.Error())
 			c.events.Emit("app-state-sync", c.GetAppState())
 			return deleteTaskErr
 		}
@@ -1674,10 +2507,6 @@ func (c *Controller) StartLogStream(ctx context.Context) {
 		logLevel = "info"
 	}
 	c.logs.Start(ctx, logLevel)
-}
-
-func (c *Controller) StopLogStream() {
-	c.logs.Stop()
 }
 
 func (c *Controller) GetRecentLogs() []logger.LogEntry {
@@ -1963,17 +2792,68 @@ func (c *Controller) GetDiagnosticInfo() DiagnosticInfo {
 	return GetDiagnosticInfo()
 }
 
-// ExportDiagnostics exports diagnostics to a user-selected path
-func (c *Controller) ExportDiagnostics() error {
-	path, err := runtime.SaveFileDialog(c.ctx, runtime.SaveDialogOptions{
-		DefaultFilename: "goclashz_diagnostics.json",
-		Title:           "导出诊断信息",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "JSON Files (*.json)", Pattern: "*.json"},
+// ExportDiagnosticsWithPath 弹出保存对话框并导出诊断包，返回**实际落盘路径**。
+//
+// F-A3-15：旧实现（error-only）在"用户取消"与"导出成功"两种情况下都返回 nil，
+// 前端无法区分，取消后会提示"导出成功"。这里约定：
+//   - 成功：返回最终路径（已规范化为 .zip）+ nil；
+//   - 用户取消：返回 "" + nil；
+//   - 失败：返回 "" + error。
+func (c *Controller) ExportDiagnosticsWithPath() (string, error) {
+	path, err := application.Get().Dialog.SaveFileWithOptions(&application.SaveFileDialogOptions{
+		Filename: "goclashz_diagnostics.zip",
+		Title:    "导出诊断包",
+		Filters: []application.FileFilter{
+			{DisplayName: "ZIP Archives (*.zip)", Pattern: "*.zip"},
 		},
-	})
-	if err != nil || path == "" {
-		return err // cancelled or error
+	}).PromptForSingleSelection()
+	if err != nil {
+		// v3 在用户取消时返回 cfd.ErrorCancelled（"cancelled by user"），
+		// v2 取消时返回 nil；归一化为「取消 = 空路径 + 无错误」。
+		if strings.Contains(strings.ToLower(err.Error()), "cancelled by user") {
+			return "", nil
+		}
+		return "", err
 	}
-	return ExportDiagnosticsToFile(path)
+	if path == "" {
+		return "", nil // cancelled or empty selection
+	}
+
+	// ExportDiagnosticsToFile 会在缺省 .zip 时补后缀；这里同步算出最终路径用于回传。
+	finalPath := path
+	if !strings.HasSuffix(strings.ToLower(strings.TrimSpace(finalPath)), ".zip") {
+		finalPath += ".zip"
+	}
+
+	if err := ExportDiagnosticsToFile(finalPath); err != nil {
+		return "", err
+	}
+	return finalPath, nil
+}
+
+// ExportDiagnostics 是保留旧签名的兼容壳（绑定层与 App 层尚未切换，见主审）。
+// 需要区分"取消/成功"或拿路径的调用方请改用 ExportDiagnosticsWithPath。
+func (c *Controller) ExportDiagnostics() error {
+	_, err := c.ExportDiagnosticsWithPath()
+	return err
+}
+
+// GetConfigDeviations 返回当前设置中「保存了但不会按字面生效」的配置项，module 为空表示全部模块
+func (c *Controller) GetConfigDeviations(module string) ([]clash.ConfigDeviation, error) {
+	return clash.GetConfigDeviations(module)
+}
+
+// ExplainDNS 静态推演某个域名会用哪个 DNS 解析器（不发起真实查询）
+func (c *Controller) ExplainDNS(domain string) (*clash.DNSExplain, error) {
+	return clash.ExplainDNS(domain)
+}
+
+// ApplyUwpExemptionChanges 只按传入的差异增删 UWP 环回豁免，绝不触碰其它已豁免项
+func (c *Controller) ApplyUwpExemptionChanges(added []string, removed []string) error {
+	return sys.ApplyUwpExemptionChanges(added, removed)
+}
+
+// ClearAllUwpExemptions 清空全部 UWP 豁免：只删除本次枚举到的已豁免 SID
+func (c *Controller) ClearAllUwpExemptions() error {
+	return sys.ClearAllUwpExemptions()
 }

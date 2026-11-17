@@ -3,7 +3,7 @@
 
 Высокопроизводительный десктопный клиент для Mihomo (Clash Meta) на базе Wails с индустриальной эстетикой.
 
-![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v2.12-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
+![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v3.1-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
 
 <p align="center">
   <a href="README.md">简体中文</a> | <a href="README_zh-TW.md">繁體中文（台灣）</a> | <a href="README_zh-HK.md">繁體中文（香港）</a> | <a href="README_en.md">English</a> | <a href="README_ja.md">日本語</a> | <b>Русский</b>
@@ -45,6 +45,13 @@ GoclashZ создан в знак протеста против чрезмерн
 * **ControlCoordinator**: Исключение гонок состояний и конфликтов между UI, треем и фоновыми службами.
 * **Надежный автозапуск через реестр**: Переход с нестабильного планировщика задач COM на нативный ключ реестра `HKCU\Run`.
 
+### Диагностика и читаемость
+* **Поиск по настройкам**: единый индекс из 87 параметров на 8 страницах, с группировкой по страницам; переход к пункту с подсветкой.
+* **Отчёт об отклонениях**: после сохранения показываются параметры, которые не вступят в силу (конфликт портов, отсутствие логина, ограничения стека); один — раскрыт, несколько — свёрнуты.
+* **Объяснение DNS**: в деталях соединения видны сработавшая политика и резолвер, неопределимые случаи помечаются.
+* **Поэтапные ошибки**: краткий вывод и раскрываемые технические детали; успешные операции — тосты вместо модальных окон.
+* **Единые пустые состояния**: иконка и описание вместо одной серой строки.
+
 ## Установка и запуск
 
 Загрузите последнюю версию со страницы [Releases](https://github.com/Zzz-IT/GoclashZ/releases).
@@ -53,10 +60,10 @@ GoclashZ создан в знак протеста против чрезмерн
 
 ```bash
 # Запуск dev-сервера с горячей перезагрузкой
-wails dev
+wails3 dev
 
 # Сборка релизного файла для Windows
-wails build
+wails3 build
 ```
 
 ## Заявление и дальнейшие планы

@@ -3,7 +3,7 @@
 package appcore
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"goclashz/core/utils"
 	"os"
 	"path/filepath"
@@ -14,7 +14,7 @@ import (
 const desiredStateSettingName = "desired_state"
 
 type DesiredState struct {
-	CoreRunning  bool   `json:"coreRunning"`
+	CoreRunning bool `json:"coreRunning"`
 	// PortProxy 独立跟踪端口代理激活状态，与 CoreRunning/SystemProxy/Tun 完全解耦
 	// TUN 开关永远不会修改此字段，系统代理开关也不会修改此字段
 	PortProxy    bool   `json:"portProxy"`
@@ -155,7 +155,7 @@ func loadLegacyDesiredState(defaults DesiredState) (DesiredState, bool) {
 			continue
 		}
 		state := defaults
-		if json.Unmarshal(data, &state) == nil {
+		if jsonv2.Unmarshal(data, &state) == nil {
 			return state, true
 		}
 	}

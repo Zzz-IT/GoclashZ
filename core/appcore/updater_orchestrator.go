@@ -21,9 +21,18 @@ import (
 // 之前两者共用 "app-update-flow"，导致"上一次自动检查还没释放任务名"时
 // 用户的手动点击被误判成"正在下载"而弹 busy。拆开后手动检查可以安全抢占，
 // 又不会影响真正的下载任务。
+//
+// ⚠️ 重要：任务名不能叫 "app-update-check"。
+// 任务框架 (core/tasks/manager.go) 在启动任何任务时会自动广播 `<任务名>-start`，
+// 若任务名叫 "app-update-check"，框架就会发出 "app-update-check-start"，
+// 与前端用来点亮"检查中"的 UI 事件同名。而启动自动检查 (manual=false) 路径
+// 因为所有终态事件都被 `if manual` 保护，不会发出任何复位事件，
+// 导致按钮永久停在"检查中"，只能等前端 15s 兜底才恢复。
+// 改为 -job 后缀后，框架发出的 "app-update-check-job-start" 无人监听，
+// UI 只由 runAppUpdateCheck 中 manual-only 的 check-start / check-end 驱动。
 const (
-	appUpdateCheckTask    = "app-update-check"
-	appUpdateDownloadTask = "app-update-download"
+	appUpdateCheckTask    = "app-update-check-job"
+	appUpdateDownloadTask = "app-update-download-job"
 )
 
 func (c *Controller) updateGeoDatabase(ctx context.Context, key string, onProgress func(bytesDone, totalBytes, speedBps, etaSec int64)) error {
@@ -58,13 +67,20 @@ func (c *Controller) UpdateAllGeoDatabasesAsync(ctx context.Context) {
 	c.GeoUpdates.UpdateAllAsync(ctx)
 }
 
+// IsCoreBinWritable 判断 core\bin 是否可写（决定内核文件能否本地替换，还是要走 helper）。
+//
+// F-A5-22：以前用固定名 .write_test，写失败时会留下半截文件，多入口并发探测还会互相
+// 覆盖/误删。这里改成 CreateTemp + 无条件清理：
+// 仍然是「写一次」的探测（Windows 没有等价的只读目录写权限 API，ACL 枚举成本高且
+// 在受保护目录上容易误判），但保证任何路径都不留残骸、也不与其它进程撞名。
 func (c *Controller) IsCoreBinWritable() bool {
-	testFile := filepath.Join(utils.GetCoreBinDir(), ".write_test")
-	err := os.WriteFile(testFile, []byte("test"), 0644)
+	f, err := os.CreateTemp(utils.GetCoreBinDir(), ".write-test-*")
 	if err != nil {
 		return false
 	}
-	os.Remove(testFile)
+	name := f.Name()
+	_ = f.Close()
+	_ = os.Remove(name)
 	return true
 }
 
@@ -75,6 +91,9 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 		helperStatus := sys.CheckHelperService()
 		if !helperStatus.Reachable {
 			errStr := "需要管理员权限进行内核更新 (组件被 Windows 安全策略保护)。请安装后台服务或以管理员身份重启软件后重试。"
+			// F-A5-06：这条错误此前只有 setLastError + 任务行，日志里完全不存在。
+			logger.Errorf("组件更新被拒绝 | task=core-update 原因=core/bin 不可写且 helper 不可达（installed=%v running=%v err=%s）",
+				helperStatus.Installed, helperStatus.Running, helperStatus.Error)
 			c.setLastError(errStr)
 			c.UpdateTasks.Set("core-update", UpdateTaskState{
 				Key:    "core-update",
@@ -138,7 +157,8 @@ func (c *Controller) UpdateCoreComponentAsync(ctx context.Context) {
 
 func (c *Controller) CheckCoreUpdateAsync(ctx context.Context) {
 	c.Tasks.Run(ctx, "core-update-check", true, func(ctx context.Context) error {
-		timeoutCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+		// 同软件更新：只走原生 API，12s 覆盖代理/直连两路兜底
+		timeoutCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 		defer cancel()
 
 		local := clash.GetLocalCoreVersion(timeoutCtx)
@@ -258,8 +278,12 @@ func (c *Controller) CheckCoreAgainstSeed(ctx context.Context) CoreSeedCheckResu
 	result, newPromptEnabled := EvaluateCoreComparison(currentVer, seedVer, behavior.CoreComparisonPrompt)
 
 	if result.IsUnknown && behavior.CoreComparisonPrompt != newPromptEnabled {
-		behavior.CoreComparisonPrompt = newPromptEnabled
-		_ = c.Behavior.SetAndSave(behavior)
+		// F-A5-18：改走锁内读-改-写，避免与前端保存设置互相覆盖。
+		if err := c.Behavior.Update(func(b *AppBehavior) {
+			b.CoreComparisonPrompt = newPromptEnabled
+		}); err != nil {
+			logger.Warnf("自动关闭「内核对比更新提示」失败: %v", err)
+		}
 	}
 
 	return result
@@ -311,7 +335,10 @@ func (c *Controller) ReplaceCoreWithSeed(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("种子内核文件校验失败: %w", err)
 	}
 
-	c.componentUpdateMu.Lock()
+	// 组件更新事务正在 commit（停核/替换文件）：立即返回 busy，不再阻塞在锁上（F-A5-05）。
+	if !c.componentUpdateMu.TryLock() {
+		return "", ErrComponentUpdateBusy
+	}
 	defer c.componentUpdateMu.Unlock()
 
 	targetPath := filepath.Join(utils.GetCoreBinDir(), "clash.exe")
@@ -339,20 +366,23 @@ func (c *Controller) ReplaceCoreWithSeed(ctx context.Context) (string, error) {
 		c.coreLifecycleMu.Unlock()
 	}
 
-	var replaceErr error
-	if !c.IsCoreBinWritable() {
-		client := sys.NewHelperClient()
-		replaceErr = client.ReplaceCoreFile(sys.ReplaceCoreFileParams{
-			Source: seedPath,
-			Target: targetPath,
-		})
-	} else {
-		if err := clash.WaitFileReleased(targetPath, 5*time.Second); err != nil {
-			replaceErr = err
-		} else {
-			replaceErr = clash.ReplaceFileWithBackup(seedPath, targetPath)
+	// B3 跨批遗留：直接替换 clash.exe 必须和 runtimeassets 的自愈/迁移共用同一把
+	// 资产锁（进程内互斥 + 跨进程 .asset-clash.exe.lock）。
+	// 否则「种子替换」与「seed 自愈拷贝 / helper 替换」可以并发写同一个文件
+	// （F-A1-13 的跨路径写者问题）。锁名用资产文件名，与 runtimeassets 内部一致。
+	replaceErr := runtimeassets.WithAssetLock(ctx, "clash.exe", 2*time.Second, func() error {
+		if !c.IsCoreBinWritable() {
+			client := sys.NewHelperClient()
+			return client.ReplaceCoreFile(sys.ReplaceCoreFileParams{
+				Source: seedPath,
+				Target: targetPath,
+			})
 		}
-	}
+		if err := clash.WaitFileReleased(targetPath, 5*time.Second); err != nil {
+			return err
+		}
+		return clash.ReplaceFileWithBackup(seedPath, targetPath)
+	})
 
 	if replaceErr != nil {
 		if shouldRestart {
@@ -384,9 +414,9 @@ func (c *Controller) ReplaceCoreWithSeed(ctx context.Context) (string, error) {
 }
 
 func (c *Controller) DisableCoreComparisonPrompt() error {
-	behavior := c.Behavior.Get()
-	behavior.CoreComparisonPrompt = false
-	return c.Behavior.SetAndSave(behavior)
+	return c.Behavior.Update(func(b *AppBehavior) {
+		b.CoreComparisonPrompt = false
+	})
 }
 
 func (c *Controller) CheckAppUpdateAsync(ctx context.Context, currentVersion string, manual bool) {
@@ -407,17 +437,33 @@ func (c *Controller) CheckAppUpdateAsync(ctx context.Context, currentVersion str
 }
 
 func (c *Controller) runAppUpdateCheck(ctx context.Context, currentVersion string, manual bool) error {
+	// manual=true 表示用户手动点击"检查更新"：
+	// 通知前端进入"检查中"状态；返回时无论成功/失败/取消，
+	// 都发终态事件让前端复位，杜绝按钮卡死。
 	if manual {
 		c.events.Emit("app-update-check-start")
+		defer c.events.Emit("app-update-check-end")
 	}
 
-	// 40s 预算：覆盖 2 client × 3 API 地址、单次 6s 的最坏遍历，
-	// 不留出"候选还没试完就被掐断"的窗口。
-	timeoutCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+	// 检查更新只走原生 api.github.com，候选最多 2 client（代理优先时）× 1 地址。
+	// 12s 预算足够覆盖单次 6s 拨号 + 直连/代理两路兜底，不再为注定失败的
+	// 公益镜像候选白等超时。
+	timeoutCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 
 	info, err := downloader.CheckAppUpdate(timeoutCtx, currentVersion, c.getDynamicStrategy)
 	if err != nil {
+		if downloader.IsStrategyChanged(err) {
+			// 检查过程中代理/TUN 被切换：静默复位前端"检查中"状态，
+			// 不弹错误框，让用户立刻用新网络路径重新点击。
+			if manual {
+				c.events.Emit("app-update-check-cancelled")
+			}
+			return nil
+		}
+		// 自动检查（manual=false）以前完全静默：既不 emit 也不写日志（F-A5-06 同类）。
+		// 这里补结构化日志，手动/自动都能在日志里看到「为什么没查到更新」。
+		logger.Errorf("检查软件更新失败 | manual=%v err=%v", manual, err)
 		if manual {
 			c.events.Emit("app-update-error", "检查软件更新失败: "+err.Error())
 		}

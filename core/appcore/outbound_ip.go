@@ -19,8 +19,8 @@ import (
 )
 
 var (
-	proxyTransportIPv4 *http.Transport
-	proxyTransportIPv6 *http.Transport
+	proxyTransportIPv4  *http.Transport
+	proxyTransportIPv6  *http.Transport
 	directTransportIPv4 *http.Transport
 	directTransportIPv6 *http.Transport
 	transportOnce       sync.Once
@@ -200,13 +200,37 @@ func (c *Controller) GetOutboundIPForRoute(force bool, expectedRoute string) (Ou
 	currentRoute := c.currentOutboundRoute()
 
 	if expectedRoute != "" && expectedRoute != currentRoute {
+		msg := fmt.Sprintf("路由切换中: expected=%s current=%s", expectedRoute, currentRoute)
+		// F-A4-14：带上稳定 code，前端按 code 路由而不是猜中文文案；文案保持原样。
+		c.notifyRouteSwitching(msg)
 		return OutboundIPResult{
 			Mode:    currentRoute,
-			Message: fmt.Sprintf("路由切换中: expected=%s current=%s", expectedRoute, currentRoute),
+			Message: msg,
 		}, nil
 	}
 
 	return c.GetOutboundIP(force)
+}
+
+// routeSwitchingNotify 用于对 ROUTE_SWITCHING 做节流：出站 IP 检测会被 UI 轮询，
+// 5s 内的重复提示没有意义（F-A4-14）。
+var routeSwitchingNotify struct {
+	mu   sync.Mutex
+	last time.Time
+}
+
+// notifyRouteSwitching 以稳定 code 提示"路由正在切换"，最多 5s 一次。
+func (c *Controller) notifyRouteSwitching(msg string) {
+	routeSwitchingNotify.mu.Lock()
+	elapsed := time.Since(routeSwitchingNotify.last)
+	if elapsed < 5*time.Second {
+		routeSwitchingNotify.mu.Unlock()
+		return
+	}
+	routeSwitchingNotify.last = time.Now()
+	routeSwitchingNotify.mu.Unlock()
+
+	c.notify("warn", "ROUTE_SWITCHING", msg, "outbound-ip")
 }
 
 func (c *Controller) getOutboundIPInternal() (OutboundIPResult, error) {

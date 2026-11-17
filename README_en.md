@@ -3,7 +3,7 @@
 
 A high-performance, industrial solid-aesthetic Mihomo (Clash Meta) desktop client built with Wails.
 
-![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v2.12-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
+![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v3.1-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
 
 <p align="center">
   <a href="README.md">简体中文</a> | <a href="README_zh-TW.md">繁體中文（台灣）</a> | <a href="README_zh-HK.md">繁體中文（香港）</a> | <b>English</b> | <a href="README_ja.md">日本語</a> | <a href="README_ru.md">Русский</a>
@@ -52,6 +52,13 @@ GoclashZ was created out of resistance against the excessive bloat of modern des
 * **Transactional Disaster Recovery**: Proprietary `.gocz` backup format with automatic rollback snapshots.
 * **Native Registry Startup**: Replaced fragile Task Scheduler COM tasks with robust, lightweight Windows `HKCU\Run` registry entries.
 
+### Diagnostics & Readability
+* **Field-level settings search**: one index over 87 fields across 8 settings pages, grouped by page; clicking jumps to the field and highlights it.
+* **Configuration deviation report**: after saving, lists settings that will not take effect as written (port conflict, missing auth, stack limits); one item expands inline, several collapse.
+* **DNS resolution explanation**: the connection detail shows the matched nameserver policy and resolver, and flags results that cannot be determined statically.
+* **Layered error messages**: a one-line conclusion plus expandable technical details; successful actions use a toast instead of a modal.
+* **Consistent empty states**: an icon and a caption instead of a single grey line.
+
 ## Deployment & Setup
 
 ### Installation
@@ -68,16 +75,16 @@ Download the latest installer or portable archive from the [Releases](https://gi
 
 * Go 1.25.0+
 * Node.js 18+
-* Wails CLI v2.12+ (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
+* Wails CLI v3.1+ (`go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0`)
 
 ### Build & Run
 
 ```bash
 # Start development server with live reload
-wails dev
+wails3 dev
 
 # Build production binary
-wails build
+wails3 build
 ```
 
 ## Disclaimer & Roadmap
@@ -91,12 +98,13 @@ wails build
   3. Any third-party videos, articles, distribution mirrors, tutorials, or commercial packaging found online are **strictly the independent actions of third parties and bear no affiliation, endorsement, or connection with the developer of this software**.
   4. Users are solely responsible for ensuring that their use of this software complies with applicable local laws and regulations. **The developer assumes no liability for any direct, indirect, incidental, or consequential damages or legal disputes arising from the use, distribution, or reliance on third-party representations of this software**.
 
-### Parallel Plan: Branching to Wails v3 to Eliminate WebView2 Dependency
+### Wails v3 Migration Completed (this branch)
 
-To achieve a truly self-contained, native desktop experience and eliminate external environment prerequisites, an experimental parallel branch will be initiated to migrate to the **Wails v3** architecture:
+This branch has been fully migrated from Wails v2.12 to **Wails v3.1.0**, with feature parity to v1.4.0:
 
-* **Breaking Free from WebView2**: The current release relies on the Microsoft Edge WebView2 Runtime, which can cause friction in stripped-down or legacy Windows installations lacking the runtime. Migrating to Wails v3 will enable the exploration of decoupling external runtimes, ultra-lightweight web rendering, or native UI alternatives.
-* **Architecture Evolution**: Leveraging Wails v3's rewritten native window manager, headless background process orchestration, and deep platform integration to further reduce memory footprint and startup overhead, crafting an instantly runnable client with zero external runtime dependencies.
+* **Architecture upgrade**: `application.New` + a single Service (108 bound methods) + the `Events.On` event model; the self-built Win32 tray / hotkey / single-instance mutex layers are unchanged.
+* **WebView2 remains a runtime dependency**: v3 does not eliminate WebView2. The benefit of this migration is a modernized API, unified lifecycle and build chain; the installer still relies on the standard Windows WebView2 runtime.
+* **Build chain**: `wails3 build` (Taskfile) + Inno Setup `package.iss`; see `.github/workflows/release.yml`.
 
 ## License
 

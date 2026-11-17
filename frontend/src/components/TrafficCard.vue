@@ -1,12 +1,12 @@
 <template>
-  <section class="traffic-card">
+  <section class="traffic-card ui-surface-card">
     <div class="traffic-head">
       <div class="title-wrap">
         <h3>{{ t('traffic.title') }}</h3>
       </div>
 
       <div
-        class="outbound-ip"
+        class="outbound-ip ui-hover-surface"
         :title="outboundIPTitle"
         @click="refreshOutboundIPRouteAware('manual')"
       >
@@ -33,7 +33,7 @@
           <span class="speed-label">{{ t('traffic.uploadSpeed') }}</span>
           <strong class="speed-val">{{ traffic.up }}</strong>
         </div>
-        <div class="wave-box">
+        <div class="wave-box ui-surface-control">
           <svg class="wave-svg" viewBox="0 0 320 100" preserveAspectRatio="none">
             <path class="wave-area" :d="uploadAreaPath" />
           </svg>
@@ -47,7 +47,7 @@
           <span class="speed-label">{{ t('traffic.downloadSpeed') }}</span>
           <strong class="speed-val">{{ traffic.down }}</strong>
         </div>
-        <div class="wave-box">
+        <div class="wave-box ui-surface-control">
           <svg class="wave-svg" viewBox="0 0 320 100" preserveAspectRatio="none">
             <path class="wave-area" :d="downloadAreaPath" />
           </svg>
@@ -60,8 +60,10 @@
 
 <script setup lang="ts">
 import { computed, watch } from 'vue';
-import * as API from '../../wailsjs/go/main/App';
-import { globalState, refreshOutboundIPRouteAware, showAlert, showConfirm } from '../store';
+import { App } from '../api';
+import { globalState, refreshOutboundIPRouteAware, showAlert, showConfirm, showToast } from '../store';
+import { displayErrorMessage } from '../utils/errors';
+import { reportError } from '../utils/report';
 import { t } from '../locales';
 import {
   waveState,
@@ -151,19 +153,22 @@ const downloadAreaPath = computed(() =>
 const handleReset = async () => {
   const ok = await showConfirm(t('traffic.resetConfirmMsg'), t('traffic.resetConfirmTitle'));
   if (!ok) return;
-  await (API as any).ResetTrafficTotals();
-  resetWaveState();
-  showAlert(t('traffic.resetSuccess'), t('common.success'));
+  try {
+    await App.ResetTrafficTotals();
+    resetWaveState();
+    // F-A4-12：成功用 toast
+    showToast(t('traffic.resetSuccess'), 'success');
+  } catch (e) {
+    // F-A4-22：重置失败以前既无提示也不复位，用户以为已清零
+    reportError(e, 'traffic.reset');
+    showToast(displayErrorMessage(e), 'error');
+  }
 };
 </script>
 
 <style scoped>
 .traffic-card {
   padding: 24px 28px;
-  border-radius: 20px;
-  background: var(--surface);
-  border: none;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
 }
 
 .traffic-head {
@@ -199,10 +204,6 @@ const handleReset = async () => {
   min-width: 0;
 }
 
-.outbound-ip:hover {
-  background: var(--surface-hover);
-}
-
 .ip-label {
   font-size: 0.85rem;
   font-weight: 700;
@@ -234,8 +235,8 @@ const handleReset = async () => {
 
 .reset-btn {
   border: none;
-  background: var(--text-main);
-  color: var(--accent-fg);
+  background: var(--ui-accent-block);
+  color: var(--ui-accent-fg);
   border-radius: 8px;
   padding: 8px 14px;
   font-size: 0.8rem;
@@ -283,12 +284,12 @@ const handleReset = async () => {
   font-variant-numeric: tabular-nums;
 }
 
+/* 图表承载区：控件凹槽 surface 由 .ui-surface-control 提供，这里只负责尺寸与形状 */
 .wave-box {
   width: 100%;
   height: 128px;
   overflow: hidden;
   border-radius: 10px;
-  background: var(--surface-panel);
 }
 
 .wave-svg {

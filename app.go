@@ -5,7 +5,7 @@ package main
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"goclashz/core/appcore"
 	"goclashz/core/clash"
@@ -16,13 +16,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
+	"uuid"
 
 	"goclashz/core/version"
+	"sync"
 	"sync/atomic"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/w32"
 	"gopkg.in/yaml.v3"
 )
 
@@ -37,26 +39,72 @@ type FileInfo struct {
 type App struct {
 	ctx context.Context
 
-	windowMu      sync.Mutex
-	windowVisible bool
+	// win 是 v3 主窗口（Name = "main"）的强引用，由 main 在 NewWithOptions 之后赋值。
+	// 它同时替代了两种旧实现：
+	//   1) 每次调用 application.Get().Window.GetByName("main") 的字符串查找；
+	//   2) 内部维护的 windowVisible 布尔状态（现在一律以窗口真实状态 IsVisible 为准）。
+	// application.Run() 之前、或窗口被销毁之后为 nil，所有访问都必须 nil 安全。
+	win *application.WebviewWindow
+
+	// silentLaunch 由 main 在创建主窗口前算好（口径与 v2 一致：--silent || behavior.SilentStart，
+	// --startup 不参与窗口可见性），窗口创建选项 Hidden 与运行时就绪后的
+	// WindowRuntimeReady 兜底隐藏都使用同一个值。
+	silentLaunch bool
 
 	// 全局热键线程 ID (Ctrl+Alt+Q 退出)
 	hotkeyTID atomic.Uint32
 
 	tray *TrayRuntime
 	core *appcore.Controller
+
+	// 资产自愈的异步进度（RepairRuntimeAssetsAsync / GetRuntimeAssetRepairProgress）。
+	// 同步版 RepairRuntimeAssets 仍保留（兼容既有绑定），但 UI 应改用异步版。
+	assetRepairMu       sync.Mutex
+	assetRepairProgress AssetRepairProgress
 }
 
-func (a *App) setWindowVisible(v bool) {
-	a.windowMu.Lock()
-	a.windowVisible = v
-	a.windowMu.Unlock()
+// mainWindow 返回 v3 主窗口引用；返回 nil 表示窗口尚未创建或已销毁，调用方需容忍。
+func (a *App) mainWindow() *application.WebviewWindow {
+	if a == nil {
+		return nil
+	}
+	return a.win
 }
 
+// isWindowVisible 直接查询窗口的真实可见状态（v3 Windows 下为 WS_VISIBLE，
+// 最小化仍算可见，与 v2 的语义一致）。窗口不存在时返回 false。
 func (a *App) isWindowVisible() bool {
-	a.windowMu.Lock()
-	defer a.windowMu.Unlock()
-	return a.windowVisible
+	w := a.mainWindow()
+	return w != nil && w.IsVisible()
+}
+
+// emitEvent 是 WailsEventSink 之外的低层事件出口，等价 v2 的 runtime.EventsEmit。
+func emitEvent(name string, data ...any) bool {
+	app := application.Get()
+	if app == nil {
+		return false
+	}
+	return app.Event.Emit(name, data...)
+}
+
+// quitApplication 等价 v2 的 runtime.Quit(ctx)。
+func quitApplication() {
+	if app := application.Get(); app != nil {
+		app.Quit()
+		return
+	}
+	os.Exit(0)
+}
+
+// dialogCancelled 判断 v3 文件对话框返回的错误是否为「用户取消」。
+// v3 取消时返回 internal/go-common-file-dialog/cfd.ErrorCancelled（文案 "cancelled by user"，
+// 该 internal 包无法从本模块 import），而 v2 取消时返回 nil error。
+// 这里按错误文案归一化，保证对外语义与 v2 一致（取消不影响 UI）。
+func dialogCancelled(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "cancelled by user")
 }
 
 func (a *App) ShowMainWindow() {
@@ -64,13 +112,14 @@ func (a *App) ShowMainWindow() {
 		return
 	}
 
-	runtime.WindowShow(a.ctx)
-	runtime.WindowUnmaximise(a.ctx)
+	// v2: runtime.WindowShow + runtime.WindowUnmaximise
+	if w := a.mainWindow(); w != nil {
+		w.Show()
+		w.UnMaximise()
+	}
 
 	// Windows 下从托盘恢复时，有时需要主动拉前台并闪烁提醒
 	sys.FocusMainWindowAndFlashTwiceWin32Only()
-
-	a.setWindowVisible(true)
 }
 
 func (a *App) HideMainWindow() {
@@ -78,8 +127,10 @@ func (a *App) HideMainWindow() {
 		return
 	}
 
-	runtime.WindowHide(a.ctx)
-	a.setWindowVisible(false)
+	// v2: runtime.WindowHide
+	if w := a.mainWindow(); w != nil {
+		w.Hide()
+	}
 }
 
 func (a *App) ToggleMainWindow() {
@@ -119,8 +170,16 @@ func NewApp() *App {
 }
 
 func (a *App) runStartupRuntimeAssetMaintenance(ctx context.Context) {
+	// 迁移保留同步：它是"就近采纳旧布局资产"的前置，且 MigrateLegacyAssets 内部已改为
+	// 按需哈希（没有旧布局文件时 0 次 SHA256）。
 	runtimeassets.MigrateLegacyAssets()
 
+	// 深检 + 自愈放后台：避免窗口出现前被 95MB 读盘/`clash.exe -v` 阻塞（F-A0-06 收尾）。
+	// 内核真正启动前的门禁在 controller 里另有 EnsureReady，不会因为这里后台化而漏检。
+	go a.maintainRuntimeAssetsAsync(ctx)
+}
+
+func (a *App) maintainRuntimeAssetsAsync(ctx context.Context) {
 	// 第一阶段：必须修好 core + wintun
 	coreStatus, coreErr := runtimeassets.EnsureReady(ctx, runtimeassets.RequireTun, runtimeassets.RepairInvalid)
 	if coreErr != nil {
@@ -140,14 +199,15 @@ func (a *App) runStartupRuntimeAssetMaintenance(ctx context.Context) {
 
 	status := runtimeassets.MergeStatus(coreStatus, geoStatus)
 
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "runtime-assets-status", status)
-	}
+	emitEvent("runtime-assets-status", status)
 
 	go runtimeassets.CleanupLegacyAssets()
 }
 
-func (a *App) startup(ctx context.Context) {
+// ServiceStartup 取代 v2 的 options.App.OnStartup，启动顺序与 v2 完全一致。
+// 注意：v3 在窗口真正创建/显示之前调用它，因此这里绝不能依赖 Win32 窗口句柄，
+// 也不再调用 WindowShow/WindowHide（窗口可见性由 main 里的 Hidden 选项决定）。
+func (a *App) ServiceStartup(ctx context.Context, options application.ServiceOptions) error {
 	cleanupAppliedUpdatePackage()
 
 	a.ctx = ctx
@@ -164,11 +224,11 @@ func (a *App) startup(ctx context.Context) {
 	_ = clash.MigrateRuleStorageV2()
 
 	config := a.core.Behavior.Get()
-	isSilent := hasFlag("--silent") || config.SilentStart
+	bootstrapSilent := hasFlag("--silent") || config.SilentStart
 
 	a.core.Bootstrap(ctx, appcore.BootstrapOptions{
 		IsStartupLaunch: hasFlag("--startup"),
-		Silent:          isSilent,
+		Silent:          bootstrapSilent,
 	})
 
 	// Best-effort: if the helper service was left running from a previous
@@ -184,27 +244,25 @@ func (a *App) startup(ctx context.Context) {
 		}
 	}()
 
-	if !isSilent {
-		runtime.WindowShow(ctx)
-		a.setWindowVisible(true)
-	} else {
-		runtime.WindowHide(ctx)
-		a.setWindowVisible(false)
-		// 🚀 核心修复：消费 Windows STARTF_USESHOWWINDOW 机制，防止系统将首个 ShowWindow(SW_HIDE) 强制改写为显示
-		sys.SafeHideMainWindowWin32()
-		// 🚀 核心守护：在启动后 1 秒内确保窗口保持隐藏，避免 WebView2 初始化或系统消息导致闪烁露头
-		sys.EnsureMainWindowHiddenSilently(func() bool {
-			return !a.isWindowVisible()
-		})
-	}
+	// #4：窗口可见性完全由 main 决定 —— WebviewWindowOptions.Hidden = isSilent
+	// （创建期就不带 WS_VISIBLE，从根上避免首帧白闪），运行时就绪后由 main 注册的
+	// WindowRuntimeReady 回调再 Hide() 一次兜底。原先这里的
+	// sys.SafeHideMainWindowWin32 / sys.EnsureMainWindowHiddenSilently 已随之删除
+	// （core/sys 中的这两个函数本身保留不动，不影响其它潜在调用方）。
 
 	a.SyncState()
 
 	go a.startHotkeyWorker(ctx)
 	a.tray.Start(ctx)
+
+	return nil
 }
 
-func (a *App) shutdown(ctx context.Context) {
+// ServiceShutdown 由 v3 的 service shutdown 阶段调用（取代 v2 options.App.OnShutdown，
+// 以及首轮迁移时临时挂在 application.Options.OnShutdown 上的写法）。
+// 退出顺序与 v2 完全一致：tray.Stop → helper Shutdown → core StopCoreService/StopTrafficStream（5s 超时）。
+// 注意：v3 在 cleanup() 的主线程 InvokeSync 内调用本方法，因此这里不能做长时间阻塞操作。
+func (a *App) ServiceShutdown() error {
 	if a.tray != nil {
 		a.tray.Stop()
 	}
@@ -227,6 +285,8 @@ func (a *App) shutdown(ctx context.Context) {
 	case <-time.After(5 * time.Second):
 		logger.Warnf("停止内核/流量流超时，继续退出")
 	}
+
+	return nil
 }
 
 // --- AppState & Sync ---
@@ -335,8 +395,8 @@ func (a *App) GetDiagnosticInfo() appcore.DiagnosticInfo {
 	return a.core.GetDiagnosticInfo()
 }
 
-func (a *App) ExportDiagnostics() error {
-	return a.core.ExportDiagnostics()
+func (a *App) ExportDiagnostics() (string, error) {
+	return a.core.ExportDiagnosticsWithPath()
 }
 
 func (a *App) RestartCore() error {
@@ -425,8 +485,75 @@ func (a *App) GetAppBehavior() AppBehavior {
 	return a.core.Behavior.Get()
 }
 
+// windowBaseColour 返回窗口不透明底色（dark #111111 / light #F2F2F2）。
+// 与 main.go 创建窗口时的默认底色、前端 --app-bg 保持同一套值。
+func windowBaseColour(isDark bool) (uint8, uint8, uint8) {
+	if isDark {
+		return 17, 17, 17
+	}
+	return 242, 242, 242
+}
+
+// resolveBehaviorIsDark 把 themeMode 解析成「当前实际明暗」。
+// light/dark 直接取用户偏好；system 交给 Windows 当前明暗——theme_setting.txt
+// 是前端解析后的快照，可能滞后，因此不作为 system 的依据。
+func resolveBehaviorIsDark(behavior AppBehavior) bool {
+	// 单一实现：与 GetAppState().Theme 用同一套判定，避免出现
+	// 「窗口按暗色画、界面报浅色」这类自相矛盾。实现见 appcore.ResolveThemeName。
+	return appcore.ResolveThemeName(behavior) == "dark"
+}
+
+// applyWindowAppearance 按「玻璃开关 + 明暗」设置主窗口底色。
+//
+// ⚠️ 事实前提（wails v3.1.0 源码）：窗口以 application.BackgroundTypeTranslucent
+// 创建时，windowsWebviewWindow.setBackgroundColour 无条件把 WebView 背景设成
+// (0,0,0,0)，传入的颜色被完全忽略（webview_window_windows.go:455-462）。
+// 因此本函数在当前窗口配置下是**空操作**，不会改变任何渲染结果；它的价值是语义
+// 正确、以及未来把窗口改成 BackgroundTypeSolid 时能直接生效。
+// 玻璃观感由 CSS 层（utils/glass.ts、styles/surfaces.css）决定，排查玻璃问题不要
+// 从这里切入，也不要按"不透明底色盖死 Acrylic"这类错误结论去找后端。
+//
+// 约定：
+//   - 开启玻璃：底色 alpha=0，交给 DWM Acrylic 合成；
+//   - 关闭玻璃：恢复不透明主题底色（dark #111111 / light #F2F2F2）。
+//
+// 窗口可能在 application.Run() 之前或已销毁时为 nil（单测/无窗口场景），必须判空。
+func (a *App) applyWindowAppearance(behavior AppBehavior, isDark bool) {
+	w := a.mainWindow()
+	if w == nil {
+		return
+	}
+
+	r, g, b := windowBaseColour(isDark)
+	if behavior.GlassBlurEnabled {
+		// 开启玻璃：alpha=0，把底色交给 DWM 合成。
+		// 注意当前 translucent 窗口下 wails 会忽略传入颜色（见上方事实前提），
+		// 这里是语义表达 + 未来切 BackgroundTypeSolid 时生效。
+		w.SetBackgroundColour(application.NewRGBA(r, g, b, 0))
+		return
+	}
+	w.SetBackgroundColour(application.NewRGB(r, g, b))
+}
+
 func (a *App) SaveAppBehavior(config AppBehavior) error {
-	return a.core.SaveAppBehavior(config)
+	if err := a.core.SaveAppBehavior(config); err != nil {
+		return err
+	}
+
+	// 以落盘后的真实配置为准：normalizeBehavior 可能把非法值回填成默认值，
+	// 窗口外观必须按最终生效的值设置，不能按前端传来的原始值。
+	applied := a.core.Behavior.Get()
+	isDark := resolveBehaviorIsDark(applied)
+
+	if w := a.mainWindow(); w != nil {
+		// strength 用背景着色语义（GlassTintStrength，0..80）；
+		// 旧字段 GlassBlurStrength 只保留做迁移，不再驱动原生 tint。
+		sys.ApplyWindowGlass(uintptr(w.NativeWindow()), applied.GlassBlurEnabled, applied.GlassTintStrength)
+	}
+
+	// 必须同步重设窗口底色：只调 ApplyWindowGlass 会让玻璃开/关后底色仍是旧值。
+	a.applyWindowAppearance(applied, isDark)
+	return nil
 }
 
 func (a *App) ResetComponentSettings(section string) error {
@@ -437,7 +564,7 @@ func (a *App) ResetComponentSettings(section string) error {
 		cfg.ActiveConfig = old.ActiveConfig
 		cfg.ActiveMode = old.ActiveMode
 
-		if err := a.core.SaveAppBehavior(cfg); err != nil {
+		if err := a.SaveAppBehavior(cfg); err != nil {
 			return err
 		}
 
@@ -464,7 +591,25 @@ func (a *App) SaveThemePreference(isDark bool) {
 		theme = "dark"
 	}
 	_ = utils.SaveGlobalTheme(theme)
-	a.SyncState()
+
+	// v3 不再提供 runtime.WindowSetDarkTheme/WindowSetLightTheme：
+	// 这里用原生 HWND 调 w32.SetTheme 复刻 v2 的标题栏/边框配色切换，
+	// 并同步窗口背景色，避免 WebView 重绘瞬间露出旧底色。
+	if w := a.mainWindow(); w != nil {
+		if hwnd := w.NativeWindow(); hwnd != nil {
+			w32.SetTheme(uintptr(hwnd), isDark)
+		}
+		// 走统一入口：玻璃开启时 alpha 必须保持 0，这里不能再无条件写成不透明，
+		// 否则切明暗会把 Acrylic 盖死（与 SaveAppBehavior 保持同一套逻辑）。
+		a.applyWindowAppearance(a.core.Behavior.Get(), isDark)
+	}
+
+	// 这里刻意不调 SyncState()。
+	// 这个函数是跟随系统模式下「OS 明暗变化」的落盘出口，调用方（前端 watchTheme）
+	// 此刻已经知道新值；再广播一次全量状态，会让 GetAppState().Theme 立刻回灌前端，
+	// 而 Behavior.ThemeMode 走到 SaveAppBehavior 才落盘（异步），中间那段读到的
+	// 是旧值 —— 表现就是明暗开关被顶回去、来回翻。
+	// 需要广播的场景由 SaveAppBehavior 自己负责（它末尾会 SyncState）。
 }
 
 // --- System Tools ---
@@ -534,7 +679,7 @@ func (a *App) GetDataDirInfo() sys.DataDirInfo {
 	info := sys.GetDataDirInfo()
 
 	// 用 runtimeassets 唯一权威状态覆盖 stat 判断
-	status := runtimeassets.GetStatus(context.Background())
+	status := runtimeassets.GetStatusCached(context.Background())
 	if core, ok := status.Assets[runtimeassets.AssetCore]; ok {
 		info.CoreExists = core.Exists
 		info.CoreReady = core.Ready
@@ -548,7 +693,8 @@ func (a *App) GetDataDirInfo() sys.DataDirInfo {
 	info.LayoutOK = info.CoreExists
 
 	// seed 目录真实文件状态
-	seedStatus := runtimeassets.GetSeedCatalogStatus(context.Background())
+	// 种子库快照走快检 + manifest 元信息：不再对 seed 的 clash.exe 跑 -v（单次最多 5s）
+	seedStatus := runtimeassets.GetSeedCatalogStatusFast(context.Background())
 	info.SeedManifestOK = seedStatus.ManifestOK
 	info.SeedManifestError = seedStatus.ManifestError
 	for _, sa := range seedStatus.Assets {
@@ -595,7 +741,7 @@ func (a *App) RepairCoreLayout() error {
 }
 
 func (a *App) CheckTunEnv() map[string]any {
-	status := runtimeassets.GetStatus(a.ctx)
+	status := runtimeassets.GetStatusCached(a.ctx)
 	helperStatus := sys.CheckHelperService()
 
 	return map[string]any{
@@ -611,31 +757,6 @@ func (a *App) InstallTunDriverAsync(_ bool) {
 	a.core.InstallTunDriverAsync(a.ctx)
 }
 
-func (a *App) GetWintunVersion() string {
-	status := runtimeassets.GetStatus(a.ctx)
-	w := status.Assets[runtimeassets.AssetWintun]
-	if !w.Ready {
-		return "未安装"
-	}
-	if w.Version != "" {
-		return w.Version
-	}
-	return "已安装，版本未知"
-}
-
-func (a *App) GetComponentFileInfo() map[string]runtimeassets.AssetHealth {
-	status := runtimeassets.GetStatus(a.ctx)
-
-	return map[string]runtimeassets.AssetHealth{
-		"core":    status.Assets[runtimeassets.AssetCore],
-		"wintun":  status.Assets[runtimeassets.AssetWintun],
-		"geoip":   status.Assets[runtimeassets.AssetGeoIP],
-		"geosite": status.Assets[runtimeassets.AssetGeoSite],
-		"mmdb":    status.Assets[runtimeassets.AssetMMDB],
-		"asn":     status.Assets[runtimeassets.AssetASN],
-	}
-}
-
 func (a *App) RestartAsAdmin() error {
 	return sys.RequestAdmin()
 }
@@ -647,8 +768,8 @@ func (a *App) GetUwpApps() ([]sys.UwpApp, error) {
 func (a *App) SaveUwpExemptions(sids []string) error {
 	if !sys.CheckAdmin() {
 		// 普通权限模式下，借助 UAC 提权执行子进程以保存系统豁免配置
-		tempFile := filepath.Join(os.TempDir(), fmt.Sprintf("goclashz-uwp-%d.json", time.Now().UnixNano()))
-		data, err := json.Marshal(sids)
+		tempFile := filepath.Join(os.TempDir(), fmt.Sprintf("goclashz-uwp-%s.json", uuid.New().String()))
+		data, err := jsonv2.Marshal(sids)
 		if err != nil {
 			return fmt.Errorf("编码 UWP 列表失败: %w", err)
 		}
@@ -664,6 +785,16 @@ func (a *App) SaveUwpExemptions(sids []string) error {
 	}
 
 	return sys.SaveUwpExemptions(sids)
+}
+
+// ApplyUwpExemptionChanges UWP 豁免差异应用：只动传入的两组 SID，不枚举、不推断其它豁免
+func (a *App) ApplyUwpExemptionChanges(added []string, removed []string) error {
+	return a.core.ApplyUwpExemptionChanges(added, removed)
+}
+
+// ClearAllUwpExemptions 清空全部 UWP 豁免：只删除本次枚举到的已豁免 SID
+func (a *App) ClearAllUwpExemptions() error {
+	return a.core.ClearAllUwpExemptions()
 }
 
 // --- Config Management ---
@@ -705,14 +836,20 @@ func (a *App) SelectLocalConfig(id string) error {
 }
 
 func (a *App) SelectLocalFile() (FileInfo, error) {
-	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+	path, err := application.Get().Dialog.OpenFileWithOptions(&application.OpenFileDialogOptions{
 		Title: "选择本地配置文件",
-		Filters: []runtime.FileFilter{
+		Filters: []application.FileFilter{
 			{DisplayName: "Clash 配置文件 (*.yaml; *.yml)", Pattern: "*.yaml;*.yml"},
 		},
-	})
-	if err != nil || path == "" {
+	}).PromptForSingleSelection()
+	if err != nil {
+		if dialogCancelled(err) {
+			return FileInfo{}, nil // 取消：v2 语义为返回空值且无错误
+		}
 		return FileInfo{}, err
+	}
+	if path == "" {
+		return FileInfo{}, nil
 	}
 	return FileInfo{
 		Path: path,
@@ -736,8 +873,10 @@ func (a *App) StartClash(id string) error {
 
 // --- Extra Utilities ---
 
+// Deprecated: 等价于 GetRuntimeAssetStatus().Assets[core].Version（同一条缓存）。
+// 保留是因为它是"只要一个版本串"的最省调用；新代码请优先用 GetRuntimeAssetStatus。
 func (a *App) GetCoreVersion() string {
-	status := runtimeassets.GetStatus(a.ctx)
+	status := runtimeassets.GetStatusCached(a.ctx)
 	core := status.Assets[runtimeassets.AssetCore]
 	if !core.Ready {
 		return "未安装"
@@ -749,9 +888,22 @@ func (a *App) GetCoreVersion() string {
 }
 
 func (a *App) GetRuntimeAssetStatus() runtimeassets.RuntimeAssetStatus {
-	return runtimeassets.GetStatus(a.ctx)
+	return runtimeassets.GetStatusCached(a.ctx)
 }
 
+// AssetRepairProgress 是异步修复的进度快照（UI 轮询 GetRuntimeAssetRepairProgress）。
+type AssetRepairProgress struct {
+	Running    bool   `json:"running"`
+	Done       int    `json:"done"`
+	Total      int    `json:"total"`
+	Current    string `json:"current,omitempty"`
+	Error      string `json:"error,omitempty"`
+	StartedAt  int64  `json:"startedAt,omitempty"`
+	FinishedAt int64  `json:"finishedAt,omitempty"`
+}
+
+// RepairRuntimeAssets 同步修复（保留既有语义与返回值，供老绑定/一次性调用使用）。
+// 长时间回收 95 MB 资产时它会阻塞调用方，UI 请改用 RepairRuntimeAssetsAsync。
 func (a *App) RepairRuntimeAssets() runtimeassets.RuntimeAssetStatus {
 	status, err := runtimeassets.EnsureReady(a.ctx, runtimeassets.RequireAll, runtimeassets.RepairForce)
 	if err != nil {
@@ -760,8 +912,70 @@ func (a *App) RepairRuntimeAssets() runtimeassets.RuntimeAssetStatus {
 	return status
 }
 
+// RepairRuntimeAssetsAsync 在后台重写全部运行组件，并用 RepairAssetProgress 汇报进度，
+// 完成后推送已注册的 runtime-assets-status 事件（前端会据此刷新状态）。
+// 重复调用是幂等的：已经在跑时直接返回当前进度（F-A0-04 / F-A1-17）。
+func (a *App) RepairRuntimeAssetsAsync() AssetRepairProgress {
+	a.assetRepairMu.Lock()
+	if a.assetRepairProgress.Running {
+		p := a.assetRepairProgress
+		a.assetRepairMu.Unlock()
+		return p
+	}
+	a.assetRepairProgress = AssetRepairProgress{Running: true, StartedAt: time.Now().UnixMilli()}
+	progress := a.assetRepairProgress
+	a.assetRepairMu.Unlock()
+
+	go func() {
+		// 资产重写 + 复制最多几分钟；给一个明确上限，避免后台任务永久挂住。
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+
+		status, err := runtimeassets.EnsureReadyWithProgress(ctx, runtimeassets.RequireAll, runtimeassets.RepairForce,
+			func(assetName string, done, total int) {
+				a.assetRepairMu.Lock()
+				a.assetRepairProgress.Current = assetName
+				a.assetRepairProgress.Done = done
+				a.assetRepairProgress.Total = total
+				a.assetRepairMu.Unlock()
+			})
+
+		a.assetRepairMu.Lock()
+		a.assetRepairProgress.Running = false
+		a.assetRepairProgress.FinishedAt = time.Now().UnixMilli()
+		if err != nil {
+			a.assetRepairProgress.Error = err.Error()
+		}
+		a.assetRepairMu.Unlock()
+
+		if err != nil {
+			a.core.LogApp("error", "修复运行组件失败: %v", err)
+		}
+		emitEvent("runtime-assets-status", status)
+	}()
+
+	return progress
+}
+
+// GetRuntimeAssetRepairProgress 返回异步修复的当前进度（前端轮询，无需新增事件类型）。
+func (a *App) GetRuntimeAssetRepairProgress() AssetRepairProgress {
+	a.assetRepairMu.Lock()
+	defer a.assetRepairMu.Unlock()
+	return a.assetRepairProgress
+}
+
 func (a *App) GetProxyDelay(proxyName, testUrl string) (int, error) {
 	return clash.GetProxyDelay(a.ctx, proxyName, testUrl, 8000)
+}
+
+// GetConfigDeviations 配置偏差：返回保存了但不会生效的设置项（module 为空表示全部）
+func (a *App) GetConfigDeviations(module string) ([]clash.ConfigDeviation, error) {
+	return a.core.GetConfigDeviations(module)
+}
+
+// ExplainDNS DNS 解析决策：该域名最终用哪个解析器（静态推演，不发真实查询）
+func (a *App) ExplainDNS(domain string) (*clash.DNSExplain, error) {
+	return a.core.ExplainDNS(domain)
 }
 
 // Deprecated: use new AddRule/DeleteRule/SaveRuleSection
@@ -1046,14 +1260,17 @@ func (a *App) ExportConfig(id string, useCustomRules bool) error {
 		defaultName = item.Name
 	}
 
-	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           "导出配置文件",
-		DefaultFilename: defaultName + ".yaml",
-		Filters: []runtime.FileFilter{
+	savePath, err := application.Get().Dialog.SaveFileWithOptions(&application.SaveFileDialogOptions{
+		Title:    "导出配置文件",
+		Filename: defaultName + ".yaml",
+		Filters: []application.FileFilter{
 			{DisplayName: "YAML 配置文件 (*.yaml)", Pattern: "*.yaml"},
 		},
-	})
+	}).PromptForSingleSelection()
 	if err != nil {
+		if dialogCancelled(err) {
+			return nil // 取消：v2 语义为直接返回
+		}
 		return err
 	}
 	if savePath == "" {
@@ -1176,7 +1393,7 @@ func (a *App) ApplyAppUpdate(path string) error {
 	}
 
 	// 退出当前程序，让安装程序接管
-	runtime.Quit(a.ctx)
+	quitApplication()
 	return nil
 }
 
@@ -1222,14 +1439,17 @@ func removeEmptyDir(path string) error {
 // --- Backup ---
 
 func (a *App) ExportBackup() (string, error) {
-	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           "选择备份保存位置",
-		DefaultFilename: fmt.Sprintf("GoclashZ_Backup_%s.gocz", time.Now().Format("20060102")),
-		Filters: []runtime.FileFilter{
+	savePath, err := application.Get().Dialog.SaveFileWithOptions(&application.SaveFileDialogOptions{
+		Title:    "选择备份保存位置",
+		Filename: fmt.Sprintf("GoclashZ_Backup_%s.gocz", time.Now().Format("20060102")),
+		Filters: []application.FileFilter{
 			{DisplayName: "GoclashZ 备份文件 (*.gocz)", Pattern: "*.gocz"},
 		},
-	})
+	}).PromptForSingleSelection()
 	if err != nil {
+		if dialogCancelled(err) {
+			return "CANCELLED", nil // 取消：v2 语义为返回 CANCELLED 且无错误
+		}
 		return "", err
 	}
 	if savePath == "" {
@@ -1246,14 +1466,17 @@ func (a *App) ExportBackup() (string, error) {
 }
 
 func (a *App) SelectBackupFile() (string, error) {
-	selected, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+	selected, err := application.Get().Dialog.OpenFileWithOptions(&application.OpenFileDialogOptions{
 		Title: "选择要还原的备份文件",
-		Filters: []runtime.FileFilter{
+		Filters: []application.FileFilter{
 			{DisplayName: "GoclashZ 备份文件 (*.gocz)", Pattern: "*.gocz"},
 			{DisplayName: "Zip 压缩包 (*.zip)", Pattern: "*.zip"},
 		},
-	})
+	}).PromptForSingleSelection()
 	if err != nil {
+		if dialogCancelled(err) {
+			return "", nil // 取消：v2 语义为返回空值且无错误
+		}
 		return "", fmt.Errorf("选择文件失败: %v", err)
 	}
 	return selected, nil
@@ -1303,10 +1526,5 @@ func (a *App) safeQuit() {
 		os.Exit(0)
 	}()
 
-	if a.ctx != nil {
-		runtime.Quit(a.ctx)
-		return
-	}
-
-	os.Exit(0)
+	quitApplication()
 }

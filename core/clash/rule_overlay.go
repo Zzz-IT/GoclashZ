@@ -3,7 +3,7 @@
 package clash
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,7 +84,7 @@ func LoadRuleOverlay(id string) (RuleOverlay, error) {
 	}
 
 	var overlay RuleOverlay
-	if err := json.Unmarshal(data, &overlay); err != nil {
+	if err := jsonv2.Unmarshal(data, &overlay); err != nil {
 		// If corrupted, backup and return error
 		_ = utils.WriteFileAtomic(path+".corrupt.bak", data, 0644)
 		return RuleOverlay{}, fmt.Errorf("规则附加配置损坏，已备份为 %s.corrupt.bak: %w", path, err)
@@ -106,7 +106,7 @@ func SaveRuleOverlay(id string, overlay RuleOverlay) error {
 		return err
 	}
 
-	data, err := json.Marshal(overlay)
+	data, err := jsonv2.Marshal(overlay)
 	if err != nil {
 		return err
 	}

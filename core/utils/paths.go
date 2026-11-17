@@ -3,7 +3,7 @@
 package utils
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,7 +25,7 @@ func readInstallProfile(appDir string) (InstallProfile, bool) {
 	}
 
 	var p InstallProfile
-	if err := json.Unmarshal(data, &p); err != nil {
+	if err := jsonv2.Unmarshal(data, &p); err != nil {
 		return InstallProfile{}, false
 	}
 
@@ -72,9 +72,13 @@ func resolveAppDir() string {
 		dir = filepath.Dir(exePath)
 	}
 
-	// 兼容 Wails Dev 模式与 Go 临时目录
+	// 兼容 Wails Dev 模式与 Go 临时目录（判断"exe 是否位于临时目录内"，此前把参数写反了）
+	lowerDir := strings.ToLower(filepath.Clean(dir))
+	tempDir := strings.ToLower(filepath.Clean(os.TempDir()))
+	inTempDir := tempDir != "" && tempDir != "." &&
+		(lowerDir == tempDir || strings.HasPrefix(lowerDir, tempDir+string(os.PathSeparator)))
 	if strings.Contains(exePath, "go-build") ||
-		strings.Contains(os.TempDir(), dir) ||
+		inTempDir ||
 		strings.Contains(exePath, "wails-dev") {
 		wd, err := os.Getwd()
 		if err == nil {
@@ -147,28 +151,87 @@ func GetAppDir() string {
 	return appDir
 }
 
-func GetSeedCoreBinDir() string {
-	dir := filepath.Join(appDir, "seed", "core", "bin")
-	if _, err := os.Stat(dir); err == nil {
-		return dir
+// seedCoreBinCandidates 列出内置资产（seed）可能所在的目录，按优先级排列。
+//
+// 兼容三种运行形态：安装版（<appDir>/seed）、仓库内构建（<appDir>/build/runtime-assets）、
+// 以及从 <repo>/bin 直接运行（此时 seed 在 <repo>/build/runtime-assets，即 appDir 的父目录）。
+// 候选是否"可用"由 GetSeedCoreBinDir 进一步校验（必须真的放着资产）——只建了空目录不算命中。
+func seedCoreBinCandidates() []string {
+	parent := filepath.Dir(appDir)
+	return []string{
+		filepath.Join(appDir, "seed", "core", "bin"),
+		filepath.Join(appDir, "build", "runtime-assets", "core", "bin"),
+		filepath.Join(parent, "seed", "core", "bin"),
+		filepath.Join(parent, "build", "runtime-assets", "core", "bin"),
 	}
-	devDir := filepath.Join(appDir, "build", "runtime-assets", "core", "bin")
-	if _, err := os.Stat(devDir); err == nil {
-		return devDir
-	}
-	return dir
 }
 
+// seedAssetNames 是 seed 目录里可能出现的资产文件名（用于判断"目录是不是真的可用"）。
+var seedAssetNames = []string{"clash.exe", "wintun.dll", "geoip.metadb", "geosite.dat", "country.mmdb", "asn.dat"}
+
+func isRegularFile(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && !st.IsDir()
+}
+
+// seedDirLooksUsable 判断 seed 目录里是否真的放着资产：
+// hasCore 表示能找到 clash.exe（可直接自愈内核），hasAny 表示至少有一个已知资产。
+func seedDirLooksUsable(dir string) (hasCore bool, hasAny bool) {
+	hasCore = isRegularFile(filepath.Join(dir, "clash.exe"))
+	for _, name := range seedAssetNames {
+		if isRegularFile(filepath.Join(dir, name)) {
+			hasAny = true
+			break
+		}
+	}
+	return hasCore, hasAny
+}
+
+// GetSeedCoreBinDir 返回内置资产（seed）所在目录。
+//
+// 收敛规则（F-A1-11）：只把"目录存在"当作弱条件——空的 seed/core/bin 目录不得遮蔽后面
+// 真正有资产的候选。优先级：含 clash.exe 的候选 > 含任意资产的候选 > 存在但为空的候选。
+func GetSeedCoreBinDir() string {
+	candidates := seedCoreBinCandidates()
+
+	fallback := ""
+	for _, dir := range candidates {
+		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			continue
+		}
+		if fallback == "" {
+			fallback = dir
+		}
+		if hasCore, _ := seedDirLooksUsable(dir); hasCore {
+			return dir
+		}
+	}
+
+	for _, dir := range candidates {
+		if _, hasAny := seedDirLooksUsable(dir); hasAny {
+			return dir
+		}
+	}
+
+	if fallback != "" {
+		return fallback
+	}
+	return candidates[0]
+}
+
+// GetSeedAssetManifestPath 返回 seed 清单路径。
+//
+// 约定只保留一套：清单放在 seed bin 目录的上一层，即 <seedRoot>/core/bin → <seedRoot>/core/asset-manifest.json
+// （此前还有一条 Dir(Dir(seedDir)) 的推导，与实际布局始终对不上，已删除 —— F-A1-11）。
 func GetSeedAssetManifestPath() string {
-	path := filepath.Join(appDir, "seed", "core", "asset-manifest.json")
-	if _, err := os.Stat(path); err == nil {
-		return path
+	dirs := append([]string{GetSeedCoreBinDir()}, seedCoreBinCandidates()...)
+	for _, dir := range dirs {
+		path := filepath.Join(filepath.Dir(dir), "asset-manifest.json")
+		if isRegularFile(path) {
+			return path
+		}
 	}
-	devPath := filepath.Join(appDir, "build", "runtime-assets", "core", "asset-manifest.json")
-	if _, err := os.Stat(devPath); err == nil {
-		return devPath
-	}
-	return path
+	return filepath.Join(filepath.Dir(GetSeedCoreBinDir()), "asset-manifest.json")
 }
 
 func GetRuntimeDir() string {

@@ -44,8 +44,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { globalState } from '../store';
-import * as API from '../../wailsjs/go/main/App';
+import { globalState, setThemeMode } from '../store';
 import { t } from '../locales';
 
 // 定义 Props 接收外部数据
@@ -70,10 +69,10 @@ const emit = defineEmits(['update:activeId']);
 
 const toggleTheme = () => {
   const newTheme = globalState.theme === 'dark' ? 'light' : 'dark';
-  // 🚀 核心修复：乐观 UI 更新
-  // 在向后端发送请求前，先修改本地状态，确保 UI 响应瞬间完成，不被后端执行阻塞
-  globalState.theme = newTheme;
-  API.SaveThemePreference(newTheme === 'dark');
+  // 乐观 UI 已在 setThemeMode 内部完成（applyThemeToApp 会同步 globalState.theme）。
+  // 必须走后端持久化 themeMode：否则进入设置页重新拉取 behavior 时，
+  // 旧 themeMode 会把这次切换顶回去（表现为"点一次软件设置，明暗又翻一次"）。
+  void setThemeMode(newTheme);
 };
 
 // 呼吸灯与状态文字：结合内核运行、系统代理、TUN 三者状态，
@@ -123,9 +122,12 @@ const coreActive = computed(() =>
   background: var(--surface); 
 }
 
+/* 选中项吃主题强调色：默认石墨主题下 --ui-accent == 原 --text-main，
+   观感与改造前完全一致；换彩色预设时侧边栏才会跟着变。
+   玻璃模式用 --ui-accent-block（稀释一档），否则纯黑药丸会从玻璃上跳出来。 */
 .nav-item.active { 
-  background: var(--text-main); 
-  color: var(--accent-fg);
+  background: var(--ui-accent-block); 
+  color: var(--ui-accent-fg);
   font-weight: 600; 
 }
 
@@ -167,7 +169,9 @@ const coreActive = computed(() =>
   justify-content: center; flex-shrink: 0; font-size: 12px; 
   font-weight: bold; color: var(--text-main); 
 }
-.icon-box :deep(svg) { width: 14px; height: 14px; }
+/* 图标锁 12px：viewBox 是 24，缩放 0.5 时 stroke-width=2 正好落在 1 个整数像素上。
+   原来写 14px（缩放 0.583）会让描边变成 1.167px，细线图标在侧栏底部一带就发毛发锯齿。 */
+.icon-box :deep(svg) { width: 12px; height: 12px; }
 
 .side-traffic { display: flex; flex-direction: column; gap: 8px; }
 .t-item, .theme-switch-row, .status-indicator { display: flex; align-items: center; gap: 10px; height: 20px; }
@@ -190,8 +194,8 @@ const coreActive = computed(() =>
 
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); transition: 0.3s; }
 .dot.online {
-  background: var(--text-main);
-  box-shadow: 0 0 8px var(--text-main);
+  background: var(--ui-accent-block);
+  box-shadow: 0 0 8px var(--ui-accent);
   animation: breathe 2s ease-in-out infinite;
 }
 

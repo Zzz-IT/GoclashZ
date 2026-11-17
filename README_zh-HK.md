@@ -3,7 +3,7 @@
 
 基於 Wails 構建的高性能、工業級實色美學 Mihomo (Clash Meta) 桌面控制端
 
-![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v2.12-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
+![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v3.1-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
 
 <p align="center">
   <a href="README.md">简体中文</a> | <a href="README_zh-TW.md">繁體中文（台灣）</a> | <b>繁體中文（香港）</b> | <a href="README_en.md">English</a> | <a href="README_ja.md">日本語</a> | <a href="README_ru.md">Русский</a>
@@ -52,6 +52,13 @@ GoclashZ 誕生於對現代桌面應用過度臃腫的抗拒。本項目摒棄�
 * **交易級防呆備份**：專有 `.gocz` 封裝格式，支援一鍵還原與自動快照備份。
 * **原生註冊表自啟整合**：通過 Windows 原生 Run 註冊表鍵實現穩定開機自啟，告別 Task Scheduler 超時困擾。
 
+### 診斷與可讀性
+* **項目級設定搜尋**：8 個設定頁共 87 個設定項統一索引，按頁面分組檢索，點擊直達並高亮定位；
+* **設定偏差回執**：儲存後提示不會按字面生效的設定項（端口衝突、認證缺失、協議棧限制），單條展開、多條摺疊；
+* **DNS 解析解釋**：連接詳情顯示命中的名稱伺服器策略與解析器，無法靜態判定的場景明確標註；
+* **分層錯誤提示**：一句話結論 + 可展開的技術細節，成功類操作改用輕提示不再打斷；
+* **統一空態**：列表為空時顯示圖標與說明，替代單行灰字。
+
 ## 部署與安裝
 
 訪問 [Releases](https://github.com/Zzz-IT/GoclashZ/releases) 頁面下載最新版本。
@@ -60,10 +67,10 @@ GoclashZ 誕生於對現代桌面應用過度臃腫的抗拒。本項目摒棄�
 
 ```bash
 # 啟動熱重載開發服務器
-wails dev
+wails3 dev
 
 # 編譯 Windows 發行版可執行文件
-wails build
+wails3 build
 ```
 
 ## 聲明與後續計劃

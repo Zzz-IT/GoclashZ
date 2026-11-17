@@ -74,10 +74,13 @@ func CommitWintunRuntime(ctx context.Context, prepared map[string]string) (strin
 		return "", fmt.Errorf("Wintun staging 信息缺失")
 	}
 
-	// 如果 core\bin 不可写，通过 helper 服务替换
+	// 如果 core\bin 不可写，通过 helper 服务替换；两条路径都持有资产替换锁（跨批遗留③），
+	// 避免与主进程自愈 / 另一个实例同时写 wintun.dll。
 	if !isDirWritable(filepath.Dir(destPath)) {
-		client := sys.NewHelperClient()
-		if err := client.InstallWintun(stagedDLL, destPath); err != nil {
+		if err := withAssetSwapLock(destPath, func() error {
+			client := sys.NewHelperClient()
+			return client.InstallWintun(stagedDLL, destPath)
+		}); err != nil {
 			return "", fmt.Errorf("通过 Helper 安装 Wintun 失败: %w", err)
 		}
 	} else {

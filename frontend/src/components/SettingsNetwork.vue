@@ -1,6 +1,6 @@
 <template>
-  <div class="settings-page">
-    <div class="sub-header section-header page-sticky-mask">
+  <div class="settings-page ui-page-shell" :class="{ 'no-anim': loading }">
+    <div class="sub-header section-header ui-page-header">
       <button class="back-btn" @click="$emit('navigate', 'main')">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
       </button>
@@ -10,237 +10,241 @@
       </button>
     </div>
 
-    <div class="glass-card setting-group scrollable">
-      <div class="setting-item col-item" style="padding-bottom: 0; align-items: flex-start;">
-        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">{{ t('settings.network.basicGroup') }}</h3>
-      </div>
-      <div class="divider" style="margin-top: 10px;"></div>
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.network.ipv6') }}</h4>
-          <p>{{ t('settings.network.ipv6Desc') }}</p>
-        </div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="netConfig.ipv6" @change="saveNet" :disabled="loading">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="divider"></div>
+    <DeviationStrip ref="deviationRef" module="network" />
 
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.network.allowLan') }}</h4>
-          <p>{{ t('settings.network.allowLanDesc') }}</p>
+    <div class="ui-page-body">
+      <div class="glass-card setting-group ui-surface-group scrollable">
+        <div class="setting-item col-item" style="padding-bottom: 0; align-items: flex-start;">
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--text-main);">{{ t('settings.network.basicGroup') }}</h3>
         </div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="netConfig.allowLan" @change="saveNet" :disabled="loading">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="divider"></div>
-
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.network.unifiedDelay') }}</h4>
-          <p>{{ t('settings.network.unifiedDelayDesc') }}</p>
+        <div class="divider" style="margin-top: 10px;"></div>
+        <div class="setting-item" id="set-network-ipv6">
+          <div class="info">
+            <h4>{{ t('settings.network.ipv6') }}</h4>
+            <p>{{ t('settings.network.ipv6Desc') }}</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="netConfig.ipv6" @change="saveNet" :disabled="loading">
+            <span class="slider"></span>
+          </label>
         </div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="netConfig.unifiedDelay" @change="saveNet" :disabled="loading">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="divider"></div>
+        <div class="divider"></div>
 
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.network.tcpConcurrent') }}</h4>
-          <p>{{ t('settings.network.tcpConcurrentDesc') }}</p>
+        <div class="setting-item" id="set-network-allowLan">
+          <div class="info">
+            <h4>{{ t('settings.network.allowLan') }}</h4>
+            <p>{{ t('settings.network.allowLanDesc') }}</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="netConfig.allowLan" @change="saveNet" :disabled="loading">
+            <span class="slider"></span>
+          </label>
         </div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="netConfig.tcpConcurrent" @change="saveNet" :disabled="loading">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="divider"></div>
+        <div class="divider"></div>
 
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.network.tcpKeepAlive') }}</h4>
-          <p>{{ t('settings.network.tcpKeepAliveDesc') }}</p>
+        <div class="setting-item" id="set-network-unifiedDelay">
+          <div class="info">
+            <h4>{{ t('settings.network.unifiedDelay') }}</h4>
+            <p>{{ t('settings.network.unifiedDelayDesc') }}</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="netConfig.unifiedDelay" @change="saveNet" :disabled="loading">
+            <span class="slider"></span>
+          </label>
         </div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="netConfig.tcpKeepAlive" @change="saveNet" :disabled="loading">
-          <span class="slider"></span>
-        </label>
-      </div>
+        <div class="divider"></div>
 
-      <Transition name="dropdown">
-        <div v-if="netConfig.tcpKeepAlive" class="tcp-keep-alive-sub-items">
-          <div class="divider"></div>
-          <div class="setting-item">
-            <div class="info">
-              <h4>{{ t('settings.network.keepAliveInterval') }}</h4>
-              <p>{{ t('settings.network.keepAliveIntervalDesc') }}</p>
-            </div>
-            <div class="input-with-unit">
-              <ModernNumberInput 
-                v-model="netConfig.tcpKeepAliveInterval" 
-                :min="1" 
-                :max="3600" 
-                @change="saveNet" 
-                :disabled="loading"
-              />
-              <span class="unit">s</span>
+        <div class="setting-item" id="set-network-tcpConcurrent">
+          <div class="info">
+            <h4>{{ t('settings.network.tcpConcurrent') }}</h4>
+            <p>{{ t('settings.network.tcpConcurrentDesc') }}</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="netConfig.tcpConcurrent" @change="saveNet" :disabled="loading">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="divider"></div>
+
+        <div class="setting-item" id="set-network-tcpKeepAlive">
+          <div class="info">
+            <h4>{{ t('settings.network.tcpKeepAlive') }}</h4>
+            <p>{{ t('settings.network.tcpKeepAliveDesc') }}</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="netConfig.tcpKeepAlive" @change="saveNet" :disabled="loading">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <Transition name="dropdown">
+          <div v-if="netConfig.tcpKeepAlive" class="tcp-keep-alive-sub-items">
+            <div class="divider"></div>
+            <div class="setting-item" id="set-network-keepAliveInterval">
+              <div class="info">
+                <h4>{{ t('settings.network.keepAliveInterval') }}</h4>
+                <p>{{ t('settings.network.keepAliveIntervalDesc') }}</p>
+              </div>
+              <div class="input-with-unit">
+                <ModernNumberInput 
+                  v-model="netConfig.tcpKeepAliveInterval" 
+                  :min="1" 
+                  :max="3600" 
+                  @change="saveNet" 
+                  :disabled="loading"
+                />
+                <span class="unit">s</span>
+              </div>
             </div>
           </div>
-        </div>
-      </Transition>
+        </Transition>
 
-      <div class="divider"></div>
+        <div class="divider"></div>
 
-      <div class="setting-item col-item">
-        <div class="info">
-          <h4>{{ t('settings.network.delayTestUrl') }}</h4>
-          <p>{{ t('settings.network.delayTestUrlDesc') }}</p>
-        </div>
-        <input 
-          type="text" 
-          class="modern-input" 
-          style="text-align: left; width: 100%; margin-top: 12px; font-size: 0.95rem; padding: 12px 16px;" 
-          v-model="netConfig.testUrl" 
-          @blur="saveNet" 
-          :disabled="loading"
-          placeholder="http://www.gstatic.com/generate_204" 
-        />
-      </div>
-      <div class="divider"></div>
-
-      <div class="setting-item col-item">
-        <div class="info">
-          <h4>{{ t('settings.network.hosts') }}</h4>
-          <p>{{ t('settings.network.hostsDesc') }}</p>
-        </div>
-        <div class="hosts-input-container">
-          <textarea
-            class="modern-textarea"
-            v-model="netConfig.hosts"
-            @blur="saveNet"
+        <div class="setting-item col-item" id="set-network-delayTestUrl">
+          <div class="info">
+            <h4>{{ t('settings.network.delayTestUrl') }}</h4>
+            <p>{{ t('settings.network.delayTestUrlDesc') }}</p>
+          </div>
+          <input 
+            type="text" 
+            class="modern-input" 
+            style="text-align: left; width: 100%; margin-top: 12px; font-size: 0.95rem; padding: 12px 16px;" 
+            v-model="netConfig.testUrl" 
+            @blur="saveNet" 
             :disabled="loading"
-            rows="6"
-            :placeholder="t('settings.network.hostsPlaceholder')"
-            style="margin-top: 10px; font-family: var(--font-mono); font-size: 0.85rem; width: 100%;"
-          ></textarea>
-          <div v-show="hostsError" class="validation-error">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="warn-icon" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <span>{{ hostsError }}</span>
+            placeholder="http://www.gstatic.com/generate_204" 
+          />
+        </div>
+        <div class="divider"></div>
+
+        <div class="setting-item col-item" id="set-network-hosts">
+          <div class="info">
+            <h4>{{ t('settings.network.hosts') }}</h4>
+            <p>{{ t('settings.network.hostsDesc') }}</p>
+          </div>
+          <div class="hosts-input-container">
+            <textarea
+              class="modern-textarea"
+              v-model="netConfig.hosts"
+              @blur="saveNet"
+              :disabled="loading"
+              rows="6"
+              :placeholder="t('settings.network.hostsPlaceholder')"
+              style="margin-top: 10px; font-family: var(--font-mono); font-size: 0.85rem; width: 100%;"
+            ></textarea>
+            <div v-show="hostsError" class="validation-error">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="warn-icon" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span>{{ hostsError }}</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- 端口设置 -->
-      <div class="setting-item col-item section-group-header">
-        <h3 class="section-group-title">{{ t('settings.network.portGroup') }}</h3>
-        <p class="section-group-sub">{{ t('settings.network.portGroupDesc') }}</p>
-      </div>
-      <div class="divider" style="margin-top: 10px;"></div>
-
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.network.mixedPort') }}</h4>
-          <p>{{ t('settings.network.mixedPortDesc') }}</p>
+        <!-- 端口设置 -->
+        <div class="setting-item col-item section-group-header">
+          <h3 class="section-group-title">{{ t('settings.network.portGroup') }}</h3>
+          <p class="section-group-sub">{{ t('settings.network.portGroupDesc') }}</p>
         </div>
-        <ModernNumberInput
-          v-model="netConfig.mixedPort"
-          :min="1"
-          :max="65535"
-          @change="saveNet"
-          :disabled="loading"
-        />
-      </div>
-      <div class="divider"></div>
+        <div class="divider" style="margin-top: 10px;"></div>
 
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.network.socksPort') }}</h4>
-          <p>{{ t('settings.network.socksPortDesc') }}</p>
+        <div class="setting-item" id="set-network-mixedPort">
+          <div class="info">
+            <h4>{{ t('settings.network.mixedPort') }}</h4>
+            <p>{{ t('settings.network.mixedPortDesc') }}</p>
+          </div>
+          <ModernNumberInput
+            v-model="netConfig.mixedPort"
+            :min="1"
+            :max="65535"
+            @change="saveNet"
+            :disabled="loading"
+          />
         </div>
-        <ModernNumberInput
-          v-model="netConfig.socksPort"
-          :min="0"
-          :max="65535"
-          @change="saveNet"
-          :disabled="loading"
-        />
-      </div>
-      <div class="divider"></div>
+        <div class="divider"></div>
 
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.network.httpPort') }}</h4>
-          <p>{{ t('settings.network.httpPortDesc') }}</p>
+        <div class="setting-item" id="set-network-socksPort">
+          <div class="info">
+            <h4>{{ t('settings.network.socksPort') }}</h4>
+            <p>{{ t('settings.network.socksPortDesc') }}</p>
+          </div>
+          <ModernNumberInput
+            v-model="netConfig.socksPort"
+            :min="0"
+            :max="65535"
+            @change="saveNet"
+            :disabled="loading"
+          />
         </div>
-        <ModernNumberInput
-          v-model="netConfig.port"
-          :min="0"
-          :max="65535"
-          @change="saveNet"
-          :disabled="loading"
-        />
-      </div>
+        <div class="divider"></div>
 
-      <!-- 外部控制器 -->
-      <div class="setting-item col-item section-group-header">
-        <h3 class="section-group-title">{{ t('settings.network.extControllerGroup') }}</h3>
-        <p class="section-group-sub">{{ t('settings.network.extControllerGroupDesc') }}</p>
-      </div>
-      <div class="divider" style="margin-top: 10px;"></div>
-
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.network.customExtController') }}</h4>
-          <p>{{ t('settings.network.customExtControllerDesc') }}</p>
+        <div class="setting-item" id="set-network-httpPort">
+          <div class="info">
+            <h4>{{ t('settings.network.httpPort') }}</h4>
+            <p>{{ t('settings.network.httpPortDesc') }}</p>
+          </div>
+          <ModernNumberInput
+            v-model="netConfig.port"
+            :min="0"
+            :max="65535"
+            @change="saveNet"
+            :disabled="loading"
+          />
         </div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="netConfig.externalControllerEnabled" @change="saveNet" :disabled="loading">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="divider"></div>
 
-      <div class="setting-item col-item">
-        <div class="info">
-          <h4>{{ t('settings.network.extControllerAddress') }}</h4>
-          <p>{{ t('settings.network.extControllerAddressDesc') }}</p>
+        <!-- 外部控制器 -->
+        <div class="setting-item col-item section-group-header">
+          <h3 class="section-group-title">{{ t('settings.network.extControllerGroup') }}</h3>
+          <p class="section-group-sub">{{ t('settings.network.extControllerGroupDesc') }}</p>
         </div>
-        <input
-          type="text"
-          class="modern-input"
-          style="text-align: left; width: 100%; margin-top: 12px; font-size: 0.95rem; padding: 12px 16px;"
-          v-model="netConfig.externalController"
-          @blur="saveNet"
-          :disabled="loading || !netConfig.externalControllerEnabled"
-          placeholder="127.0.0.1:9090"
-        />
-      </div>
-      <div class="divider"></div>
+        <div class="divider" style="margin-top: 10px;"></div>
 
-      <div class="setting-item col-item">
-        <div class="info">
-          <h4>{{ t('settings.network.extControllerSecret') }}</h4>
-          <p>{{ t('settings.network.extControllerSecretDesc') }}</p>
+        <div class="setting-item" id="set-network-customExtController">
+          <div class="info">
+            <h4>{{ t('settings.network.customExtController') }}</h4>
+            <p>{{ t('settings.network.customExtControllerDesc') }}</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="netConfig.externalControllerEnabled" @change="saveNet" :disabled="loading">
+            <span class="slider"></span>
+          </label>
         </div>
-        <input
-          type="text"
-          class="modern-input"
-          style="text-align: left; width: 100%; margin-top: 12px; font-size: 0.95rem; padding: 12px 16px;"
-          v-model="netConfig.externalControllerSecret"
-          @blur="saveNet"
-          :disabled="loading || !netConfig.externalControllerEnabled"
-          :placeholder="t('settings.network.secretPlaceholder')"
-          autocomplete="off"
-        />
+        <div class="divider"></div>
+
+        <div class="setting-item col-item" id="set-network-extControllerAddress">
+          <div class="info">
+            <h4>{{ t('settings.network.extControllerAddress') }}</h4>
+            <p>{{ t('settings.network.extControllerAddressDesc') }}</p>
+          </div>
+          <input
+            type="text"
+            class="modern-input"
+            style="text-align: left; width: 100%; margin-top: 12px; font-size: 0.95rem; padding: 12px 16px;"
+            v-model="netConfig.externalController"
+            @blur="saveNet"
+            :disabled="loading || !netConfig.externalControllerEnabled"
+            placeholder="127.0.0.1:9090"
+          />
+        </div>
+        <div class="divider"></div>
+
+        <div class="setting-item col-item" id="set-network-extControllerSecret">
+          <div class="info">
+            <h4>{{ t('settings.network.extControllerSecret') }}</h4>
+            <p>{{ t('settings.network.extControllerSecretDesc') }}</p>
+          </div>
+          <input
+            type="text"
+            class="modern-input"
+            style="text-align: left; width: 100%; margin-top: 12px; font-size: 0.95rem; padding: 12px 16px;"
+            v-model="netConfig.externalControllerSecret"
+            @blur="saveNet"
+            :disabled="loading || !netConfig.externalControllerEnabled"
+            :placeholder="t('settings.network.secretPlaceholder')"
+            autocomplete="off"
+          />
+        </div>
       </div>
     </div>
   </div>
@@ -248,8 +252,12 @@
 
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
-import * as API from '../../wailsjs/go/main/App';
+import { App } from '../api';
+import { showToast } from '../store';
+import { toUserError } from '../utils/errors';
+import { reportError } from '../utils/report';
 import { ICONS } from '../utils/icons';
+import DeviationStrip from './DeviationStrip.vue';
 import ModernNumberInput from './ModernNumberInput.vue';
 import { t } from '../locales';
 
@@ -258,6 +266,7 @@ const props = defineProps<{ resetKey: number }>();
 defineEmits<{ navigate: [view: 'main']; reset: [module: 'network'] }>();
 
 const loading = ref(true);
+const deviationRef = ref<InstanceType<typeof DeviationStrip> | null>(null);
 const netConfig = ref({
   ipv6: false,
   allowLan: false,
@@ -310,21 +319,31 @@ watch(() => netConfig.value.hosts, (newVal) => {
 const loadData = async () => {
   loading.value = true;
   try {
-    const netConf = await (API.GetNetworkConfig as any)();
+    const netConf = await App.GetNetworkConfig();
     if (netConf) netConfig.value = netConf;
   } catch (e) {
-    console.error('加载配置失败', e);
+    reportError(e, 'network.load');
   } finally {
-    loading.value = false;
+    // 必须等浏览器真正绘制一帧（rAF）后再解除 no-anim。
+    // 若用 nextTick，解除发生在绘制之前，浏览器首次绘制时 transition 已恢复，
+    // 会把"默认值→真实值"当成状态变化播成滑动动画，抑制形同无效。
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => { loading.value = false; });
+    });
   }
 };
 
 const saveNet = async () => {
   if (loading.value) return;
   try {
-    await (API.SaveNetworkConfig as any)(netConfig.value);
+    await App.SaveNetworkConfig(netConfig.value as any);
+    void deviationRef.value?.refresh();
   } catch (e) {
-    console.error('网络配置保存失败', e);
+    reportError(e, 'network.save');
+    // 自动保存失败必须让用户看见，否则界面显示新值、磁盘仍是旧值
+    const u = toUserError(e);
+    showToast(t('settings.saveFailed', { error: u.message }), 'error');
+    void deviationRef.value?.refresh();
   }
 };
 
@@ -333,19 +352,9 @@ watch(() => props.resetKey, () => { void loadData(); });
 </script>
 
 <style scoped>
-.settings-page { 
-  display: flex; 
-  flex-direction: column; 
-  flex: 1; 
-  min-height: 100%;
-  overflow: visible;
-}
+.settings-page { flex: 1 1 auto; min-width: 0; }
 .setting-group { padding: 20px 24px; margin-bottom: 12px; }
-.setting-group.scrollable { 
-  padding-bottom: 20px; 
-  overflow: visible;
-  max-height: none;
-}
+.setting-group.scrollable { padding-bottom: 20px; }
 
 .section-group-header {
   padding-top: 24px !important;
@@ -379,10 +388,10 @@ p {
 
 .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; }
 .col-item { flex-direction: column; align-items: stretch; gap: 10px; padding: 16px 0; }
-.divider { height: 1px; background: var(--glass-border); opacity: 0.5; margin: 0; }
+.divider { height: 1px; background: var(--ui-border-subtle); opacity: 0.5; margin: 0; }
 
 .modern-input, .modern-textarea { 
-  background: var(--surface-hover); 
+  background: var(--ui-surface-hover); 
   border: none; 
   color: var(--text-main); 
   padding: 10px 14px; 
@@ -398,11 +407,11 @@ p {
 .modern-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
 .modern-switch input { opacity: 0; width: 0; height: 0; }
 
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--surface-hover); transition: .3s; border-radius: 24px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--ui-surface-hover); transition: .3s; border-radius: 24px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
 .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3);}
 input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
-input:checked + .slider { background-color: var(--accent); }
-input:checked + .slider:before { transform: translateX(20px); background-color: var(--accent-fg); }
+input:checked + .slider { background-color: var(--ui-accent-block); }
+input:checked + .slider:before { transform: translateX(20px); background-color: var(--ui-accent-fg); }
 
 .sub-header { 
   display: flex; 
@@ -412,12 +421,9 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   padding: 0 0 12px 0;
   background: transparent;
 }
-.sub-header.page-sticky-mask {
-  --sticky-mask-bleed: 4px;
-}
 .sub-header h3 { margin: 0; border: none; padding: 0; }
 .back-btn { background: var(--surface); border: none; color: var(--text-main); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; }
-.back-btn:hover { background: var(--surface-hover); }
+.back-btn:hover { background: var(--ui-surface-hover); }
 
 .input-with-unit { display: flex; align-items: center; gap: 8px; }
 .unit { font-size: 0.85rem; color: var(--text-sub); font-family: var(--font-mono); font-weight: 500; }

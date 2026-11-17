@@ -4,7 +4,7 @@ package downloader
 
 import (
 	"context"
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,13 +73,20 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 			grabClient.HTTPClient = httpClient
 
 			for _, rawURL := range opt.URLs {
-				release := acquireHostLimiter(rawURL)
+				release, acqErr := acquireHostLimiter(ctx, rawURL)
+				if acqErr != nil {
+					lastErr = acqErr
+					continue
+				}
 
+				// 断点续传的来源校验：.meta.json 记录「上次是从哪个 URL 下的」，
+				// 换源时丢弃半成品，避免把镜像 A 的前 30MB 和镜像 B 的剩余部分
+				// 拼成一个坏文件。此前该文件只有读取没有写入，整段是死代码（F-A5-15）。
 				if metaData, err := os.ReadFile(tmpPath + ".meta.json"); err == nil {
 					var meta struct {
 						URL string `json:"URL"`
 					}
-					if err := json.Unmarshal(metaData, &meta); err == nil {
+					if err := jsonv2.Unmarshal(metaData, &meta); err == nil {
 						if meta.URL != rawURL {
 							_ = os.Remove(tmpPath)
 							_ = os.Remove(tmpPath + ".meta.json")
@@ -92,6 +99,14 @@ func DownloadLargeAssetAtomic(ctx context.Context, opt Options) error {
 					release()
 					lastErr = err
 					continue
+				}
+
+				// 登记本次下载的来源；成功时由上面的 defer 删除，失败/中断时保留，
+				// 供下次换源判定（F-A5-15）。
+				if metaBytes, mErr := jsonv2.Marshal(struct {
+					URL string `json:"URL"`
+				}{URL: rawURL}); mErr == nil {
+					_ = os.WriteFile(tmpPath+".meta.json", metaBytes, 0644)
 				}
 
 				req = req.WithContext(ctx)

@@ -1,6 +1,6 @@
 <template>
-  <div class="settings-page">
-    <div class="sub-header section-header page-sticky-mask">
+  <div class="settings-page ui-page-shell" :class="{ 'no-anim': loading }">
+    <div class="sub-header section-header ui-page-header">
       <button class="back-btn" @click="$emit('navigate', 'main')">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
       </button>
@@ -10,169 +10,174 @@
       </button>
     </div>
 
-    <div class="glass-card setting-group scrollable">
+    <div class="ui-page-body">
+      <div class="glass-card setting-group ui-surface-group scrollable">
 
-      <div class="setting-item">
-        <div class="info"><h4>{{ t('settings.dns.enableDns') }}</h4></div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="dnsConfig.enable" @change="saveDns" :disabled="loading">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="divider"></div>
-
-      <div class="setting-item">
-        <div class="info"><h4>{{ t('settings.dns.listenPort') }}</h4></div>
-        <input type="text" class="modern-input" v-model="dnsConfig.listen" @blur="saveDns" :disabled="!dnsConfig.enable || loading" :placeholder="t('settings.dns.listenPlaceholder')" />
-      </div>
-      <div class="divider"></div>
-
-      <div class="setting-item">
-        <div class="info"><h4>{{ t('settings.dns.ipv6') }}</h4></div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="dnsConfig.ipv6" @change="saveDns" :disabled="!dnsConfig.enable || loading">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="divider"></div>
-
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.dns.preferH3') }}</h4>
-          <p>{{ t('settings.dns.preferH3Desc') }}</p>
+        <div class="setting-item" id="set-dns-enableDns">
+          <div class="info"><h4>{{ t('settings.dns.enableDns') }}</h4></div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="dnsConfig.enable" @change="saveDns" :disabled="loading">
+            <span class="slider"></span>
+          </label>
         </div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="dnsConfig.preferH3" @change="saveDns" :disabled="!dnsConfig.enable || loading">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="divider"></div>
+        <div class="divider"></div>
 
-      <div class="setting-item">
-        <div class="info"><h4>{{ t('settings.dns.enhancedMode') }}</h4></div>
-        <ModernSelect 
-          v-model="dnsConfig.enhancedMode" 
-          :options="enhancedModeOptions" 
-          @change="saveDns" 
-          :disabled="!dnsConfig.enable || loading" 
-        />
-      </div>
-      <div class="divider"></div>
-
-      <div class="setting-item">
-        <div class="info">
-          <h4>{{ t('settings.dns.respectRules') }}</h4>
-          <p>{{ t('settings.dns.respectRulesDesc') }}</p>
+        <div class="setting-item" id="set-dns-listenPort">
+          <div class="info"><h4>{{ t('settings.dns.listenPort') }}</h4></div>
+          <input type="text" class="modern-input" v-model="dnsConfig.listen" @blur="saveDns" :disabled="!dnsConfig.enable || loading" :placeholder="t('settings.dns.listenPlaceholder')" />
         </div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="dnsConfig.respectRules" @change="saveDns" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip' || loading">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="divider"></div>
+        <div class="divider"></div>
 
-      <div class="setting-item">
-        <div class="info"><h4>{{ t('settings.dns.fakeIpRange') }}</h4></div>
-        <input type="text" class="modern-input" v-model="dnsConfig.fakeIpRange" @blur="saveDns" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip' || loading" />
-      </div>
-      <div class="divider"></div>
+        <div class="setting-item" id="set-dns-ipv6">
+          <div class="info"><h4>{{ t('settings.dns.ipv6') }}</h4></div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="dnsConfig.ipv6" @change="saveDns" :disabled="!dnsConfig.enable || loading">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="divider"></div>
 
-      <div class="setting-item col-item">
-        <div class="info"><h4>{{ t('settings.dns.fakeIpFilter') }}</h4></div>
-        <textarea class="modern-textarea" :value="(dnsConfig.fakeIpFilter || []).join('\n')" @blur="updateDnsArray($event, 'fakeIpFilter')" rows="3" :placeholder="t('settings.dns.fakeIpFilterPlaceholder')" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip' || loading"></textarea>
-      </div>
-      <div class="divider"></div>
+        <div class="setting-item" id="set-dns-preferH3">
+          <div class="info">
+            <h4>{{ t('settings.dns.preferH3') }}</h4>
+            <p>{{ t('settings.dns.preferH3Desc') }}</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="dnsConfig.preferH3" @change="saveDns" :disabled="!dnsConfig.enable || loading">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="divider"></div>
 
-      <div class="setting-item">
-        <div class="info"><h4>{{ t('settings.dns.useSystemHosts') }}</h4></div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="dnsConfig.useSystemHosts" @change="saveDns" :disabled="!dnsConfig.enable || loading">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="divider"></div>
+        <div class="setting-item" id="set-dns-enhancedMode">
+          <div class="info"><h4>{{ t('settings.dns.enhancedMode') }}</h4></div>
+          <ModernSelect 
+            v-model="dnsConfig.enhancedMode" 
+            :options="enhancedModeOptions" 
+            @change="saveDns" 
+            :disabled="!dnsConfig.enable || loading" 
+          />
+        </div>
+        <div class="divider"></div>
 
-      <div class="setting-item">
-        <div class="info"><h4>{{ t('settings.dns.useHosts') }}</h4></div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="dnsConfig.useHosts" @change="saveDns" :disabled="!dnsConfig.enable || loading">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="divider"></div>
+        <div class="setting-item" id="set-dns-respectRules">
+          <div class="info">
+            <h4>{{ t('settings.dns.respectRules') }}</h4>
+            <p>{{ t('settings.dns.respectRulesDesc') }}</p>
+          </div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="dnsConfig.respectRules" @change="saveDns" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip' || loading">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="divider"></div>
 
-      <div class="setting-item col-item">
-        <div class="info"><h4>{{ t('settings.dns.defaultNameservers') }}</h4></div>
-        <textarea class="modern-textarea" :value="(dnsConfig.defaultNameserver || []).join('\n')" @blur="updateDnsArray($event, 'defaultNameserver')" rows="2" :placeholder="t('settings.dns.defaultNameserversPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
-      </div>
-      <div class="divider"></div>
+        <div class="setting-item" id="set-dns-fakeIpRange">
+          <div class="info"><h4>{{ t('settings.dns.fakeIpRange') }}</h4></div>
+          <input type="text" class="modern-input" v-model="dnsConfig.fakeIpRange" @blur="saveDns" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip' || loading" />
+        </div>
+        <div class="divider"></div>
 
-      <div class="setting-item col-item">
-        <div class="info"><h4>{{ t('settings.dns.nameservers') }}</h4></div>
-        <textarea class="modern-textarea" :value="(dnsConfig.nameserver || []).join('\n')" @blur="updateDnsArray($event, 'nameserver')" rows="3" :placeholder="t('settings.dns.nameserversPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
-      </div>
-      <div class="divider"></div>
+        <div class="setting-item col-item" id="set-dns-fakeIpFilter">
+          <div class="info"><h4>{{ t('settings.dns.fakeIpFilter') }}</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.fakeIpFilter || []).join('\n')" @blur="updateDnsArray($event, 'fakeIpFilter')" rows="3" :placeholder="t('settings.dns.fakeIpFilterPlaceholder')" :disabled="!dnsConfig.enable || dnsConfig.enhancedMode !== 'fake-ip' || loading"></textarea>
+        </div>
+        <div class="divider"></div>
 
-      <div class="setting-item col-item">
-        <div class="info"><h4>{{ t('settings.dns.fallback') }}</h4></div>
-        <textarea class="modern-textarea" :value="(dnsConfig.fallback || []).join('\n')" @blur="updateDnsArray($event, 'fallback')" rows="3" :placeholder="t('settings.dns.fallbackPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
-      </div>
-      <div class="divider"></div>
+        <div class="setting-item" id="set-dns-useSystemHosts">
+          <div class="info"><h4>{{ t('settings.dns.useSystemHosts') }}</h4></div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="dnsConfig.useSystemHosts" @change="saveDns" :disabled="!dnsConfig.enable || loading">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="divider"></div>
 
-      <div class="setting-item col-item">
-        <div class="info"><h4>{{ t('settings.dns.directNameserver') }}</h4></div>
-        <textarea class="modern-textarea" :value="(dnsConfig.directNameserver || []).join('\n')" @blur="updateDnsArray($event, 'directNameserver')" rows="2" :placeholder="t('settings.dns.directNameserverPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
-      </div>
-      <div class="divider"></div>
+        <div class="setting-item" id="set-dns-useHosts">
+          <div class="info"><h4>{{ t('settings.dns.useHosts') }}</h4></div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="dnsConfig.useHosts" @change="saveDns" :disabled="!dnsConfig.enable || loading">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="divider"></div>
 
-      <div class="setting-item col-item">
-        <div class="info"><h4>{{ t('settings.dns.proxyServerNameserver') }}</h4></div>
-        <textarea class="modern-textarea" :value="(dnsConfig.proxyServerNameserver || []).join('\n')" @blur="updateDnsArray($event, 'proxyServerNameserver')" rows="2" :placeholder="t('settings.dns.proxyServerNameserverPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
-      </div>
-      <div class="divider"></div>
+        <div class="setting-item col-item" id="set-dns-defaultNameservers">
+          <div class="info"><h4>{{ t('settings.dns.defaultNameservers') }}</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.defaultNameserver || []).join('\n')" @blur="updateDnsArray($event, 'defaultNameserver')" rows="2" :placeholder="t('settings.dns.defaultNameserversPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
+        </div>
+        <div class="divider"></div>
 
-      <div class="setting-item col-item">
-        <div class="info"><h4>{{ t('settings.dns.nameserverPolicy') }}</h4></div>
-        <textarea class="modern-textarea" :value="formatNameserverPolicy(dnsConfig.nameserverPolicy)" @blur="updateNameserverPolicy" rows="4" :placeholder="t('settings.dns.nameserverPolicyPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
-      </div>
-      <div class="divider"></div>
+        <div class="setting-item col-item" id="set-dns-nameservers">
+          <div class="info"><h4>{{ t('settings.dns.nameservers') }}</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.nameserver || []).join('\n')" @blur="updateDnsArray($event, 'nameserver')" rows="3" :placeholder="t('settings.dns.nameserversPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
+        </div>
+        <div class="divider"></div>
 
-      <div class="setting-item">
-        <div class="info"><h4>{{ t('settings.dns.fallbackGeoip') }}</h4></div>
-        <label class="modern-switch">
-          <input type="checkbox" v-model="dnsConfig.fallbackFilter.geoip" @change="saveDns" :disabled="!dnsConfig.enable || loading">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="divider"></div>
+        <div class="setting-item col-item" id="set-dns-fallback">
+          <div class="info"><h4>{{ t('settings.dns.fallback') }}</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.fallback || []).join('\n')" @blur="updateDnsArray($event, 'fallback')" rows="3" :placeholder="t('settings.dns.fallbackPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
+        </div>
+        <div class="divider"></div>
 
-      <div class="setting-item">
-        <div class="info"><h4>{{ t('settings.dns.geoipCode') }}</h4></div>
-        <input type="text" class="modern-input" v-model="dnsConfig.fallbackFilter.geoipCode" @blur="saveDns" :disabled="!dnsConfig.enable || !dnsConfig.fallbackFilter.geoip || loading" :placeholder="t('settings.dns.defaultCnPlaceholder')" />
-      </div>
-      <div class="divider"></div>
+        <div class="setting-item col-item" id="set-dns-directNameserver">
+          <div class="info"><h4>{{ t('settings.dns.directNameserver') }}</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.directNameserver || []).join('\n')" @blur="updateDnsArray($event, 'directNameserver')" rows="2" :placeholder="t('settings.dns.directNameserverPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
+        </div>
+        <div class="divider"></div>
 
-      <div class="setting-item col-item">
-        <div class="info"><h4>{{ t('settings.dns.fallbackIpCidr') }}</h4></div>
-        <textarea class="modern-textarea" :value="(dnsConfig.fallbackFilter.ipcidr || []).join('\n')" @blur="updateFallbackFilterIpcidr" rows="3" :placeholder="t('settings.dns.fallbackIpCidrPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
-      </div>
-      <div class="divider"></div>
+        <div class="setting-item col-item" id="set-dns-proxyServerNameserver">
+          <div class="info"><h4>{{ t('settings.dns.proxyServerNameserver') }}</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.proxyServerNameserver || []).join('\n')" @blur="updateDnsArray($event, 'proxyServerNameserver')" rows="2" :placeholder="t('settings.dns.proxyServerNameserverPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
+        </div>
+        <div class="divider"></div>
 
-      <div class="setting-item col-item">
-        <div class="info"><h4>{{ t('settings.dns.fallbackDomain') }}</h4></div>
-        <textarea class="modern-textarea" :value="(dnsConfig.fallbackFilter.domain || []).join('\n')" @blur="updateFallbackFilterDomain" rows="3" :placeholder="t('settings.dns.fallbackDomainPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
-      </div>
+        <div class="setting-item col-item" id="set-dns-nameserverPolicy">
+          <div class="info"><h4>{{ t('settings.dns.nameserverPolicy') }}</h4></div>
+          <textarea class="modern-textarea" :value="formatNameserverPolicy(dnsConfig.nameserverPolicy)" @blur="updateNameserverPolicy" rows="4" :placeholder="t('settings.dns.nameserverPolicyPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
+        </div>
+        <div class="divider"></div>
 
+        <div class="setting-item" id="set-dns-fallbackGeoip">
+          <div class="info"><h4>{{ t('settings.dns.fallbackGeoip') }}</h4></div>
+          <label class="modern-switch">
+            <input type="checkbox" v-model="dnsConfig.fallbackFilter.geoip" @change="saveDns" :disabled="!dnsConfig.enable || loading">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="divider"></div>
+
+        <div class="setting-item" id="set-dns-geoipCode">
+          <div class="info"><h4>{{ t('settings.dns.geoipCode') }}</h4></div>
+          <input type="text" class="modern-input" v-model="dnsConfig.fallbackFilter.geoipCode" @blur="saveDns" :disabled="!dnsConfig.enable || !dnsConfig.fallbackFilter.geoip || loading" :placeholder="t('settings.dns.defaultCnPlaceholder')" />
+        </div>
+        <div class="divider"></div>
+
+        <div class="setting-item col-item" id="set-dns-fallbackIpCidr">
+          <div class="info"><h4>{{ t('settings.dns.fallbackIpCidr') }}</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.fallbackFilter.ipcidr || []).join('\n')" @blur="updateFallbackFilterIpcidr" rows="3" :placeholder="t('settings.dns.fallbackIpCidrPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
+        </div>
+        <div class="divider"></div>
+
+        <div class="setting-item col-item" id="set-dns-fallbackDomain">
+          <div class="info"><h4>{{ t('settings.dns.fallbackDomain') }}</h4></div>
+          <textarea class="modern-textarea" :value="(dnsConfig.fallbackFilter.domain || []).join('\n')" @blur="updateFallbackFilterDomain" rows="3" :placeholder="t('settings.dns.fallbackDomainPlaceholder')" :disabled="!dnsConfig.enable || loading"></textarea>
+        </div>
+
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
-import * as API from '../../wailsjs/go/main/App';
+import { App } from '../api';
 import { ICONS } from '../utils/icons';
 import ModernSelect from './ModernSelect.vue';
 import { t } from '../locales';
+import { showAlert } from '../store';
+import { toUserError } from '../utils/errors';
+import { reportError } from '../utils/report';
 
 const props = defineProps<{ resetKey: number }>();
 
@@ -214,18 +219,28 @@ const dnsConfig = ref<any>({
 const loadData = async () => {
   loading.value = true;
   try {
-    const dnsConf = await (API.GetDNSConfig as any)();
+    const dnsConf = await App.GetDNSConfig();
     if (dnsConf) dnsConfig.value = dnsConf;
   } catch (e) {
-    console.error('加载配置失败', e);
+    reportError(e, 'dns.load');
   } finally {
-    loading.value = false;
+    // 必须等浏览器真正绘制一帧（rAF）后再解除 no-anim。
+    // 若用 nextTick，解除发生在绘制之前，浏览器首次绘制时 transition 已恢复，
+    // 会把"默认值→真实值"当成状态变化播成滑动动画，抑制形同无效。
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => { loading.value = false; });
+    });
   }
 };
 
 const saveDns = async () => {
   if (loading.value) return;
-  try { await (API.SaveDNSConfig as any)(dnsConfig.value); } catch (e) { console.error('DNS 保存失败', e); }
+  try {
+    await App.SaveDNSConfig(dnsConfig.value);
+  } catch (e) {
+    const u = toUserError(e);
+    void showAlert(u.message, t('common.error'), true, u.detail);
+  }
 };
 
 const updateDnsArray = (e: Event, key: string) => {
@@ -282,32 +297,31 @@ watch(() => props.resetKey, () => { void loadData(); });
 </script>
 
 <style scoped>
-.settings-page { display: flex; flex-direction: column; flex: 1; min-height: 100%; overflow: visible; }
+.settings-page { flex: 1 1 auto; min-width: 0; }
 .setting-group { padding: 20px 24px; margin-bottom: 12px; }
-.setting-group.scrollable { padding-bottom: 20px; overflow: visible; max-height: none; }
+.setting-group.scrollable { padding-bottom: 20px; }
 h3 { margin: 0 0 8px 0; color: var(--text-main); font-size: 1.25rem; padding-bottom: 4px; }
 h4 { margin: 0 0 6px 0; color: var(--text-main); font-size: 1rem;}
 p { margin: 0; font-size: 0.85rem; color: var(--text-sub); max-width: 100%; line-height: 1.5; }
 .info { flex: 1; padding-right: 24px; min-width: 0; }
 .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; }
 .col-item { flex-direction: column; align-items: stretch; gap: 10px; padding: 16px 0; }
-.divider { height: 1px; background: var(--glass-border); opacity: 0.5; margin: 0; }
-.modern-input, .modern-textarea { background: var(--surface-hover); border: none; color: var(--text-main); padding: 10px 14px; border-radius: 8px; outline: none; font-size: 0.9rem; }
+.divider { height: 1px; background: var(--ui-border-subtle); opacity: 0.5; margin: 0; }
+.modern-input, .modern-textarea { background: var(--ui-surface-hover); border: none; color: var(--text-main); padding: 10px 14px; border-radius: 8px; outline: none; font-size: 0.9rem; }
 .modern-input { text-align: right; }
 .modern-textarea { resize: vertical; font-family: monospace; font-size: 0.85rem; line-height: 1.5; text-align: left; }
 .modern-input:disabled, .modern-textarea:disabled { opacity: 0.5; cursor: not-allowed; }
 .modern-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
 .modern-switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--surface-hover); transition: .3s; border-radius: 24px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--ui-surface-hover); transition: .3s; border-radius: 24px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
 .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3);}
 input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
-input:checked + .slider { background-color: var(--accent); }
-input:checked + .slider:before { transform: translateX(20px); background-color: var(--accent-fg); }
+input:checked + .slider { background-color: var(--ui-accent-block); }
+input:checked + .slider:before { transform: translateX(20px); background-color: var(--ui-accent-fg); }
 .sub-header { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; padding: 0 0 12px 0; background: transparent; }
-.sub-header.page-sticky-mask { --sticky-mask-bleed: 4px; }
 .sub-header h3 { margin: 0; border: none; padding: 0; }
 .back-btn { background: var(--surface); border: none; color: var(--text-main); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; }
-.back-btn:hover { background: var(--surface-hover); }
+.back-btn:hover { background: var(--ui-surface-hover); }
 .section-header { display: flex; justify-content: space-between; align-items: center; }
 .sub-header.section-header h3 { flex: 1; margin-left: 12px; }
 .mini-btn-reset { height: 36px !important; padding: 0 14px !important; font-size: 0.85rem !important; border-radius: 8px !important; }

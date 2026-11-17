@@ -1,8 +1,10 @@
 <template>
-  <div class="overview-layout">
-    <section class="hero-panel card-panel">
+  <div class="overview-layout ui-page-shell">
+    <!-- 唯一滚动区：以下所有面板都在 body 内滚动，页面头由外层 App 提供 -->
+    <div class="overview-body ui-page-body">
+    <section class="hero-panel ui-surface-card">
       <div class="status-core">
-        <div class="restart-trigger" :class="{ 'is-loading': isRestarting }" @click="handleRestartCore" :title="t('overview.restartCoreTitle')">
+        <div class="restart-trigger ui-hover-surface" :class="{ 'is-loading': isRestarting }" @click="handleRestartCore" :title="t('overview.restartCoreTitle')">
           <div class="orb-visual" v-show="!isRestarting">
             <div class="orb" :class="{ 'active': consoleServiceOn }"></div>
             <div class="orb-glow" v-if="consoleServiceOn"></div>
@@ -27,7 +29,7 @@
     </section>
 
     <section class="switch-row">
-      <div class="action-card" :class="{ 'on': sysProxyCardOn }" @click="toggleSysProxy">
+      <div class="action-card ui-surface-card" :class="{ 'on': sysProxyCardOn }" @click="toggleSysProxy">
         <div class="card-content">
           <div class="icon-ring" v-html="ICONS.sysProxy"></div>
           <div class="text-group">
@@ -38,7 +40,7 @@
         <div class="status-node"></div>
       </div>
 
-      <div class="action-card" :class="{ 'on': tunCardOn }" @click="toggleTun">
+      <div class="action-card ui-surface-card" :class="{ 'on': tunCardOn }" @click="toggleTun">
         <div class="card-content">
           <div class="icon-ring" v-html="ICONS.tun"></div>
           <div class="text-group">
@@ -50,11 +52,11 @@
       </div>
     </section>
 
-    <section class="mode-section rules-card">
+    <section class="mode-section rules-card ui-surface-card">
       <div class="rules-head">
         <h3 class="section-heading">{{ t('overview.outboundRules') }}</h3>
       </div>
-      <div class="segmented-control">
+      <div class="segmented-control ui-surface-control">
         <div v-for="m in modes" :key="m.val" class="seg-item" :class="{ active: globalState.mode === m.val }" @click="handleModeChange(m.val)">
           {{ m.label }}
         </div>
@@ -63,15 +65,18 @@
     </section>
 
     <TrafficCard :traffic="traffic" />
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue';
-import * as API from '../../wailsjs/go/main/App';
-import { globalState, showAlert, showConfirm, updateStateFromBackend, settleSystemProxyIntent, settleTunIntent, setSystemProxyIntent, setTunIntent } from '../store';
+import { App } from '../api';
+import { globalState, showAlert, showToast, showConfirm, updateStateFromBackend, settleSystemProxyIntent, setSystemProxyIntent } from '../store';
 import { ICONS } from '../utils/icons';
+import { classifyError, displayErrorMessage, toUserError } from '../utils/errors';
 import { t } from '../locales';
+import { useTunToggle } from '../composables/useTunToggle';
 import TrafficCard from './TrafficCard.vue';
 
 defineProps<{
@@ -162,9 +167,23 @@ const consoleServiceTitleRaw = computed(() => {
 // Stable target states ('接管中', '代理中', '服务停止') are applied instantly.
 const stableTitle = ref(consoleServiceTitleRaw.value);
 let titleTimer: ReturnType<typeof setTimeout> | null = null;
+// 只有瞬时态（启动中/停止中/重启中）才延迟 200ms 上屏，终态一律立即生效：
+// 这样 watchdog 抖动造成的 actualTun 瞬时 false 不会闪进 DOM，也不会拖慢「已接管」的反馈。
+const TITLE_SETTLE_MS = 200;
+const isTransientTitle = (label: string) =>
+  label === t('overview.statusStarting') ||
+  label === t('overview.statusStopping') ||
+  label === t('overview.statusRestarting');
 watch(consoleServiceTitleRaw, (newTitle) => {
   if (titleTimer !== null) { clearTimeout(titleTimer); titleTimer = null; }
-  stableTitle.value = newTitle;
+  if (!isTransientTitle(newTitle)) {
+    stableTitle.value = newTitle;
+    return;
+  }
+  titleTimer = setTimeout(() => {
+    titleTimer = null;
+    stableTitle.value = newTitle;
+  }, TITLE_SETTLE_MS);
 });
 const consoleServiceTitle = stableTitle;
 
@@ -179,12 +198,13 @@ const handleRestartCore = async () => {
   if (!ok) return;
   isRestarting.value = true;
   try {
-    await (API as any).RestartCore();
+    await App.RestartCore();
     isRestarting.value = false;
-    await showAlert(t('overview.restartSuccess'), t('common.success'));
+    showToast(t('overview.restartSuccess'), 'success');
   } catch (e) {
     isRestarting.value = false;
-    await showAlert(t('overview.restartError', { error: String(e) }), t('common.error'));
+    const u = toUserError(e);
+    await showAlert(u.message, t('common.error'), true, u.detail);
   }
 };
 
@@ -220,15 +240,18 @@ const toggleSysProxy = async () => {
   globalState.systemProxyPending = true;
 
   try {
-    await API.ToggleSystemProxy(target);
-    const latest = await (API as any).GetAppState().catch(() => null);
+    await App.ToggleSystemProxy(target);
+    const latest = await App.GetAppState().catch(() => null);
     if (latest) updateStateFromBackend(latest);
   } catch (err: any) {
-    const msg = String(err?.message || err || '');
-    if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
+    // 语义判定走 classifyError，不再用文案 includes 猜
+    const cls = classifyError(err);
+    if (cls.kind === 'no_active_config') {
       showAlert(`${t('overview.errNoConfigTitle')}\n\n${t('overview.errNoConfigMsg')}`, t('common.notice'));
     } else {
-      showAlert(t('overview.errToggleProxy', { error: msg }), t('common.error'), true);
+      // 文案走 errors.ts 的人话映射；用现成的 errToggleProxy 句位补上「系统代理切换失败」上下文
+      const u = toUserError(err);
+      showAlert(t('overview.errToggleProxy', { error: displayErrorMessage(err) }), t('common.error'), true, u.detail);
     }
   } finally {
     globalState.systemProxyPending = false;
@@ -243,55 +266,13 @@ const toggleSysProxy = async () => {
   }
 };
 
+// TUN 开关：统一实现（与「设置→TUN」共用），见 composables/useTunToggle.ts
+// pending 管理、classifyError 分支、helper/驱动引导、错误展示全部收敛在那里，
+// 这里只保留页面自己的视觉（卡片亮灭由 globalState.tun 驱动）。
+const { toggle: toggleTunState } = useTunToggle();
+
 const toggleTun = async () => {
-  if (globalState.tunPending) return;
-
-  const target = !globalState.tun;
-
-  setTunIntent(target);
-  globalState.tunPending = true;
-
-  try {
-    await API.ToggleTunMode(target);
-    const latest = await (API as any).GetAppState().catch(() => null);
-    if (latest) updateStateFromBackend(latest);
-  } catch (err: any) {
-    const msg = String(err?.message || err || '');
-
-    if (msg.includes('helper_install_required') || msg.includes('helper_repair_required')) {
-      const confirmed = await showConfirm(
-        t('overview.tunHelperConfirm'),
-        t('overview.tunHelperTitle')
-      );
-
-      if (confirmed) {
-        try {
-          await (API as any).InstallHelperService();
-          await API.ToggleTunMode(target);
-          const latest = await (API as any).GetAppState().catch(() => null);
-          if (latest) updateStateFromBackend(latest);
-          return;
-        } catch (e: any) {
-          showAlert(t('overview.errInstallHelper', { error: String(e?.message || e) }), t('common.error'), true);
-          return;
-        }
-      }
-
-      return;
-    }
-
-    if (msg.includes('no active config selected') || msg.includes('ErrNoActiveConfig')) {
-      showAlert(`${t('overview.errNoConfigTitle')}\n\n${t('overview.errNoConfigMsg')}`, t('common.notice'));
-    } else if (msg.includes('wintun_missing') || msg.includes('Wintun')) {
-      showAlert(t('overview.errWintunMissing'), t('common.error'), true);
-    } else {
-      showAlert(t('overview.errToggleTun', { error: msg }), t('common.error'), true);
-    }
-  } finally {
-    globalState.tunPending = false;
-    if (target === false) globalState.desiredTun = false;
-    settleTunIntent();
-  }
+  await toggleTunState();
 };
 
 // ==========================================
@@ -318,12 +299,14 @@ const handleModeChange = (val: string) => {
 const runModeWorker = async (targetMode: string) => {
   modeWorkerActive = true;
   try {
-    await API.UpdateClashMode(targetMode);
-    const latest = await (API as any).GetAppState();
+    await App.UpdateClashMode(targetMode);
+    const latest = await App.GetAppState();
     updateStateFromBackend(latest);
   } catch (err) {
     globalState.mode = previousMode;
-    await showAlert(t('overview.errSwitchMode', { error: String(err) }), t('common.error'));
+    // F-A4-13：人话进 i18n 槽位、原始文本进 detail，标题不再被长错误撑开
+    const u = toUserError(err);
+    await showAlert(t('overview.errSwitchMode', { error: displayErrorMessage(err) }), t('common.error'), true, u.detail);
   } finally {
     if (pendingModeTarget !== null && pendingModeTarget !== targetMode) {
       const next = pendingModeTarget;
@@ -338,48 +321,80 @@ const runModeWorker = async (targetMode: string) => {
 </script>
 
 <style scoped>
-.overview-layout { display: flex; flex-direction: column; gap: 24px; min-height: 100%; overflow: visible; }
-.hero-panel { padding: 28px 24px; background: var(--surface); border-radius: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: center; box-shadow: 0 4px 20px rgba(0,0,0,0.03); }
-.status-core { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; }
-.restart-trigger { position: absolute; left: 10px; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 50%; transition: 0.3s; }
-.restart-trigger:hover { background: var(--surface-hover); }
+.overview-layout {
+  /* PageShell：外层视图容器已提供确定高度，这里只负责撑满 */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.overview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.hero-panel { padding: 28px 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: center; }
+/* 状态块：按钮回到正常文档流，用两列网格与文字并排。
+   之前按钮是绝对定位、文字居中，状态文字一长（"内核重启中…"）就会滑到圆环下面压字。 */
+/* 状态块做成"图标 + 文字"的居中整体：
+   1) 按钮回到正常文档流，文字不会滑到圆环下面（重叠的根因）；
+   2) 整组在左半格里水平居中，与右侧「活动配置」的居中基线一致；
+   3) 文字块给一个最小宽度，状态文案变化时图标不会左右跳动。 */
+.status-core {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  width: 100%;
+}
+.restart-trigger { position: relative; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 50%; transition: 0.3s; }
 .restart-trigger.is-loading { cursor: not-allowed; pointer-events: none; }
 .orb-visual { position: relative; width: 10px; height: 10px; z-index: 2; transition: all 0.3s cubic-bezier(0.4,0,0.2,1); }
 .orb { width: 100%; height: 100%; border-radius: 50%; background: var(--text-muted); transition: 0.4s; }
-.orb.active { background: var(--text-main); box-shadow: 0 0 10px var(--text-main); }
-.orb-glow { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 50%; background: var(--text-main); animation: pulse 2s infinite; }
+/* 圆点用稀释版强调色：玻璃下满强度会让它从材质里"跳"出来。
+   运行/熄灭的区分靠颜色档位 + 静态辉光 + 脉冲扩散三件一起。 */
+.orb.active { background: var(--ui-accent-block); box-shadow: 0 0 10px var(--ui-accent); }
+/* 呼吸灯的晕圈：实心色块 + 外缘渐隐，而不是整块均匀圆盘。
+   关键是渐变长度 —— radial-gradient(circle, ...) 的百分比基准是 farthest-corner
+   （10px 见方约 7.07px），所以 60% 只到 4.2px：元素放大 2.5 倍后是 10.6px，
+   仍大于圆点自身 5px 的半径。也就是说「圆点之外那一段」承载的是满 alpha 的强调色，
+   虚环才有实体感；再把 100% 处收成透明，边缘就不会像原来那样硬切。
+   （第一版把透明点写在 72%，正好压在圆点边缘上，圆点外面全是透明的，环就没了。）
+   z-index:-1 让晕圈从圆点背后扩散，圆点本身不被染色，起始那一帧也不会闪。
+   渐变用的是纯强调色，深浅主题都成立：深色下是浅色光环，浅色下是深色涟漪。 */
+.orb-glow { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 50%; z-index: -1; background: radial-gradient(circle, var(--ui-accent) 0%, var(--ui-accent) 60%, transparent 100%); animation: pulse 2s infinite; pointer-events: none; }
 .refresh-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%) rotate(-90deg); width: 44px; height: 44px; opacity: 0.6; transition: all 0.4s cubic-bezier(0.4,0,0.2,1); }
-.scanner-track { fill: none; stroke: var(--surface-hover); stroke-width: 2.5; }
+.scanner-track { fill: none; stroke: var(--ui-surface-hover); stroke-width: 2.5; }
 .scanner-bar { fill: none; stroke: var(--text-muted); stroke-width: 2.5; transition: all 0.4s cubic-bezier(0.4,0,0.2,1); stroke-dasharray: 62.8; stroke-dashoffset: 62.8; }
 .restart-trigger:hover:not(.is-loading) .refresh-icon { opacity: 1; transform: translate(-50%,-50%) rotate(90deg); }
 .restart-trigger:hover:not(.is-loading) .scanner-bar { stroke: var(--text-main); stroke-dashoffset: 20; }
 .refresh-icon.spin { opacity: 1; animation: spin-centered 1.2s linear infinite; }
-.refresh-icon.spin .scanner-bar { stroke: var(--accent); stroke-dasharray: 62.8; animation: scan-dash 1.2s infinite ease-in-out; }
+.refresh-icon.spin .scanner-bar { stroke: var(--ui-accent); stroke-dasharray: 62.8; animation: scan-dash 1.2s infinite ease-in-out; }
 @keyframes spin-centered { 0%{transform:translate(-50%,-50%) rotate(-90deg)} 100%{transform:translate(-50%,-50%) rotate(270deg)} }
 @keyframes scan-dash { 0%{stroke-dashoffset:60} 50%{stroke-dashoffset:15} 100%{stroke-dashoffset:60} }
-.status-meta { display: flex; flex-direction: column; align-items: center; text-align: center; }
+/* 与右侧「活动配置」同一条左基线：两栏文字都左对齐，视觉上才是一个整体 */
+.status-meta { display: flex; flex-direction: column; align-items: flex-start; text-align: left; min-width: 216px; }
 .micro-title { font-size: 0.85rem; font-weight: 700; color: var(--text-sub); letter-spacing: 0.02em; margin-bottom: 8px; }
-.status-heading { font-size: 1.6rem; font-weight: 600; margin: 0; line-height: 1.2; color: var(--text-main); }
+.status-heading { font-size: 1.6rem; font-weight: 600; margin: 0; line-height: 1.2; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .version-tag { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-sub); opacity: 0.8; margin-top: 8px; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .active-config-display { text-align: center; min-width: 0; display: flex; flex-direction: column; align-items: center; }
 .active-config-display .config-name { font-size: 1.1rem; font-weight: 700; color: var(--text-main); }
 .switch-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.action-card { padding: 20px 24px; background: var(--surface); border: none; border-radius: 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s cubic-bezier(0.4,0,0.2,1); }
-.action-card.on { background: var(--accent); }
-.icon-ring { width: 40px; height: 40px; border-radius: 12px; background: var(--surface-hover); display: flex; align-items: center; justify-content: center; color: var(--text-sub); transition: 0.3s; }
+.action-card { padding: 20px 24px; border: none; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s cubic-bezier(0.4,0,0.2,1); }
+.action-card.on { background: var(--ui-accent-block); }
+.icon-ring { width: 40px; height: 40px; border-radius: 12px; background: var(--ui-surface-hover); display: flex; align-items: center; justify-content: center; color: var(--ui-text-secondary); transition: 0.3s; }
 .icon-ring :deep(svg) { width: 22px; height: 22px; }
-.on .icon-ring { background: rgba(128,128,128,0.25) !important; color: var(--accent-fg); }
+.on .icon-ring { background: color-mix(in srgb, var(--ui-accent-fg) 25%, transparent) !important; color: var(--ui-accent-fg); }
 .card-title { display: block; font-size: 1rem; font-weight: 600; margin-bottom: 2px; color: var(--text-main); }
 .card-hint { font-size: 0.75rem; color: var(--text-sub); }
-.on .card-title { color: var(--accent-fg); }
-.on .card-hint { color: var(--accent-fg); opacity: 0.7; }
+.on .card-title { color: var(--ui-accent-fg); }
+.on .card-hint { color: var(--ui-accent-fg); opacity: 0.7; }
 .status-node { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
-.on .status-node { background: var(--accent-fg); box-shadow: 0 0 8px var(--accent-fg); }
-.rules-card { padding: 24px 28px; background: var(--surface); border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); display: flex; flex-direction: column; gap: 20px; }
+.on .status-node { background: var(--ui-accent-fg); box-shadow: 0 0 8px var(--ui-accent-fg); }
+.rules-card { padding: 24px 28px; display: flex; flex-direction: column; gap: 20px; }
 .rules-head { display: flex; align-items: center; justify-content: space-between; }
-.segmented-control { background: var(--surface-panel); padding: 4px; border-radius: 12px; display: flex; position: relative; border: none; overflow: hidden; }
+/* 分段控件：控件凹槽 surface 由 .ui-surface-control 提供（无圆角），这里只负责布局与形状 */
+.segmented-control { padding: 4px; border-radius: 12px; display: flex; position: relative; border: none; overflow: hidden; }
 .seg-item { flex: 1; text-align: center; padding: 10px 4px; min-height: 40px; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: 600; color: var(--text-main); cursor: pointer; z-index: 1; transition: 0.3s; word-break: keep-all; }
-.seg-item.active { color: var(--accent-fg); }
-.seg-slider { position: absolute; top: 4px; bottom: 4px; width: calc(33.33% - 8px); margin-left: 4px; background: var(--text-main); border-radius: 8px; z-index: 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1); transition: left 0.3s cubic-bezier(0.4,0,0.2,1); }
+.seg-item.active { color: var(--ui-accent-fg); }
+.seg-slider { position: absolute; top: 4px; bottom: 4px; width: calc(33.33% - 8px); margin-left: 4px; background: var(--ui-accent-block); border-radius: 8px; z-index: 0; transition: left 0.3s cubic-bezier(0.4,0,0.2,1); }
 </style>

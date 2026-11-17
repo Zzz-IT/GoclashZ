@@ -3,7 +3,9 @@
 package clash
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
+
+	jsonutil "goclashz/core/jsonutil"
 	"goclashz/core/utils"
 	"os"
 	"path/filepath"
@@ -42,14 +44,14 @@ func LoadIndex() error {
 		SubIndex = []SubIndexItem{}
 		return nil
 	}
-	return json.Unmarshal(data, &SubIndex)
+	return jsonv2.Unmarshal(data, &SubIndex)
 }
 
 // SaveIndex 保存到本地 (原子写入版)
 func SaveIndex() error {
 	// 1. 内存极速序列化阶段（仅锁内存）
 	IndexLock.RLock()
-	data, err := json.MarshalIndent(SubIndex, "", "  ")
+	data, err := jsonutil.MarshalIndent(SubIndex, "", "  ")
 	IndexLock.RUnlock()
 
 	if err != nil {

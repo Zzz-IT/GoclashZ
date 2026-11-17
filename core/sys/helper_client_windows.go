@@ -3,9 +3,12 @@
 package sys
 
 import (
-	"encoding/json"
+	"context"
+	jsonv2 "encoding/json/v2"
+
 	"errors"
 	"fmt"
+	jsonutil "goclashz/core/jsonutil"
 	"os"
 	"time"
 
@@ -16,6 +19,15 @@ import (
 
 const (
 	helperConnectTimeout = 150 * time.Millisecond
+
+	// startCoreRPCTimeout 覆盖 helper 侧「清理旧内核（Kill + 等待退出）+ 启动新内核」的耗时。
+	// 必须 ≥ helper 端 handlerTimeout("start-core")=25s，否则客户端会先放弃、
+	// 而 helper 其实已经把内核拉起来（F-A2-11）。
+	startCoreRPCTimeout = 25 * time.Second
+
+	// replaceCoreFileRPCTimeout 覆盖 helper 侧「备份 + 复制 61MB + rename」的完整耗时，
+	// 以及 install-wintun 前的优雅停止内核（F-A5-12）。
+	replaceCoreFileRPCTimeout = 60 * time.Second
 )
 
 // getMethodTimeout 根据方法返回不同的请求超时
@@ -27,10 +39,23 @@ func getMethodTimeout(method string) time.Duration {
 		return 500 * time.Millisecond
 	case "register-parent":
 		return 500 * time.Millisecond
-	case "start-core", "stop-core":
-		return 3 * time.Second
-	default:
+	case "start-core":
+		return startCoreRPCTimeout
+	case "stop-core":
+		// helper 会先发 CTRL_BREAK 等内核优雅退出（预算 20s，可配置），
+		// 超时才强杀并等待退出确认；客户端预算必须不小于 helper 的完整预算。
+		return HelperStopCoreRPCTimeout()
+	case "replace-core-file", "install-wintun":
+		// 61MB 复制 + rename，install-wintun 还要先优雅停止内核（F-A5-12）。
+		return replaceCoreFileRPCTimeout
+	case "repair-permission":
+		// icacls /T 遍历整个数据目录。
+		return 30 * time.Second
+	case "shutdown":
 		return 10 * time.Second
+	default:
+		// 未知方法保守给 5s：以前统一吃 10s，会让"假死"更难被快速发现。
+		return 5 * time.Second
 	}
 }
 
@@ -74,7 +99,7 @@ func (c *HelperClient) Shutdown() error {
 // 若主进程被强行终止且超过宽限期（8s）未恢复，helper 将自动退出。
 // 错误不影响功能，调用方可忽略。
 func (c *HelperClient) RegisterParent(pid int) error {
-	data, _ := json.Marshal(map[string]int{"pid": pid})
+	data, _ := jsonv2.Marshal(map[string]int{"pid": pid})
 	resp, err := c.sendRequest("register-parent", data)
 	if err != nil {
 		return fmt.Errorf("helper register-parent failed: %w", err)
@@ -87,7 +112,7 @@ func (c *HelperClient) RegisterParent(pid int) error {
 
 // StartCore 通过 helper 启动内核进程
 func (c *HelperClient) StartCore(params StartCoreParams) error {
-	data, err := json.Marshal(params)
+	data, err := jsonv2.Marshal(params)
 	if err != nil {
 		return err
 	}
@@ -113,25 +138,46 @@ func (c *HelperClient) StopCore() error {
 	return nil
 }
 
+// CoreStatusDetail 在 CoreStatusData 之上追加内核退出信息（F-A3-04）。
+//
+// helper 侧 core-status 只加了字段（exitCode/exitAt/lastExitPid），
+// 因此这里用内嵌结构体承接，不必修改 helper_protocol.go 的既有类型。
+type CoreStatusDetail struct {
+	CoreStatusData
+
+	// ExitCode 是最近一次内核退出的退出码（仅当 helper 报告过退出时有效）。
+	ExitCode int `json:"exitCode,omitzero"`
+	// ExitAt 是最近一次内核退出时间（RFC3339Nano）。
+	ExitAt string `json:"exitAt,omitempty"`
+	// LastExitPID 是最近一次退出的内核 PID，便于与日志里的 pid 对齐。
+	LastExitPID int `json:"lastExitPid,omitzero"`
+}
+
 // CoreStatus 查询内核运行状态
 func (c *HelperClient) CoreStatus() (CoreStatusData, error) {
-	var status CoreStatusData
+	detail, err := c.CoreStatusDetail()
+	return detail.CoreStatusData, err
+}
+
+// CoreStatusDetail 查询内核运行状态，并带上最近一次退出的退出码/时间。
+func (c *HelperClient) CoreStatusDetail() (CoreStatusDetail, error) {
+	var detail CoreStatusDetail
 	resp, err := c.sendRequest("core-status", nil)
 	if err != nil {
-		return status, fmt.Errorf("helper core-status failed: %w", err)
+		return detail, fmt.Errorf("helper core-status failed: %w", err)
 	}
 	if !resp.OK {
-		return status, fmt.Errorf("helper core-status error: %s", resp.Error)
+		return detail, fmt.Errorf("helper core-status error: %s", resp.Error)
 	}
-	if err := json.Unmarshal(resp.Data, &status); err != nil {
-		return status, fmt.Errorf("helper core-status decode failed: %w", err)
+	if err := jsonv2.Unmarshal(resp.Data, &detail); err != nil {
+		return detail, fmt.Errorf("helper core-status decode failed: %w", err)
 	}
-	return status, nil
+	return detail, nil
 }
 
 // RepairPermission 通过 helper 修复数据目录权限
 func (c *HelperClient) RepairPermission(dataDir string) error {
-	data, _ := json.Marshal(map[string]string{"dataDir": dataDir})
+	data, _ := jsonv2.Marshal(map[string]string{"dataDir": dataDir})
 	resp, err := c.sendRequest("repair-permission", data)
 	if err != nil {
 		return fmt.Errorf("helper repair-permission failed: %w", err)
@@ -144,7 +190,7 @@ func (c *HelperClient) RepairPermission(dataDir string) error {
 
 // ReplaceCoreFile 通过 helper 替换核心文件
 func (c *HelperClient) ReplaceCoreFile(params ReplaceCoreFileParams) error {
-	data, err := json.Marshal(params)
+	data, err := jsonv2.Marshal(params)
 	if err != nil {
 		return err
 	}
@@ -160,7 +206,7 @@ func (c *HelperClient) ReplaceCoreFile(params ReplaceCoreFileParams) error {
 
 // InstallWintun 通过 helper 安装 Wintun 驱动文件
 func (c *HelperClient) InstallWintun(source, target string) error {
-	data, err := json.Marshal(InstallWintunParams{Source: source, Target: target})
+	data, err := jsonv2.Marshal(InstallWintunParams{Source: source, Target: target})
 	if err != nil {
 		return err
 	}
@@ -175,7 +221,7 @@ func (c *HelperClient) InstallWintun(source, target string) error {
 }
 
 // sendRequest 通过 Named Pipe 发送请求并等待响应
-func (c *HelperClient) sendRequest(method string, params json.RawMessage) (*HelperResponse, error) {
+func (c *HelperClient) sendRequest(method string, params jsonutil.RawMessage) (*HelperResponse, error) {
 	timeout := helperConnectTimeout
 	conn, err := winio.DialPipe(c.pipeName, &timeout)
 	if err != nil {
@@ -192,12 +238,12 @@ func (c *HelperClient) sendRequest(method string, params json.RawMessage) (*Help
 		Params: params,
 	}
 
-	encoder := json.NewEncoder(conn)
+	encoder := jsonutil.NewEncoder(conn)
 	if err := encoder.Encode(req); err != nil {
 		return nil, fmt.Errorf("encode request failed: %w", err)
 	}
 
-	decoder := json.NewDecoder(conn)
+	decoder := jsonutil.NewDecoder(conn)
 	var resp HelperResponse
 	if err := decoder.Decode(&resp); err != nil {
 		return nil, fmt.Errorf("decode response failed: %w", err)
@@ -294,6 +340,17 @@ func InstallOrRepairHelperServiceForUser(exePath string, userSID string) error {
 
 // RecoverHelperServiceForUser 强修复 Helper 服务
 func RecoverHelperServiceForUser(exePath string, userSID string) error {
+	// 兼容旧调用点：整条修复链路（停止 → 安装 → 启动重试 → 重建 → 就绪等待）
+	// 给一个总预算，避免旧调用点传入的仍是「无限等」。
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	return RecoverHelperServiceForUserCtx(ctx, exePath, userSID)
+}
+
+// RecoverHelperServiceForUserCtx 是可取消版本（F-A0-05）：
+// 每一处固定等待都换成 sleepCtx，并且在每个重试阶段落日志，
+// 让「服务修复到底卡在哪一步」可以在日志里复盘。
+func RecoverHelperServiceForUserCtx(ctx context.Context, exePath string, userSID string) error {
 	if !CheckAdmin() {
 		return fmt.Errorf("需要管理员权限修复 Helper 服务")
 	}
@@ -302,27 +359,33 @@ func RecoverHelperServiceForUser(exePath string, userSID string) error {
 		return fmt.Errorf("helper 程序不存在: %s: %w", exePath, err)
 	}
 
-	_ = StopHelperService()
+	_ = StopHelperServiceCtx(ctx)
 
 	if err := InstallOrRepairHelperServiceForUser(exePath, userSID); err != nil {
 		return fmt.Errorf("安装/修复 Helper 服务失败: %w", err)
 	}
 
-	if err := StartHelperService(); err != nil {
+	if err := StartHelperServiceCtx(ctx); err != nil {
+		logger.Warnf("helper 服务首次启动失败，重试一次: %v", err)
 		// 再试一次停止 + 启动，不要立即 delete。
-		_ = StopHelperService()
-		time.Sleep(500 * time.Millisecond)
+		_ = StopHelperServiceCtx(ctx)
+		if !sleepCtx(ctx, 500*time.Millisecond) {
+			return fmt.Errorf("重启 helper 服务等待被取消: %w", ctx.Err())
+		}
 
-		if err2 := StartHelperService(); err2 != nil {
+		if err2 := StartHelperServiceCtx(ctx); err2 != nil {
+			logger.Warnf("helper 服务第二次启动仍失败，尝试重建服务: %v", err2)
 			// 最后才尝试 delete/recreate。
-			if delErr := UninstallHelperService(); delErr == nil {
-				time.Sleep(1200 * time.Millisecond)
+			if delErr := UninstallHelperServiceCtx(ctx); delErr == nil {
+				if !sleepCtx(ctx, 1200*time.Millisecond) {
+					return fmt.Errorf("重建 helper 服务等待被取消: %w", ctx.Err())
+				}
 
 				if rebuildErr := InstallOrRepairHelperServiceForUser(exePath, userSID); rebuildErr != nil {
 					return fmt.Errorf("重建 Helper 服务失败: startErr=%v retryErr=%v rebuildErr=%w", err, err2, rebuildErr)
 				}
 
-				if startErr := StartHelperService(); startErr != nil {
+				if startErr := StartHelperServiceCtx(ctx); startErr != nil {
 					return fmt.Errorf("重建后启动 Helper 服务失败: first=%v retry=%v final=%w", err, err2, startErr)
 				}
 			} else {
@@ -331,7 +394,8 @@ func RecoverHelperServiceForUser(exePath string, userSID string) error {
 		}
 	}
 
-	if err := WaitForHelperReady(30, 300*time.Millisecond); err != nil {
+	if err := WaitForHelperReadyCtx(ctx, 30, 300*time.Millisecond); err != nil {
+		logger.Errorf("helper 服务修复后 30 次探测仍不可达: %v", err)
 		return fmt.Errorf("Helper 服务启动后不可达: %w", err)
 	}
 
@@ -355,31 +419,65 @@ func writeAllowedSidToRegistry(sid string) error {
 
 // UninstallHelperService 卸载 helper 服务（需要管理员权限）
 func UninstallHelperService() error {
-	_ = StopHelperService()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return UninstallHelperServiceCtx(ctx)
+}
+
+// UninstallHelperServiceCtx 是可取消版本（F-A0-05）。
+func UninstallHelperServiceCtx(ctx context.Context) error {
+	_ = StopHelperServiceCtx(ctx)
 	return uninstallServiceSCM(HelperServiceName)
 }
 
 // StartHelperService 启动 helper 服务（需要管理员权限）
 func StartHelperService() error {
-	return startServiceSCM(HelperServiceName)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return StartHelperServiceCtx(ctx)
+}
+
+// StartHelperServiceCtx 是可取消版本（F-A0-05）。
+func StartHelperServiceCtx(ctx context.Context) error {
+	return startServiceSCMCtx(ctx, HelperServiceName)
 }
 
 // StopHelperService 停止 helper 服务（需要管理员权限）
 func StopHelperService() error {
-	return stopServiceSCM(HelperServiceName)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return StopHelperServiceCtx(ctx)
+}
+
+// StopHelperServiceCtx 是可取消版本（F-A0-05）。
+func StopHelperServiceCtx(ctx context.Context) error {
+	return stopServiceSCMCtx(ctx, HelperServiceName)
 }
 
 // WaitForHelperReady 等待 helper 服务就绪
 func WaitForHelperReady(maxRetries int, interval time.Duration) error {
+	// 兼容旧调用点：总预算 = 轮询次数 × 间隔 + 每次 Ping 的最坏耗时余量。
+	budget := time.Duration(maxRetries)*interval + 30*time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
+	defer cancel()
+	return WaitForHelperReadyCtx(ctx, maxRetries, interval)
+}
+
+// WaitForHelperReadyCtx 是可取消版本：ctx 到期立即返回，
+// 不再「固定睡满 maxRetries 轮」而无法中断（F-A0-05）。
+func WaitForHelperReadyCtx(ctx context.Context, maxRetries int, interval time.Duration) error {
 	client := NewHelperClient()
 	for i := 0; i < maxRetries; i++ {
 		if i > 0 {
-			time.Sleep(interval)
+			if !sleepCtx(ctx, interval) {
+				return fmt.Errorf("等待 helper 服务就绪被取消: %w", ctx.Err())
+			}
 		}
 		if err := client.Ping(); err == nil {
 			logger.Infof("helper 服务就绪 (attempt %d/%d)", i+1, maxRetries)
 			return nil
 		}
 	}
+	logger.Warnf("helper 服务在 %d 次尝试（间隔 %s）后仍未就绪", maxRetries, interval)
 	return fmt.Errorf("helper 服务在 %d 次尝试后仍未就绪", maxRetries)
 }

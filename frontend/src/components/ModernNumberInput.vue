@@ -130,8 +130,8 @@ const onBlur = (e: Event) => {
 /* 悬停与点击的反色处理：极简体系下的硬核反馈 */
 .stepper-btn:hover:not(:disabled),
 .stepper-btn:active:not(:disabled) {
-  background-color: var(--text-main);
-  color: var(--app-bg);
+  background-color: var(--ui-accent-block);
+  color: var(--ui-accent-fg);
   transition: all 0.1s ease;
 }
 

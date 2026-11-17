@@ -3,7 +3,7 @@
 package clash
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"os"
 	"path/filepath"
 
@@ -173,7 +173,7 @@ func readLegacyRulesJson(path string) ([]string, error) {
 	}
 
 	var set CustomRuleSet
-	if err := json.Unmarshal(data, &set); err != nil {
+	if err := jsonv2.Unmarshal(data, &set); err != nil {
 		return nil, nil // corrupted, ignore and return nil
 	}
 	return set.CustomRules, nil

@@ -8,6 +8,7 @@ on:
 env:
   APP_TAG: ""
   APP_VERSION: ""
+  WAILS3_VERSION: "v3.1.0"
 
 permissions:
   contents: write
@@ -45,10 +46,21 @@ jobs:
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install Wails CLI
+      - name: Install Wails v3 CLI
         shell: pwsh
         run: |
-          go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+          # v3.1.0 CLI (the v2 CLI cannot build a v3 project)
+          # NOTE: quote the module@version argument; unquoted @$env:... risks being
+          # parsed as a PowerShell splat instead of a string expansion.
+          $ver = $env:WAILS3_VERSION
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@$ver"
+          if ($LASTEXITCODE -ne 0) { throw "go install wails3 failed" }
+
+          $gobin = Join-Path (go env GOPATH) "bin"
+          echo "$gobin" >> $env:GITHUB_PATH
+          echo "WAILS_BIN=$gobin" >> $env:GITHUB_ENV
+
+          & (Join-Path $gobin "wails3.exe") version
 
       - name: Install Inno Setup and 7-Zip
         shell: pwsh
@@ -60,23 +72,56 @@ jobs:
       - name: Patch version files
         shell: pwsh
         run: |
-          $version = "${env:APP_VERSION}"
-          ./scripts/set_version.ps1 -Version $version
+          # 同步 build/config.yml / core/version/version.go / build/windows/info.json /
+          # wails.exe.manifest / package.iss / frontend/package.json
+          ./scripts/set_version.ps1 -Version ${env:APP_VERSION}
 
       - name: Fetch runtime assets
         shell: pwsh
         run: |
           .\scripts\fetch_runtime_assets.ps1
 
+      - name: Generate v3 bindings
+        shell: pwsh
+        run: |
+          # frontend/bindings/goclashz (also regenerated as a build:frontend dependency,
+          # this step makes a failure obvious before the long build)
+          wails3 generate bindings -d frontend/bindings -ts
+          if ($LASTEXITCODE -ne 0) { throw "wails3 generate bindings failed" }
+          if (!(Test-Path "frontend/bindings")) { throw "frontend/bindings was not generated" }
+
       - name: Build Wails app
         shell: pwsh
         run: |
-          wails build -clean -platform windows/amd64
+          # wails3 build -> Taskfile: bindings -> frontend build -> go build -> bin/GoclashZ.exe
+          wails3 build
+          if ($LASTEXITCODE -ne 0) { throw "wails3 build failed" }
 
       - name: Build Helper service
         shell: pwsh
         run: |
-          go build -ldflags "-s -w" -o build/bin/GoclashZHelper.exe ./cmd/goclashz-helper/
+          go build -ldflags "-s -w" -o bin/GoclashZHelper.exe ./cmd/goclashz-helper/
+          if ($LASTEXITCODE -ne 0) { throw "helper build failed" }
+
+      - name: Validate build outputs
+        shell: pwsh
+        run: |
+          $exe = "bin/GoclashZ.exe"
+          if (!(Test-Path $exe)) { throw "Missing build output: $exe" }
+          if (!(Test-Path "bin/GoclashZHelper.exe")) { throw "Missing build output: bin/GoclashZHelper.exe" }
+
+          $vi = (Get-Item $exe).VersionInfo
+          "FileVersion   = $($vi.FileVersion)"
+          "ProductVersion= $($vi.ProductVersion)"
+          "ProductName   = $($vi.ProductName)"
+          "CompanyName   = $($vi.CompanyName)"
+
+          if ($vi.ProductVersion -notlike "${env:APP_VERSION}*") {
+            throw "ProductVersion '$($vi.ProductVersion)' does not match release version '${env:APP_VERSION}'"
+          }
+          if ($vi.ProductName -ne "GoclashZ") {
+            throw "ProductName '$($vi.ProductName)' is not GoclashZ"
+          }
 
       - name: Validate core files
         shell: pwsh
@@ -86,7 +131,14 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: |
-          ISCC.exe package.iss
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($null -eq $cmd) { throw "ISCC.exe not found" }
+            $iscc = $cmd.Source
+          }
+          & $iscc "/DMyAppVersion=${env:APP_VERSION}" "package.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
 
       - name: Prepare portable directory
         shell: pwsh
@@ -95,8 +147,8 @@ jobs:
           New-Item -ItemType Directory -Force "$root/seed/core/bin" | Out-Null
           New-Item -ItemType File -Force "$root/.portable" | Out-Null
 
-          Copy-Item "build/bin/GoclashZ.exe" "$root/GoclashZ.exe" -Force
-          Copy-Item "build/bin/GoclashZHelper.exe" "$root/GoclashZHelper.exe" -Force
+          Copy-Item "bin/GoclashZ.exe" "$root/GoclashZ.exe" -Force
+          Copy-Item "bin/GoclashZHelper.exe" "$root/GoclashZHelper.exe" -Force
           Copy-Item "build/runtime-assets/core/bin/*" "$root/seed/core/bin" -Recurse -Force
           if (Test-Path "build/runtime-assets/core/asset-manifest.json") {
             Copy-Item "build/runtime-assets/core/asset-manifest.json" "$root/seed/core/asset-manifest.json" -Force

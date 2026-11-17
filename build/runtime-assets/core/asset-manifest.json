@@ -1,45 +1,45 @@
 ﻿{
-    "generatedAt":  "2026-06-30T15:00:25.3854888Z",
+    "generatedAt":  "2026-11-17T18:34:33.9761651Z",
     "assets":  [
                    {
-                       "version":  "v1.19.27",
+                       "version":  "v1.19.34",
                        "name":  "clash.exe",
-                       "source":  "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.27/mihomo-windows-amd64-compatible-v1.19.27.zip",
+                       "source":  "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.34/mihomo-windows-amd64-compatible-v1.19.34.zip",
                        "path":  "core/bin/clash.exe",
-                       "sha256":  "58a8136fdb87d4eee7e3518041b0769cc5e673a7ca98dfc030f99a47ff49588f",
-                       "size":  47213056
+                       "sha256":  "5a0231811a80b27477ebdee15684b41946d01afbd2114534e9a4b256125ca147",
+                       "size":  61192704
                    },
                    {
                        "version":  "latest",
                        "name":  "geoip.metadb",
                        "source":  "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
                        "path":  "core/bin/geoip.metadb",
-                       "sha256":  "c4d8046166e57713268753904f5c30fbc607279741415569e4fc89cf25dae500",
-                       "size":  9031662
+                       "sha256":  "e0f647631561e651745c96c9b662b94083bca222ed7c68115df12a7184549803",
+                       "size":  8412142
                    },
                    {
                        "version":  "latest",
                        "name":  "geosite.dat",
                        "source":  "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
                        "path":  "core/bin/geosite.dat",
-                       "sha256":  "aff6b4ae278c819bec4cd3ddb68bffdaae7868169752a2f3858242c9613a7e3e",
-                       "size":  4211125
+                       "sha256":  "da31a791c71a9b5fd27e5f9ae060e6e07b37e324394098127c5ebda62c895654",
+                       "size":  4358194
                    },
                    {
                        "version":  "latest",
                        "name":  "country.mmdb",
                        "source":  "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
                        "path":  "core/bin/country.mmdb",
-                       "sha256":  "39916e4e76af601ee66c52627e5d6b4136ff82cec1fadcb5df48285d685c3633",
-                       "size":  8250535
+                       "sha256":  "bbedba6ef8584c484e35acdee4153ecf4bc9aa5e22b25d3982870ec1e780f681",
+                       "size":  7628821
                    },
                    {
                        "version":  "latest",
                        "name":  "asn.dat",
                        "source":  "https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
                        "path":  "core/bin/asn.dat",
-                       "sha256":  "bd537d584db70b5051f4d948e6a588d562ccc411bf629946287601232e10b40e",
-                       "size":  12310749
+                       "sha256":  "3dceeef0f161aee0b48a3e71dd538798f5d95e9f4c2e0bc35f1c62874e22a4d5",
+                       "size":  9065111
                    },
                    {
                        "version":  "0.14.1",

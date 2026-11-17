@@ -1,11 +1,11 @@
 <template>
-  <div class="connections-view">
-    <Transition name="slide-fade" mode="out-in">
+  <div class="connections-view ui-page-shell" :class="[edgeFadeAxis, { 'edge-fade-on': edgeFadeOn }]">
+    <Transition :name="detailTransition">
       <div v-if="!selectedConn" class="connections-list-wrapper">
         <Teleport v-if="titleTargetReady" to="#title-extra-target">
           <span v-if="connections.length > 0" class="conn-title-count">{{ t('connections.activeCount', { count: connections.length }) }}</span>
         </Teleport>
-        <div class="action-bar card-panel page-sticky-mask">
+        <div class="action-bar ui-page-header">
         <div class="conn-tabs-viewport">
           <div class="conn-tabs-track" ref="tabsTrackRef">
             <button :ref="(el) => { if (filterMode === 'all') connTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: filterMode === 'all' }]" @click="filterMode = 'all'">{{ t('connections.tabAll') }}</button>
@@ -26,12 +26,13 @@
         </div>
       </div>
 
-      <div class="scroll-content">
+      <div class="scroll-content ui-page-body">
         <div v-if="isLoading" class="empty-state">
           <p>{{ t('connections.loadingConns') }}</p>
         </div>
-        <div class="conn-grid" v-else-if="filteredConnections.length > 0">
-          <div v-for="conn in filteredConnections" :key="conn.id" class="conn-card" @click="openDetail(conn)">
+        <template v-else>
+          <TransitionGroup name="conn-card" tag="div" class="conn-grid" appear>
+            <div v-for="conn in filteredConnections" :key="conn.id" class="conn-card ui-surface-card ui-hover-surface" @click="openDetail(conn)">
             <div class="conn-header">
               <span class="host" :title="conn.metadata.host || conn.metadata.destinationIP">
                 {{ conn.metadata.host || conn.metadata.destinationIP }}
@@ -65,15 +66,19 @@
               </div>
             </div>
           </div>
-        </div>
-        <div v-else class="empty-state">
-          <p v-if="connections.length > 0">{{ t('connections.noCategoryConns') }}</p>
-          <p v-else>{{ t('connections.noTraffic') }}</p>
-        </div>
+          </TransitionGroup>
+          <Transition name="empty-fade">
+            <EmptyState
+              v-if="showEmptyState"
+              :icon="ICONS.connections"
+              :title="connections.length > 0 ? t('connections.noCategoryConns') : t('connections.noTraffic')"
+            />
+          </Transition>
+        </template>
       </div>
       </div>
 
-      <div v-else class="detail-page card-panel">
+      <div v-else class="detail-page ui-surface-card ui-page-shell">
         <div class="detail-header">
           <h3>{{ t('connections.detailTitle') }}</h3>
           <button class="action-btn back-btn" @click="closeDetail">
@@ -81,12 +86,30 @@
           </button>
         </div>
 
-        <div class="detail-body scroll-content">
+        <div class="detail-body scroll-content ui-page-body">
           <div class="detail-row"><span>ID:</span> <span class="font-mono">{{ selectedConn.id }}</span></div>
           <div class="detail-row"><span>{{ t('connections.detailNetwork') }}:</span> <span>{{ selectedConn.metadata.network }}</span></div>
           <div class="detail-row"><span>{{ t('connections.detailSource') }}:</span> <span class="font-mono">{{ selectedConn.metadata.sourceIP }}:{{ selectedConn.metadata.sourcePort }}</span></div>
           <div class="detail-row"><span>{{ t('connections.detailDest') }}:</span> <span class="font-mono">{{ selectedConn.metadata.destinationIP || selectedConn.metadata.host }}:{{ selectedConn.metadata.destinationPort }}</span></div>
+          <div class="detail-row"><span>{{ t('diag.dnsMode') }}:</span> <span>{{ dnsModeLabel }}</span></div>
           <div class="detail-row"><span>{{ t('connections.detailRule') }}:</span> <span>{{ selectedConn.rule }} {{ selectedConn.rulePayload ? `(${selectedConn.rulePayload})` : '' }}</span></div>
+          <div class="detail-row"><span>DNS</span><span class="path-chain" style="cursor:pointer" @click="toggleDNS">{{ dnsOpen ? t('connections.collapse') : t('connections.expand') }}</span></div>
+          <div v-if="dnsOpen" class="match-panel">
+            <div v-if="dnsLoading" class="match-empty">{{ t('connections.calculating') }}</div>
+            <div v-else-if="dnsError" class="match-empty">{{ dnsError }}</div>
+            <template v-else-if="dnsResult">
+              <!-- 解析器是静态推断，用短标签明确标注，不再单独打印一整行“结论不确定” -->
+              <div class="match-line">{{ t('diag.dnsResolver') }} {{ dnsResult.resolver || '—' }}<span class="dns-tag" :title="t('diag.inferredTip')">{{ t('diag.inferred') }}</span></div>
+              <div class="match-line match-meta">{{ t('diag.dnsBasis') }} {{ dnsSourceLabel }}<template v-if="dnsResult.policyKey"> · {{ dnsResult.policyKey }}</template></div>
+              <!-- 只保留高信号依据：策略未展开 / fallback-filter 生效 -->
+              <div v-if="dnsSummary.length" class="match-line match-skip">{{ dnsSummary.join(' · ') }}</div>
+              <button v-if="dnsDetailNotes.length" class="dns-toggle" @click="dnsShowDetails = !dnsShowDetails">{{ dnsShowDetails ? t('diag.dnsDetailsHide') : t('diag.dnsDetails') }}</button>
+              <template v-if="dnsShowDetails">
+                <div v-for="(n, i) in dnsDetailNotes" :key="'dns-' + i" class="match-line match-skip">ⓘ {{ noteText(n) }}</div>
+              </template>
+            </template>
+            <div v-else class="match-empty">{{ t('diag.dnsNoConfig') }}</div>
+          </div>
           <div class="detail-row"><span>{{ t('connections.detailChain') }}:</span> <span class="path-chain">{{ selectedConn.chains.join(' ➔ ') }}</span></div>
           <div class="detail-row"><span>{{ t('connections.detailUpload') }}:</span> <span class="font-mono">{{ selectedConn.uploadStr }}</span></div>
           <div class="detail-row"><span>{{ t('connections.detailDownload') }}:</span> <span class="font-mono">{{ selectedConn.downloadStr }}</span></div>
@@ -102,17 +125,117 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed, watch, nextTick } from 'vue';
-import * as API from '../../wailsjs/go/main/App';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed, watch, nextTick, TransitionGroup } from 'vue';
+import { App } from '../api';
+import { Events } from '@wailsio/runtime';
 import { showConfirm, showAlert } from '../store';
 import { ICONS } from '../utils/icons';
+import { useEdgeFade } from '../utils/edgeFade';
 import { t } from '../locales';
+import { toUserError } from '../utils/errors';
+import { reportError } from '../utils/report';
+import EmptyState from './EmptyState.vue';
 
 const connections = ref<any[]>([]);
 const isPaused = ref(false);
 const selectedConn = ref<any>(null);
 const filterMode = ref(localStorage.getItem('goclashz_connFilter') || 'all');
+
+/* 列表 ↔ 详情是下钻关系，固定走横向：进入详情内容左推，返回右推。
+   横向整面推入时内容贴着左右边缘进出，裁切边需要淡化把它"化"开，
+   所以这里保留 edge-fade-x。
+   watch 用 () => !!selectedConn.value 而不是 selectedConn 本身：
+   连接数据每几秒刷新一次会重新赋值对象引用，监听整个对象会在每次刷新时
+   重新触发过渡，造成"一直闪"。用 !! 只在真正切换列表↔详情时触发。 */
+const detailTransition = ref('pane-left');
+/* 淡化挂在 .connections-view 容器上，不挂在 .connections-list-wrapper 上：
+   后者身上有 .pane-* 类（transition: transform），如果在那上面再写
+   transition 会把它覆盖掉，横滑动画就没了。
+   撑住与收起全部由 useEdgeFade 的计时器驱动，不接过渡结束钩子：
+   连切时旧过渡的 after-leave 会把带子提前收掉。 */
+const {
+  axis: edgeFadeAxis,
+  on: edgeFadeOn,
+  begin: edgeFadeBegin,
+} = useEdgeFade();
+watch(() => !!selectedConn.value, (inDetail, wasInDetail) => {
+  if (inDetail === wasInDetail) return;
+  detailTransition.value = inDetail ? 'pane-left' : 'pane-right';
+  edgeFadeBegin('edge-fade-x');
+});
+
+// DNS 解释面板状态（纯静态推演，内核未启动也能算）
+const dnsOpen = ref(false);
+const dnsShowDetails = ref(false);
+const dnsLoading = ref(false);
+const dnsResult = ref<any>(null);
+const dnsError = ref('');
+let dnsLoaded = false;
+
+// 目标本身是 IP 字面量（v4/v6，允许方括号）：ExplainDNS 只接受域名，前端先判定
+const isIpLiteral = (host: string) => {
+  let value = host.trim();
+  // 去掉 IPv6 的方括号写法 [::1]（不用正则，避免转义歧义）
+  if (value.startsWith('[') && value.endsWith(']')) value = value.slice(1, -1);
+  if (!value) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(value)) return true;
+  return value.includes(':') && /^[0-9a-f:.]+$/i.test(value);
+};
+
+const dnsSourceLabel = computed(() => {
+  const key = String(dnsResult.value?.source || 'default');
+  const map: Record<string, string> = {
+    policy: 'diag.dnsSourcePolicy',
+    fallback: 'diag.dnsSourceFallback',
+    main: 'diag.dnsSourceMain',
+    default: 'diag.dnsSourceDefault',
+  };
+  return t(map[key] || map.default);
+});
+
+const dnsNotes = computed<any[]>(() => (Array.isArray(dnsResult.value?.notes) ? dnsResult.value.notes : []));
+
+// DNS 模式以连接真实元数据为准；老内核没返回 dnsMode 时才退回静态推断的 fakeIp 结果
+const dnsModeLabel = computed(() => {
+  const mode = String(selectedConn.value?.metadata?.dnsMode || '').trim().toLowerCase();
+  if (mode === 'fake-ip') return t('diag.dnsModeFakeIp');
+  if (mode === 'normal') return t('diag.dnsModeNormal');
+  if (mode) return mode;
+  return dnsResult.value?.fakeIp ? t('diag.dnsModeFakeIp') : '—';
+});
+
+// 静态推断里只有这两类是高信号、值得占一行的；其余细节折叠到“详情”
+const dnsSummaryCodes = new Set(['policyUnresolved', 'fallbackFilterActive']);
+const dnsSummary = computed<string[]>(() => {
+  const out: string[] = [];
+  for (const n of dnsNotes.value) {
+    if (!n || typeof n !== 'object') continue;
+    const code = String(n.code || '');
+    if (code === 'policyUnresolved') out.push(t('diag.dnsSummaryUnresolved', { arg: n.arg || '' }));
+    else if (code === 'fallbackFilterActive') out.push(t('diag.dnsSummaryFallback'));
+  }
+  return out;
+});
+
+// “纯静态推演”“返回虚拟 IP”已由“推断”标签和 DNS 模式覆盖，不再重复展示
+const dnsDetailNotes = computed<any[]>(() =>
+  dnsNotes.value.filter((n) => {
+    if (!n || typeof n !== 'object') return false;
+    const code = String(n.code || '');
+    return code !== 'static' && code !== 'fakeIp' && !dnsSummaryCodes.has(code);
+  })
+);
+
+// notes 现在是 { code, arg }：按 code 取 i18n；未知 code 时退回 arg 或 code，避免把 key 露给用户
+const noteText = (note: any): string => {
+  if (!note || typeof note !== 'object') return String(note || '');
+  const code = String(note.code || '');
+  const arg = note.arg || '';
+  if (!code) return String(arg);
+  const key = 'diag.note.' + code;
+  const text = t(key, { arg });
+  return text === key ? String(arg || code) : text;
+};
 
 const tabsTrackRef = ref<HTMLElement | null>(null);
 const connTabEl = ref<HTMLElement | null>(null);
@@ -156,7 +279,7 @@ const startMonitor = async () => {
   isMonitoring.value = true;
   
   // ✅ 修改后：接住返回的专属销毁函数
-  unsubMonitor = EventsOn("connections-update", (data: any) => {
+  unsubMonitor = Events.On("connections-update", ({ data }: { data: any }) => {
     if (isPaused.value) return;
 
     if (data && Array.isArray(data.connections)) {
@@ -175,14 +298,14 @@ const startMonitor = async () => {
     isLoading.value = true;
     
     // 🚀 核心修复：在建立监听后，立即主动请求一次连接快照，消除初始延迟
-    const initData = await API.GetConnections();
+    const initData = await App.GetConnections();
     if (initData && Array.isArray(initData.connections)) {
       connections.value = initData.connections;
     }
 
-    await API.StartConnectionMonitor();
+    await App.StartConnectionMonitor();
   } catch (e) {
-    console.error("启动连接监控失败:", e);
+    reportError(e, 'connections.startMonitor');
   } finally {
     isLoading.value = false;
   }
@@ -198,7 +321,7 @@ const stopMonitor = () => {
     unsubMonitor = null;
   }
   
-  API.StopConnectionMonitor();
+  App.StopConnectionMonitor();
 };
 
 // 配合 KeepAlive 的生命周期控制
@@ -223,6 +346,10 @@ onDeactivated(() => stopMonitor());      // 切到别的页面时暂停后台请
 onUnmounted(() => {
   stopMonitor();
   selectedConn.value = null;
+  if (emptyStateTimer !== null) {
+    clearTimeout(emptyStateTimer);
+    emptyStateTimer = null;
+  }
 });
 
 const isDirect = (conn: any) => {
@@ -237,25 +364,102 @@ const filteredConnections = computed(() => {
   return connections.value;
 });
 
+// 列表清空时先让最后几张卡片走完 leave 动画，再显示空状态，避免“卡片瞬间消失 + 空状态立刻出现”
+const showEmptyState = ref(false);
+let emptyStateTimer: number | null = null;
+watch(
+  [() => filteredConnections.value.length, isLoading],
+  ([count, loading]) => {
+    if (emptyStateTimer !== null) {
+      clearTimeout(emptyStateTimer);
+      emptyStateTimer = null;
+    }
+    if (loading) {
+      showEmptyState.value = false;
+      return;
+    }
+    if (count === 0) {
+      emptyStateTimer = window.setTimeout(() => {
+        showEmptyState.value = true;
+        emptyStateTimer = null;
+      }, 220);
+    } else {
+      showEmptyState.value = false;
+    }
+  },
+  { immediate: true }
+);
+
 const getProxyName = (conn: any) => {
   const chains = conn.chains || [];
   if (chains.length > 0) return chains[0];
-  return 'Unknown';
+  // 语言中立占位符，避免英文 'Unknown' 出现在 8 语言界面里（F-A4-16）
+  return '—';
+};
+
+const resetDetailPanels = () => {
+  dnsOpen.value = false;
+  dnsShowDetails.value = false;
+  dnsLoading.value = false;
+  dnsResult.value = null;
+  dnsError.value = '';
+  dnsLoaded = false;
 };
 
 const openDetail = (conn: any) => {
+  resetDetailPanels();
   selectedConn.value = conn;
 };
 
 const closeDetail = () => {
   selectedConn.value = null;
+  resetDetailPanels();
+};
+
+// 展开/收起 DNS 解释：首次展开才向后端请求
+const toggleDNS = async () => {
+  if (dnsLoading.value) return;
+  if (dnsOpen.value) {
+    dnsOpen.value = false;
+    dnsShowDetails.value = false;
+    return;
+  }
+  if (!selectedConn.value) return;
+  dnsOpen.value = true;
+  if (dnsLoaded) return;
+
+  const requestConnId = selectedConn.value.id;
+  const target = String(selectedConn.value.metadata.host || selectedConn.value.metadata.destinationIP || '');
+  // 纯 IP 目标没有 DNS 解析过程：直接给静态说明，不打后端，也不显示"请输入域名"
+  if (isIpLiteral(target)) {
+    dnsResult.value = null;
+    dnsError.value = t('diag.dnsIpTarget');
+    dnsLoaded = true;
+    return;
+  }
+  dnsLoading.value = true;
+  dnsError.value = '';
+
+  try {
+    const r = await App.ExplainDNS(target);
+    if (!selectedConn.value || selectedConn.value.id !== requestConnId) return;
+    dnsResult.value = r;
+    dnsLoaded = true;
+  } catch (e) {
+    if (!selectedConn.value || selectedConn.value.id !== requestConnId) return;
+    dnsError.value = toUserError(e).message;
+  } finally {
+    if (selectedConn.value && selectedConn.value.id === requestConnId) {
+      dnsLoading.value = false;
+    }
+  }
 };
 
 const closeAll = async () => {
   const ok = await showConfirm(t('connections.closeAllConfirmMsg'), t('connections.closeAllConfirmTitle'), true);
   if (ok) {
     try {
-      await API.CloseAllConnections();
+      await App.CloseAllConnections();
       if (selectedConn.value) closeDetail();
     } catch (e) { 
       await showAlert(t('connections.closeError', { error: String(e) }), t('common.error')); 
@@ -268,7 +472,7 @@ const closeSingleConnection = async (id: string) => {
   if (!ok) return;
   
   try {
-    await API.CloseConnection(id);
+    await App.CloseConnection(id);
     closeDetail();
   } catch (e) { 
     await showAlert(t('connections.closeError', { error: String(e) }), t('common.error')); 
@@ -280,8 +484,6 @@ const closeSingleConnection = async (id: string) => {
 .connections-view { 
   display: flex; 
   flex-direction: column; 
-  min-height: 100%; 
-  overflow: visible; 
 }
 
 .connections-list-wrapper {
@@ -292,33 +494,29 @@ const closeSingleConnection = async (id: string) => {
   width: 100%;
 }
 
-.slide-fade-enter-active,
-.slide-fade-leave-active {
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  width: 100%;
+/* 列表 ↔ 详情的横向整面推入。
+   两页在过渡期间必须同时存在且叠放在同一位置，否则"接续式"平移无从谈起：
+   这里只在过渡期把子元素脱流，静止时仍走原来的 flex 布局，
+   这样不切换详情时不会引入任何布局回归。 */
+.connections-view {
+  position: relative;
 }
 
-.slide-fade-enter-from {
-  opacity: 0;
-  transform: translateX(12px); 
+.pane-left-leave-active,
+.pane-left-enter-active,
+.pane-right-leave-active,
+.pane-right-enter-active {
+  position: absolute;
+  inset: 0;
 }
 
-.slide-fade-leave-to {
-  opacity: 0;
-  transform: translateX(-12px); 
-}
-
+/* 工具栏：固定页头（flex 布局，不再是 sticky 遮罩），自身不画背景 */
 .action-bar { 
   display: flex; 
   justify-content: space-between; 
   align-items: center; 
   padding: 12px 16px; 
   margin-bottom: 24px; 
-  background: var(--surface);
-  border-radius: 12px;
-}
-.action-bar.page-sticky-mask {
-  --sticky-mask-bleed: 6px;
 }
 .global-actions { display: flex; gap: 12px; }
 
@@ -342,7 +540,7 @@ const closeSingleConnection = async (id: string) => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: var(--surface-hover);
+  background: var(--ui-surface-hover);
   padding: 6px;
   border-radius: 12px;
   user-select: none;
@@ -375,7 +573,7 @@ const closeSingleConnection = async (id: string) => {
 }
 
 .conn-tab-btn.active {
-  color: var(--accent-fg);
+  color: var(--ui-accent-fg);
   font-weight: 800;
 }
 
@@ -383,7 +581,7 @@ const closeSingleConnection = async (id: string) => {
   position: absolute;
   top: 6px;
   height: 36px;
-  background: var(--accent);
+  background: var(--ui-accent-block);
   border-radius: 8px;
   z-index: 0;
   pointer-events: none;
@@ -395,28 +593,60 @@ const closeSingleConnection = async (id: string) => {
 
 .btn-icon { width: 14px; height: 14px; display: inline-flex; align-items: center;}
 
+/* 唯一滚动区：高度由 ui-page-body 约束，滚动发生在这里。
+   用 flex 列是为了让"暂无连接"空态撑满剩余空间并垂直居中，而不是贴在顶部。 */
 .scroll-content { 
   flex: 1; 
   min-height: 0;
-  overflow: visible; 
+  display: flex;
+  flex-direction: column;
 }
 
-.conn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.conn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; flex: 0 0 auto; }
 
-.conn-card { background: var(--surface); border: none; border-radius: 12px; padding: 16px; cursor: pointer; transition: all 0.2s ease; display: flex; flex-direction: column; gap: 12px; }
-.conn-card:hover { background: var(--surface-hover); }
+.conn-card { border: none; padding: 16px; cursor: pointer; transition: all 0.2s ease; display: flex; flex-direction: column; gap: 12px; }
+
+/* 连接卡片出现/消失/重排：对齐节点卡片的 FLIP 调性，但时长更克制 */
+.conn-card-move {
+  transition: transform 0.34s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.conn-card-enter-active {
+  transition: opacity 0.22s ease, transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.conn-card-leave-active {
+  transition: opacity 0.16s ease, transform 0.18s ease;
+  pointer-events: none;
+}
+.conn-card-enter-from {
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+}
+.conn-card-leave-to {
+  opacity: 0;
+  transform: scale(0.98);
+}
+
+.empty-fade-enter-active,
+.empty-fade-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.empty-fade-enter-from,
+.empty-fade-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
 
 .conn-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .host { font-weight: 600; font-size: 0.95rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
-.network { font-size: 0.7rem; font-family: var(--font-mono); background: var(--surface-hover); padding: 2px 6px; border-radius: 4px; color: var(--text-sub); text-transform: uppercase; }
+.network { font-size: 0.7rem; font-family: var(--font-mono); background: var(--ui-surface-hover); padding: 2px 6px; border-radius: 4px; color: var(--ui-text-secondary); text-transform: uppercase; }
 
 .conn-body { display: flex; flex-direction: column; gap: 8px; flex: 1;}
 .tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag { font-size: 0.75rem; padding: 4px 8px; border-radius: 6px; font-weight: 500; border: none; }
-.tag-direct { background: var(--surface-hover); color: var(--text-main); }
-.tag-proxy { background: var(--surface-hover); color: var(--text-sub); }
-.dark .tag-proxy { color: var(--text-sub); }
-.tag-rule { background: var(--surface-hover); color: var(--text-muted); }
+.tag-direct { background: var(--ui-surface-hover); color: var(--ui-text-primary); }
+.tag-proxy { background: var(--ui-surface-hover); color: var(--ui-text-secondary); }
+.dark .tag-proxy { color: var(--ui-text-secondary); }
+.tag-rule { background: var(--ui-surface-hover); color: var(--ui-text-muted); }
 
 /* --- 全新底部排版 --- */
 .conn-footer { 
@@ -444,7 +674,7 @@ const closeSingleConnection = async (id: string) => {
   display: flex; 
   align-items: center; 
   gap: 5px;
-  background: var(--surface-hover); 
+  background: var(--ui-surface-hover); 
   padding: 4px 10px; 
   border-radius: 6px; 
   font-weight: 600;
@@ -464,15 +694,21 @@ const closeSingleConnection = async (id: string) => {
 
 .empty-state { height: 200px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-style: italic; }
 
-/* --- 详情子页样式 --- */
+/* --- 详情子页样式：卡片填满页面，内部 body 负责滚动 --- */
 .detail-page { 
   display: flex; 
   flex-direction: column; 
-  min-height: 100%; 
+  flex: 1;
+  min-height: 0;
   border: none; 
   padding: 24px; 
   box-sizing: border-box; 
-  overflow: visible;
+  overflow: hidden;
+}
+
+/* DNS 推断块：用底色差分组，不画描边 */
+.match-panel {
+  background: var(--surface-panel);
 }
 
 /* 详情头部排版：左标题右按钮 */
@@ -482,7 +718,6 @@ const closeSingleConnection = async (id: string) => {
   align-items: center; 
   padding-bottom: 16px; 
   margin-bottom: 24px; 
-  border-bottom: 1px solid var(--surface-hover);
 }
 
 .detail-header h3 { margin: 0; font-size: 1.2rem; color: var(--text-main); font-weight: 600; }

@@ -1,0 +1,43 @@
+/* ============================================================
+   Surface primitives
+   One background-bearing element per visual branch.
+   ============================================================ */
+
+.ui-surface-nav {
+  background: var(--ui-surface-nav);
+}
+
+.ui-surface-card,
+.ui-surface-group {
+  background: var(--ui-surface-card);
+  border-radius: var(--ui-radius-lg);
+}
+
+.ui-surface-group {
+  background: var(--ui-surface-group);
+}
+
+.ui-surface-row {
+  background: var(--ui-surface-row);
+}
+
+/* 控件凹槽（分段控件 / 图表槽等控制件底槽）。
+   不带 border-radius：圆角仍由控件自己的样式决定。 */
+.ui-surface-control {
+  background: var(--ui-surface-control);
+}
+
+.ui-surface-overlay {
+  background: var(--ui-surface-overlay);
+  border-radius: var(--ui-radius-lg);
+  box-shadow: var(--ui-shadow-overlay);
+}
+
+/* only for rows/items, not for containers that already have a surface */
+.ui-hover-surface {
+  transition: background-color 0.18s ease;
+}
+
+.ui-hover-surface:hover {
+  background: var(--ui-surface-hover);
+}

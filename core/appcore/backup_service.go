@@ -24,7 +24,11 @@ func (c *Controller) RestoreBackup(ctx context.Context, selected string, mode st
 	}
 
 	// 1. 获取核心并发锁与运行状态锁
-	c.componentUpdateMu.Lock()
+	//    组件更新正在 commit（停核/替换 61MB 文件）时立即返回 busy，
+	//    不再让「还原备份」这个同步 UI 调用无限期挂在锁上（F-A5-05）。
+	if !c.componentUpdateMu.TryLock() {
+		return ErrComponentUpdateBusy
+	}
 	defer c.componentUpdateMu.Unlock()
 
 	c.coreLifecycleMu.Lock()

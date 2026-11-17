@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"goclashz/core/downloader"
+	"goclashz/core/logger"
 	"strings"
 	"sync"
 	"time"
@@ -149,6 +150,7 @@ func (m *GeoUpdateManager) runKey(ctx context.Context, key string) GeoResult {
 			Error:      ctx.Err().Error(),
 			FinishedAt: time.Now().Unix(),
 		})
+		logger.Warnf("geo 更新 | key=%s 排队阶段已取消: %v", key, ctx.Err())
 		m.emit.Emit("geo-update-" + key + "-cancelled")
 		return result
 	}
@@ -192,8 +194,12 @@ func (m *GeoUpdateManager) runKey(ctx context.Context, key string) GeoResult {
 		m.tasks.Set(key, state)
 
 		if isCanceled {
+			logger.Warnf("geo 更新 | key=%s 已取消: %v", key, err)
 			m.emit.Emit("geo-update-" + key + "-cancelled")
 		} else {
+			// F-A5-06：geo 更新不经过任务框架，失败必须自己落日志，
+			// 否则「无日志、无提示、只有任务行」的问题在 geo 这条链上完全没解。
+			logger.Errorf("geo 更新失败 | key=%s err=%v", key, err)
 			m.emit.Emit("geo-update-"+key+"-error", err.Error())
 		}
 	} else {
@@ -204,6 +210,7 @@ func (m *GeoUpdateManager) runKey(ctx context.Context, key string) GeoResult {
 			Progress:   1.0,
 			FinishedAt: time.Now().Unix(),
 		})
+		logger.Infof("geo 更新成功 | key=%s", key)
 		m.emit.Emit("geo-update-" + key + "-success")
 	}
 
@@ -212,6 +219,7 @@ func (m *GeoUpdateManager) runKey(ctx context.Context, key string) GeoResult {
 
 func (m *GeoUpdateManager) UpdateOneAsync(ctx context.Context, key string) {
 	if !isGeoKey(key) {
+		logger.Warnf("geo 更新 | 未知库类型 key=%s，请求被拒绝", key)
 		m.emit.Emit("geo-update-"+key+"-error", "未知库类型: "+key)
 		return
 	}
@@ -319,6 +327,7 @@ func (m *GeoUpdateManager) UpdateAllAsync(ctx context.Context) {
 		m.emitActiveSnapshot()
 
 		if len(failed) > 0 {
+			logger.Errorf("geo 批量更新失败 | %d 项: %s", len(failed), strings.Join(failed, "; "))
 			m.emit.Emit("geo-update-all-error", strings.Join(failed, "; "))
 			return
 		}

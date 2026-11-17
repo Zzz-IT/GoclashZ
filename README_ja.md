@@ -3,7 +3,7 @@
 
 Wails をベースに構築された、高性能かつミニマルなインダストリアル美学を持つ Mihomo (Clash Meta) デスクトップクライアント。
 
-![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v2.12-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
+![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&style=flat-square) ![Wails](https://img.shields.io/badge/Wails-v3.1-red?style=flat-square) ![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&style=flat-square) ![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)
 
 <p align="center">
   <a href="README.md">简体中文</a> | <a href="README_zh-TW.md">繁體中文（台灣）</a> | <a href="README_zh-HK.md">繁體中文（香港）</a> | <a href="README_en.md">English</a> | <b>日本語</b> | <a href="README_ru.md">Русский</a>
@@ -46,6 +46,13 @@ GoclashZ は、過度に肥大化した現代のデスクトップアプリケ�
 * **ControlCoordinator**: UI、タスクトレイ、監視プロセスの競合を防ぐ統合状態調停器。
 * **レジストリ自動起動**: 不安定な Task Scheduler から Windows ネイティブの `HKCU\Run` レジストリ起動へ移行し、確実なスタートアップを実現。
 
+### 診断と可読性
+* **設定項目の検索**：8 つの設定ページ・87 項目を横断検索し、ページ別にグループ表示。クリックで該当項目へ移動して強調表示。
+* **設定差分の通知**：保存後、そのままでは反映されない項目（ポート競合、認証不足、スタック制限）を提示。1 件は展開、複数は折りたたみ。
+* **DNS 解決の解説**：接続詳細に適用されたネームサーバーポリシーとリゾルバーを表示し、静的判定できない場合は明示。
+* **段階的なエラー表示**：一言の結論と展開可能な技術詳細。成功操作はトーストに変更し中断しない。
+* **空状態の統一**：リストが空のときはアイコンと説明を表示。
+
 ## ダウンロードとインストール
 
 [Releases](https://github.com/Zzz-IT/GoclashZ/releases) ページから最新インストーラーをダウンロードしてください。
@@ -54,10 +61,10 @@ GoclashZ は、過度に肥大化した現代のデスクトップアプリケ�
 
 ```bash
 # 開発サーバーの起動 (ホットリロード対応)
-wails dev
+wails3 dev
 
 # リリースバイナリのビルド
-wails build
+wails3 build
 ```
 
 ## 免責事項と今後の計画
