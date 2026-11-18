@@ -570,6 +570,7 @@ export const SETTING_FIELDS: SettingField[] = [
     titleKey: 'settings.behavior.glassTint',
     keywords: ['玻璃染色', '染色', '色调', '背景着色', 'glass', 'tint', 'background'],
     control: 'custom',
+    conditional: '强调色为黑白灰（isNeutralColor）时整条滑条 disabled，描述文案换成 glassTintNeutral；换彩色预设或彩色自定义强调色后恢复可用',
     note: '写 glassTintStrength（0-80）→ --glass-tint-bg 的目标色相混合百分比（0 = 无色）；这一条只管颜色，透明度由 glassDepth 决定',
   },
   {

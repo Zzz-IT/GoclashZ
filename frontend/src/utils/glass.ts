@@ -161,6 +161,8 @@ const TINT_MIN_L = 22;
 const TINT_MAX_L = 82;
 /** 饱和度的上限：留一点余地，纯饱和会显得刺眼 */
 const TINT_MAX_S = 85;
+/** 低于这个饱和度就算"没有色相可染"：目标色是黑白灰时滑条应当完全无效 */
+const TINT_NEUTRAL_S = 6;
 
 function hexToRgb(hex: string): [number, number, number] | null {
 	const raw = String(hex || '').trim().replace(/^#/, '');
@@ -220,10 +222,21 @@ export function glassTintColor(
 		return `hsl(${base.h.toFixed(1)} ${base.s.toFixed(1)}% ${base.l.toFixed(1)}% / ${a})`;
 	}
 
+	/* 目标色是黑白灰时没有色相可染，直接返回面板色本身。
+	   不能只跳过色相插值：下面的 s 会把饱和度从 base.s 推向 TINT_MAX_S，
+	   而中性色的 h 是 0（红），灰色面板会被染成红色 —— 这正是「单色主题
+	   染色」必须整体短路的原因。主题页用同一个判据禁用滑条。 */
+	if (tgt.s <= TINT_NEUTRAL_S) {
+		return `hsl(${base.h.toFixed(1)} ${base.s.toFixed(1)}% ${base.l.toFixed(1)}% / ${a})`;
+	}
+
 	const lTarget = Math.min(TINT_MAX_L, Math.max(TINT_MIN_L, base.l));
 	const l = base.l + (lTarget - base.l) * ratio;
 	const s = base.s + (TINT_MAX_S - base.s) * ratio;
-	const h = lerpHue(base.h, tgt.h, ratio);
+	/* 面板色本身无彩度时（纯白/纯黑）它的色相是 rgbToHsl 给的占位 0（红），
+	   拿它当插值起点会把目标色拉到半路 —— 海洋青 193° 会被染成 239° 的蓝。
+	   无色玻璃染向彩色时直接取目标色相；此时 s 也很小，看不出跳变。 */
+	const h = base.s <= TINT_NEUTRAL_S ? tgt.h : lerpHue(base.h, tgt.h, ratio);
 
 	return `hsl(${h.toFixed(1)} ${s.toFixed(1)}% ${l.toFixed(1)}% / ${a})`;
 }

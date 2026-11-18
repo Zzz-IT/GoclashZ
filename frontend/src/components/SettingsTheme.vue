@@ -217,11 +217,12 @@
                   step="1"
                   :aria-label="t('settings.behavior.glassTint')"
                   :style="trackStyle(glassTint)"
+                  :disabled="tintDisabled"
                   v-model.number="behavior.glassTintStrength"
                   @input="previewGlass"
                   @change="commitGlass"
                 />
-                <p class="blur-cell__desc">{{ t('settings.behavior.glassTintDesc') }}</p>
+                <p class="blur-cell__desc">{{ tintDisabled ? t('settings.behavior.glassTintNeutral') : t('settings.behavior.glassTintDesc') }}</p>
               </div>
             </div>
           </div>
@@ -284,6 +285,7 @@ import {
   computeTheme,
   contrastForeground,
   getPreset,
+  isNeutralColor,
   normalizeThemeConfig,
   parseHex,
   resolveAccent,
@@ -535,6 +537,12 @@ watch(
 const glassEnabled = computed(() => !!props.behavior.glassBlurEnabled);
 const glassTint = computed(() => normalizeGlassStrength(props.behavior.glassTintStrength, GLASS_TINT_DEFAULT));
 const glassDepth = computed(() => normalizeGlassDepth(props.behavior.glassDepth));
+
+/**
+ * 当前强调色是黑白灰时没有色相可染，染色滑条整体禁用并换成说明文案。
+ * 判据用强调色本身（而非预设 id）：用户手填了彩色强调色时，滑条自动恢复可用。
+ */
+const tintDisabled = computed(() => isNeutralColor(applied.value.accent));
 
 /** 旧配置可能缺字段：补默认值（随下一次 save 一起持久化） */
 const ensureGlassDefaults = () => {
@@ -913,7 +921,9 @@ onBeforeUnmount(() => {
   outline: none;
   cursor: pointer;
 }
-.blur-range:disabled { cursor: not-allowed; }
+.blur-range:disabled { cursor: not-allowed; opacity: 0.45; }
+.blur-range:disabled::-webkit-slider-thumb { background: var(--text-muted); transform: none; }
+.blur-range:disabled::-moz-range-thumb { background: var(--text-muted); }
 .blur-range:focus-visible { outline: 2px solid var(--ui-accent-ring); outline-offset: 3px; }
 .blur-range::-webkit-slider-thumb {
   -webkit-appearance: none;

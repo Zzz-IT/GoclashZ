@@ -524,6 +524,7 @@ export default {
       glassBlurControlDesc: 'Weichzeichner-Radius für Segmented Controls, Diagramm-Mulden und ähnliche vertiefte Elemente (0-80px).',
       glassTint: 'Glasfärbung',
       glassTintDesc: 'Ändert nur den Farbton des Glases, nicht die Transparenz (0-80). 0 = ungefärbt; höhere Werte färben stärker.',
+      glassTintNeutral: 'Die aktuelle Akzentfarbe ist ein neutrales Grau – es gibt keinen Farbton zum Tönen. Wählen Sie ein buntes Preset oder setzen Sie eine bunte Akzentfarbe.',
       glassDepth: 'Glastiefe',
       glassDepthDesc: 'Ein Regler skaliert die Tönungsebene des Fensters und alle Panel-Füllungen gemeinsam (0–100). Höher = deckender und besser lesbar, niedriger = transparenter.',
       autoDelayTest: 'Automatische Latenzprüfung',

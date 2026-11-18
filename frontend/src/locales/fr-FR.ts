@@ -524,6 +524,7 @@ export default {
       glassBlurControlDesc: 'Rayon de flou des contrôles segmentés, zones de graphique et autres contrôles en creux (0-80px).',
       glassTint: 'Teinte du verre',
       glassTintDesc: 'Modifie uniquement la teinte du verre, sans changer sa transparence (0-80). 0 = verre incolore ; plus la valeur est élevée, plus la teinte est marquée.',
+      glassTintNeutral: "L'accent actuel est un gris neutre : il n'y a pas de teinte à colorer. Choisissez un préréglage coloré ou définissez un accent coloré.",
       glassDepth: 'Épaisseur du verre',
       glassDepthDesc: 'Un seul curseur règle l’opacité de la teinte de la fenêtre et de tous les remplissages de panneaux (0-100). Plus haut = plus opaque et plus lisible, plus bas = plus transparent.',
       autoDelayTest: 'Test de latence automatique',

@@ -524,6 +524,7 @@ export default {
       glassBlurControlDesc: '分段控件 / 圖表槽等控件底槽嘅模糊半徑（0-80px）',
       glassTint: '玻璃染色',
       glassTintDesc: '只改玻璃嘅色調，唔影響透光度（0-80）；0 為無色玻璃，越高染色越明顯',
+      glassTintNeutral: '目前強調色係黑白灰，冇色相可以染；轉用彩色預設或自訂彩色強調色之後就會啟用',
       glassDepth: '玻璃厚度',
       glassDepthDesc: '一條滑條同時調節視窗著色層同各級面板嘅實心度（0-100）；越高越實、字越穩，越低越透、越睇得到桌面',
       autoDelayTest: '自動延遲測速',

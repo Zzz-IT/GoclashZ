@@ -524,6 +524,7 @@ export default {
       glassBlurControlDesc: 'Blur radius for segmented controls, chart wells and similar recessed controls (0-80px).',
       glassTint: 'Glass Tint',
       glassTintDesc: 'Changes only the glass hue, not its transparency (0-80). 0 is uncoloured glass; higher values tint more strongly.',
+      glassTintNeutral: 'The current accent is a neutral gray, so there is no hue to tint. Pick a colorful preset or set a colorful accent to enable this.',
       glassDepth: 'Glass Depth',
       glassDepthDesc: 'One slider scales the window tint layer and every panel fill together (0-100). Higher is more solid and easier to read; lower is more transparent.',
       autoDelayTest: 'Auto Latency Test',

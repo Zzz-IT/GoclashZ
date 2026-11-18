@@ -222,17 +222,13 @@ export function toHex(rgb: [number, number, number]): string {
 
 /**
  * 判断一个色是不是"中性灰"（r/g/b 三通道几乎相等）。
- * 单色主题（graphite）的强调色就是灰，往灰色染等于没染，
- * 所以玻璃染色目标色需要在这种主题下退回一个真正有彩度的颜色。
+ * 中性强调色没有色相可染：玻璃染色滑条据此置为禁用态。
  */
 export function isNeutralColor(hex: string): boolean {
 	const rgb = parseHex(hex);
 	if (!rgb) return true;
 	return Math.max(...rgb) - Math.min(...rgb) < 12;
 }
-
-/** 单色主题下玻璃染色的兜底目标色（中性冷蓝，深浅主题都成立） */
-export const NEUTRAL_GLASS_TINT = '#6E8FC7';
 
 /** sRGB 相对亮度（WCAG） */
 export function relativeLuminance(hex: string): number {
@@ -408,9 +404,10 @@ export function applyTheme(config: ThemeConfig): AppliedTheme {
 	s.setProperty('--pulse-ring', 'color-mix(in srgb, ' + accent + ' 45%, transparent)');
 	s.setProperty('--status-online', accent);
 
-	// 玻璃染色目标色：跟随主题强调色。单色主题的强调色是灰，往灰里染没有效果，
-	// 退回中性冷色，保证「染色」滑条在任何预设下都能看到变化。
-	s.setProperty('--glass-tint-target', isNeutralColor(accent) ? NEUTRAL_GLASS_TINT : accent);
+	// 玻璃染色目标色：直接跟随强调色。强调色本身是黑白灰时没有色相可染 ——
+	// 染色层会退化成面板色本身（见 glass.ts 的中性目标判断），
+	// 主题页据 isNeutralColor 把「染色」滑条置为禁用态，而不是偷偷塞一个冷色进去。
+	s.setProperty('--glass-tint-target', accent);
 
 	const r = RADIUS_VALUES[applied.config.radius];
 	s.setProperty('--ui-radius-sm', r.sm);
