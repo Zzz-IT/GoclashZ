@@ -59,6 +59,7 @@ export default {
     activeConfig: 'Активный профиль',
     unselected: 'Не выбран',
     coreVersion: 'Mihomo {version}',
+    startStuckHint: 'Запуск ещё не завершён, идёт повторная попытка в фоне · Нажмите, чтобы повторить сейчас',
     restartCoreTitle: 'Перезапуск ядра',
     restartConfirmTitle: 'Перезапустить ядро',
     restartConfirmMsg: 'Перезапустить службу ядра? Это может временно прервать сетевые подключения.',

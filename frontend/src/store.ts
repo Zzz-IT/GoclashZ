@@ -973,7 +973,11 @@ const NOTIFICATION_UI: Record<string, NotificationUi> = {
   // outbound_ip.go:233，节流 5s；IP 卡自己会显示「切换中」，且消息是内部诊断串
   ROUTE_SWITCHING: 'silent',
   // controller.go:1416；后台还有自愈阶梯在跑（可重试），不打断用户
-  TUN_NOT_READY: 'silent',
+  /* TUN_NOT_READY 是后端静默阶梯走到 L3（60s 仍未就绪）才发的，含义是"自愈失败、需要用户知情"，
+     不是瞬时可自愈的那一类 —— 因此归 B 类（toast），不能静默。
+     （2026-11-18 实测：TUN 适配器 46s 未就绪期间界面一直显示"启动中"，若这里再静默，
+     用户端就是彻底的"卡住无反应"。） */
+  TUN_NOT_READY: 'toast',
   // B：toast（需知情但不阻塞）
   // controller_long_connection.go:175 / :196 / :201（ABANDONED 是 error 级，但只是延后不是失败）
   DEFERRED_RESTART_QUEUED: 'toast',

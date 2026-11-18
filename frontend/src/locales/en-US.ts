@@ -59,6 +59,7 @@ export default {
     activeConfig: 'Active Profile',
     unselected: 'None selected',
     coreVersion: 'Mihomo {version}',
+    startStuckHint: 'Startup has not finished yet; retrying in the background · Click to retry now',
     restartCoreTitle: 'Restart Core',
     restartConfirmTitle: 'Restart Core',
     restartConfirmMsg: 'Restart the kernel service? This may temporarily interrupt your network connections.',

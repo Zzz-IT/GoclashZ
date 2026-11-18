@@ -18,6 +18,10 @@
           <span class="micro-title">{{ t('overview.serviceStatus') }}</span>
           <h2 class="status-heading">{{ consoleServiceTitle }}</h2>
           <span class="version-tag">{{ t('overview.coreVersion', { version: globalState.version || 'Core' }) }}</span>
+          <!-- 启动超时兜底：与其让"启动中..."无限转，不如明确说清"还没完成，可点击重试" -->
+          <button v-if="startStuck" type="button" class="start-stuck-hint" @click="retryPendingStart">
+            {{ t('overview.startStuckHint') }}
+          </button>
         </div>
       </div>
       <div class="active-config-display">
@@ -192,7 +196,51 @@ watch(consoleServiceTitleRaw, (newTitle) => {
 });
 const consoleServiceTitle = stableTitle;
 
+/* 启动态超时降级（2026-11-18 实测事故的直接修复）。
+   事故现场：点开 TUN 后内核 20s 内没建出网卡，探测又误认了一个别的 Wintun 适配器，
+   watchdog 每 5s 空转，直到 15s 静默阶梯才重启内核 —— 全程 46 秒界面一直是"启动中..."，
+   既没有原因也没有操作入口，用户只能"取消再点一次"绕过。
+   这里给启动态加一道人肉可见的兜底：超过 START_TIMEOUT_MS 仍未就绪，就明确提示
+   "启动尚未完成 + 点击重试"，而不是让"启动中"永远转下去。
+   阈值取后端同步预算（tunAdapterReadyTimeout=20s）+ 内核启动开销。 */
+const START_TIMEOUT_MS = 25_000;
+
+const startPending = computed(() => {
+  if (isRestarting.value) return false;
+  const wantTun = globalState.tun;
+  const wantProxy = globalState.systemProxy;
+  const wantPort = globalState.portProxyMode && globalState.desiredPortProxy;
+  if (wantTun) return !globalState.actualTun;
+  if (wantProxy) return !globalState.actualSystemProxy;
+  if (wantPort) return !globalState.isRunning;
+  return false;
+});
+
+const startStuck = ref(false);
+let startStuckTimer: ReturnType<typeof setTimeout> | null = null;
+const clearStartStuckTimer = () => {
+  if (startStuckTimer !== null) {
+    clearTimeout(startStuckTimer);
+    startStuckTimer = null;
+  }
+};
+
+watch(startPending, (pending) => {
+  if (!pending) {
+    clearStartStuckTimer();
+    startStuck.value = false;
+    return;
+  }
+  if (startStuckTimer !== null || startStuck.value) return;
+  startStuckTimer = setTimeout(() => {
+    startStuckTimer = null;
+    // 到点仍处于启动中才标记：避免刚好就绪时闪一下"超时"
+    if (startPending.value) startStuck.value = true;
+  }, START_TIMEOUT_MS);
+}, { immediate: true });
+
 onUnmounted(() => {
+  clearStartStuckTimer();
   if (orbOffTimer !== null) clearTimeout(orbOffTimer);
   if (titleTimer !== null) clearTimeout(titleTimer);
 });
@@ -286,6 +334,33 @@ const { toggle: toggleTunState } = useTunToggle();
 
 const toggleTun = async () => {
   await toggleTunState();
+};
+
+/* 超时提示上的"点击重试"：把当前意图再下发一次，让后端重新收敛。
+   刻意不复用 toggle*（那会先反转意图）；这里的目标是"幂等重放"，与用户手动关再开等价，
+   但不闪中间状态。失败只记日志 —— 提示条本身已经说明了状态。 */
+const retryPendingStart = async () => {
+  if (startPending.value === false) return;
+  if (globalState.tun) {
+    await toggleTunState(true);
+    return;
+  }
+  if (globalState.systemProxy || (globalState.portProxyMode && globalState.desiredPortProxy)) {
+    if (globalState.systemProxyPending) return;
+    const target = globalState.portProxyMode ? globalState.desiredPortProxy : globalState.systemProxy;
+    setSystemProxyIntent(target);
+    globalState.systemProxyPending = true;
+    try {
+      await App.ToggleSystemProxy(target);
+      const latest = await App.GetAppState().catch(() => null);
+      if (latest) updateStateFromBackend(latest);
+    } catch {
+      /* 静默：提示条仍然在，用户可以再点一次 */
+    } finally {
+      globalState.systemProxyPending = false;
+      settleSystemProxyIntent();
+    }
+  }
 };
 
 // ==========================================
@@ -413,6 +488,21 @@ const runModeWorker = async (targetMode: string) => {
 .micro-title { font-size: 0.85rem; font-weight: 700; color: var(--text-sub); letter-spacing: 0.02em; margin-bottom: 8px; }
 .status-heading { font-size: 1.6rem; font-weight: 600; margin: 0; line-height: 1.2; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .version-tag { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-sub); opacity: 0.8; margin-top: 8px; }
+/* 启动超时提示：低对比、可点击，不能盖过主状态标题 */
+.start-stuck-hint {
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--ui-accent, var(--text-sub));
+  text-decoration: underline dotted;
+  cursor: pointer;
+  text-align: left;
+}
+.start-stuck-hint:hover { opacity: 0.8; }
+.start-stuck-hint:focus-visible { outline: 2px solid var(--ui-accent-ring); outline-offset: 3px; border-radius: 4px; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .active-config-display { text-align: center; min-width: 0; display: flex; flex-direction: column; align-items: center; }
 .active-config-display .config-name { font-size: 1.1rem; font-weight: 700; color: var(--text-main); }

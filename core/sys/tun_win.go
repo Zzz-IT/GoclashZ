@@ -71,7 +71,14 @@ var (
 )
 
 // tunAdapterDescriptionHints 是已知 TUN 适配器描述关键字（小写匹配）。
+//
+// 注意强弱之分：mihomo / sing-tun 会把描述**固定写成 "Meta Tunnel"**，这是"几乎可以确定是我们自己"的强信号；
+// 而泛化的 "wintun" 会命中**其它 TUN 软件或系统残留**的适配器（实测出现过描述
+// "Wintun Userspace Tunnel"、名字 "本地连接" 的无关设备）。弱信号只用于诊断提示，不能用来判定就绪。
 var tunAdapterDescriptionHints = []string{"meta tunnel", "wintun"}
+
+// tunAdapterStrongDescriptionHints 是可以据此判定"这是我们自己的 TUN"的描述（小写匹配）。
+var tunAdapterStrongDescriptionHints = []string{"meta tunnel"}
 
 // TunRouteInfo 是落在 TUN 适配器上的一条路由（只读快照，禁止据此清理系统路由）
 type TunRouteInfo struct {
@@ -109,9 +116,28 @@ func ProbeTunAdapter(deviceName string) (TunAdapterInfo, error) {
 		return TunAdapterInfo{}, err
 	}
 
-	// 分阶段选优（关键）：名字匹配组永远优先于描述匹配组，组内再优先 Up。
-	// 历史实现用 score*2+Up 做权重，导致「同名但 Down 的残留适配器」(8)
-	// 压过「名字带后缀且 Up 的真实适配器」(7)，探测永久失败 → ActualTun 永远 false。
+	best, err := selectTunAdapter(addrs, deviceName)
+	if err != nil {
+		return best, err
+	}
+
+	best.Routes = probeTunRoutes(best.Luid, best.IfIndex)
+	return best, nil
+}
+
+// selectTunAdapter 从适配器列表里挑出「本程序的 TUN」，判断不出就返回解释性错误。
+//
+// 抽成纯函数是为了可单测：真实 listAdapters 依赖系统状态，而"选优规则"才是历史事故的常发地。
+//
+// 选优规则（关键）：名字匹配组（精确 > 前缀）永远优先于描述匹配组，组内再优先 Up。
+// 历史实现用 score*2+Up 做权重，导致「同名但 Down 的残留适配器」(8)
+// 压过「名字带后缀且 Up 的真实适配器」(7)，探测永久失败 → ActualTun 永远 false。
+//
+// 描述匹配只接受强信号 "Meta Tunnel"（mihomo / sing-tun 写死的描述）。泛化的 "wintun"
+// 命中的多为其它 TUN 软件或系统残留：认作自己的会造成两种错误 ——
+//  1. 它 Down 时永远「未就绪」，内核根本没建出网卡也不会触发重启（2026-11-18 卡 46s）；
+//  2. 它 Up 时探测"成功"，ActualTun 假阳性（界面显示已接管，实际流量没走 TUN）。
+func selectTunAdapter(addrs []adapterEntry, deviceName string) (TunAdapterInfo, error) {
 	var nameBest, descBest tunCandidate
 	nameFound, descFound := false, false
 
@@ -149,8 +175,10 @@ func ProbeTunAdapter(deviceName string) (TunAdapterInfo, error) {
 	case nameFound:
 		best = nameBest.info
 	case descFound:
-		// 只有完全没有名字匹配时才退到描述匹配：
-		// 否则可能把其它 TUN 软件（同为 "Meta Tunnel" 描述）的适配器认成自己的。
+		if !isStrongTunDescription(descBest.info.Description) {
+			return TunAdapterInfo{}, fmt.Errorf("%w: device=%q（忽略不相关的 Wintun 适配器: %s）",
+				ErrTunAdapterNotFound, deviceName, descBest.info.Summary())
+		}
 		best = descBest.info
 	default:
 		return TunAdapterInfo{}, fmt.Errorf("%w: device=%q", ErrTunAdapterNotFound, deviceName)
@@ -160,7 +188,6 @@ func ProbeTunAdapter(deviceName string) (TunAdapterInfo, error) {
 		return best, fmt.Errorf("%w: %s", ErrTunAdapterNotReady, best.Summary())
 	}
 
-	best.Routes = probeTunRoutes(best.Luid, best.IfIndex)
 	return best, nil
 }
 
@@ -245,6 +272,17 @@ const (
 )
 
 // rankTunAdapter 计算适配器与目标 TUN 的匹配层级，rankNoMatch 表示不匹配。
+// isStrongTunDescription 判断适配器描述是否属于"确定是我们自己"的强信号。
+func isStrongTunDescription(description string) bool {
+	desc := strings.ToLower(strings.TrimSpace(description))
+	for _, hint := range tunAdapterStrongDescriptionHints {
+		if strings.Contains(desc, hint) {
+			return true
+		}
+	}
+	return false
+}
+
 func rankTunAdapter(friendlyName, description, deviceName string) int {
 	friendly := strings.ToLower(strings.TrimSpace(friendlyName))
 	desc := strings.ToLower(strings.TrimSpace(description))

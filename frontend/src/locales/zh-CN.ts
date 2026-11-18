@@ -59,6 +59,7 @@ export default {
     activeConfig: '活动配置',
     unselected: '未选定',
     coreVersion: 'Mihomo {version}',
+    startStuckHint: '启动尚未完成，正在后台自动重试 · 点击立即重试',
     restartCoreTitle: '重启内核',
     restartConfirmTitle: '重启内核',
     restartConfirmMsg: '确定要重新启动内核服务吗？这可能会导致短暂的网络中断。',

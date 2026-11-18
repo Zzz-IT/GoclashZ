@@ -59,6 +59,7 @@ export default {
     activeConfig: 'Aktives Profil',
     unselected: 'Keines ausgewählt',
     coreVersion: 'Mihomo {version}',
+    startStuckHint: 'Der Start ist noch nicht abgeschlossen, im Hintergrund wird erneut versucht · Klicken für sofortigen erneuten Versuch',
     restartCoreTitle: 'Kernel neu starten',
     restartConfirmTitle: 'Kernel neu starten',
     restartConfirmMsg: 'Den Kernel-Dienst neu starten? Dies kann Netzwerkverbindungen kurzzeitig unterbrechen.',

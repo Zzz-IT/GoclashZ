@@ -122,6 +122,12 @@ type Controller struct {
 	tunActive    bool
 	tunProbeInfo sys.TunAdapterInfo // 最近一次成功探测到的适配器快照（只读，诊断用）
 	tunProbeOK   bool
+	// tunProbeMissing 记录「最近一次探测的结论是设备根本不存在」。
+	//
+	// 这个区分很关键（2026-11-18 事故）：设备不存在 = 内核这次没建出网卡，等下去毫无意义，
+	// 应当尽快重启内核；设备存在但 Down = 驱动/路由还在初始化，才值得继续等。
+	// 旧实现把两者都当"可等"，导致缺设备时白等 15s 静默阶梯（实测界面卡"启动中"46 秒）。
+	tunProbeMissing bool
 
 	// TUN 就绪静默阶梯：内核以 TUN 模式运行但适配器迟迟未就绪时的升级状态
 	// （有界等待 → 一次内核重启 → 非阻塞提示），避免「启动中」永久静默。
@@ -382,6 +388,25 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 			Immediate: true,
 			Reason:    "startup",
 		})
+	}
+
+	/* helper 预热（无感提速，2026-11-18 事故的收尾优化）。
+	   TUN 链路第一步是 helper 快 ping（≤800ms）+ 必要时 SCM 拉起服务，冷启动约 1~2s；
+	   开机恢复时这段开销完全压在关键路径上（日志实测：先 800ms 快 ping 失败 → 转后台 SCM 拉起）。
+	   这里在启动阶段就丢到后台预热，等 restore job 真正开 TUN 时服务已经在跑。
+	   只在「当前 TUN 意图仍为真」时预热 —— 非恢复启动的 desired 已在上面被清空，
+	   不会为一个可能用不到的功能常驻一个 SYSTEM 特权服务。 */
+	if c.Desired.Get().Tun {
+		go func() {
+			warmCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			defer cancel()
+			started := time.Now()
+			if err := c.EnsureHelperReadyWithContext(warmCtx, "startup-warmup"); err != nil {
+				c.logInfo("helper 预热未完成（不影响启动流程）: %v", err)
+				return
+			}
+			c.logInfo("helper 已预热（%s），TUN 首次操作免去冷启动等待", time.Since(started).Round(100*time.Millisecond))
+		}()
 	}
 
 	c.RefreshAppAutoUpdate()
@@ -1232,6 +1257,8 @@ func (c *Controller) probeTunActual() (sys.TunAdapterInfo, error) {
 	if err != nil {
 		c.mu.Lock()
 		c.tunProbeOK = false
+		// 只有「设备不存在」才是 missing；「存在但没 Up」不算，仍值得等。
+		c.tunProbeMissing = errors.Is(err, sys.ErrTunAdapterNotFound)
 		c.mu.Unlock()
 		return info, err
 	}
@@ -1240,6 +1267,7 @@ func (c *Controller) probeTunActual() (sys.TunAdapterInfo, error) {
 	c.tunActive = true
 	c.tunProbeInfo = info
 	c.tunProbeOK = true
+	c.tunProbeMissing = false
 	c.mu.Unlock()
 	return info, nil
 }
@@ -1270,12 +1298,30 @@ func (c *Controller) waitForTunAdapter(ctx context.Context) error {
 	deadline := time.Now().Add(timeout)
 
 	var lastErr error
+	var absentSince time.Time
 	for {
 		if info, err := c.probeTunActual(); err == nil {
 			c.logInfo("TUN 适配器已就绪: %s", info.Summary())
 			return nil
 		} else {
 			lastErr = err
+			/* 设备"根本不存在"和"存在但没 Up"要分开：
+			   前者等下去不会有结果（内核没建出网卡），这里提前收尾，让上层尽快重启内核；
+			   后者（Down）才是驱动/路由仍在初始化，继续按预算轮询。 */
+			if errors.Is(err, sys.ErrTunAdapterNotFound) {
+				if absentSince.IsZero() {
+					absentSince = time.Now()
+				} else if time.Since(absentSince) >= tunAdapterAbsentAbortAfter {
+					c.mu.Lock()
+					c.tunProbeOK = false
+					c.tunProbeMissing = true
+					c.mu.Unlock()
+					return fmt.Errorf("TUN 适配器缺失超过 %s（内核未创建设备），提前结束等待以触发重启: %w",
+						tunAdapterAbsentAbortAfter, lastErr)
+				}
+			} else {
+				absentSince = time.Time{}
+			}
 		}
 
 		if time.Now().After(deadline) {
@@ -1362,6 +1408,17 @@ const (
 	tunLadderWaitAfter    = 15 * time.Second // L1：后台做一次有界等待
 	tunLadderRestartAfter = 40 * time.Second // L2：后台重启一次内核
 	tunLadderNotifyAfter  = 60 * time.Second // L3：非阻塞提示（toast，不弹模态）
+
+	// tunLadderMissingRestartAfter 是"设备根本不存在"这一档的重启阈值。
+	//
+	// 设备缺失说明内核这次没建出 TUN 网卡，继续等（L1）或等满 40s（L2）都不会自己好；
+	// 实测重启内核后 1 秒内就能建出来（2026-11-18：23:14:53 重启 → 23:14:54 就绪）。
+	// 取 5s 是为了给内核启动 + wintun 初始化留基本余量，又不至于让用户干等。
+	tunLadderMissingRestartAfter = 5 * time.Second
+
+	// tunAdapterAbsentAbortAfter 是同步等待路径上"确认设备缺失后提前收尾"的阈值：
+	// 不再硬等满 tunAdapterReadyTimeout（20s），让调用方尽早转入重启流程。
+	tunAdapterAbsentAbortAfter = 5 * time.Second
 	// tunLadderWaitBudget 是 L1 有界等待的预算。
 	tunLadderWaitBudget = 5 * time.Second
 	// configSwitchTunWaitBudget 是配置切换事务里等待 TUN 适配器的预算：
@@ -1393,6 +1450,22 @@ func (c *Controller) escalateTunReadinessIfNeeded() {
 	elapsed := time.Since(c.tunLadderSince)
 	stage := c.tunLadderStage
 	c.mu.Unlock()
+
+	/* 设备"根本不存在"：等下去不会有结果（内核这次没建出网卡）。
+	     直接跳到 L2 的动作（重启内核），而不是先等满 15s 有界等待 —— 实测重启后 1 秒内即可就绪
+	     （2026-11-18：23:14:53 重启 → 23:14:54 device="GOCLASHZ" up=true）。
+	     只做一次：tunLadderStage 置 2 后本分支不再命中，避免重启风暴。 */
+	c.mu.RLock()
+	missing := c.tunProbeMissing
+	c.mu.RUnlock()
+	if missing && stage < 2 && elapsed >= tunLadderMissingRestartAfter {
+		c.mu.Lock()
+		c.tunLadderStage = 2
+		c.mu.Unlock()
+		c.logWarn("TUN 适配器缺失 %s（内核未创建设备），跳过有界等待直接重启内核", tunLadderMissingRestartAfter)
+		go c.restartCoreForMissingTun()
+		return
+	}
 
 	switch {
 	case stage < 1 && elapsed >= tunLadderWaitAfter:
@@ -1435,12 +1508,40 @@ func (c *Controller) boundedTunWait() {
 	c.SyncState()
 }
 
+// restartCoreForMissingTun 在「内核以 TUN 模式在跑、但网卡根本没被创建」时重启一次内核。
+//
+// 与 boundedTunWait（只再等 5s，不重启）不同：缺设备是内核侧初始化失败，
+// 唯一有效的自愈动作就是重建内核进程（wintun 会话随之释放，第二次通常能成功）。
+// 调用点已用 tunLadderStage=2 做单次闸门，这里不再重复判重。
+func (c *Controller) restartCoreForMissingTun() {
+	base := c.ctx
+	if base == nil {
+		base = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(base, 60*time.Second)
+	defer cancel()
+
+	// RestartCore 只接受 ctx（内部固定 reason="internal"），重启原因记录在下面这行日志里。
+	if err := c.RestartCore(ctx); err != nil {
+		c.logWarn("因 TUN 适配器缺失而重启内核失败: %v", err)
+		return
+	}
+	c.logInfo("TUN 适配器缺失，已重启内核（等待网卡重新创建）")
+}
+
 // resetTunLadder 清空阶梯状态（TUN 已就绪 / 内核已停 / 意图已变时调用）。
 func (c *Controller) resetTunLadder() {
 	c.mu.Lock()
 	c.tunLadderSince = time.Time{}
 	c.tunLadderStage = 0
 	c.mu.Unlock()
+}
+
+// tunAdapterMissing 返回最近一次探测是否判定"设备不存在"（只读）。
+func (c *Controller) tunAdapterMissing() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.tunProbeMissing
 }
 
 // coreLaunchedWithTun 返回「内核进程是以 TUN 模式启动的」这一事实。

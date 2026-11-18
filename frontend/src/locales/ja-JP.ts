@@ -59,6 +59,7 @@ export default {
     activeConfig: 'アクティブプロファイル',
     unselected: '未選択',
     coreVersion: 'Mihomo {version}',
+    startStuckHint: '起動がまだ完了していません。バックグラウンドで再試行中 · クリックで即再試行',
     restartCoreTitle: 'コアの再起動',
     restartConfirmTitle: 'コアの再起動',
     restartConfirmMsg: 'コアサービスを再起動しますか？一時的にネットワーク接続が切断される場合があります。',

@@ -59,6 +59,7 @@ export default {
     activeConfig: 'Profil actif',
     unselected: 'Aucun sélectionné',
     coreVersion: 'Mihomo {version}',
+    startStuckHint: 'Le démarrage n’est pas terminé ; nouvelle tentative en arrière-plan · Cliquez pour réessayer',
     restartCoreTitle: 'Redémarrer le noyau',
     restartConfirmTitle: 'Redémarrer le noyau',
     restartConfirmMsg: 'Redémarrer le service du noyau ? Cela peut interrompre temporairement vos connexions réseau.',

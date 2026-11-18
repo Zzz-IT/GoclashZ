@@ -59,6 +59,7 @@ export default {
     activeConfig: '使用中配置',
     unselected: '未選定',
     coreVersion: 'Mihomo {version}',
+    startStuckHint: '啟動尚未完成，正在背景自動重試 · 點擊立即重試',
     restartCoreTitle: '重啟核心',
     restartConfirmTitle: '重啟核心',
     restartConfirmMsg: '確定要重新啟動核心服務嗎？這可能會導致短暫的網絡中斷。',
