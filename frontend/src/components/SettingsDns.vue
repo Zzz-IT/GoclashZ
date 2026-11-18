@@ -307,7 +307,7 @@ p { margin: 0; font-size: 0.85rem; color: var(--text-sub); max-width: 100%; line
 .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; }
 .col-item { flex-direction: column; align-items: stretch; gap: 10px; padding: 16px 0; }
 .divider { height: 1px; background: var(--ui-border-subtle); opacity: 0.5; margin: 0; }
-.modern-input, .modern-textarea { background: var(--ui-surface-hover); border: none; color: var(--text-main); padding: 10px 14px; border-radius: 8px; outline: none; font-size: 0.9rem; }
+.modern-input, .modern-textarea { background: var(--ui-surface-hover); border: none; color: var(--text-main); padding: 10px 14px; border-radius: var(--ui-radius-sm); outline: none; font-size: 0.9rem; }
 .modern-input { text-align: right; }
 .modern-textarea { resize: vertical; font-family: monospace; font-size: 0.85rem; line-height: 1.5; text-align: left; }
 .modern-input:disabled, .modern-textarea:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -324,6 +324,6 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 .back-btn:hover { background: var(--ui-surface-hover); }
 .section-header { display: flex; justify-content: space-between; align-items: center; }
 .sub-header.section-header h3 { flex: 1; margin-left: 12px; }
-.mini-btn-reset { height: 36px !important; padding: 0 14px !important; font-size: 0.85rem !important; border-radius: 8px !important; }
+.mini-btn-reset { height: 36px !important; padding: 0 14px !important; font-size: 0.85rem !important; border-radius: var(--ui-radius-sm) !important; }
 .mini-btn-reset :deep(.btn-icon) svg { width: 16px; height: 16px; }
 </style>

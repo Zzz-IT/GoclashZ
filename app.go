@@ -15,6 +15,7 @@ import (
 	"goclashz/core/utils"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"uuid"
@@ -322,6 +323,8 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 				"groups":       make(map[string]interface{}),
 				"activeConfig": state.ActiveConfig,
 				"isOffline":    true,
+				// P-16：读取失败不再和"配置里真的没有分组"同形。带上原因，前端据此显示确定态错误。
+				"loadError": err.Error(),
 			}
 		} else {
 			appcore.MergeOfflineSelection(offlineData, a.core.Offline.Snapshot(state.ActiveConfig))
@@ -338,6 +341,7 @@ func (a *App) GetInitialData() (map[string]interface{}, error) {
 				"groups":       make(map[string]interface{}),
 				"activeConfig": state.ActiveConfig,
 				"isOffline":    true,
+				"loadError":    err.Error(),
 			}
 		} else {
 			apiData["activeConfig"] = state.ActiveConfig
@@ -829,6 +833,44 @@ func (a *App) RenameConfig(id, newName string) error {
 
 func (a *App) DeleteConfig(id string) error {
 	return a.core.DeleteConfig(a.ctx, id)
+}
+
+// ReorderSubs 按给定 id 顺序重排订阅索引并落盘（前端「排序模式」的持久化出口）。
+//
+// 背景（审计 C-01 / P-05）：前端排序此前只改内存数组，后端没有任何落盘接口，
+// 切页或重新拉取即回退，整个「排序模式」是空操作。
+// 语义：
+//   - 只调整顺序，不改任何条目字段；
+//   - 未出现在 ids 里的条目（例如期间新导入的订阅）保持原有相对顺序追加在末尾；
+//   - ids 里不存在的 id 直接忽略，避免前端列表短暂不一致时把索引删坏。
+func (a *App) ReorderSubs(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	rank := make(map[string]int, len(ids))
+	for i, id := range ids {
+		if _, exists := rank[id]; !exists {
+			rank[id] = i
+		}
+	}
+	return clash.UpdateSubIndex(func(items []clash.SubIndexItem) ([]clash.SubIndexItem, error) {
+		if len(items) == 0 {
+			return items, nil
+		}
+		known := make([]clash.SubIndexItem, 0, len(items))
+		unknown := make([]clash.SubIndexItem, 0)
+		for _, item := range items {
+			if _, ok := rank[item.ID]; ok {
+				known = append(known, item)
+				continue
+			}
+			unknown = append(unknown, item)
+		}
+		sort.SliceStable(known, func(i, j int) bool {
+			return rank[known[i].ID] < rank[known[j].ID]
+		})
+		return append(known, unknown...), nil
+	})
 }
 
 func (a *App) SelectLocalConfig(id string) error {

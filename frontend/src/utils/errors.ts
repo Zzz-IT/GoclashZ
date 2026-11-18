@@ -1,11 +1,21 @@
 // 错误文案人话化：把内核 / 网络层 / 文件层的原始报错翻译成短句，
 // 原始文本放进 detail，由 showAlert 的折叠区展示，避免用户直接看到 dial tcp / Access is denied 之类的原文。
+// U-03：兜底后缀（「（已记录日志）」）改走 i18n，语言包补齐前回退到原中文。
+import { t } from '../locales';
+
+/** t() 在 key 缺失时原样返回 key 本身（locales/index.ts:64-67），据此回退到内置文案 */
+const tr = (key: string, fallback: string, params?: Record<string, string | number>) => {
+  const value = t(key, params);
+  return value === key ? fallback : value;
+};
 
 export type UserError = { message: string; detail: string };
 
 type ErrorRule = { re: RegExp; message: string };
 
-// 顺序即优先级：结构 / 权限 / 端口这类能一眼定性的在前，超时最泛化，放最后；
+// 顺序即优先级：结构 / 权限 / 端口这类能一眼定性的在前；
+// 超时最泛化，必须排在 Helper 之前（含「通过 Helper 启动内核失败: context deadline exceeded」这类），
+// 否则会被 Helper 规则抢走（U-05）。
 // 系统错误码必须带上下文（error 10061 / (10061) / ] 10060），避免误伤端口号或正常数字。
 const RULES: ErrorRule[] = [
   // 只认 YAML 解析错误特征；不能让 open .../config.yaml: Access is denied 这类路径误命中
@@ -15,8 +25,12 @@ const RULES: ErrorRule[] = [
   { re: /actively refused|connection refused|error 10061\b|\(10061\)|\]\s*10061\b/i, message: '内核未运行' },
   { re: /status 403|403 Forbidden/i, message: '订阅返回 403' },
   { re: /status 404|404 Not Found/i, message: '订阅返回 404' },
-  { re: /helper|Helper/i, message: '需要 Helper 服务' },
+  // U-05：原来这里是 /helper|Helper/i —— 过宽。「启动 helper 超时」「helper.exe 已被占用」
+  // 都会显示成「需要 Helper 服务」，把用户引向错误的修复路径（去装 Helper，实际是超时/占用）。
+  // 现在只认后端真正的缺失/需安装语义：supervisor.go:19 的 helper_install_required /
+  // helper_repair_required code，以及服务未安装/未启动/未注册的文案。
   { re: /deadline exceeded|timeout|timed out|error 10060\b|\(10060\)|\]\s*10060\b/i, message: '请求超时' },
+  { re: /helper_install_required|HELPER_NOT_INSTALLED|helper_repair_required|HELPER_REPAIR_REQUIRED|需要\s*Helper\s*服务|Helper\s*服务未(安装|启动|注册)/i, message: '需要 Helper 服务' },
 ];
 
 // 把 unknown 提取成可读文本（Wails 的 reject 常见为字符串，也可能是 Error / 带 message 的对象）
@@ -105,8 +119,14 @@ export function classifyError(e: unknown): ErrorClass {
   return { kind: 'unknown', level: 'C' };
 }
 
-/** toUserError 未命中人话规则时的兜底后缀：告诉用户「已记录日志」，别再让他们截图原文 */
-export const ERROR_LOGGED_SUFFIX = '（已记录日志）';
+/**
+ * toUserError 未命中人话规则时的兜底后缀：告诉用户「已记录日志」，别再让他们截图原文。
+ * U-03：原来是导出的中文常量（8 语言下固定中文）；改成函数才能跟随运行时语言切换。
+ * 全仓库只有本文件使用，故不再导出。
+ */
+function errorLoggedSuffix(): string {
+  return tr('common.errorLogged', '（已记录日志）');
+}
 
 /* ------------------------------------------------------------
  * 后端「语义」适配层（F-A4-14）
@@ -145,5 +165,5 @@ export function displayErrorMessage(e: unknown): string {
   const message = toUserError(e).message;
   if (classifyError(e).kind !== 'unknown') return message;
   if (matchesKnownErrorRule(e)) return message;
-  return message + ERROR_LOGGED_SUFFIX;
+  return message + errorLoggedSuffix();
 }

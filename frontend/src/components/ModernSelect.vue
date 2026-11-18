@@ -52,11 +52,18 @@ const props = defineProps<{
 const emit = defineEmits(['update:modelValue', 'change']);
 
 // 自动修正非法值
+/* G-08：纠错只改显示值，绝不能再 emit('change') —— 父级普遍把 @change 当"用户改了 → 立刻落盘"，
+   后端只要返回一个不在选项表里的值（如手改过的 appLogLevel="warning"），页面一打开就会
+   把第一个选项静默写盘。change 只在用户真正点选时由 selectOption() 发出。 */
 watch(() => props.modelValue, (newVal) => {
   const match = props.options.find(o => o.value === newVal);
-  if (!match && props.options.length > 0) {
+  /* 评审修复：只在「值根本没设置」时补第一项。
+     对「有值但不在选项表里」的真实值（典型例子：手改过 user_behavior.json 的
+     appLogLevel=warning）不再静默改写 —— 改写会把这个真实值变成父级的脏字段，
+     下一次任意保存就把它落盘丢掉（G-08 只解决了不 emit change，没解决这一层）。 */
+  const isEmpty = newVal === '' || newVal === null || newVal === undefined;
+  if (!match && isEmpty && props.options.length > 0) {
     emit('update:modelValue', props.options[0].value);
-    emit('change', props.options[0].value);
   }
 }, { immediate: true });
 
@@ -205,13 +212,9 @@ onUnmounted(() => {
   text-align: left;
 }
 
-.modern-custom-select.w-full .select-dropdown {
-  width: 100%;
-  max-width: 100%;
-  left: 0;
-  right: 0;
-  box-sizing: border-box;
-}
+/* G-09：浮层已 Teleport 到 body，不再是 .modern-custom-select 的后代，
+   所以原来这里的 `.w-full .select-dropdown` 规则永远匹配不到（宽度由 updatePosition() 内联写死），已删除。
+   同理下面 `.drop-up` 与 .select-dropdown 里的 z-index 也被内联样式覆盖，一并删掉。 */
 
 /* 2. 触发器（视觉主体） */
 .select-trigger {
@@ -221,7 +224,7 @@ onUnmounted(() => {
   gap: 8px;
   color: var(--text-main);
   padding: 8px 12px;
-  border-radius: 8px; 
+  border-radius: var(--ui-radius-sm); 
   cursor: pointer;
   transition: background-color 0.2s ease;
   height: 100%;
@@ -264,19 +267,14 @@ onUnmounted(() => {
   max-width: 340px;
   background-color: var(--surface);
   border: 1px solid var(--glass-border);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 100;
+  /* G-09：z-index 已删掉（updatePosition() 每次都写内联 10001，这里永远不生效）。
+     下面这些尺寸/定位声明同样会被内联样式覆盖，保留只为"未计算前的静态形状"。 */
   max-height: 260px;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 4px;
-}
-
-/* 下方空间不足时向上展开，避免列表被窗口底部截断 */
-.select-dropdown.drop-up {
-  top: auto;
-  bottom: calc(100% + 6px);
 }
 
 .select-option {

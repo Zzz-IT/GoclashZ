@@ -60,7 +60,7 @@
         <div v-for="m in modes" :key="m.val" class="seg-item" :class="{ active: globalState.mode === m.val }" @click="handleModeChange(m.val)">
           {{ m.label }}
         </div>
-        <div class="seg-slider" :style="sliderStyle"></div>
+        <div v-show="modeIndex >= 0" class="seg-slider" :style="sliderStyle"></div>
       </div>
     </section>
 
@@ -98,8 +98,13 @@ const modes = computed(() => [
   { label: t('overview.modeDirect'), val: 'direct' }
 ]);
 
+// H-16 / C-19：findIndex 未命中返回 -1，会让滑块 left 变成 -33.33%（滑出控件左侧），
+// 且三个 seg-item 都不高亮 —— 用户看不到任何选中态。这里单独暴露下标：
+// 命中时按真实下标定位，未知 mode 时兜底 0 并在模板里隐藏滑块，避免画出「选中第一项」的错觉。
+const modeIndex = computed(() => modes.value.findIndex(m => m.val === globalState.mode));
+
 const sliderStyle = computed(() => ({
-  left: `${(modes.value.findIndex(m => m.val === globalState.mode) * 100) / 3}%`
+  left: `${(Math.max(modeIndex.value, 0) * 100) / modes.value.length}%`
 }));
 
 const isRestarting = ref(false);
@@ -192,19 +197,28 @@ onUnmounted(() => {
   if (titleTimer !== null) clearTimeout(titleTimer);
 });
 
+// H-03：防重入闸门必须早于 showConfirm 的 await —— 模态是队列，连点两次会排两个确认框，
+// 用户各点一次「确定」后 RestartCore 会真执行两次（第一次刚起来就被第二次打断，连接全断）。
+// 闸门用独立标记（而不是 isRestarting）：确认框还开着时不该显示「内核重启中」。
+let restartInFlight = false;
+
 const handleRestartCore = async () => {
-  if (isRestarting.value) return;
-  const ok = await showConfirm(t('overview.restartConfirmMsg'), t('overview.restartConfirmTitle'));
-  if (!ok) return;
-  isRestarting.value = true;
+  if (restartInFlight) return;
+  restartInFlight = true;
   try {
-    await App.RestartCore();
+    const ok = await showConfirm(t('overview.restartConfirmMsg'), t('overview.restartConfirmTitle'));
+    if (!ok) return;
+    isRestarting.value = true;
+    try {
+      await App.RestartCore();
+      showToast(t('overview.restartSuccess'), 'success');
+    } catch (e) {
+      const u = toUserError(e);
+      await showAlert(u.message, t('common.error'), true, u.detail);
+    }
+  } finally {
+    restartInFlight = false;
     isRestarting.value = false;
-    showToast(t('overview.restartSuccess'), 'success');
-  } catch (e) {
-    isRestarting.value = false;
-    const u = toUserError(e);
-    await showAlert(u.message, t('common.error'), true, u.detail);
   }
 };
 
@@ -246,6 +260,10 @@ const toggleSysProxy = async () => {
   } catch (err: any) {
     // 语义判定走 classifyError，不再用文案 includes 猜
     const cls = classifyError(err);
+    // H-14：失败后不再由前端猜期望值，先对一次后端真值 —— 后端硬失败会用 CAS 回滚 desired 并广播，
+    // 瞬时失败则保留新意图转后台重试；两种语义只有后端知道，前端照抄即可。
+    const latest = await App.GetAppState().catch(() => null);
+    if (latest) updateStateFromBackend(latest);
     if (cls.kind === 'no_active_config') {
       showAlert(`${t('overview.errNoConfigTitle')}\n\n${t('overview.errNoConfigMsg')}`, t('common.notice'));
     } else {
@@ -255,13 +273,8 @@ const toggleSysProxy = async () => {
     }
   } finally {
     globalState.systemProxyPending = false;
-    if (target === false) {
-      if (globalState.portProxyMode) {
-        globalState.desiredPortProxy = false;
-      } else {
-        globalState.desiredSystemProxy = false;
-      }
-    }
+    // H-14：原来这里会把 desiredSystemProxy / desiredPortProxy 直写成 false，抵消后端刚做的回滚
+    // （卡片显示「已关闭」而系统代理实际还开着）。只清本地乐观覆盖层，期望值以后端为准。
     settleSystemProxyIntent();
   }
 };
@@ -299,14 +312,24 @@ const handleModeChange = (val: string) => {
 const runModeWorker = async (targetMode: string) => {
   modeWorkerActive = true;
   try {
-    await App.UpdateClashMode(targetMode);
-    const latest = await App.GetAppState();
-    updateStateFromBackend(latest);
-  } catch (err) {
-    globalState.mode = previousMode;
-    // F-A4-13：人话进 i18n 槽位、原始文本进 detail，标题不再被长错误撑开
-    const u = toUserError(err);
-    await showAlert(t('overview.errSwitchMode', { error: displayErrorMessage(err) }), t('common.error'), true, u.detail);
+    try {
+      await App.UpdateClashMode(targetMode);
+    } catch (err) {
+      // H-15：后端的失败分两类 —— A 类没落盘（SyncState 广播的还是旧 mode，回滚正确）；
+      // B 类已经写进 behavior、只是内核热切失败（广播的是新 mode），无条件回滚反而把 UI 拉离真相。
+      // 所以先拉一次真值以后端为准，只有拿不到快照时才回滚到 previousMode。
+      const latest = await App.GetAppState().catch(() => null);
+      if (latest) updateStateFromBackend(latest);
+      else globalState.mode = previousMode;
+      // F-A4-13：人话进 i18n 槽位、原始文本进 detail，标题不再被长错误撑开
+      const u = toUserError(err);
+      await showAlert(t('overview.errSwitchMode', { error: displayErrorMessage(err) }), t('common.error'), true, u.detail);
+      return;
+    }
+    // H-15：成功后的快照失败不再算「切换失败」—— 原来 GetAppState 抛错会落进同一个 catch，
+    // 把一次成功的切换回滚掉并弹一条错误框。
+    const latest = await App.GetAppState().catch(() => null);
+    if (latest) updateStateFromBackend(latest);
   } finally {
     if (pendingModeTarget !== null && pendingModeTarget !== targetMode) {
       const next = pendingModeTarget;
@@ -361,6 +384,21 @@ const runModeWorker = async (targetMode: string) => {
    z-index:-1 让晕圈从圆点背后扩散，圆点本身不被染色，起始那一帧也不会闪。
    渐变用的是纯强调色，深浅主题都成立：深色下是浅色光环，浅色下是深色涟漪。 */
 .orb-glow { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 50%; z-index: -1; background: radial-gradient(circle, var(--ui-accent) 0%, var(--ui-accent) 60%, transparent 100%); animation: pulse 2s infinite; pointer-events: none; }
+/* 评审修复：U-16 删掉了 style.css 里的全局 @keyframes pulse（当时判定"消费方都有同名定义"），
+   但本文件的 .orb-glow 仍在用 —— 光晕的呼吸/扩散动画会静默失效。
+   这里补一份 scoped 定义（scoped 会把 keyframes 名一起哈希，正好只服务本组件）。
+   数值与 TrafficCard.vue 的 pulse 保持一致。 */
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
 .refresh-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%) rotate(-90deg); width: 44px; height: 44px; opacity: 0.6; transition: all 0.4s cubic-bezier(0.4,0,0.2,1); }
 .scanner-track { fill: none; stroke: var(--ui-surface-hover); stroke-width: 2.5; }
 .scanner-bar { fill: none; stroke: var(--text-muted); stroke-width: 2.5; transition: all 0.4s cubic-bezier(0.4,0,0.2,1); stroke-dasharray: 62.8; stroke-dashoffset: 62.8; }
@@ -381,7 +419,7 @@ const runModeWorker = async (targetMode: string) => {
 .switch-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .action-card { padding: 20px 24px; border: none; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s cubic-bezier(0.4,0,0.2,1); }
 .action-card.on { background: var(--ui-accent-block); }
-.icon-ring { width: 40px; height: 40px; border-radius: 12px; background: var(--ui-surface-hover); display: flex; align-items: center; justify-content: center; color: var(--ui-text-secondary); transition: 0.3s; }
+.icon-ring { width: 40px; height: 40px; border-radius: var(--ui-radius-lg); background: var(--ui-surface-hover); display: flex; align-items: center; justify-content: center; color: var(--ui-text-secondary); transition: 0.3s; }
 .icon-ring :deep(svg) { width: 22px; height: 22px; }
 .on .icon-ring { background: color-mix(in srgb, var(--ui-accent-fg) 25%, transparent) !important; color: var(--ui-accent-fg); }
 .card-title { display: block; font-size: 1rem; font-weight: 600; margin-bottom: 2px; color: var(--text-main); }
@@ -393,8 +431,8 @@ const runModeWorker = async (targetMode: string) => {
 .rules-card { padding: 24px 28px; display: flex; flex-direction: column; gap: 20px; }
 .rules-head { display: flex; align-items: center; justify-content: space-between; }
 /* 分段控件：控件凹槽 surface 由 .ui-surface-control 提供（无圆角），这里只负责布局与形状 */
-.segmented-control { padding: 4px; border-radius: 12px; display: flex; position: relative; border: none; overflow: hidden; }
+.segmented-control { padding: 4px; border-radius: var(--ui-radius-lg); display: flex; position: relative; border: none; overflow: hidden; }
 .seg-item { flex: 1; text-align: center; padding: 10px 4px; min-height: 40px; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: 600; color: var(--text-main); cursor: pointer; z-index: 1; transition: 0.3s; word-break: keep-all; }
 .seg-item.active { color: var(--ui-accent-fg); }
-.seg-slider { position: absolute; top: 4px; bottom: 4px; width: calc(33.33% - 8px); margin-left: 4px; background: var(--ui-accent-block); border-radius: 8px; z-index: 0; transition: left 0.3s cubic-bezier(0.4,0,0.2,1); }
+.seg-slider { position: absolute; top: 4px; bottom: 4px; width: calc(33.33% - 8px); margin-left: 4px; background: var(--ui-accent-block); border-radius: var(--ui-radius-sm); z-index: 0; transition: left 0.3s cubic-bezier(0.4,0,0.2,1); }
 </style>

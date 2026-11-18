@@ -39,8 +39,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { UpdateTaskState } from '../store';
+import { showToast } from '../store';
 import { ICONS } from '../utils/icons';
 import { formatBytes, formatSpeed, formatEtaTime } from '../utils/format';
+import { displayErrorMessage } from '../utils/errors';
+import { reportError } from '../utils/report';
 import { App } from '../api';
 import { t } from '../locales';
 
@@ -65,25 +68,6 @@ const statusText = computed(() => {
 });
 
 
-const handleTogglePause = async () => {
-  if (props.task.status === 'running') {
-    await App.CancelUpdateTask(props.task.key);
-  } else {
-    // Resume
-    await startTask();
-  }
-};
-
-const handleRemove = async () => {
-  await App.RemoveUpdateTask(props.task.key);
-};
-
-const handleForceRetry = async () => {
-  // 彻底删除缓存，重新下载
-  await App.ClearUpdateCache(props.task.key);
-  await startTask();
-};
-
 const startTask = async () => {
   const key = props.task.key;
   if (key === 'core-update') {
@@ -94,6 +78,36 @@ const startTask = async () => {
     await App.UpdateGeoDatabaseAsync(key);
   }
 };
+
+/* G-11：下面 4 个更新 RPC 原来完全没有 catch。正常情况下它们不会 reject，
+   但 RPC 通道异常时会抛 → 未处理的 Promise 拒绝（控制台红字、按钮无任何反馈）。
+   统一走这个包装：记录日志 + toast 出原因，与同目录其它组件的 reportError 约定一致。 */
+const runTaskAction = async (action: string, fn: () => Promise<unknown>) => {
+  try {
+    await fn();
+  } catch (e) {
+    reportError(e, 'updateTask.' + action);
+    // 复用 updateTask.statusFailed（"失败"）作前缀：updateTask 段原本没有任何失败文案，
+    // 这里不新增 i18n key，避免 check-i18n 先变红（Wave 2 若要独立文案可换成 updateTask.actionFailed）
+    showToast(t('updateTask.statusFailed') + ': ' + displayErrorMessage(e), 'error');
+  }
+};
+
+const handleTogglePause = () => {
+  if (props.task.status === 'running') {
+    return runTaskAction('cancel', () => App.CancelUpdateTask(props.task.key));
+  }
+  // Resume
+  return runTaskAction('resume', () => startTask());
+};
+
+const handleRemove = () => runTaskAction('remove', () => App.RemoveUpdateTask(props.task.key));
+
+const handleForceRetry = () => runTaskAction('retry', async () => {
+  // 彻底删除缓存，重新下载
+  await App.ClearUpdateCache(props.task.key);
+  await startTask();
+});
 </script>
 
 <style scoped>
@@ -102,7 +116,7 @@ const startTask = async () => {
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   background: var(--surface);
   border: 1px solid var(--surface-hover);
 }

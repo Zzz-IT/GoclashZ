@@ -18,7 +18,7 @@
             <p>{{ t('settings.behavior.silentStartDesc') }}</p>
           </div>
           <label class="modern-switch">
-            <input type="checkbox" v-model="behavior.silentStart" @change="$emit('save')">
+            <input type="checkbox" v-model="behavior.silentStart" :disabled="loading" @change="$emit('save')">
             <span class="slider"></span>
           </label>
         </div>
@@ -30,7 +30,7 @@
             <p>{{ t('settings.behavior.closeToTrayDesc') }}</p>
           </div>
           <label class="modern-switch">
-            <input type="checkbox" v-model="behavior.closeToTray" @change="$emit('save')">
+            <input type="checkbox" v-model="behavior.closeToTray" :disabled="loading" @change="$emit('save')">
             <span class="slider"></span>
           </label>
         </div>
@@ -42,7 +42,7 @@
             <p>{{ t('settings.behavior.portProxyModeDesc') }}</p>
           </div>
           <label class="modern-switch">
-            <input type="checkbox" v-model="behavior.portProxyMode" @change="$emit('save')">
+            <input type="checkbox" v-model="behavior.portProxyMode" :disabled="loading" @change="$emit('save')">
             <span class="slider"></span>
           </label>
         </div>
@@ -52,7 +52,7 @@
             <p>{{ t('settings.behavior.coreComparisonPromptDesc') }}</p>
           </div>
           <label class="modern-switch">
-            <input type="checkbox" v-model="behavior.coreComparisonPrompt" @change="$emit('save')">
+            <input type="checkbox" v-model="behavior.coreComparisonPrompt" :disabled="loading" @change="$emit('save')">
             <span class="slider"></span>
           </label>
         </div>
@@ -62,7 +62,7 @@
             <p>{{ t('settings.behavior.longConnectionProtectionDesc') }}</p>
           </div>
           <label class="modern-switch">
-            <input type="checkbox" :checked="behavior.longConnectionProtection" @change="onToggleLongConnectionProtection">
+            <input type="checkbox" :checked="behavior.longConnectionProtection" :disabled="loading" @change="onToggleLongConnectionProtection">
             <span class="slider"></span>
           </label>
         </div>
@@ -74,7 +74,7 @@
             <p>{{ t('settings.behavior.startupWithOSDesc') }}</p>
           </div>
           <label class="modern-switch">
-            <input type="checkbox" v-model="behavior.startupWithOS" @change="$emit('startup-change')">
+            <input type="checkbox" v-model="behavior.startupWithOS" :disabled="loading" @change="$emit('startup-change')">
             <span class="slider"></span>
           </label>
         </div>
@@ -90,7 +90,7 @@
                 <p>{{ t('settings.behavior.restoreOnStartupDesc') }}</p>
               </div>
               <label class="modern-switch">
-                <input type="checkbox" v-model="behavior.restoreOnStartup" @change="$emit('save')">
+                <input type="checkbox" v-model="behavior.restoreOnStartup" :disabled="loading" @change="$emit('save')">
                 <span class="slider"></span>
               </label>
             </div>
@@ -105,7 +105,7 @@
             <p>{{ t('settings.behavior.autoDelayTestDesc') }}</p>
           </div>
           <label class="modern-switch">
-            <input type="checkbox" v-model="behavior.autoDelayTest" @change="$emit('save')">
+            <input type="checkbox" v-model="behavior.autoDelayTest" :disabled="loading" @change="$emit('save')">
             <span class="slider"></span>
           </label>
         </div>
@@ -122,6 +122,7 @@
                   v-model="behavior.autoDelayTestInterval"
                   :min="1"
                   :max="1440"
+                  :disabled="loading"
                   @change="$emit('save')"
                 />
                 <span class="unit">min</span>
@@ -137,7 +138,7 @@
             <p>{{ t('settings.behavior.delayRetentionDesc') }}</p>
           </div>
           <label class="modern-switch">
-            <input type="checkbox" v-model="behavior.delayRetention" @change="$emit('save')">
+            <input type="checkbox" v-model="behavior.delayRetention" :disabled="loading" @change="$emit('save')">
             <span class="slider"></span>
           </label>
         </div>
@@ -152,6 +153,7 @@
               <ModernSelect
                 v-model="behavior.delayRetentionTime"
                 :options="delayRetentionOptions"
+                :disabled="loading"
                 @change="$emit('save')"
               />
             </div>
@@ -167,6 +169,7 @@
           <ModernSelect
             v-model="behavior.logLevel"
             :options="logLevelOptions"
+            :disabled="loading"
             @change="$emit('save')"
           />
         </div>
@@ -180,6 +183,7 @@
           <ModernSelect
             v-model="behavior.appLogLevel"
             :options="appLogLevelOptions"
+            :disabled="loading"
             @change="$emit('save')"
           />
         </div>
@@ -191,7 +195,7 @@
             <p>{{ t('settings.behavior.hideLogsDesc') }}</p>
           </div>
           <label class="modern-switch">
-            <input type="checkbox" v-model="behavior.hideLogs" @change="$emit('save')">
+            <input type="checkbox" v-model="behavior.hideLogs" :disabled="loading" @change="$emit('save')">
             <span class="slider"></span>
           </label>
         </div>
@@ -204,7 +208,7 @@
             <p>{{ t('settings.behavior.proxyTrafficOnlyDesc') }}</p>
           </div>
           <label class="modern-switch">
-            <input type="checkbox" v-model="behavior.proxyTrafficOnly" @change="$emit('save')">
+            <input type="checkbox" v-model="behavior.proxyTrafficOnly" :disabled="loading" @change="$emit('save')">
             <span class="slider"></span>
           </label>
         </div>
@@ -221,6 +225,7 @@
             class="modern-input"
             style="width: 200px; text-align: center;"
             v-model="behavior.subUA"
+            :disabled="loading"
             @blur="$emit('save')"
             :placeholder="t('settings.behavior.subUAPlaceholder')"
           />
@@ -231,7 +236,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, nextTick, watch } from 'vue';
 import { showAlert } from '../store';
 import { ICONS } from '../utils/icons';
 import ModernSelect from './ModernSelect.vue';
@@ -279,8 +284,19 @@ const onToggleLongConnectionProtection = (e: Event) => {
   emit('save');
 };
 
+/* G-12：下面的 updateInterval watch 分不清「用户输入」与「父级换掉了 behavior 对象」。
+   父级 loadBehavior 会把 behavior.value 换成后端返回的新对象，若后端值 <=0 就会在
+   打开页面的瞬间弹警告并写盘一次（今天不可达，因为 Go normalizeBehavior 会把 <=0 夹成 1，
+   但这属于靠后端兜底）。用「同步中」闸门跳过父级替换引发的那一轮。 */
+let behaviorSyncing = false;
+watch(() => props.behavior, () => {
+  behaviorSyncing = true;
+  nextTick(() => { behaviorSyncing = false; });
+});
+
 // 🚀 核心：监听更新间隔时间，防止用户输入 0 或负数
 watch(() => props.behavior.updateInterval, async (newVal) => {
+  if (behaviorSyncing) return;
   if (newVal !== undefined && newVal <= 0) {
     props.behavior.updateInterval = 1;
 
@@ -320,7 +336,7 @@ p {
   border: none;
   color: var(--text-main);
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   outline: none;
   font-size: 0.9rem;
   text-align: right;
@@ -365,7 +381,7 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   height: 36px !important;
   padding: 0 14px !important;
   font-size: 0.85rem !important;
-  border-radius: 8px !important;
+  border-radius: var(--ui-radius-sm) !important;
 }
 
 .mini-btn-reset :deep(.btn-icon) svg {

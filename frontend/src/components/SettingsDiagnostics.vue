@@ -149,6 +149,7 @@ import { showAlert, showToast } from '../store';
 import { ICONS } from '../utils/icons';
 import { displayErrorMessage, toUserError } from '../utils/errors';
 import { reportError } from '../utils/report';
+import { copyText } from '../utils/clipboard';
 import { t } from '../locales';
 
 defineEmits<{ navigate: [view: 'about'] }>();
@@ -242,12 +243,8 @@ const copyPath = async (value?: string) => {
     showToast(t('common.empty'), 'info');
     return;
   }
-  try {
-    await navigator.clipboard.writeText(text);
-    showToast(t('common.copied'), 'success');
-  } catch {
-    showToast(t('common.copy') + ' ✗', 'error');
-  }
+  // U-18：统一走 utils/clipboard（成功/失败文案都由它给，避免各页自拼、一处硬编码 ✗）
+  await copyText(text);
 };
 
 const handleExport = async () => {
@@ -295,7 +292,7 @@ p { margin: 0; font-size: 0.85rem; color: var(--text-sub); max-width: 100%; line
   font-size: 0.75rem;
   color: var(--text-muted);
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--ui-radius-full);
   background: var(--surface);
   white-space: nowrap;
 }
@@ -307,7 +304,7 @@ p { margin: 0; font-size: 0.85rem; color: var(--text-sub); max-width: 100%; line
   gap: 14px;
   padding: 16px 18px;
   border: 1px solid var(--ui-border-subtle);
-  border-radius: 12px;
+  border-radius: var(--ui-radius-lg);
 }
 .verdict-card .info { padding-right: 0; }
 .verdict-dot {
@@ -329,7 +326,7 @@ p { margin: 0; font-size: 0.85rem; color: var(--text-sub); max-width: 100%; line
   align-items: center;
   gap: 7px;
   padding: 5px 11px;
-  border-radius: 999px;
+  border-radius: var(--ui-radius-full);
   font-size: 0.75rem;
   font-weight: 700;
   white-space: nowrap;

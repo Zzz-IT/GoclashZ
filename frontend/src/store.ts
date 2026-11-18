@@ -12,6 +12,7 @@ import {
   normalizeThemeConfig,
   onSystemThemeChange,
   readCachedTheme,
+  readCachedThemeModeLabel,
   resolveIsDark,
   themeConfigFromBehavior,
   writeThemeToBehavior,
@@ -19,35 +20,15 @@ import {
   type ThemeMode
 } from './utils/theme';
 import { applyGlassEffect, refreshGlassTint } from './utils/glass';
+import type {
+  OutboundIPResult as BoundOutboundIPResult,
+  UpdateTaskState as BoundUpdateTaskState
+} from '../bindings/goclashz/core/appcore/models';
 
-export type UpdateTaskState = {
-  key: string;
-  title: string;
-  status: string;
-  stage: string;
-  progress: number;
-  bytesDone: number;
-  bytesTotal: number;
-  speedBps: number;
-  etaSeconds: number;
-  error: string;
-  startedAt: number;
-  finishedAt: number;
-};
-
-export type OutboundIPResult = {
-  preferred: string;
-  ipv4: string;
-  ipv6: string;
-  mode: string;
-  source: string;
-  source4: string;
-  source6: string;
-  message: string;
-  message4: string;
-  message6: string;
-  complete: boolean;
-};
+// C-12：契约类型直接复用 bindings 生成的定义（此前是手抄两份，后端改字段时前端编译期发现不了）。
+// 仍以同名类型 re-export，UpdateTaskRow.vue 等既有 `import type { UpdateTaskState } from '../store'` 不受影响。
+export type UpdateTaskState = BoundUpdateTaskState;
+export type OutboundIPResult = BoundOutboundIPResult;
 
 export function normalizeOutboundIP(raw: any): OutboundIPResult {
   return {
@@ -65,14 +46,35 @@ export function normalizeOutboundIP(raw: any): OutboundIPResult {
   };
 }
 
+// localStorage 在隐私模式 / 配额满时会抛异常（S-05 / C-11）：模块级读抛错会让整个 store.ts
+// 求值失败（App 白屏），同步过程中的写抛错会让 updateStateFromBackend 从中途中断（后续字段全不更新）。
+// 与 applyThemeToApp / setProxyCardMode 里已有的 try/catch 是同一策略，这里抽成两个小函数复用。
+function readLocalStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalStorage(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* 隐私模式 / 配额满：忽略，不能因为写缓存失败中断状态同步 */
+  }
+}
+
 // 1. 同步读取本地缓存（发生在 Vue 渲染前，绝对 0 延迟）
-const cachedHideLogs = localStorage.getItem('goclashz_hideLogs') === 'true';
-const cachedTheme = localStorage.getItem('goclashz_theme') || 'light';
-const cachedActiveConfigId = localStorage.getItem('goclashz_activeConfigId') || ''; // 👈 新增缓存预热
-const cachedOutboundIP = localStorage.getItem('goclashz_outboundIP');
+const cachedHideLogs = readLocalStorage('goclashz_hideLogs') === 'true';
+// H1-1（U-08）：明暗初值不再读旧键 'goclashz_theme'（它可能记着 light 而用户是 system+深色），
+// 改用与 themeState.config 同源的解析结果，避免首帧 html.dark 与 .app-shell.dark 不一致。
+const cachedTheme = readCachedThemeModeLabel();
+const cachedActiveConfigId = readLocalStorage('goclashz_activeConfigId') || ''; // 👈 新增缓存预热
+const cachedOutboundIP = readLocalStorage('goclashz_outboundIP');
 export type ProxyCardMode = 'standard' | 'compact' | 'list' | 'adaptive';
 const validProxyCardModes: ProxyCardMode[] = ['standard', 'compact', 'list', 'adaptive'];
-const savedProxyCardMode = localStorage.getItem('goclashz_proxy_card_mode') as ProxyCardMode | null;
+const savedProxyCardMode = readLocalStorage('goclashz_proxy_card_mode') as ProxyCardMode | null;
 const cachedProxyCardMode: ProxyCardMode = (savedProxyCardMode && validProxyCardModes.includes(savedProxyCardMode))
   ? savedProxyCardMode
   : 'standard';
@@ -112,12 +114,8 @@ export function applyThemeToApp(config: ThemeConfig, behavior?: any): boolean {
   themeState.isDark = applied.isDark;
   const nextTheme = applied.isDark ? 'dark' : 'light';
   if (globalState.theme !== nextTheme) globalState.theme = nextTheme;
-  // 旧缓存键：App.vue 根节点的初始明暗、以及部分启动路径仍读它
-  try {
-    localStorage.setItem('goclashz_theme', nextTheme);
-  } catch {
-    /* 隐私模式下 localStorage 不可写，忽略 */
-  }
+  /* 旧缓存键 'goclashz_theme' 的写入口已收敛到 utils/theme.ts 的 cacheTheme（它每次写 v2 时
+     同步写一份旧键镜像），这里不再重复写 —— 两份写者会让两个键在异步窗口内不一致（U-08）。 */
   // --glass-tint-bg 是算出来的字面量，依赖刚刚被改写的 --surface-panel。
   // 不重算的话，玻璃开着时整窗会停在旧主题的面板色上（切暗色像没生效）。
   refreshGlassTint();
@@ -132,14 +130,39 @@ export function applyThemeToApp(config: ThemeConfig, behavior?: any): boolean {
  * 那么每次重新进入设置页都会把用户的切换顶回去（表现为"点一次软件设置，明暗又翻一次"）。
  */
 export async function setThemeMode(mode: ThemeMode): Promise<void> {
+  const previousMode = themeState.config.mode;
   applyThemeToApp({ ...themeState.config, mode });
   try {
+    // ⚠️ 多写者约定（S-02，与 fix-5 的 Settings.vue saveBehavior 成对）：
+    // AppBehavior 是单一 JSON 对象、后端 SaveAppBehavior 是整对象覆盖，两个入口都
+    // 「读整份 → 只改自己的字段 → 写整份」才能不互相丢更新。
+    // 这里必须保留 GET→只改 themeMode→SAVE 的读改写，不要改成盲写本地快照；
+    // 设置页那侧同步改成「GET 最新 + 只合并本页脏字段」。
     const current: any = await App.GetAppBehavior();
     if (!current) return;
     current.themeMode = themeState.config.mode;
-    await App.SaveAppBehavior(current);
+    try {
+      await App.SaveAppBehavior(current);
+    } catch (first) {
+      /* 无感自愈（两层）：
+         1) BEHAVIOR_CONFLICT = 期间别的入口（设置页/托盘）也保存了 behavior，我们这份快照过期 ——
+            重新读最新版本、只改 themeMode、再存一次；
+         2) 其它瞬时失败（后端正忙 / 原子替换撞上读）直接退避重试一次。
+         都失败才由外层回滚到切换前的模式（不回滚会让界面与磁盘长期不一致，
+         表现为重启后主题"自己变回去"），回滚后状态自洽，无需打扰用户。 */
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+      const retry: any = await App.GetAppBehavior();
+      if (!retry) throw first;
+      retry.themeMode = themeState.config.mode;
+      await App.SaveAppBehavior(retry);
+    }
   } catch (err) {
-    // 后端不可用（dev 环境 / 服务异常）时保持前端已生效的状态，不阻塞交互
+    /* 后端不可用（dev 环境 / 服务异常）：以前只记日志，用户点一下没反应且界面已变色，
+       下次进设置页又被后端旧值顶回去，观感是"主题随机回退"。
+       这里回滚到切换前的模式并明确提示，保证界面与后端真相一致。 */
+    if (previousMode !== mode) {
+      applyThemeToApp({ ...themeState.config, mode: previousMode });
+    }
     reportError(err, 'theme.saveMode');
   }
 }
@@ -175,6 +198,11 @@ const delayTimers: Record<string, number> = {};
 const controlOverlay = {
   systemProxy: null as boolean | null,
   tun: null as boolean | null,
+  // S-03：发起 overlay 那一刻的 globalState.controlRevision。
+  // 后端 revision 一旦推进得比它更晚，说明后端已经对这次命令给出结论
+  // （成功，或失败回滚后的真实 desired），本地 intent 就过期了，必须丢弃。
+  systemProxySince: null as number | null,
+  tunSince: null as number | null,
 };
 
 function syncVisibleControls() {
@@ -182,23 +210,47 @@ function syncVisibleControls() {
   globalState.tun = controlOverlay.tun ?? globalState.desiredTun;
 }
 
+/**
+ * S-03：后端 revision 更新时丢弃过期的本地 intent overlay。
+ * 没有这条保护时，UI 直写的 overlay 会把后端「已经回滚的结论」再盖一次，
+ * 卡片于是显示「已关闭」而系统代理实际仍开着（取决于事件与 RPC 的到达顺序）。
+ * 只丢 overlay、不碰 desired：可见状态的语义仍是「overlay 优先，否则用后端 desired」。
+ */
+function settleStaleControlOverlay(revision: number | undefined) {
+  if (revision === undefined) return;
+  if (controlOverlay.systemProxy !== null && controlOverlay.systemProxySince !== null
+    && revision > controlOverlay.systemProxySince) {
+    controlOverlay.systemProxy = null;
+    controlOverlay.systemProxySince = null;
+  }
+  if (controlOverlay.tun !== null && controlOverlay.tunSince !== null
+    && revision > controlOverlay.tunSince) {
+    controlOverlay.tun = null;
+    controlOverlay.tunSince = null;
+  }
+}
+
 export function setSystemProxyIntent(value: boolean) {
   controlOverlay.systemProxy = value;
+  controlOverlay.systemProxySince = globalState.controlRevision;
   syncVisibleControls();
 }
 
 export function setTunIntent(value: boolean) {
   controlOverlay.tun = value;
+  controlOverlay.tunSince = globalState.controlRevision;
   syncVisibleControls();
 }
 
 export function settleSystemProxyIntent() {
   controlOverlay.systemProxy = null;
+  controlOverlay.systemProxySince = null;
   syncVisibleControls();
 }
 
 export function settleTunIntent() {
   controlOverlay.tun = null;
+  controlOverlay.tunSince = null;
   syncVisibleControls();
 }
 
@@ -314,11 +366,16 @@ export const globalState = reactive({
 
 
 // 👇 新增清洗规则：打破数据格式强粘合，防止大小写污染
+// S-09：warning 必须归一到 warn —— 前端等级档位只有 debug/info/warn/error/silent，
+// 原来把 'warning' 原样返回，等于让 globalState.logLevel 停在一个不存在的档位上，
+// 而内核实际合法值就是 warning（core/clash/config.go），所以两边必须收敛到同一套。
+// silent 是 Mihomo 的合法级别，必须保留（App.vue 侧同类函数由 fix-2 对齐）。
 const normalizeLogLevel = (level?: string) => {
   const v = String(level || '').toLowerCase().trim();
   if (v === 'trace') return 'debug';
   if (v === 'fatal' || v === 'panic') return 'error';
-  if (['debug', 'info', 'warn', 'warning', 'error', 'silent'].includes(v)) return v;
+  if (v === 'warning') return 'warn';
+  if (['debug', 'info', 'warn', 'error', 'silent'].includes(v)) return v;
   return 'info';
 };
 
@@ -327,12 +384,12 @@ export function updateStateFromBackend(rawData: any) {
 
   const oldRunning = globalState.isRunning;
 
+  // C-10：Go 的 AppState json tag 全是 camelCase，原来的 rawData.PascalCase 兼容分支
+  // 永不命中（纯死代码，还让人误以为契约是灵活的），已全部删除，只保留 camelCase 读取。
   if (rawData.isRunning !== undefined) globalState.isRunning = rawData.isRunning;
-  else if (rawData.IsRunning !== undefined) globalState.isRunning = rawData.IsRunning;
 
   // mode 更新
   if (rawData.mode !== undefined) globalState.mode = rawData.mode;
-  else if (rawData.Mode !== undefined) globalState.mode = rawData.Mode;
 
   // 刻意不消费后端 theme。
   // 明暗的用户意图只存在于前端（themeState.config.mode，来自 behavior.ThemeMode），
@@ -340,42 +397,40 @@ export function updateStateFromBackend(rawData: any) {
   // 一旦回灌就会把用户刚做的切换顶回去 —— 这正是「点暗色弹回白色 / 自己来回翻」的来源。
   // 唯一需要跟随外部变化的是 system 模式，那条路由 bindSystemTheme 单独处理。
 
-  const newHideLogs = rawData.hideLogs ?? rawData.HideLogs;
-  if (newHideLogs !== undefined) {
-    globalState.hideLogs = newHideLogs;
-    localStorage.setItem('goclashz_hideLogs', String(newHideLogs));
+  if (rawData.hideLogs !== undefined) {
+    globalState.hideLogs = rawData.hideLogs;
+    writeLocalStorage('goclashz_hideLogs', String(rawData.hideLogs));
   }
 
-  const newLogLevel = rawData.logLevel ?? rawData.LogLevel;
-  if (newLogLevel !== undefined) {
-    globalState.logLevel = normalizeLogLevel(newLogLevel || 'error');
+  if (rawData.logLevel !== undefined) {
+    globalState.logLevel = normalizeLogLevel(rawData.logLevel || 'error');
   }
 
-  const newAppLogLevel = rawData.appLogLevel ?? rawData.AppLogLevel;
-  if (newAppLogLevel !== undefined) {
-    globalState.appLogLevel = normalizeLogLevel(newAppLogLevel || 'info');
+  if (rawData.appLogLevel !== undefined) {
+    globalState.appLogLevel = normalizeLogLevel(rawData.appLogLevel || 'info');
   }
 
   // 检测代理/TUN 状态变化，触发强制 IP 检测（基于 actual，不基于 intent）
   const oldActualProxy = globalState.actualSystemProxy;
   const oldActualTun = globalState.actualTun;
 
-  const newProxy = rawData.actualSystemProxy ?? rawData.systemProxy ?? rawData.SystemProxy;
-  const newTun = rawData.actualTun ?? rawData.tun ?? rawData.Tun;
+  // actual 优先、旧字段（无 actualSystemProxy 的早期版本）兜底
+  const newProxy = rawData.actualSystemProxy ?? rawData.systemProxy;
+  const newTun = rawData.actualTun ?? rawData.tun;
 
   // 始终更新 actual（后端真实 runtime 状态）
   if (newProxy !== undefined) globalState.actualSystemProxy = !!newProxy;
   if (newTun !== undefined) globalState.actualTun = !!newTun;
 
-  const revision = rawData.controlRevision ?? rawData.ControlRevision;
+  const revision = rawData.controlRevision;
   if (revision === undefined || revision >= globalState.controlRevision) {
     if (revision !== undefined) globalState.controlRevision = revision;
-    const desiredProxy = rawData.desiredSystemProxy ?? rawData.DesiredSystemProxy;
-    const desiredTun = rawData.desiredTun ?? rawData.DesiredTun;
-    const desiredPortProxy = rawData.desiredPortProxy ?? rawData.DesiredPortProxy;
-    if (desiredProxy !== undefined) globalState.desiredSystemProxy = !!desiredProxy;
-    if (desiredTun !== undefined) globalState.desiredTun = !!desiredTun;
-    if (desiredPortProxy !== undefined) globalState.desiredPortProxy = !!desiredPortProxy;
+    if (rawData.desiredSystemProxy !== undefined) globalState.desiredSystemProxy = !!rawData.desiredSystemProxy;
+    if (rawData.desiredTun !== undefined) globalState.desiredTun = !!rawData.desiredTun;
+    if (rawData.desiredPortProxy !== undefined) globalState.desiredPortProxy = !!rawData.desiredPortProxy;
+    // S-03：revision 已经比 overlay 的发起时刻更新，说明后端对本次命令已有结论，
+    // 先丢弃过期 overlay 再算可见状态，否则 UI 的 intent 会盖住后端回滚后的真实 desired。
+    settleStaleControlOverlay(revision);
     syncVisibleControls();
   }
 
@@ -389,51 +444,35 @@ export function updateStateFromBackend(rawData: any) {
   }
 
   if (rawData.version !== undefined) globalState.version = rawData.version;
-  else if (rawData.Version !== undefined) globalState.version = rawData.Version;
 
   if (rawData.appVersion !== undefined) globalState.appVersion = rawData.appVersion;
-  else if (rawData.AppVersion !== undefined) globalState.appVersion = rawData.AppVersion;
 
   if (rawData.isAdmin !== undefined) globalState.isAdmin = rawData.isAdmin;
-  else if (rawData.IsAdmin !== undefined) globalState.isAdmin = rawData.IsAdmin;
 
   if (rawData.activeConfig !== undefined) {
     globalState.activeConfigId = rawData.activeConfig;
-    localStorage.setItem('goclashz_activeConfigId', rawData.activeConfig);
-  } else if (rawData.ActiveConfig !== undefined) {
-    globalState.activeConfigId = rawData.ActiveConfig;
-    localStorage.setItem('goclashz_activeConfigId', rawData.ActiveConfig);
+    writeLocalStorage('goclashz_activeConfigId', rawData.activeConfig);
   }
 
   if (rawData.activeConfigName !== undefined) globalState.activeConfigName = rawData.activeConfigName;
-  else if (rawData.ActiveConfigName !== undefined) globalState.activeConfigName = rawData.ActiveConfigName;
 
   if (rawData.activeConfigType !== undefined) globalState.activeConfigType = rawData.activeConfigType;
-  else if (rawData.ActiveConfigType !== undefined) globalState.activeConfigType = rawData.ActiveConfigType;
 
   if (rawData.delayRetention !== undefined) globalState.delayRetention = rawData.delayRetention;
-  else if (rawData.DelayRetention !== undefined) globalState.delayRetention = rawData.DelayRetention;
 
   if (rawData.delayRetentionTime !== undefined) globalState.delayRetentionTime = rawData.delayRetentionTime;
-  else if (rawData.DelayRetentionTime !== undefined) globalState.delayRetentionTime = rawData.DelayRetentionTime;
 
   if (rawData.updateReady !== undefined) globalState.updateReady = rawData.updateReady;
-  else if (rawData.UpdateReady !== undefined) globalState.updateReady = rawData.UpdateReady;
 
   if (rawData.newAppVersion !== undefined) globalState.newAppVersion = rawData.newAppVersion;
-  else if (rawData.NewAppVersion !== undefined) globalState.newAppVersion = rawData.NewAppVersion;
 
   if (rawData.updateDownloaded !== undefined) globalState.updateDownloaded = rawData.updateDownloaded;
-  else if (rawData.UpdateDownloaded !== undefined) globalState.updateDownloaded = rawData.UpdateDownloaded;
 
   if (rawData.downloadedPath !== undefined) globalState.downloadedPath = rawData.downloadedPath;
-  else if (rawData.DownloadedPath !== undefined) globalState.downloadedPath = rawData.DownloadedPath;
 
-  const newPortProxyMode = rawData.portProxyMode ?? rawData.PortProxyMode;
-  if (newPortProxyMode !== undefined) globalState.portProxyMode = !!newPortProxyMode;
+  if (rawData.portProxyMode !== undefined) globalState.portProxyMode = !!rawData.portProxyMode;
 
-  const lang = rawData.language ?? rawData.Language;
-  if (lang) setLocale(lang as SupportedLocale);
+  if (rawData.language) setLocale(rawData.language as SupportedLocale);
 }
 
 type DelayRetentionTime = 'long' | '30' | '60' | '300' | string;
@@ -489,8 +528,9 @@ export function updateProxyDelay(
  *   2. 任何被顶掉 / 被外部关闭的模态一律以「取消」结算，保证
  *      await showAlert/showConfirm 一定会继续 —— 否则调用方的
  *      finally 不执行，tunPending/systemProxyPending 会永久为 true；
- *   3. 旧式直写（直接改 globalState.modal）仍被兼容：由
- *      reconcileModalDisplacement() 每 5s 兜底结算 + 排空队列。
+ *   3. modal 的写权限只在 store 内部（presentModal/settleModal）；S-07 已确认全仓
+ *      组件侧 0 处直写，旧式直写的兼容分支因此全部删除。App.vue 模板仍只读
+ *      globalState.modal 渲染，字段契约不变。
  * ========================================================== */
 type ModalEntry = {
   id: number;
@@ -557,9 +597,10 @@ function presentModal(entry: ModalEntry) {
 }
 
 function showNextModal() {
-  // 期间已有模态上台（例如 onConfirm 回调里又弹了一个）或旧式直写占用：
-  // 先不动，等下一次结算时再出队，避免把新模态顶掉导致它的 Promise 悬挂。
-  if (activeModal || globalState.modal.show) return;
+  // 期间已有模态上台（例如 onConfirm 回调里又弹了一个）：先不动，等下一次结算时再出队，
+  // 避免把新模态顶掉导致它的 Promise 悬挂。
+  // 不再判 globalState.modal.show —— activeModal 非空与 show 为真现在是同一个不变量（S-07）。
+  if (activeModal) return;
   const next = modalQueue.shift();
   if (!next) return;
   presentModal(next);
@@ -572,6 +613,9 @@ function settleModal(ok: boolean) {
   globalState.modal.show = false;
   globalState.modal.confirmText = '';
   globalState.modal.cancelText = '';
+  // S-07：结算时一并清掉按钮处理器，避免模板/旧代码拿到上一条模态的残留 handler。
+  globalState.modal.onConfirm = null;
+  globalState.modal.onCancel = null;
   if (entry) {
     try {
       entry.resolve(entry.type === 'alert' ? true : ok);
@@ -589,36 +633,13 @@ function settleModal(ok: boolean) {
 /** 排空队列（当前没有任何模态可见时） */
 function drainModalQueue() {
   if (activeModal) return;
-  if (globalState.modal.show) return;
   if (modalQueue.length === 0) return;
   window.setTimeout(showNextModal, 0);
 }
 
-/**
- * 兜底：若当前模态被旧式直写覆盖或被外部把 show 置 false，
- * 以「取消」结算它，保证调用方的 await 一定返回。
- */
-function reconcileModalDisplacement() {
-  if (!activeModal) {
-    drainModalQueue();
-    return;
-  }
-  const stillManaged = globalState.modal.show
-    && globalState.modal.onConfirm === managedModalConfirm
-    && globalState.modal.onCancel === managedModalCancel;
-  if (stillManaged) return;
-
-  const entry = activeModal;
-  activeModal = null;
-  console.warn('[modal] 当前模态被外部覆盖/关闭，按取消结算:', entry.message);
-  try {
-    entry.resolve(entry.type === 'alert' ? true : false);
-  } catch (e) {
-    console.error('[modal] resolve 失败', e);
-  }
-  runModalAction(entry.onCancel);
-  drainModalQueue();
-}
+// S-07：原来这里有个 reconcileModalDisplacement()，专门兜底「受管模态被旧式直写顶掉」
+// 的情况。全仓复核确认组件侧 0 处直写 globalState.modal（写点只有本文件的
+// presentModal / settleModal），该分支不可达，已整体删除。
 
 function enqueueModal(req: ModalRequest): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
@@ -635,8 +656,8 @@ function enqueueModal(req: ModalRequest): Promise<boolean> {
       onConfirm: req.onConfirm,
       onCancel: req.onCancel,
     };
-    const legacyOccupied = globalState.modal.show && globalState.modal.onConfirm !== managedModalConfirm;
-    if (activeModal || legacyOccupied) {
+    // S-07：不再区分「旧式直写占用」——activeModal 非空即视为已有模态在台，入队等待。
+    if (activeModal) {
       modalQueue.push(entry);
       return;
     }
@@ -649,30 +670,25 @@ export function openModal(req: ModalRequest): Promise<boolean> {
   return enqueueModal(req);
 }
 
-/** 供模板按钮使用：确认当前模态（无模态时兼容旧式直写） */
+/** 供模板按钮使用：确认当前模态 */
 export function confirmModal(): void {
-  // 先把「被旧式直写顶掉」的受管模态按取消结算，避免误把它当成本次确认
-  reconcileModalDisplacement();
   if (activeModal) {
     settleModal(true);
     return;
   }
-  const legacy = globalState.modal.onConfirm;
+  // 无受管模态（模板只在 show 为真时渲染按钮，理论上不可达）：只做兜底复位 + 排空队列
   globalState.modal.show = false;
-  if (legacy) runModalAction(() => legacy());
   drainModalQueue();
 }
 
-/** 供模板按钮/遮罩使用：取消当前模态（无模态时兼容旧式直写） */
+/** 供模板按钮/遮罩使用：取消当前模态 */
 export function cancelModal(): void {
-  reconcileModalDisplacement();
   if (activeModal) {
     settleModal(false);
     return;
   }
-  const legacy = globalState.modal.onCancel;
+  // 同上：无受管模态时只兜底复位，不再执行 legacy handler（S-07）
   globalState.modal.show = false;
-  if (legacy) runModalAction(() => legacy());
   drainModalQueue();
 }
 
@@ -806,6 +822,14 @@ export function refreshOutboundIPRouteAware(reason = 'manual') {
     return;
   }
 
+  // S-11：手动刷新前先取消已排期的 route settle 定时器。
+  // 否则路由刚变化（600~1500ms 窗口）时点刷新，手动请求发出后定时器到点还会再发一次，
+  // 一次点击变成两次后端往返（再叠加 pending 重放最多 3 次）。
+  if (routeSettleTimer) {
+    clearTimeout(routeSettleTimer);
+    routeSettleTimer = null;
+  }
+
   return refreshOutboundIP({
     force: true,
     clearBeforeStart: false,
@@ -867,7 +891,7 @@ export async function refreshOutboundIP(options?: {
       const cleaned = normalizeOutboundIP(result);
       globalState.outboundIP = cleaned;
       globalState.outboundIPStale = false;
-      localStorage.setItem('goclashz_outboundIP', JSON.stringify(cleaned));
+      writeLocalStorage('goclashz_outboundIP', JSON.stringify(cleaned));
     } else if (!options?.silent) {
       // 检测失败：保留旧成功结果，标记 stale
       if (globalState.outboundIP?.preferred) {
@@ -925,34 +949,68 @@ export async function refreshOutboundIP(options?: {
 }
 
 /* ============================================================
- * 通知 UI 级别表（F-A4-18 / F-A4-14）
+ * 通知 UI 级别表（F-A4-18 / F-A4-14 / S-04）
  * ------------------------------------------------------------
  * 只对「后端已经给出 code」的通知生效；未列入的 code 走回落逻辑。
  * A(silent)：瞬时可自愈，只记录日志；B(toast)：需知情但不阻塞；
- * C(modal)：用户必须做选择。code 与主方案 §5.2 的错误码表对齐。
+ * C(modal)：用户必须做选择。
+ *
+ * ⚠️ 收录规则（S-04 复核后的口径）：只列「后端真的会产出」的 code。
+ *   原来照着方案错误码表预写了 7 个 Go 侧 0 引用的 code（ASSET_WINTUN_BUSY /
+ *   ASSET_CORE_PROBE_TIMEOUT / HELPER_WAKE_TIMEOUT / TUN_ADAPTER_PENDING /
+ *   ASSET_SEED_UNAVAILABLE / STARTUP_TASK_CHECK_WARNING / STARTUP_TASK_UNHEALTHY），
+ *   其中 4 个还是 silent 级 —— 一旦后端按方案补上同名 code，通知就会被静默吞掉；
+ *   后两个真实通道是独立事件（startup-task-check-warning / -unhealthy），已单独处理。
+ *   现在每个键都标了 Go 侧出处，删键/加键请对齐 c.notify / c.setLastErrorCode 的实参。
+ *
+ * ⚠️ 不把「与落回同档」的 code 抄进来：落回分支里还有「长连接延迟降级为 toast」
+ *   这条语义（resolveNotificationUi），显式写成 modal 反而会误伤它。
  * ========================================================== */
 export type NotificationUi = 'silent' | 'toast' | 'modal';
 
 const NOTIFICATION_UI: Record<string, NotificationUi> = {
-  // A：静默（占用/超时/未就绪/唤醒慢/适配器晚到）
-  ASSET_WINTUN_BUSY: 'silent',
-  ASSET_CORE_PROBE_TIMEOUT: 'silent',
-  HELPER_WAKE_TIMEOUT: 'silent',
-  TUN_ADAPTER_PENDING: 'silent',
-  // B：toast（可自愈但有结果需告知）
-  ASSET_SEED_UNAVAILABLE: 'toast',
+  // A：静默（用户不需要被打断，卡片/后台流程自己会体现）
+  // outbound_ip.go:233，节流 5s；IP 卡自己会显示「切换中」，且消息是内部诊断串
+  ROUTE_SWITCHING: 'silent',
+  // controller.go:1416；后台还有自愈阶梯在跑（可重试），不打断用户
+  TUN_NOT_READY: 'silent',
+  // B：toast（需知情但不阻塞）
+  // controller_long_connection.go:175 / :196 / :201（ABANDONED 是 error 级，但只是延后不是失败）
   DEFERRED_RESTART_QUEUED: 'toast',
   DEFERRED_RESTART_RESUMED: 'toast',
   DEFERRED_RESTART_ABANDONED: 'toast',
+  // control_coordinator.go:457（warn）
   SYSTEM_PROXY_STATE_UNKNOWN: 'toast',
-  STARTUP_TASK_CHECK_WARNING: 'toast',
-  STARTUP_TASK_UNHEALTHY: 'toast',
-  // C：模态（必须处理）
+  // controller.go:2234；持久化失败告知即可，不该为一次保存失败阻塞用户
+  MODE_SAVE_FAILED: 'toast',
+  // C：模态（用户必须处理）
+  // controller.go:425 / :429 / :444 / :446 / :450
   STARTUP_RESTORE_HELPER_REQUIRED: 'modal',
   STARTUP_RESTORE_NO_CONFIG: 'modal',
   STARTUP_RESTORE_WINTUN_MISSING: 'modal',
   STARTUP_RESTORE_FAILED: 'modal',
 };
+
+/**
+ * code → 前端文案 key（C-20）：后端 notify 的 message 是中文技术串，
+ * 8 语言界面里不能直出。只收录「后端文案是固定句、不含变量」的 code；
+ * 含错误串/参数的仍展示后端原文（丢信息比出中文更糟）。
+ */
+const NOTIFICATION_TEXT: Record<string, string> = {
+  SYSTEM_PROXY_STATE_UNKNOWN: 'notify.systemProxyStateUnknown',
+};
+
+/** t() 在 key 缺失时原样返回 key 本身（locales/index.ts:64-67），据此回退到调用方给的原文 */
+const tr = (key: string, fallback: string, params?: Record<string, string | number>) => {
+  const value = t(key, params);
+  return value === key ? fallback : value;
+};
+
+/** 取通知文案：有 code→key 映射就本地化，未收录（或语言包还没补）就回落后端原文 */
+function localizedNotificationText(code: string, message: string): string {
+  const key = code ? NOTIFICATION_TEXT[code] : '';
+  return key ? tr(key, message) : message;
+}
 
 /**
  * 纯函数：把一条 app-notification 判成 UI 级别（可单测，不依赖 View/App）。
@@ -973,10 +1031,51 @@ export function resolveNotificationUi(notification: { level?: string; code?: str
 }
 
 let storeInited = false;
+/** 进行中的初始化：并发的第二次 initStore() 复用它，避免同一批订阅被注册两遍（S-06） */
+let storeInitPromise: Promise<void> | null = null;
+/**
+ * App 级事件订阅的注销函数（S-06）。
+ * 这些订阅跟随主窗口生命周期，正常**不卸载**（生产环境单页常驻，无泄漏）；
+ * 收集起来是为了让「初始化中途失败可回滚重试」以及将来的 HMR / 测试边界有统一出口。
+ */
+const eventUnsubs: Array<() => void> = [];
 
-export async function initStore() {
+export async function initStore(): Promise<void> {
+  // 唯一调用点是 main.ts（早于 createApp，保证首帧前开始订阅；App.vue 里那次死调用已删）：
+  // - 记住进行中的 Promise：万一将来又被重复调用，也不会在首个 await 处插队把订阅注册两遍；
+  // - storeInited 等到 setupStore 全部注册完成才置真（S-06）：中途抛错不会把状态
+  //   永久钉在「已初始化」，下一次调用还能重试。
+  if (storeInitPromise) return storeInitPromise;
   if (storeInited) return;
-  storeInited = true;
+  const initPromise = (async () => {
+    try {
+      await setupStore();
+      storeInited = true;
+    } catch (err) {
+      // 部分订阅可能已经注册：先全部注销，保证下一次调用是干净的一次性注册
+      eventUnsubs.splice(0).forEach((unsub) => {
+        try { unsub(); } catch { /* 注销失败不影响重试 */ }
+      });
+      reportError(err, 'boot.initStore');
+    } finally {
+      storeInitPromise = null;
+    }
+  })();
+  storeInitPromise = initPromise;
+  return initPromise;
+}
+
+/** 注销全部事件订阅并允许重新初始化（当前无调用者：单页常驻不需要 teardown，留给将来的 HMR/测试边界） */
+export function disposeStore(): void {
+  eventUnsubs.splice(0).forEach((unsub) => {
+    try { unsub(); } catch { /* 忽略 */ }
+  });
+  storeInited = false;
+  storeInitPromise = null;
+}
+
+/** 真正的初始化：启动看门狗 → 首次全量同步 → 注册全部事件订阅 */
+async function setupStore(): Promise<void> {
   // 启动 pending / 模态看门狗（幂等，多次调用无副作用）
   startPendingWatchdog();
   // 1. 初始化时进行一次真理同步，获取后端当前所有真实状态
@@ -988,15 +1087,15 @@ export async function initStore() {
   }
 
   // 2. 保持事件监听，响应来自 Go (托盘或后台) 的实时更新
-  Events.On("app-state-sync", ({ data: newState }: { data: any }) => {
+  eventUnsubs.push(Events.On("app-state-sync", ({ data: newState }: { data: any }) => {
     updateStateFromBackend(newState);
-  });
+  }));
 
   // 通知路由（F-A4-14 + F-A4-18）
   // 1) 有 code 先按 code 决定 UI 级别（后端补 code 后前端只改这张表）；
   // 2) 无 code 再按 level + 文案适配层；source 不再做白名单
   //    （以前 appcore / config-switch 的失败被整段丢弃）。
-  Events.On("app-notification", async ({ data: notification }: { data: { level?: string; code?: string; message?: string; source?: string } }) => {
+  eventUnsubs.push(Events.On("app-notification", async ({ data: notification }: { data: { level?: string; code?: string; message?: string; source?: string } }) => {
     const level = String(notification?.level || 'info');
     const code = String(notification?.code || '');
     const message = String(notification?.message || '');
@@ -1033,39 +1132,46 @@ export async function initStore() {
       return;
     }
 
-    // B 类（toast）：resolver 已把 success/info/warn 与「长连接延迟」都归到这里
+    // B 类（toast）：resolver 已把 success/info/warn 与「长连接延迟」都归到这里。
+    // C-20：有 code→文案映射的走 t()；未收录的（含动态错误串）仍展示后端原文。
     if (level === 'error') reportError(new Error(message || code), 'notify.' + (code || 'unknown'));
     const kind: 'error' | 'success' | 'info' = level === 'error' ? 'error' : level === 'success' ? 'success' : 'info';
-    showToast(message || t('common.notice'), kind, { duration: 4200 });
-  });
+    showToast(localizedNotificationText(code, message) || t('common.notice'), kind, { duration: 4200 });
+  }));
 
   // F-A5-06：启动任务的自检告警/不健康状态此前前端零监听（Go 侧 controller.go:456/494
   // 一直在发，用户完全不知道）。这里补成 toast + 日志，不弹模态（A/B 类）。
-  Events.On("startup-task-check-warning", ({ data }: { data: string }) => {
+  eventUnsubs.push(Events.On("startup-task-check-warning", ({ data }: { data: string }) => {
     const text = String(data || '');
     reportError(new Error(text || 'startup-task-check-warning'), 'boot.checkWarning');
     showToast(text || t('common.warning'), 'info', { duration: 5000 });
-  });
+  }));
 
-  Events.On("startup-task-unhealthy", ({ data }: { data: string }) => {
+  eventUnsubs.push(Events.On("startup-task-unhealthy", ({ data }: { data: string }) => {
     const text = String(data || '');
     reportError(new Error(text || 'startup-task-unhealthy'), 'boot.unhealthy');
     showToast(text || t('common.warning'), 'error', { duration: 6000 });
-  });
+  }));
 
-  Events.On("component-update-tasks-sync", ({ data: tasksList }: { data: UpdateTaskState[] }) => {
+  eventUnsubs.push(Events.On("component-update-tasks-sync", ({ data: tasksList }: { data: UpdateTaskState[] }) => {
     const newTasks: Record<string, UpdateTaskState> = {};
     if (tasksList) {
       tasksList.forEach(t => { newTasks[t.key] = t; });
     }
     globalState.componentUpdate.tasks = newTasks;
-  });
+  }));
 
-  Events.On("core-update-check-start", () => { globalState.componentUpdate.checkingCoreUpdate = true; });
-  Events.On("core-update-check-error", ({ data: err }: { data: string }) => {
+  eventUnsubs.push(Events.On("core-update-check-start", () => { globalState.componentUpdate.checkingCoreUpdate = true; }));
+  eventUnsubs.push(Events.On("core-update-check-error", ({ data: err }: { data: string }) => {
     globalState.componentUpdate.checkingCoreUpdate = false;
-  });
-  Events.On("core-update-none", ({ data }: { data: any }) => {
+    /* C-04：tasks 框架用 name+"-error" 把 data 填成完整错误文本（core/tasks/manager.go），
+       以前整条丢掉。现在**取出来只记日志、不弹提示**：
+       检查更新失败几乎都是瞬时网络问题，按钮转 12s 后自动复位、用户随时可再点一次 ——
+       属于"无感自愈"的一类（提示策略：只报无法解决/严重问题）。 */
+    const text = String(err || '');
+    reportError(new Error(text || 'core-update-check-error'), 'component.checkCore');
+  }));
+  eventUnsubs.push(Events.On("core-update-none", ({ data }: { data: any }) => {
     globalState.componentUpdate.checkingCoreUpdate = false;
     globalState.componentUpdate.pendingCoreUpdate = false;
     globalState.componentUpdate.coreUpdateInfo = {
@@ -1073,8 +1179,8 @@ export async function initStore() {
       remote: data?.remote || '',
       releaseUrl: ''
     };
-  });
-  Events.On("core-update-available", ({ data }: { data: any }) => {
+  }));
+  eventUnsubs.push(Events.On("core-update-available", ({ data }: { data: any }) => {
     globalState.componentUpdate.checkingCoreUpdate = false;
     globalState.componentUpdate.pendingCoreUpdate = true;
     globalState.componentUpdate.coreUpdateInfo = {
@@ -1082,25 +1188,28 @@ export async function initStore() {
       remote: data.remote || '',
       releaseUrl: data.releaseUrl || ''
     };
-  });
+  }));
 
-  Events.On("core-update-start", () => { globalState.componentUpdate.updatingCore = true; });
-  Events.On("core-update-success", () => {
+  eventUnsubs.push(Events.On("core-update-start", () => { globalState.componentUpdate.updatingCore = true; }));
+  // S-06：core-update-success 原来在 initStore 里注册了两次（这里 + 后面的 IP 刷新处），
+  // 合成为一个 handler，顺序保持「先复位组件更新状态，再排期刷出站 IP」。
+  eventUnsubs.push(Events.On("core-update-success", () => {
     globalState.componentUpdate.updatingCore = false;
     globalState.componentUpdate.pendingCoreUpdate = false;
-  });
-  Events.On("core-update-error", () => {
+    scheduleOutboundIPRefresh('core-update', { force: true, delay: 1500, reason: 'core-update' });
+  }));
+  eventUnsubs.push(Events.On("core-update-error", () => {
     globalState.componentUpdate.updatingCore = false;
     globalState.componentUpdate.pendingCoreUpdate = false;
-  });
-  Events.On("core-update-cancelled", () => {
+  }));
+  eventUnsubs.push(Events.On("core-update-cancelled", () => {
     globalState.componentUpdate.updatingCore = false;
-  });
+  }));
 
-  Events.On("app-update-progress", ({ data: progress }: { data: any }) => {
+  eventUnsubs.push(Events.On("app-update-progress", ({ data: progress }: { data: any }) => {
     globalState.appUpdateProgress = progress;
-  });
-  Events.On("app-update-downloaded", ({ data: payload }: { data: any }) => {
+  }));
+  eventUnsubs.push(Events.On("app-update-downloaded", ({ data: payload }: { data: any }) => {
     if (globalState.appUpdateProgress) {
       globalState.appUpdateProgress.isDownloaded = true;
       globalState.appUpdateProgress.bytesDone = globalState.appUpdateProgress.totalBytes;
@@ -1117,20 +1226,20 @@ export async function initStore() {
         path: payload?.path
       };
     }
-  });
-  Events.On("app-update-error", () => {
+  }));
+  eventUnsubs.push(Events.On("app-update-error", () => {
     globalState.appUpdateProgress = null;
-  });
+  }));
 
   // 3. 初始化刷新出站 IP，并注册各种事件触发刷新
   refreshOutboundIP();
   
-  Events.On("core-restarted", () => scheduleOutboundIPRefresh('core-restarted', { force: true, delay: 1500, reason: 'core-restarted' }));
+  eventUnsubs.push(Events.On("core-restarted", () => scheduleOutboundIPRefresh('core-restarted', { force: true, delay: 1500, reason: 'core-restarted' })));
   ['geoip', 'geosite', 'mmdb', 'asn'].forEach(key => {
-    Events.On(`geo-update-${key}-success`, () => scheduleOutboundIPRefresh(`geo-${key}`, { force: true, delay: 1500, reason: `geo-${key}` }));
+    eventUnsubs.push(Events.On(`geo-update-${key}-success`, () => scheduleOutboundIPRefresh(`geo-${key}`, { force: true, delay: 1500, reason: `geo-${key}` })));
   });
-  Events.On("core-update-success", () => scheduleOutboundIPRefresh('core-update', { force: true, delay: 1500, reason: 'core-update' }));
-  Events.On("driver-install-success", () => scheduleOutboundIPRefresh('driver-install', { force: true, delay: 1500, reason: 'driver-install' }));
+  // core-update-success 已合并到上方的单一 handler（S-06），这里不再重复注册
+  eventUnsubs.push(Events.On("driver-install-success", () => scheduleOutboundIPRefresh('driver-install', { force: true, delay: 1500, reason: 'driver-install' })));
 
   // 👇 提取出一个清空延迟的通用函数
   const clearAllDelays = () => {
@@ -1141,10 +1250,10 @@ export async function initStore() {
 
   // 🛡️ 核心修复：不再监听通用的 core-restarted（因为开关系统代理也会重启内核）
   // 而是监听显式的清理指令，由后端决定何时真正需要清除历史缓存
-  Events.On("delay-cache-clear", () => { void clearAllDelays(); });
+  eventUnsubs.push(Events.On("delay-cache-clear", () => { void clearAllDelays(); }));
 
   // 👇 监听测速结果，全局入库（防止切页丢失数据）
-  Events.On("proxy-delay-update", ({ data }: { data: any }) => {
+  eventUnsubs.push(Events.On("proxy-delay-update", ({ data }: { data: any }) => {
     if (!data || !data.name) return;
 
     // 🚀 核心修复：如果是 busy 状态通知，说明还在批量测速中，不要覆盖已有结果
@@ -1171,16 +1280,21 @@ export async function initStore() {
       message,
       globalState.delayRetention ? globalState.delayRetentionTime : 'long'
     );
-  });
+  }));
 }
 
 /* ============================================================
  * pending / 模态看门狗
  * ------------------------------------------------------------
- * 场景：某个 await showConfirm/showAlert 因模态被外部覆盖、后端无响应
- * 或组件提前卸载而永不结算，调用方的 finally 不执行，开关类 pending
- * 会永久为 true —— 之后每次点击都在入口 return，表现为「点了没反应」。
+ * 场景：某个 await showConfirm/showAlert 因后端无响应或组件提前卸载而永不结算，
+ * 调用方的 finally 不执行，开关类 pending 会永久为 true ——
+ * 之后每次点击都在入口 return，表现为「点了没反应」。
  * 这里每 5s 巡检一次：超过 60s 未结算就强制复位并告警（保留日志证据）。
+ *
+ * ⚠️ S-01：后端单条控制命令的预算是 25s（control_coordinator.go），
+ * 所以「pending 超过 60s」在实践中只可能是卡在模态框等用户点击 ——
+ * 那是合法等待，不是卡死。因此只要有模态在台上（modal.show 为真）就不计时，
+ * 每 tick 把起点顺延到当下，等用户处理完再重新算 60s。
  * ========================================================== */
 const PENDING_WATCHDOG_MS = 60_000;
 const PENDING_WATCHDOG_TICK_MS = 5_000;
@@ -1192,11 +1306,16 @@ export function startPendingWatchdog(): void {
   pendingWatchdogStarted = true;
   window.setInterval(() => {
     const now = Date.now();
-    // 先兜底结算可能被顶掉的模态，再检查 pending
-    reconcileModalDisplacement();
+    // 先排空可能被卡住的模态队列（activeModal 为空时才有动作），再检查 pending
+    drainModalQueue();
     (['tunPending', 'systemProxyPending'] as const).forEach((key) => {
       if (!globalState[key]) {
         delete pendingSince[key];
+        return;
+      }
+      // S-01：有模态在等用户时不计时（用户可能正在读确认框），顺延起点而非强清
+      if (globalState.modal.show) {
+        pendingSince[key] = now;
         return;
       }
       const since = pendingSince[key];
@@ -1228,13 +1347,27 @@ export function showToast(
   kind: ToastKind = 'info',
   opts: { title?: string; duration?: number } = {}
 ): number {
+  const title = opts.title ?? '';
+  const duration = opts.duration ?? 2400;
+
+  /* H-22（后半）：同 kind + 同标题 + 同文案在存活期内不重复插入。
+     连续失败的场景里（批量测速、订阅更新）以前会堆 3 条一模一样的气泡；
+     这里改为"续期"：先移除旧那条（连带它的 setTimeout 到点后空跑一次 dismiss），再插入新的，
+     于是视觉上只有一条，且计时从最后一次触发重新开始。 */
+  const dupIndex = globalState.toasts.findIndex(
+    (t) => t.kind === kind && t.title === title && t.message === message
+  );
+  if (dupIndex >= 0) {
+    globalState.toasts.splice(dupIndex, 1);
+  }
+
   const id = ++toastSeq;
   const item: ToastItem = {
     id,
     kind,
-    title: opts.title ?? '',
+    title,
     message,
-    duration: opts.duration ?? 2400,
+    duration,
   };
   globalState.toasts.push(item);
   while (globalState.toasts.length > 3) {

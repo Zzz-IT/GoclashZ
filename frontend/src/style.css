@@ -132,9 +132,6 @@ textarea,
     /* 输入框/按钮底色 */
     --surface-hover: #E2E2E2;
 
-    --status-online: #1A1A1A;
-    /* 呼吸灯使用纯黑，通过动画而非颜色表达 */
-
     /* 唯一允许出现的彩色：危险操作 */
     --danger: #E81123;
 
@@ -224,38 +221,10 @@ html[lang="de-DE"],
     justify-content: flex-end;
 }
 
-/* 🌙 暗色模式：深沉纯黑灰，层次靠明度递进
-
-   ⚠️ 调色变量全部放进 html:not([data-theme-mode]) 的守卫里：
-   App.vue 把 .dark 挂在 .app-shell 上，若这里无条件写 --app-bg/--surface/--text-main，
-   就会盖掉 utils/theme.ts 写在 <html> 上的内联主题变量 ——
-   表现是「换成彩色预设后，暗色主题的底色/强调色不生效」。
-   主题引擎没接管时（纯 CSS 场景）才用这套兜底。 */
-.dark {
-    --danger: #E81123;
-}
-
-html:not([data-theme-mode]) .dark {
-    --app-bg: #111111;
-    /* 底色：极深灰黑 */
-    --surface-panel: #1A1A1A;
-    /* 面板：比底色亮一阶，产生浮层感 */
-
-    --text-main: #E8E8E8;
-    /* 主文字：柔和白 */
-    --text-sub: #9A9A9A;
-    --text-muted: #555555;
-
-    --accent: #E8E8E8;
-    /* 强调色 = 文字色 */
-    --accent-fg: #111111;
-    --pulse-ring: rgba(232, 232, 232, 0.45);
-
-    --surface: #222222;
-    --surface-hover: #2A2A2A;
-
-    --status-online: #E8E8E8;
-}
+/* 🌙 暗色调色由主题引擎（utils/theme.ts）写在 <html> 上，style.css 不再保留第二份：
+   原来这里有一段 .dark 兜底 + html:not([data-theme-mode]) 守卫，但 bootstrapTheme()
+   在 createApp 之前就写好了 data-theme-mode，守卫永远为假 —— 纯死 CSS，已随 U-16 删除。
+   （.dark 里那条 --danger 与 :root 同值，也是同一变量的重复声明。） */
 
 * {
     box-sizing: border-box;
@@ -285,7 +254,7 @@ body,
 .card-panel {
     background: var(--surface-panel);
     border: none;
-    border-radius: 12px;
+    border-radius: var(--ui-radius-lg);
     box-shadow: none;
 }
 
@@ -629,7 +598,7 @@ html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
 
 .global-modal-detail {
     background: var(--surface);
-    border-radius: 8px;
+    border-radius: var(--ui-radius-sm);
     padding: 10px 14px;
     font-family: var(--font-mono);
     font-size: 0.8rem;
@@ -650,7 +619,7 @@ html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
 .modal-input {
     width: 100%;
     padding: 12px 16px;
-    border-radius: 8px;
+    border-radius: var(--ui-radius-sm);
     border: 1px solid var(--surface-hover);
     background: var(--surface);
     color: var(--text-main);
@@ -708,29 +677,6 @@ html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
     transform: scale(0.95);
 }
 
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(10px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-@keyframes pulse {
-    0% {
-        transform: scale(1);
-        opacity: 0.5;
-    }
-
-    100% {
-        transform: scale(2.5);
-        opacity: 0;
-    }
-}
 
 /* 3. 按钮体系 (按照 Subscriptions 重命名按钮对齐) */
 /* 主操作按钮吃强调色：默认石墨主题下 --ui-accent 就是原来的 --text-main，
@@ -742,7 +688,7 @@ html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
     gap: 8px;
     height: 36px;
     padding: 0 20px;
-    border-radius: 8px;
+    border-radius: var(--ui-radius-sm);
     border: none;
     background: var(--ui-accent-block);
     color: var(--ui-accent-fg);
@@ -762,10 +708,9 @@ html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
     height: 36px;
     padding: 0 20px;
-    border-radius: 8px;
+    border-radius: var(--ui-radius-sm);
     border: none;
     background: var(--surface-hover);
     color: var(--text-main);
@@ -773,6 +718,7 @@ html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
     font-weight: 500;
     /* 🚀 统一去特效 */
     transition: none;
+    /* U-22：这里原来还残留一次 gap: 8px（被本行覆盖，改成 8px 不生效），已删 */
     gap: 10px;
     box-shadow: none !important;
 }
@@ -848,7 +794,7 @@ html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
 .conn-tabs-viewport {
     flex: 1;
     min-width: 0;
-    border-radius: 8px;
+    border-radius: var(--ui-radius-sm);
 }
 
 .conn-tabs-track {
@@ -857,7 +803,7 @@ html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
     gap: 6px;
     background: var(--surface-hover);
     padding: 6px;
-    border-radius: 12px;
+    border-radius: var(--ui-radius-lg);
     user-select: none;
     -webkit-user-select: none;
     position: relative;
@@ -871,7 +817,7 @@ html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
     height: 36px;
     padding: 0 16px;
     border: none;
-    border-radius: 8px;
+    border-radius: var(--ui-radius-sm);
     background: transparent;
     color: var(--text-sub);
     font-size: 0.95rem;
@@ -897,7 +843,7 @@ html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
     top: 6px;
     height: 36px;
     background: var(--accent);
-    border-radius: 8px;
+    border-radius: var(--ui-radius-sm);
     z-index: 0;
     pointer-events: none;
 }
@@ -957,7 +903,7 @@ html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
   width: 320px;
   background: var(--surface-panel);
   border: 1px solid var(--surface-hover);
-  border-radius: 10px;
+  border-radius: var(--ui-radius-md);
   overflow: hidden;
 }
 
@@ -1036,7 +982,7 @@ html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
 /* ================================== */
 .match-panel {
   background: var(--surface);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   padding: 12px 14px;
   font-family: var(--font-mono);
   font-size: 0.82rem;
@@ -1063,7 +1009,7 @@ html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
   margin-left: 8px;
   padding: 0 6px;
   border: 1px solid var(--text-muted);
-  border-radius: 999px;
+  border-radius: var(--ui-radius-full);
   color: var(--text-sub);
   font-size: 0.72rem;
   line-height: 1.5;
@@ -1103,7 +1049,7 @@ html[data-glass="on"] :is(.ui-surface-overlay, .custom-modal-card) {
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   background: var(--surface);
 }
 
@@ -1210,14 +1156,14 @@ html:not([data-glass="on"]) .settings-page .ui-surface-group {
   position: relative;
   /* 建立独立层叠上下文，保证负 z-index 的遮罩不会掉到卡片背景后面 */
   isolation: isolate;
-  border-radius: 12px;
+  border-radius: var(--ui-radius-lg);
 }
 
 .setting-flash::before {
   content: "";
   position: absolute;
   inset: -7px -12px;
-  border-radius: 12px;
+  border-radius: var(--ui-radius-lg);
   background: var(--surface-hover);
   opacity: 0;
   z-index: -1;
@@ -1279,7 +1225,7 @@ html:not([data-glass="on"]) .settings-page .ui-surface-group {
   justify-content: center;
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--ui-radius-lg);
   background: var(--surface);
   color: var(--text-muted);
 }
@@ -1500,7 +1446,8 @@ html[data-glass="on"] .modal-overlay {
 /* ================================== */
 /* 浮层的材质定义
    亚克力浮层看起来"是一块材质"，不靠那点模糊，靠的是这四样：
-   比页面更实的填充（浮层 82% vs 卡片 62%）、1px 顶部 specular 高光、
+   比页面更实的填充（浮层 46% vs 卡片 62% —— 浮层不透明度故意更低：超过 ~45%
+   backdrop-filter 就没有产出了，见 styles/tokens.css）、1px 顶部 specular 高光、
    1px hairline 描边、明显的悬空阴影。
    缺了高光和描边，多高的不透明度都只是一块半透明色板 —— 这是"半透明"
    和"材质"的真正分界。模糊保留，它只在浮层压到内容上时才可见；

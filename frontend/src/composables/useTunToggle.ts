@@ -69,11 +69,15 @@ export function useTunToggle(options: UseTunToggleOptions = {}) {
     setTunIntent(next);
     globalState.tunPending = true;
 
+    // H-14：失败与否决定最后要不要以后端快照对齐（见 finally）
+    let failed = false;
+
     try {
       await App.ToggleTunMode(next);
       await refreshState();
       return true;
     } catch (err: any) {
+      failed = true;
       const cls = classifyError(err);
       const u = toUserError(err);
 
@@ -128,9 +132,11 @@ export function useTunToggle(options: UseTunToggleOptions = {}) {
       return false;
     } finally {
       globalState.tunPending = false;
-      // 关闭失败时清掉「期望关闭」的残留，避免卡片一直显示关闭中
-      if (next === false) globalState.desiredTun = false;
+      // H-14：这里原来在 next === false 时直接写 globalState.desiredTun = false，等于前端改写后端权威字段：
+      // 后端硬失败时已用 CAS 回滚 desired 并广播，瞬时失败则保留新意图转后台重试 —— 两种情况下这次覆写
+      // 都会让卡片与后端意图相反。改为只清本地乐观覆盖层，失败后再拉一次快照，以后端为准。
       settleTunIntent();
+      if (failed) void refreshState();
     }
   };
 

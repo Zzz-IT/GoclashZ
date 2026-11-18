@@ -5,9 +5,9 @@ package main
 // 本文件记录第二轮 #8「Service 拆分」的方法归属表，是 services_v3_generated.go 的唯一事实来源，
 // 同时供后续前端 facade 任务（frontend-v3：frontend/src/api.ts 聚合 21 个 import）对照使用。
 //
-// 约束：108 个绑定方法必须全部且仅被分配一次；方法名/签名/行为与拆分前完全一致（转发到 *App）。
-// 分布：AppService 31 + CoreService 62 + UpdateService 15 = 108 个绑定方法（另有 AppService 上的
-// ServiceStartup/ServiceShutdown 两个生命周期方法，绑定生成器按内部方法处理，不计入 108）。
+// 约束：109 个绑定方法必须全部且仅被分配一次；方法名/签名/行为与拆分前完全一致（转发到 *App）。
+// 分布：AppService 31 + CoreService 63 + UpdateService 15 = 109 个绑定方法（另有 AppService 上的
+// ServiceStartup/ServiceShutdown 两个生命周期方法，绑定生成器按内部方法处理，不计入 109）。
 //
 // 分组说明：
 //
@@ -75,6 +75,7 @@ var servicesV3Assignment = map[string]string{
 	"ReadConfigText":                 "CoreService",
 	"RemoveUpdateTask":               "UpdateService",
 	"RenameConfig":                   "CoreService",
+	"ReorderSubs":                    "CoreService",
 	"RepairCoreLayout":               "AppService",
 	"RepairDataDirMigration":         "AppService",
 	"RepairDataDirPermission":        "AppService",

@@ -4,6 +4,7 @@ package appcore
 
 import (
 	jsonv2 "encoding/json/v2"
+	"fmt"
 
 	"goclashz/core/clash"
 	"goclashz/core/utils"
@@ -85,7 +86,22 @@ type AppBehavior struct {
 	ThemeAccent string `json:"themeAccent"` // 自定义强调色 #rrggbb；空串 = 跟随预设
 	ThemeRadius string `json:"themeRadius"` // 界面圆角：sharp | soft | round，默认 soft
 	ThemeAura   bool   `json:"themeAura"`   // 玻璃模式下的背景光晕，默认 true
+
+	// Revision 是乐观锁版本号（CAS）。
+	//
+	// 背景：SaveAppBehavior 是「整对象覆盖」，而写它有多个入口（设置页、侧栏明暗开关、
+	// 托盘、启动期自启同步）。各入口都是「GET 最新 → 改自己的字段 → SAVE」的读改写，
+	// 但两个读改写交错时仍会互相覆盖（A GET、B GET、A SAVE、B SAVE → A 的改动丢失）。
+	// 这里用一个单调递增的版本号做 CAS：
+	//   - 每次成功落盘 revision+1；
+	//   - 调用方带来的 revision 与服务端不一致 → 拒绝并返回 BEHAVIOR_CONFLICT；
+	//   - revision==0 表示「调用方不带版本」（内部重置等），跳过校验但仍然 bump。
+	// 前端收到 BEHAVIOR_CONFLICT 后重新 GET、重新合并脏字段、重试一次即可无感自愈。
+	Revision int64 `json:"revision"`
 }
+
+// ErrCodeBehaviorConflict 是乐观锁冲突的稳定错误码前缀（前端只解析它，文案可改）。
+const ErrCodeBehaviorConflict = "BEHAVIOR_CONFLICT"
 
 type BehaviorStore struct {
 	mu    sync.RWMutex
@@ -121,13 +137,25 @@ func (s *BehaviorStore) Get() AppBehavior {
 func (s *BehaviorStore) SetAndSave(b AppBehavior) error {
 	b = normalizeBehavior(b)
 
+	// CAS 必须与落盘在同一个锁区间内完成，否则两个并发提交可能读到同一版本、
+	// 双双通过校验后互相覆盖（这正是要修的问题）。与 Update 的加锁粒度保持一致。
+	s.mu.Lock()
+	current := s.cache.Revision
+	if b.Revision != 0 && b.Revision != current {
+		s.mu.Unlock()
+		return fmt.Errorf("%s: 配置已被其他入口修改（提交版本 %d，当前版本 %d）",
+			ErrCodeBehaviorConflict, b.Revision, current)
+	}
+	// 版本号由服务端独占推进，前端传什么都覆盖掉。
+	b.Revision = current + 1
+
 	// F-A5-18：先落盘、再提交内存。以前先写 cache，磁盘失败后内存已经是新值，
 	// 调用方一旦忽略错误就会出现「进程内是新配置、磁盘还是旧配置」的分叉。
 	if err := utils.SaveSetting("behavior", &b); err != nil {
+		s.mu.Unlock()
 		return err
 	}
 
-	s.mu.Lock()
 	s.cache = b
 	s.mu.Unlock()
 
@@ -148,6 +176,8 @@ func (s *BehaviorStore) Update(mutate func(b *AppBehavior)) error {
 		mutate(&next)
 	}
 	next = normalizeBehavior(next)
+	// 内部锁内读改写：同样推进版本号，让外部带旧版本的提交被拒。
+	next.Revision = s.cache.Revision + 1
 
 	if err := utils.SaveSetting("behavior", &next); err != nil {
 		s.mu.Unlock()
@@ -168,6 +198,7 @@ func (s *BehaviorStore) SetActiveConfig(id string) error {
 
 	next := s.cache
 	next.ActiveConfig = id
+	next.Revision = s.cache.Revision + 1
 
 	if err := utils.SaveSetting("behavior", &next); err != nil {
 		return err

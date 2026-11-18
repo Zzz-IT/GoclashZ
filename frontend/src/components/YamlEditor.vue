@@ -2,7 +2,8 @@
   <div class="yaml-editor-view ui-page-shell">
     <div class="yaml-toolbar ui-page-header">
       <div class="editor-left">
-        <button class="back-btn" @click="$emit('back')" :title="t('common.back')">
+        <!-- P-07：返回要走未保存守卫，改由 handleBack 处理（原来直接 $emit('back')，改动静默丢失） -->
+        <button class="back-btn" @click="handleBack" :title="t('common.back')">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
                stroke="currentColor" stroke-width="2">
             <line x1="19" y1="12" x2="5" y2="12"></line>
@@ -41,7 +42,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, shallowRef } from 'vue';
+import { ref, onMounted, onUnmounted, shallowRef, watch } from 'vue';
 import { EditorView } from 'codemirror';
 import { EditorState, Compartment } from '@codemirror/state';
 import { yaml } from '@codemirror/lang-yaml';
@@ -53,7 +54,7 @@ import { closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirro
 import { searchKeymap } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
 import { App } from '../api';
-import { globalState, showConfirm, showAlert } from '../store';
+import { showConfirm, showAlert } from '../store';
 import { t } from '../locales';
 
 const props = defineProps<{
@@ -82,8 +83,9 @@ const cursorLine = ref(1);
 const cursorCol = ref(1);
 const totalLines = ref(1);
 const totalChars = ref(0);
-const statusText = ref(t('yamlEditor.saved'));
 const yamlError = ref('');
+// P-06：await loadConfig() 期间组件可能已被卸载，卸载后不得再建 EditorView / 注册全局监听
+let disposed = false;
 
 // 自定义 editor setup：不引入 basicSetup / highlightSelectionMatches / drawSelection
 const editorBaseSetup = [
@@ -236,6 +238,25 @@ const updateEditorStats = (view: EditorView) => {
   emit('cursor-change', { line: cursorLine.value, col: cursorCol.value });
 };
 
+/* 状态栏文案与「未保存 / 有错误」标记只留这一个出口（P-29）：
+   以前 statusText 写了 8 次却没有读者 —— 界面显示的是 App 的 yamlEditorStatus，
+   真正生效的只有这里 emit 出去的 text。error 也从 yamlError 推导（P-31），
+   不再像以前那样每次键入都硬发 error:false 把校验失败的红标清掉。 */
+const emitStatus = (text?: string) => {
+  emit('status-change', {
+    text: text ?? (isModified.value ? t('yamlEditor.unsaved') : t('yamlEditor.saved')),
+    modified: isModified.value,
+    error: !!yamlError.value,
+  });
+};
+
+let modifiedRecheckTimer: ReturnType<typeof setTimeout> | undefined;
+
+const cancelModifiedRecheck = () => {
+  if (modifiedRecheckTimer) clearTimeout(modifiedRecheckTimer);
+  modifiedRecheckTimer = undefined;
+};
+
 const createExtensions = () => [
   ...editorBaseSetup,
   yaml(),
@@ -248,29 +269,45 @@ const createExtensions = () => [
     updateEditorStats(update.view);
 
     if (update.docChanged) {
-      isModified.value = update.state.doc.toString() !== originalContent.value;
-      statusText.value = isModified.value ? t('yamlEditor.unsaved') : t('yamlEditor.saved');
-
-      emit('status-change', {
-        text: isModified.value ? t('yamlEditor.unsaved') : t('yamlEditor.saved'),
-        modified: isModified.value,
-        error: false,
-      });
+      /* P-32：以前每次文档变更都对全文 toString() 比较，1MB 级配置下每次键入/粘贴
+         都在主线程构建整串。现在先同步置脏（未保存守卫必须立刻生效），
+         把「改回原样 ⇒ 清脏」这次精确比较推迟到 180ms 空闲后做一次。 */
+      isModified.value = true;
+      cancelModifiedRecheck();
+      modifiedRecheckTimer = setTimeout(() => {
+        modifiedRecheckTimer = undefined;
+        const view = editorView.value;
+        if (!view) return;
+        // 比较结果只可能把状态改干净（保守方向），所以不必每次都跑
+        if (isModified.value && view.state.doc.toString() === originalContent.value) {
+          isModified.value = false;
+          emitStatus();
+        }
+      }, 180);
+      emitStatus();
     }
   }),
 ];
 
+/* 读配置的 in-flight 序号：P-06 的卸载判据之外再挡一类竞态 ——
+   props.configId 变化（P-33 的 watch）或重新加载与上一次读盘重叠时，
+   两个续体都看到 editorView 为空会各建一个 EditorView，先建的那个从此没人销毁。 */
+let loadSeq = 0;
+
 const loadConfig = async () => {
+  const seq = ++loadSeq;
+  cancelModifiedRecheck();
   loading.value = true;
   try {
     const result = await App.ReadConfigText(props.configId);
+    // P-06：await 期间组件可能已卸载，此时再建 EditorView 会挂在已脱离文档的容器上泄漏
+    if (disposed || seq !== loadSeq) return;
     fileName.value = result.name;
     originalContent.value = result.content;
     isModified.value = false;
-    statusText.value = t('yamlEditor.saved');
     yamlError.value = '';
 
-    emit('status-change', { text: t('yamlEditor.saved'), modified: false, error: false });
+    emitStatus(t('yamlEditor.saved'));
 
     if (editorView.value) {
       editorView.value.dispatch({
@@ -293,36 +330,69 @@ const loadConfig = async () => {
       updateEditorStats(editorView.value);
     }
   } catch (e: any) {
+    // 过期请求的失败不再弹窗/不改状态：最新那次读盘会给出最终结果
+    if (seq !== loadSeq) return;
     const errorMsg = e.message || String(e);
-    statusText.value = t('yamlEditor.loadFailed', { error: errorMsg });
-    emit('status-change', { text: t('common.error'), modified: false, error: true });
+    // 错误态留在 yamlError 里，emitStatus 才知道要打红标；isModified 不再被谎报成 false
+    // （读失败时编辑器里仍是用户的未保存内容，守卫不能松）
+    yamlError.value = errorMsg;
+    emitStatus(t('common.error'));
     
     // 如果读取配置失败（如严格路径校验不通过），弹出提示并返回
     showAlert(t('yamlEditor.readError', { error: errorMsg }), t('common.error'), true);
   } finally {
-    loading.value = false;
+    // 只有最后一次读盘才收起 loading，过期续体不能提前放行按钮
+    if (seq === loadSeq) loading.value = false;
   }
+};
+
+/* P-30：后端把「文件已保存，只是运行配置重载失败」也折成一个 error 返回
+   （core/appcore/config_editor_controller.go）。前端以前一律当保存失败：保持 dirty、
+   弹「保存失败」，用户会以为改动回滚了，于是重复保存。
+   判定以**稳定错误码前缀**为准（CONFIG_SAVED_RELOAD_FAILED，见 Go 侧 ErrCodeConfigSavedReloadFailed），
+   中文文案匹配只作为旧后端的兜底 —— 后端改文案不会让这里退化。 */
+const isSavedButReloadFailed = (e: any): boolean => {
+  if (e && (e.saved === true || e.reloadFailed === true)) return true;
+  const msg = String((e && (e.message || e.error)) || e || '');
+  if (msg.includes('CONFIG_SAVED_RELOAD_FAILED')) return true;
+  // 兜底：旧后端没有 code 时按文案认（保留一个版本周期后删除）
+  return msg.includes('保存成功') && msg.includes('重载');
 };
 
 const handleSave = async () => {
   if (!isModified.value) return;
+  const content = editorView.value?.state.doc.toString() || '';
+  /* P-32 把「是否改回原样」的比较延后了 180ms，这里（保存是低频动作）再精确比一次：
+     否则"改回原样后立刻按 Ctrl+S"会白发一次保存 + 内核重载。 */
+  if (content === originalContent.value) {
+    cancelModifiedRecheck();
+    isModified.value = false;
+    emitStatus(t('yamlEditor.saved'));
+    return;
+  }
   saving.value = true;
-  statusText.value = t('yamlEditor.saving');
   try {
-    const content = editorView.value?.state.doc.toString() || '';
     await App.SaveConfigText(props.configId, content);
+    cancelModifiedRecheck();
     originalContent.value = content;
     isModified.value = false;
-    statusText.value = t('yamlEditor.saved');
     yamlError.value = '';
 
-    emit('status-change', { text: t('yamlEditor.saved'), modified: false, error: false });
+    emitStatus(t('yamlEditor.saved'));
   } catch (e: any) {
     const errorMsg = e.message || String(e);
-    statusText.value = t('yamlEditor.saveError', { error: errorMsg });
-    emit('status-change', { text: t('yamlEditor.saveError', { error: errorMsg }), modified: isModified.value, error: true });
-    
-    showAlert(t('yamlEditor.saveFileError', { error: errorMsg }), t('common.error'), true);
+    yamlError.value = errorMsg;
+    if (isSavedButReloadFailed(e)) {
+      // 文件确实已落盘：既不能说「保存失败」，也不能继续挂着未保存状态
+      cancelModifiedRecheck();
+      originalContent.value = content;
+      isModified.value = false;
+      emitStatus(t('yamlEditor.saveReloadFailed', { error: errorMsg }));
+      showAlert(t('yamlEditor.saveReloadFailed', { error: errorMsg }), t('common.warning'), true);
+    } else {
+      emitStatus(t('yamlEditor.saveError', { error: errorMsg }));
+      showAlert(t('yamlEditor.saveFileError', { error: errorMsg }), t('common.error'), true);
+    }
   } finally {
     saving.value = false;
   }
@@ -334,14 +404,11 @@ const handleValidate = async () => {
     const content = editorView.value?.state.doc.toString() || '';
     await App.ValidateConfigText(content);
     yamlError.value = '';
-    statusText.value = t('yamlEditor.syntaxValid');
-
-    emit('status-change', { text: t('yamlEditor.syntaxValid'), modified: isModified.value, error: false });
+    emitStatus(t('yamlEditor.syntaxValid'));
   } catch (e: any) {
+    // 诊断结果写进 yamlError：之后的键入不会再把红标清掉（P-31）
     yamlError.value = e.message || String(e);
-    statusText.value = t('yamlEditor.syntaxInvalid', { error: yamlError.value });
-
-    emit('status-change', { text: t('yamlEditor.formatError'), modified: isModified.value, error: true });
+    emitStatus(t('yamlEditor.formatError'));
   } finally {
     validating.value = false;
   }
@@ -355,6 +422,16 @@ const handleReload = async () => {
   loadConfig();
 };
 
+/* P-07：返回箭头以前直接 $emit('back')，未保存的改动静默丢失（只有「重新加载」有确认）。
+   App 侧切页/侧边栏的守卫由 fix-2 负责，编辑器侧先把自己这个入口拦住。 */
+const handleBack = async () => {
+  if (isModified.value) {
+    const ok = await showConfirm(t('yamlEditor.backConfirmMsg'), t('common.notice'));
+    if (!ok) return;
+  }
+  emit('back');
+};
+
 const handleKeydown = (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault();
@@ -364,8 +441,24 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 let themeObserver: MutationObserver | null = null;
 
-onMounted(async () => {
+/* P-33：现在父组件用 v-if 销毁/重建，props.configId 在实例生命周期内不会变。
+   但一旦将来改成 v-show 或加 KeepAlive，换配置时不会重新挂载，
+   保存就会把旧内容写进新 id —— 这里显式重载（有未保存改动先确认）。 */
+watch(() => props.configId, async (newId, oldId) => {
+  if (!newId || newId === oldId) return;
+  if (isModified.value) {
+    const ok = await showConfirm(t('yamlEditor.reloadConfirmMsg'), t('common.notice'));
+    if (!ok) return;
+  }
   await loadConfig();
+});
+
+onMounted(async () => {
+  /* P-06：这两个全局监听以前注册在 await loadConfig() 之后。卸载与 loadConfig 竞态时，
+     onUnmounted 已经把「还没注册」的东西清过一遍，续体又把它们装回去 ⇒
+     document 上的 keydown 与 documentElement 上的 MutationObserver 永久残留，
+     并闭包住本组件实例（EditorView 也一起挂在已脱离文档的容器上）。
+     现在先同步注册，onUnmounted 一定清得到。 */
   document.addEventListener('keydown', handleKeydown);
   themeObserver = new MutationObserver(() => {
     if (editorView.value) {
@@ -383,12 +476,18 @@ onMounted(async () => {
     attributes: true,
     attributeFilter: ['class'],
   });
+
+  await loadConfig();
 });
 
 onUnmounted(() => {
+  disposed = true;
+  cancelModifiedRecheck();
   editorView.value?.destroy();
+  editorView.value = undefined;
   document.removeEventListener('keydown', handleKeydown);
   themeObserver?.disconnect();
+  themeObserver = null;
 });
 </script>
 
@@ -467,7 +566,7 @@ onUnmounted(() => {
   border: none;
   background: var(--surface);
   color: var(--text-main);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   padding: 8px 14px;
   font-size: 0.8rem;
   font-weight: 600;
@@ -487,7 +586,7 @@ onUnmounted(() => {
 
 .primary-btn {
   border: none;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   padding: 8px 14px;
   font-size: 0.8rem;
   font-weight: 600;
@@ -534,7 +633,7 @@ onUnmounted(() => {
   flex: 1 1 auto;
   min-height: 0;
   height: auto;
-  border-radius: 12px;
+  border-radius: var(--ui-radius-lg);
   background: var(--surface);
 }
 
@@ -562,7 +661,7 @@ onUnmounted(() => {
   background: var(--surface-panel);
   color: var(--text-main);
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   font-size: 0.8rem;
   margin-top: 8px;
   display: flex;

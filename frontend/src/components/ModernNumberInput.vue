@@ -14,8 +14,11 @@
       type="number"
       class="stepper-input"
       :value="modelValue"
+      @focus="onFocus"
       @input="onInput"
       @blur="onBlur"
+      @keydown.enter.prevent="onSubmitKey"
+      @keydown.esc.prevent="onCancelKey"
       :min="min"
       :max="max"
       :disabled="disabled"
@@ -35,6 +38,8 @@
 </template>
 
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue';
+
 const props = defineProps<{
   modelValue: number;
   min?: number;
@@ -45,7 +50,17 @@ const props = defineProps<{
 
 const emit = defineEmits(['update:modelValue', 'change']);
 
-const step = props.step ?? 1;
+// G-07：step 必须是 computed —— 原来的写法 `const step = props.step ?? 1` 只在 setup 求值一次，
+// 父级动态改 step 会静默失效。
+const step = computed(() => props.step ?? 1);
+
+// 上一次已提交的合法值。清空/非法输入时回退到它，而不是回落到 min ?? 0：
+// 0 在 Go 侧很多字段被当成"未设置"再换成别的默认值（如 AutoDelayTestInterval<=0 → 60），
+// 用户会以为设置没生效。
+const lastValid = ref(props.modelValue);
+watch(() => props.modelValue, (v) => {
+  if (typeof v === 'number' && !Number.isNaN(v)) lastValid.value = v;
+});
 
 const clamp = (val: number) => {
   let v = val;
@@ -54,14 +69,24 @@ const clamp = (val: number) => {
   return v;
 };
 
+/** 把输入框里的原始文本提交成合法值（失焦 / Enter 共用一条路径） */
+const commit = (raw: string) => {
+  const val = parseInt(raw);
+  // G-07：失焦时才 clamp 到 [min,max]；NaN 优先回落 min，没有 min 再回上一次合法值
+  const next = Number.isNaN(val) ? (props.min ?? lastValid.value) : clamp(val);
+  emit('update:modelValue', next);
+  emit('change', next);
+  return next;
+};
+
 const increment = () => {
-  const next = clamp(props.modelValue + step);
+  const next = clamp(props.modelValue + step.value);
   emit('update:modelValue', next);
   emit('change', next);
 };
 
 const decrement = () => {
-  const next = clamp(props.modelValue - step);
+  const next = clamp(props.modelValue - step.value);
   emit('update:modelValue', next);
   emit('change', next);
 };
@@ -73,11 +98,45 @@ const onInput = (e: Event) => {
   }
 };
 
+/** Esc 取消本次输入：跳过 blur 提交，否则会发出一次同值 change，父级白保存一遍 */
+let cancelEdit = false;
+
+/* Esc 需要一个"进入编辑之前"的值来真正回退。
+   不能用 props.modelValue 当原值：onInput 是实时 emit 的，此刻它已经是新值（例如 99999），
+   拿它回填等于什么都没做，越界值会留在 model 里（空操作 + 不 clamp 的 bug）。
+   所以在 focus 时快照一次。 */
+let valueBeforeEdit = props.modelValue;
+const onFocus = () => {
+  valueBeforeEdit = props.modelValue;
+};
+
 const onBlur = (e: Event) => {
-  const val = parseInt((e.target as HTMLInputElement).value);
-  const clamped = isNaN(val) ? (props.min ?? 0) : clamp(val);
-  emit('update:modelValue', clamped);
-  emit('change', clamped);
+  const el = e.target as HTMLInputElement;
+  if (cancelEdit) {
+    cancelEdit = false;
+    el.value = String(props.modelValue);
+    return;
+  }
+  // 提交后把显示规范回合法值（输入 99999 或清空后不会停在非法文本上）
+  el.value = String(commit(el.value));
+};
+
+/** Enter = 失焦提交，统一走 onBlur，避免重复 emit change */
+const onSubmitKey = (e: KeyboardEvent) => {
+  (e.target as HTMLInputElement).blur();
+};
+
+const onCancelKey = (e: KeyboardEvent) => {
+  const el = e.target as HTMLInputElement;
+  // 真回退：把编辑前的值写回父级（不发 change，父级不会落盘），再 blur 跳过 onBlur 的提交路径。
+  // 这样"取消"之后 model 里不会留下未 clamp 的越界值。
+  cancelEdit = true;
+  lastValid.value = valueBeforeEdit;
+  if (props.modelValue !== valueBeforeEdit) {
+    emit('update:modelValue', valueBeforeEdit);
+  }
+  el.value = String(valueBeforeEdit);
+  el.blur();
 };
 </script>
 
@@ -86,7 +145,7 @@ const onBlur = (e: Event) => {
   display: flex;
   align-items: center;
   background-color: var(--surface-hover);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   overflow: hidden;
   width: 120px; /* 缩短宽度 */
   height: 36px;

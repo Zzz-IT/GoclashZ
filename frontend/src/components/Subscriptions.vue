@@ -9,7 +9,10 @@
       </div>
       
       <div class="header-actions">
+        <!-- P-05：排序只改内存数组、后端没有保存顺序的接口，任何一次 fetchConfigs 都会打回原样，
+             所以先把入口隐藏（moveUp/moveDown 与 toggleSortMode 保留待后端 SaveSubOrder 落地后恢复） -->
         <button 
+          v-if="SORT_MODE_AVAILABLE"
           class="action-btn" 
           :class="isSortingMode ? 'sorting-active' : 'accent-btn'" 
           @click.stop="toggleSortMode"
@@ -146,6 +149,11 @@
               @keyup.enter="confirmImport"
               :disabled="isImporting"
             />
+            <!-- P-25：UpdateSub 恒新建，同名/同链接会得到两条无法区分的订阅。
+                 这里就地提示（不再叠一个全屏确认框，两个 modal-overlay 同 z-index 会互相遮挡） -->
+            <p v-if="importDuplicate" class="modal-hint-text">
+              <strong>{{ t('common.warning') }}: </strong>{{ t('subs.dupSubWarn') }}
+            </p>
             <div class="modal-footer">
               <button class="action-btn flex-1" @click="activeModal = 'import'" :disabled="isImporting">{{ t('common.back') }}</button>
               <button class="primary-btn accent-btn flex-1" @click="confirmImport" :disabled="!configNameInput || isImporting">
@@ -196,15 +204,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { App } from '../api';
 import * as clash from '../../bindings/goclashz/core/clash';
 import { Events } from '@wailsio/runtime';
 import { showAlert, openModal, showToast, globalState } from '../store';
 import { formatBytes } from '../utils/format';
 import { ICONS } from '../utils/icons';
+import { alertError } from '../utils/alertError';
 import { displayErrorMessage, toUserError } from '../utils/errors';
 import { reportError } from '../utils/report';
+import { copyToClipboard } from '../utils/clipboard';
 import EmptyState from './EmptyState.vue';
 import { t } from '../locales';
 
@@ -238,6 +248,10 @@ const formatDate = (timestamp: number) => {
   return new Date(timestamp * 1000).toLocaleDateString();
 };
 
+/* P-05 / C-01：后端已补 ReorderSubs（Go: core/clash.UpdateSubIndex 落盘 → App.ReorderSubs），
+   排序现在会真正写进 sub_index.json，切页/重启都不丢，所以入口恢复可见。 */
+const SORT_MODE_AVAILABLE = true;
+
 const isSortingMode = ref(false);
 
 const toggleSortMode = () => {
@@ -245,11 +259,42 @@ const toggleSortMode = () => {
   activeMenu.value = null;
 };
 
+/* 排序落盘（P-05 / C-01）。两点约束：
+   1. RPC 必须串行 —— 两次 ReorderSubs 交叉到达时磁盘顺序会和界面对不上；
+   2. 连点箭头不能丢点击 —— 所以不做「在飞就丢弃」，而是记一个 trailing flush，
+      在飞的那次结束后再按「当时的最终顺序」补发一次（最后一次终归会落盘）。
+   失败时不猜回滚目标，直接以后端为准重新拉取：保证界面与磁盘一致。 */
+let sortSaving = false;
+let sortPendingFlush = false;
+
+const persistOrder = async (): Promise<void> => {
+  if (sortSaving) {
+    sortPendingFlush = true;
+    return;
+  }
+  sortSaving = true;
+  try {
+    await App.ReorderSubs(localConfigs.value.map((c) => c.id));
+  } catch (e) {
+    /* 提示策略：排序失败后立即以后端为准重拉，列表顺序自己"弹回去"就是最直观的反馈，
+       再补一条 toast 是重复噪音。只记日志。 */
+    reportError(e, 'subs.reorder');
+    await fetchConfigs();
+  } finally {
+    sortSaving = false;
+    if (sortPendingFlush) {
+      sortPendingFlush = false;
+      await persistOrder();
+    }
+  }
+};
+
 const moveUp = async (index: number) => {
   if (index <= 0) return;
   const items = [...localConfigs.value];
   [items[index - 1], items[index]] = [items[index], items[index - 1]];
   localConfigs.value = items;
+  await persistOrder();
 };
 
 const moveDown = async (index: number) => {
@@ -257,27 +302,39 @@ const moveDown = async (index: number) => {
   const items = [...localConfigs.value];
   [items[index + 1], items[index]] = [items[index], items[index + 1]];
   localConfigs.value = items;
+  await persistOrder();
 };
 
 const isCurrentConfig = (id: string) => {
   return globalState.activeConfigId === id;
 };
 
+/* P-26：fetchConfigs 有 4 类入口（挂载、每个写操作之后、订阅事件、配置切换），
+   里面两次 await 期间可能已经被更新的一次调用覆盖 —— 旧响应会把新列表/新激活配置写回去。
+   用递增序号只让最后一次调用落地。 */
+let fetchConfigsSeq = 0;
+
 const fetchConfigs = async () => {
+  const seq = ++fetchConfigsSeq;
   // 列表请求返回前保持 loading，空状态只在“确认没有配置”后出现
   configsLoading.value = true;
   try {
-    localConfigs.value = await App.GetLocalConfigs() || [];
+    const configs = await App.GetLocalConfigs() || [];
+    if (seq !== fetchConfigsSeq) return;   // 期间已有更新的请求发出，本次结果作废
+    localConfigs.value = configs;
     const data: any = await App.GetInitialData();
+    if (seq !== fetchConfigsSeq) return;
     if (data && data.activeConfig !== undefined) {
       globalState.activeConfigId = data.activeConfig;
       globalState.activeConfigName = data.activeConfigName || '';
       globalState.activeConfigType = data.activeConfigType || '';
     }
   } catch (e) {
+    if (seq !== fetchConfigsSeq) return;
     reportError(e, 'subs.syncState');
   } finally {
-    configsLoading.value = false;
+    // 只让最后一次请求收起 loading，否则过期响应的 finally 会提前放行空态
+    if (seq === fetchConfigsSeq) configsLoading.value = false;
   }
 };
 
@@ -323,8 +380,17 @@ const handleUpdateAll = async () => {
     return;
   }
 
+  /* P-27：状态以前只由 subs-update-start 事件置位，同帧连点会重复发起（后一次取消前一次），
+     一旦收不到 start 就永远转圈。这里同步置位，取消结局由 subs-update-cancelled 复位。 */
+  if (isUpdating.value) return;
+  isUpdating.value = true;
+
   // 🚀 发起异步任务，具体状态由事件监听器控制
-  App.UpdateAllSubsAsync().catch((e: unknown) => reportError(e, 'subs.updateAll'));
+  App.UpdateAllSubsAsync().catch((e: unknown) => {
+    // 传输层失败不会有任何事件，必须在这里复位，否则按钮永久禁用
+    isUpdating.value = false;
+    reportError(e, 'subs.updateAll');
+  });
 };
 
 const handleUpdateSingle = async (config: clash.SubIndexItem) => {
@@ -344,9 +410,25 @@ const handleUpdateSingle = async (config: clash.SubIndexItem) => {
   }
 };
 
+/* P-25：订阅链接只接受 http/https。以前只判非空，非法串要等下载失败才报
+   「订阅配置校验失败」，用户看不出是链接格式的问题。 */
+const isHttpUrl = (raw: string): boolean => {
+  try {
+    const u = new URL(raw);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
 const handleDownload = () => {
-  if (!newSubUrl.value.trim()) return;
-  pendingImportPath.value = newSubUrl.value.trim();
+  const url = newSubUrl.value.trim();
+  if (!url) return;
+  if (!isHttpUrl(url)) {
+    void showAlert(t('subs.urlInvalid'), t('common.error'), true);
+    return;
+  }
+  pendingImportPath.value = url;
   configNameInput.value = t('subs.newSubDefaultName');
   isImportingRemote.value = true;
   activeModal.value = 'import_confirm';
@@ -361,8 +443,9 @@ const handlePickFile = async () => {
       isImportingRemote.value = false;
       activeModal.value = 'import_confirm';
     }
-  } catch (e) {
-    console.log("Import cancelled");
+  } catch {
+    /* 用户在系统文件对话框里点「取消」也会走到这里 —— 属正常路径，不弹提示、不打日志。
+       （原来是 console.log("Import cancelled")，调试残留，且会把真实失败也一起吞掉不留痕。） */
   }
 };
 
@@ -381,8 +464,8 @@ const confirmImport = async () => {
     newSubUrl.value = '';
   } catch (e) {
     reportError(e, 'subs.import');
-    const u = toUserError(e);
-    await showAlert(t('subs.importFailed', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
+    // R-1 等价重构：原 toUserError + displayErrorMessage + showAlert 模板收敛到 alertError
+    await alertError(e, 'subs.importFailed');
   } finally {
     isImporting.value = false;
   }
@@ -404,8 +487,8 @@ const confirmRename = async () => {
     closeAllModals();
   } catch (e) {
     reportError(e, 'subs.rename');
-    const u = toUserError(e);
-    await showAlert(t('subs.renameFailed', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
+    // R-1 等价重构：原 toUserError + displayErrorMessage + showAlert 模板收敛到 alertError
+    await alertError(e, 'subs.renameFailed');
   } finally {
     isRenaming.value = false;
   }
@@ -433,8 +516,9 @@ const handleShareLink = async (config: clash.SubIndexItem) => {
   if (!config.url) return;
   let status: string;
   try {
-    await navigator.clipboard.writeText(config.url);
-    status = t('subs.linkCopied');
+    // U-18：统一走 utils/clipboard（失败文案走 i18n，不再各页自拼）
+    const copied = await copyToClipboard(config.url);
+    status = copied ? t('subs.linkCopied') : t('subs.copyFailed');
   } catch {
     status = t('subs.copyFailed');
   }
@@ -476,15 +560,24 @@ const openDeleteModal = (config: clash.SubIndexItem) => {
 };
 
 const confirmDelete = async () => {
+  const deletedId = targetId.value;
   isDeleting.value = true;
   try {
-    await App.DeleteConfig(targetId.value);
+    await App.DeleteConfig(deletedId);
+    /* P-28：删掉的正是当前激活配置时先本地清空三个 active* 字段。
+       以前完全依赖 fetchConfigs 里的 GetInitialData 回填，那次调用失败就会一直指着已删除的 id，
+       规则页/代理页随后都在请求一个不存在的配置。 */
+    if (globalState.activeConfigId === deletedId) {
+      globalState.activeConfigId = '';
+      globalState.activeConfigName = '';
+      globalState.activeConfigType = '';
+    }
     await fetchConfigs();
     closeAllModals();
   } catch (e) {
     reportError(e, 'subs.delete');
-    const u = toUserError(e);
-    await showAlert(t('subs.deleteFailed', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
+    // R-1 等价重构：原 toUserError + displayErrorMessage + showAlert 模板收敛到 alertError
+    await alertError(e, 'subs.deleteFailed');
   } finally {
     isDeleting.value = false;
   }
@@ -599,10 +692,19 @@ const closeAllModals = () => {
   configNameInput.value = '';
 };
 
-let unsubConfigChanged: (() => void) | null = null;
+/* P-25：UpdateSub 的语义是「按名字新建一条订阅」（id 为空时 core/clash/sub.go 用时间戳生成），
+   从不覆盖同名，所以同名或同链接重复导入只会多出一条界面分不清的配置。
+   在命名弹窗里实时判重并提示，提交按钮不拦（与改动前一致，只把后果说清楚）。 */
+const importDuplicate = computed(() => {
+  const name = configNameInput.value.trim() || (isImportingRemote.value ? t('subs.unnamedSub') : t('subs.unnamedFile'));
+  const url = pendingImportPath.value;
+  return localConfigs.value.some(c => c.name === name || (!!url && !!c.url && c.url === url));
+});
+
 let unsubSubsUpdateStart: (() => void) | null = null;
 let unsubSubsUpdateSuccess: (() => void) | null = null;
 let unsubSubsUpdateError: (() => void) | null = null;
+let unsubSubsUpdateCancelled: (() => void) | null = null;
 
 onMounted(() => {
   fetchConfigs();
@@ -627,22 +729,27 @@ onMounted(() => {
     await showAlert(u.message, t('common.error'), true, u.detail);
   });
 
-  unsubConfigChanged = Events.On("config-changed", ({ data: newId }: { data: string }) => {
-    if (newId) {
-      globalState.activeConfigId = newId;
-      fetchConfigs();
-    }
+  /* P-27：后端任务被取消时只发 name + "-cancelled"（core/tasks/manager.go:99），
+     以前前端只监听 start/error/success ⇒ 取消后 isUpdating 永远是 true，
+     「更新全部」按钮与转圈图标永久卡死。 */
+  unsubSubsUpdateCancelled = Events.On("subs-update-cancelled", () => {
+    isUpdating.value = false;
   });
+
+  /* P-08：这里原来监听 config-changed 同步 activeConfigId。该事件全仓只有一个 emit 点
+     （保存「激活配置」的文本，core/appcore/config_editor_controller.go:35），而保存发生在
+     YamlEditor，本页用 v-if 与它互斥挂载 —— 这条监听永远不可能被触发，属死代码，已删。
+     激活配置由 handleSelectConfig 与 fetchConfigs 的 GetInitialData 维护。 */
 });
 
 onUnmounted(() => {
   window.removeEventListener('scroll', onMenuViewportChange, true);
   window.removeEventListener('resize', onMenuViewportChange);
   document.removeEventListener('click', onDocumentClick, true);
-  unsubConfigChanged?.();
   unsubSubsUpdateStart?.();
   unsubSubsUpdateSuccess?.();
   unsubSubsUpdateError?.();
+  unsubSubsUpdateCancelled?.();
 });
 </script>
 
@@ -790,11 +897,11 @@ onUnmounted(() => {
 .icon-btn:hover { background: var(--ui-surface-hover); color: var(--ui-text-primary); }
 .active-card .icon-btn:hover { background: transparent !important; }
 
-.mini-btn { height: 44px; padding: 0 20px; font-weight: 700; border-radius: 12px; }
+.mini-btn { height: 44px; padding: 0 20px; font-weight: 700; border-radius: var(--ui-radius-lg); }
 .divider-text { text-align: center; margin: 15px 0; color: var(--text-muted); font-size: 0.75rem; position: relative; }
 .divider-text::before, .divider-text::after { content: ""; position: absolute; top: 50%; width: 35%; height: 1px; background: var(--ui-border-subtle); }
 .divider-text::before { left: 0; } .divider-text::after { right: 0; }
-.w-full-btn { width: 100%; justify-content: center; padding: 14px; font-weight: 600; border-radius: 10px; border: none; background: var(--surface-hover); color: var(--text-main); cursor: pointer; display: flex; align-items: center; gap: 8px; }
+.w-full-btn { width: 100%; justify-content: center; padding: 14px; font-weight: 600; border-radius: var(--ui-radius-md); border: none; background: var(--surface-hover); color: var(--text-main); cursor: pointer; display: flex; align-items: center; gap: 8px; }
 .modal-hint-text { padding: 4px 0 12px 0; color: var(--text-sub); font-size: 0.85rem; line-height: 1.6; }
 .danger-text { color: var(--danger) !important; }
 

@@ -8,7 +8,7 @@
         </svg>
       </button>
       <h3>{{ t('settings.lan.title') }}</h3>
-      <button class="action-btn accent-btn mini-btn-reset" @click="$emit('reset', 'network')">
+      <button class="action-btn accent-btn mini-btn-reset" @click="$emit('reset', 'lan')">
         <span class="btn-icon" v-html="ICONS.refresh"></span> {{ t('settings.lan.resetBtn') }}
       </button>
     </div>
@@ -94,7 +94,7 @@
               <textarea
                 class="modern-textarea"
                 v-model="lanConfig.lanAllowedIPs"
-                @blur="saveAndValidate('allowed')"
+                @blur="save"
                 @input="validateCIDR(lanConfig.lanAllowedIPs, 'allowed')"
                 :disabled="loading"
                 rows="4"
@@ -121,7 +121,7 @@
               <textarea
                 class="modern-textarea"
                 v-model="lanConfig.lanDisallowedIPs"
-                @blur="saveAndValidate('disallowed')"
+                @blur="save"
                 @input="validateCIDR(lanConfig.lanDisallowedIPs, 'disallowed')"
                 :disabled="loading"
                 rows="4"
@@ -148,7 +148,7 @@
               <textarea
                 class="modern-textarea"
                 v-model="lanConfig.lanSkipAuthIPs"
-                @blur="saveAndValidate('skipAuth')"
+                @blur="save"
                 @input="validateCIDR(lanConfig.lanSkipAuthIPs, 'skipAuth')"
                 :disabled="loading"
                 rows="4"
@@ -178,7 +178,11 @@ import DeviationStrip from './DeviationStrip.vue';
 import { t } from '../locales';
 
 const props = defineProps<{ resetKey: number }>();
-defineEmits<{ navigate: [view: 'main']; reset: [module: 'network'] }>();
+/* G-01：段名必须是 'lan'。Settings.vue 的 confirmReset 用段名查文案与 resetVersions，
+   并把 'lan' 映射成后端的 'network' 段（LAN 字段与端口同存 NetworkConfig）。
+   原来这里发 'network'，结果是确认框写"网络"、resetVersions.lan 永不递增（LAN 页不重载），
+   重置后随便改一个字段就把旧值（含密码）写回去。 */
+defineEmits<{ navigate: [view: 'main']; reset: [module: 'lan'] }>();
 
 const loading = ref(true);
 const deviationRef = ref<InstanceType<typeof DeviationStrip> | null>(null);
@@ -220,13 +224,6 @@ function validateCIDR(text: string, key: string): boolean {
   return true;
 }
 
-function validateAll(): boolean {
-  const a = validateCIDR(lanConfig.lanAllowedIPs, 'allowed');
-  const b = validateCIDR(lanConfig.lanDisallowedIPs, 'disallowed');
-  const c = validateCIDR(lanConfig.lanSkipAuthIPs, 'skipAuth');
-  return a && b && c;
-}
-
 const loadData = async () => {
   loading.value = true;
   try {
@@ -253,6 +250,23 @@ const loadData = async () => {
 
 const save = async () => {
   if (loading.value) return;
+  /* G-02：三条 CIDR 列表必须在落盘前整体校验。除列表自己的 @blur 外，
+     allowLan / 认证用户名、密码的 @change/@blur 也会走到这里 —— 不在这里判，
+     用户填了非法行再点任意开关就会把它写进 user_network.json，
+     随后被后端原样注入运行配置的 lan-allowed-ips，可能让内核加载配置失败。
+     校验不通过就整份不保存（红字已由 @input 渲染，再用 toast 提醒一次避免用户没看到）。 */
+  const cidrChecks: [string, string][] = [
+    [lanConfig.lanAllowedIPs, 'allowed'],
+    [lanConfig.lanDisallowedIPs, 'disallowed'],
+    [lanConfig.lanSkipAuthIPs, 'skipAuth'],
+  ];
+  for (const [text, key] of cidrChecks) {
+    if (!validateCIDR(text, key)) {
+      /* 提示策略：输入非法时内联红字已经在对应输入框下方（@input 渲染），
+         这里只阻止落盘，不再弹重复 toast。 */
+      return;
+    }
+  }
   try {
     // Merge LAN fields into the full network config to avoid overwriting
     // other network settings that may be managed in SettingsNetwork.
@@ -275,15 +289,6 @@ const save = async () => {
     showToast(t('settings.saveFailed', { error: u.message }), 'error');
     void deviationRef.value?.refresh();
   }
-};
-
-const saveAndValidate = async (key: string) => {
-  validateCIDR(
-    key === 'allowed' ? lanConfig.lanAllowedIPs :
-    key === 'disallowed' ? lanConfig.lanDisallowedIPs : lanConfig.lanSkipAuthIPs,
-    key
-  );
-  await save();
 };
 
 onMounted(() => { void loadData(); });
@@ -335,7 +340,7 @@ p { margin: 0; font-size: 0.85rem; color: var(--text-sub); line-height: 1.5; }
   border: none;
   color: var(--text-main);
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   outline: none;
   font-size: 0.9rem;
   box-sizing: border-box;
@@ -367,7 +372,7 @@ p { margin: 0; font-size: 0.85rem; color: var(--text-sub); line-height: 1.5; }
   border: none;
   color: var(--text-main);
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   outline: none;
   resize: vertical;
   font-family: var(--font-mono);
@@ -418,6 +423,6 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
 .sub-header.section-header h3 { flex: 1; margin: 0; border: none; padding: 0; margin-left: 12px; }
 .back-btn { background: var(--surface); border: none; color: var(--text-main); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; flex-shrink: 0; }
 .back-btn:hover { background: var(--ui-surface-hover); }
-.mini-btn-reset { height: 36px !important; padding: 0 14px !important; font-size: 0.85rem !important; border-radius: 8px !important; }
+.mini-btn-reset { height: 36px !important; padding: 0 14px !important; font-size: 0.85rem !important; border-radius: var(--ui-radius-sm) !important; }
 .mini-btn-reset :deep(.btn-icon) svg { width: 16px; height: 16px; }
 </style>

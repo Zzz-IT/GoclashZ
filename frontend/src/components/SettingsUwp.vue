@@ -24,6 +24,9 @@
         <input v-model="uwpSearch" :placeholder="t('settings.uwp.searchPlaceholder')" />
         <span v-if="uwpSearch" class="clear-icon" @click="uwpSearch = ''" v-html="ICONS.close"></span>
       </div>
+      <!-- G-03：第二个按钮的实际动作是「全部置为不豁免」。文案键沿用 settings.uwp.invertSelect
+           （Wave 2 把 8 个语言包里它的文案从"反选 / Invert"改成"全部不选 / Select None"），
+           这里不新增 key，免得 check-i18n 先变红。 -->
       <div class="uwp-batch">
         <button class="batch-btn" @click="toggleAllUwp(true)">{{ t('settings.uwp.selectAll') }}</button>
         <button class="batch-btn" @click="toggleAllUwp(false)">{{ t('settings.uwp.invertSelect') }}</button>
@@ -141,8 +144,10 @@ const filteredUwpApps = computed(() => {
 });
 
 const toggleAllUwp = (val: boolean) => {
-  // 「全不选」= 全部关闭，不是逐项取反（F-A4-20：原实现会把已关闭的反向打开）
-  uwpApps.value.forEach(app => { app.isEnabled = val; });
+  /* 「全不选」= 全部关闭，不是逐项取反（F-A4-20：原实现会把已关闭的反向打开）。
+     G-18：只改当前过滤后的列表 —— 搜索时列表只显示命中项，若改全集，
+     用户看到的 3 项和实际被改的 200 项对不上，应用后无法核对。 */
+  filteredUwpApps.value.forEach(app => { app.isEnabled = val; });
 };
 
 // 清空确认文案：settings.uwp.clearAllConfirm 已在 8 个语言包中就位（F-A4-17），
@@ -219,27 +224,27 @@ h3 { margin: 0 0 8px 0; color: var(--text-main); font-size: 1.25rem; padding-bot
 .back-btn .icon svg { width: 18px; height: 18px; display: block; }
 .back-icon-svg :deep(svg) { width: 18px; height: 18px; }
 
-.setting-group { padding: 16px 20px; margin-bottom: 16px; border-radius: 12px; }
+.setting-group { padding: 16px 20px; margin-bottom: 16px; border-radius: var(--ui-radius-lg); }
 .setting-item { display: flex; justify-content: space-between; align-items: center; }
 .info { flex: 1; padding-right: 16px; min-width: 0; }
 h4 { margin: 0 0 4px 0; color: var(--text-main); font-size: 0.95rem; }
 p { margin: 0; font-size: 0.85rem; color: var(--text-sub); line-height: 1.5; }
 
 .uwp-toolbar { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
-.uwp-search { flex: 1; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--ui-surface-hover); border-radius: 10px; padding: 0 12px; height: 40px; transition: all 0.2s; }
+.uwp-search { flex: 1; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--ui-surface-hover); border-radius: var(--ui-radius-md); padding: 0 12px; height: 40px; transition: all 0.2s; }
 .uwp-search:focus-within { border-color: var(--ui-accent); background: var(--ui-surface-card); }
 .uwp-search input { flex: 1; border: none; background: transparent; color: var(--text-main); outline: none; margin-left: 8px; font-size: 0.9rem; }
 .search-icon, .clear-icon { display: flex; align-items: center; color: var(--text-sub); }
 .clear-icon { cursor: pointer; padding: 4px; }
 .uwp-batch { display: flex; gap: 8px; }
-.batch-btn { background: var(--ui-surface-hover); color: var(--text-main); border: none; padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
+.batch-btn { background: var(--ui-surface-hover); color: var(--text-main); border: none; padding: 8px 16px; border-radius: var(--ui-radius-sm); font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
 .batch-btn:hover { background: var(--ui-surface-card); }
 .uwp-list-wrapper { display: flex; flex-direction: column; gap: 10px; flex: 1; padding-right: 4px; }
-.uwp-app-item { background: var(--surface); border-radius: 12px; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); border: 1px solid transparent; }
+.uwp-app-item { background: var(--surface); border-radius: var(--ui-radius-lg); padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); border: 1px solid transparent; }
 .uwp-app-item:hover { background: var(--ui-surface-hover); }
 .uwp-app-item.active { background: var(--ui-accent-block); box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
 .app-main-content { display: flex; align-items: center; gap: 16px; overflow: hidden; flex: 1; }
-.app-avatar { width: 42px; height: 42px; background: var(--ui-surface-card); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.3rem; color: var(--text-sub); flex-shrink: 0; }
+.app-avatar { width: 42px; height: 42px; background: var(--ui-surface-card); border-radius: var(--ui-radius-md); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.3rem; color: var(--text-sub); flex-shrink: 0; }
 .uwp-app-item.active .app-avatar { background: rgba(255, 255, 255, 0.15); color: var(--ui-accent-fg); }
 .app-details { display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
 .app-name { font-size: 0.95rem; font-weight: 700; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -249,7 +254,7 @@ p { margin: 0; font-size: 0.85rem; color: var(--text-sub); line-height: 1.5; }
 .uwp-status-tag { font-size: 0.7rem; letter-spacing: 0; font-weight: 600; padding: 3px 10px; border-radius: 4px; text-transform: uppercase; transition: all 0.2s; background: var(--ui-surface-card); color: var(--text-main); }
 .uwp-app-item.active .uwp-status-tag { background: var(--ui-accent-fg) !important; color: var(--ui-accent) !important; opacity: 0.8; }
 .uwp-footer { margin-top: 20px; padding-top: 10px; }
-.apply-btn { width: 100%; padding: 14px; background: var(--ui-accent-block); color: var(--ui-accent-fg); border: none; border-radius: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1); }
+.apply-btn { width: 100%; padding: 14px; background: var(--ui-accent-block); color: var(--ui-accent-fg); border: none; border-radius: var(--ui-radius-lg); font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1); }
 .apply-btn:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
 .apply-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .loading-spinner { display: flex; align-items: center; justify-content: center; gap: 8px; }

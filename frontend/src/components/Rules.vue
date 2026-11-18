@@ -40,7 +40,8 @@
             </div>
             <div class="rule-footer">
               <div class="rule-policy">{{ rule.policy }}</div>
-              <button class="delete-btn" @click="handleDelete(rule.originalIndex)" :title="deleteBtnTitle">
+              <!-- P-01：传规则文本而不是渲染时的 originalIndex，确认后按文本重新定位 -->
+              <button class="delete-btn" @click="handleDelete(rule.text)" :disabled="loading" :title="deleteBtnTitle">
                 <span v-html="ICONS.trash"></span>
               </button>
             </div>
@@ -127,11 +128,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, onMounted, onUnmounted, onActivated, computed, watch, nextTick } from 'vue';
+import { ref, shallowRef, onUnmounted, computed, watch, nextTick } from 'vue';
 import { App } from '../api';
-import { showAlert, showConfirm, showToast, globalState } from '../store';
+import { showConfirm, showToast, globalState } from '../store';
 import { ICONS } from '../utils/icons';
-import { displayErrorMessage, toUserError } from '../utils/errors';
+import { alertError } from '../utils/alertError';
+import { safeGetString, safeSetString } from '../utils/storage';
 import { useEdgeFade } from '../utils/edgeFade';
 import { reportError } from '../utils/report';
 import ModernSelect from './ModernSelect.vue';
@@ -139,9 +141,17 @@ import EmptyState from './EmptyState.vue';
 import { t } from '../locales';
 
 const rulePageData = shallowRef<any>(null);
-const ruleTab = ref<'subscription' | 'add' | 'delete'>(
-  (localStorage.getItem('goclashz_ruleTab') as 'subscription' | 'add' | 'delete') || 'subscription'
-);
+
+/* P-34：localStorage 在 WebView2 隐私模式 / 配额异常时会直接抛错，
+   而这行在 setup 顶层 —— 抛出去就是整页白屏，所以读失败一律回退默认段。
+   R-1 等价重构：读原语改走 utils/storage（内部 try/catch + 返回 null，与原来的内联实现逐行等价）。 */
+const readSavedRuleTab = (): 'subscription' | 'add' | 'delete' => {
+  const saved = safeGetString('goclashz_ruleTab');
+  if (saved === 'subscription' || saved === 'add' || saved === 'delete') return saved;
+  return 'subscription';
+};
+
+const ruleTab = ref<'subscription' | 'add' | 'delete'>(readSavedRuleTab());
 
 const tabsTrackRef = ref<HTMLElement | null>(null);
 const ruleTabEl = ref<HTMLElement | null>(null);
@@ -178,6 +188,9 @@ let searchTimer: ReturnType<typeof setTimeout>;
 
 const showAddModal = ref(false);
 const loading = ref(false);
+// P-23 / P-01：入口互斥标记（不依赖 :disabled 的重渲染时机）
+let addingRule = false;
+let deletingRule = false;
 
 const ruleFormOptions = shallowRef<any>(null);
 const selectedRuleType = ref('');
@@ -244,9 +257,8 @@ const openAddModal = async () => {
     rulePayload.value = '';
     showAddModal.value = true;
   } catch (e) {
-    // F-A4-13：title 不再塞原始错误；人话进正文，原文进 detail
-    const u = toUserError(e);
-    await showAlert(t('rules.loadOptionsError', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
+    // F-A4-13：title 不再塞原始错误；人话进正文，原文进 detail（R-1 收敛到 alertError，逐项等价）
+    await alertError(e, 'rules.loadOptionsError');
   } finally {
     loading.value = false;
   }
@@ -298,18 +310,20 @@ const modalTitle = computed(() => {
   return t('rules.addModalTitle');
 });
 
-const currentRulesList = computed(() => {
-  if (!rulePageData.value) return [];
-  if (isLocal.value) {
-    return rulePageData.value.localRules || [];
-  }
-  switch (ruleTab.value) {
-    case 'subscription': return rulePageData.value.subscriptionRules || [];
-    case 'add': return rulePageData.value.addRules || [];
-    case 'delete': return rulePageData.value.deleteRules || [];
+/* 按「配置类型 + 段」取规则数组。抽出来是为了让「渲染用的列表」和「删除前重新读取
+   用于定位的列表」走同一套取值逻辑，两处一旦分叉就会按错的段算下标。 */
+const rulesOf = (data: any, localConfig: boolean, section: string): string[] => {
+  if (!data) return [];
+  if (localConfig) return data.localRules || [];
+  switch (section) {
+    case 'subscription': return data.subscriptionRules || [];
+    case 'add': return data.addRules || [];
+    case 'delete': return data.deleteRules || [];
   }
   return [];
-});
+};
+
+const currentRulesList = computed(() => rulesOf(rulePageData.value, isLocal.value, ruleTab.value));
 
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer);
@@ -360,7 +374,8 @@ watch(isRemote, (newVal) => {
 }, { immediate: true });
 
 watch(ruleTab, (newVal) => {
-  localStorage.setItem('goclashz_ruleTab', newVal);
+  // R-1 等价重构：写原语改走 utils/storage（失败静默，与原来的 try/catch 等价）
+  safeSetString('goclashz_ruleTab', newVal);
   searchQuery.value = '';
   debouncedQuery.value = '';
   currentPage.value = 1;
@@ -440,14 +455,20 @@ const paginatedRules = computed(() => {
       type: ruleType,
       payload: payloadStr,
       policy: policyStr,
-      originalIndex: index
+      originalIndex: index,
+      // P-01：删除时按这条文本重新定位（index 只在渲染那一刻有效）
+      text
     };
   });
 });
 
 const handleAddFromForm = async () => {
+  /* P-23：:disabled 要等一次重渲染才生效，同帧「回车 + 点击」会发两次 AddRuleFromForm，
+     得到两条一模一样的规则。所以入口用同步标记互斥，loading 也在这里同步置位。 */
+  if (addingRule || loading.value) return;
   if (!globalState.activeConfigId || !canSubmitRule.value) return;
 
+  addingRule = true;
   loading.value = true;
   try {
     let targetSection = 'local';
@@ -470,14 +491,18 @@ const handleAddFromForm = async () => {
     // F-A4-12：成功用 toast
     showToast(t('rules.addSuccess'), 'success');
   } catch (e) {
-    const u = toUserError(e);
-    await showAlert(t('rules.addError', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
+    // R-1 等价重构：原 toUserError + displayErrorMessage + showAlert 模板收敛到 alertError
+    await alertError(e, 'rules.addError');
   } finally {
+    addingRule = false;
     loading.value = false;
   }
 };
 
-const handleDelete = async (idx: number) => {
+const handleDelete = async (ruleText: string) => {
+  // P-01：删除期间互斥，避免同帧重复进入（也顺手挡住双击）
+  if (deletingRule || loading.value) return;
+
   let promptMsg = t('rules.deleteConfirmMsg');
   if (isRemote.value && ruleTab.value === 'subscription') {
     promptMsg = t('rules.blockRuleConfirmMsg');
@@ -485,35 +510,67 @@ const handleDelete = async (idx: number) => {
     promptMsg = t('rules.unblockRuleConfirmMsg');
   }
 
-  const ok = await showConfirm(promptMsg, t('rules.deleteConfirmTitle'), true);
-  if (ok && globalState.activeConfigId) {
-    loading.value = true;
-    try {
-      let targetSection = 'local';
-      if (isRemote.value) {
-        targetSection = ruleTab.value;
-      }
-      
-      await App.DeleteRule(globalState.activeConfigId, targetSection, idx);
-      await loadRules();
-    } catch (e) {
-      const u = toUserError(e);
-      await showAlert(t('rules.deleteError', { error: displayErrorMessage(e) }), t('common.error'), true, u.detail);
-    } finally {
-      loading.value = false;
+  /* 评审修复：闸门必须早于确认框。模态是队列，双击删除按钮会排两个确认框、
+     确认后连续调两次 DeleteRule（同样的 P-01/P-23 口径）。这里先占用闸门，
+     确认结束就释放；真正的 RPC 互斥由下面的 loading 段继续负责。 */
+  deletingRule = true;
+  let confirmed = false;
+  try {
+    confirmed = await showConfirm(promptMsg, t('rules.deleteConfirmTitle'), true);
+  } finally {
+    deletingRule = false;
+  }
+  if (!confirmed) return;
+
+  /* P-24：确认框是异步的，这里捕获「用户按下删除时看到的那份配置与段」，
+     不再在确认后重读 globalState.activeConfigId —— 否则确认期间换了激活配置，
+     就会删到新配置的同序号规则。 */
+  const configId = globalState.activeConfigId;
+  if (!configId) return;
+  const localConfig = isLocal.value;
+  const targetSection = isRemote.value ? ruleTab.value : 'local';
+
+  deletingRule = true;
+  loading.value = true;
+  try {
+    if (configId !== globalState.activeConfigId) {
+      showToast(t('rules.configSwitched'), 'info');
+      return;
     }
+    /* P-01：不再复用渲染时的 originalIndex —— 确认期间列表一变（页内刷新/后台写者）就会删错，
+       而后端对越界索引静默返回 nil（app.go:1125），错了也看不出来。
+       这里重读当前段，按「规则文本」定位；找不到就提示并同步最新列表，绝不猜一个下标去删。 */
+    const fresh = await App.GetRulePageData(configId);
+    if (configId !== globalState.activeConfigId) {
+      rulePageData.value = fresh;
+      showToast(t('rules.configSwitched'), 'info');
+      return;
+    }
+    rulePageData.value = fresh;
+    const freshIdx = rulesOf(fresh, localConfig, targetSection).indexOf(ruleText);
+    if (freshIdx < 0) {
+      showToast(t('rules.ruleChanged'), 'info');
+      return;
+    }
+
+    await App.DeleteRule(configId, targetSection, freshIdx);
+    await loadRules();
+  } catch (e) {
+    // R-1 等价重构：原 toUserError + displayErrorMessage + showAlert 模板收敛到 alertError
+    await alertError(e, 'rules.deleteError');
+  } finally {
+    deletingRule = false;
+    loading.value = false;
   }
 };
 
-onMounted(() => {
-  loadRules();
-});
+/* P-22：这里原来还有一个 onMounted(loadRules)。上面 watch(activeConfigId, {immediate:true})
+   在挂载时已经拉过一次，两处叠加会让每次进页都发两次 GetRulePageData（并发且无序号，
+   loading 只反映后完成的那次），所以删掉这一处。 */
 
-onActivated(() => {
-  if (isRemote.value) {
-    resetRuleSlider();
-  }
-});
+/* P-13（剩余部分）：这里原来有 onActivated(() => resetRuleSlider())。本应用没有 <KeepAlive>，
+   该钩子永不触发（Rules 页面是 v-if 整块销毁重建），属死代码，删除以消除误导。
+   真正的滑块归位由 onMounted 与 updateSlider 负责。 */
 </script>
 
 <style scoped>
@@ -537,7 +594,7 @@ onActivated(() => {
 .rules-tabs-viewport {
   flex: 0 0 auto;
   min-width: 0;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
 }
 
 .rules-tabs-track {
@@ -546,7 +603,7 @@ onActivated(() => {
   gap: 6px;
   background: var(--ui-surface-hover);
   padding: 6px;
-  border-radius: 12px;
+  border-radius: var(--ui-radius-lg);
   user-select: none;
   -webkit-user-select: none;
   position: relative;
@@ -560,7 +617,7 @@ onActivated(() => {
   height: 36px;
   padding: 0 16px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   background: transparent;
   color: var(--text-sub);
   font-size: 0.95rem;
@@ -586,7 +643,7 @@ onActivated(() => {
   top: 6px;
   height: 36px;
   background: var(--ui-accent-block);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   z-index: 0;
   pointer-events: none;
 }
@@ -609,7 +666,7 @@ onActivated(() => {
 }
 
 
-.search-bar { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--ui-border-subtle); border-radius: 8px; padding: 8px 12px; flex: 1; }
+.search-bar { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--ui-border-subtle); border-radius: var(--ui-radius-sm); padding: 8px 12px; flex: 1; }
 .search-bar input { border: none; background: transparent; color: var(--text-main); outline: none; margin-left: 8px; width: 100%; }
 
 /* 唯一滚动区：规则网格自己滚动，页头与分页条固定 */
@@ -701,7 +758,8 @@ onActivated(() => {
 .delete-btn { background: transparent; color: var(--danger); border: none; cursor: pointer; opacity: 0; transition: opacity 0.2s; padding: 4px; }
 .rule-card:hover .delete-btn { opacity: 1; }
 
-.loading-state { grid-column: 1 / -1; text-align: center; padding: 20px; color: var(--text-muted); font-size: 0.85rem; }
+/* R-1：原 .loading-state 规则已删 —— 模板里零引用（grep 'loading-state' 仅命中此行），
+   加载态实际由 EmptyState / 卡片骨架承载，该选择器永不匹配。 */
 
 .pagination-bar { 
   display: flex; 
@@ -735,7 +793,7 @@ onActivated(() => {
   color: var(--text-main);
   padding: 0 18px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
@@ -795,7 +853,7 @@ onActivated(() => {
 
 .rule-preview {
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   background: var(--surface);
   display: flex;
   flex-direction: column;

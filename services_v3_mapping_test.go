@@ -10,14 +10,15 @@ import (
 
 // TestServicesV3AssignmentMatchesForwarders 校验服务拆分（第二轮 #8）的两个约束：
 //
-//  1. services_v3_mapping.go 的归属表覆盖全部 108 个绑定方法，且每个方法只出现一次；
+//  1. services_v3_mapping.go 的归属表覆盖全部 109 个绑定方法，且每个方法只出现一次；
 //  2. services_v3_generated.go 中三个服务类型的实际方法集合（除生命周期方法外）
 //     与归属表逐项一致，即不存在漏生成的转发方法，也不存在未登记的方法。
 //
 // 说明：ServiceStartup/ServiceShutdown（以及可选的 ServiceName/ServeHTTP）是
-// v3 绑定引擎的内部方法，不会进入 bindings，因此不参与 108 的计数。
+// v3 绑定引擎的内部方法，不会进入 bindings，因此不参与 109 的计数。
 func TestServicesV3AssignmentMatchesForwarders(t *testing.T) {
-	const wantTotal = 108
+	// 109 = 拆分前的 108 + ReorderSubs（审计 C-01 / P-05：订阅排序从"仅内存"改为可落盘）
+	const wantTotal = 109
 
 	if got := len(servicesV3Assignment); got != wantTotal {
 		t.Fatalf("servicesV3Assignment 有 %d 个方法，期望 %d", got, wantTotal)

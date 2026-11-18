@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
    GoclashZ semantic UI tokens
    Imported after style.css so these values win over legacy tokens.
    Components should consume --ui-* only.
@@ -8,7 +8,6 @@
   /* accent：默认主题保持单色（黑白反色）；未来主题包可覆盖为品牌色 */
   --ui-accent: #1a1a1a;
   --ui-accent-fg: #ffffff;
-  --ui-accent-hover: #000000;
   --ui-accent-soft: rgba(26, 26, 26, 0.08);
   --ui-accent-ring: rgba(26, 26, 26, 0.20);
   /* 实心强调块（选中药丸 / 开关轨道 / 主按钮）：普通模式下就是纯强调色。
@@ -43,6 +42,8 @@
   --ui-radius-sm: 8px;
   --ui-radius-md: 10px;
   --ui-radius-lg: 12px;
+  /* 药丸圆角（胶囊形状）。U-04 的 token 化已把组件里写死的 999px 换成它，
+     因此它同样是主题圆角体系的一部分（数值固定，不随 themeRadius 缩放）。 */
   --ui-radius-full: 999px;
   --ui-page-bottom: 24px;
 
@@ -52,20 +53,13 @@
   --ui-shadow-overlay: 0 18px 48px rgba(0, 0, 0, 0.22);
 
   /* glass */
-  --ui-glass-tint: var(--app-bg);
-  --ui-glass-alpha: 0.42;
-  --ui-glass-border: color-mix(in srgb, var(--text-main) 16%, transparent);
   --ui-scrim: rgba(8, 8, 10, 0.42);
 
-  /* glass：3 组独立模糊半径 + 1 个背景 tint。
-     具体 px / alpha 由 utils/glass.ts 写到根元素（--glass-blur-content/overlay/control、--glass-tint-bg），
-     这里只是 data-glass 未写入时的兜底默认值。 */
-  /* glass：浮层模糊现在是一个设计常量，不再挂钩滑条。
-     半径越大可糊的东西越多，而浮层背后是应用自己的内容，28px 已经能把
-     卡片、文字、分隔线抹成一整片柔和的明暗，再大就只剩一片平色。 */
-  --glass-blur-content: 12px;
+  /* glass：模糊半径只剩浮层一级，它是设计常量、不挂钩滑条（全站也只有浮层
+     真的挂了 backdrop-filter；内容卡片 / 控件凹槽两级是纯填充）。
+     半径越大可糊的东西越多，而浮层背后是应用自己的内容，40px 已经把卡片、
+     文字、分隔线抹成一整片柔和的明暗，再大就只剩一片平色。 */
   --glass-blur-overlay: 40px;
-  --glass-blur-control: 8px;
   /* 玻璃染色：滑条只改"染成什么颜色"，不改透明度。
      --glass-tint-target 由 applyTheme 跟随主题强调色写入（单色主题退回中性冷色）。
      染色结果是 utils/glass.ts 在 HSL 里算完后直接写 --glass-tint-bg，
@@ -76,33 +70,33 @@
   /* 玻璃质感的分层填充（v2）：
      玻璃不是"把所有卡片调成半透明"，而是「桌面(系统 Acrylic) → 窗口着色 → 应用内光晕 → 毛玻璃面」四层。
      下面的 fill 是第 4 层的填充色，alpha 必须足够高才能保证压在任意壁纸上的正文仍然 >= 4.5:1。
-     四级全部以 --surface-panel 为底色，只差透明度 —— 底色不统一的话，浅色主题下
+     三级全部以 --surface-panel 为底色，只差透明度 —— 底色不统一的话，浅色主题下
      控件凹槽会比卡片暗一档，看起来就是一块没擦干净的灰。
      具体数值由 utils/glass.ts 按 glassDepth 缩放后写到根元素，这里只是兜底默认值。
      - overlay: 弹窗 / 下拉 / 菜单（浮在最上层）
      - card   : 内容卡片 / 列表容器
      - soft   : 控件凹槽（分段控件底槽、图表槽）
-     - content: 页面级大面板（设置页整块、内容主面板）
 
      浮层填充是独立常量，不参与厚度缩放。实测高于 45% 时 backdrop-filter
-     就完全没有产出（浮层退化成半透明色板），所以固定 38%：
-     背后的卡片、文字会被真正糊开，同时给正文留一层底。 */
+     就完全没有产出（浮层退化成半透明色板），所以固定 46%：
+     背后的卡片、文字会被真正糊开，同时给正文留一层底。
+     （原第四级 --glass-fill-content「页面级大面板」全仓库零消费，已随 U-12 删除。） */
   --glass-fill-card: color-mix(in srgb, var(--surface-panel) 62%, transparent);
-  --glass-fill-content: color-mix(in srgb, var(--surface-panel) 44%, transparent);
   --glass-fill-overlay: color-mix(in srgb, var(--surface-panel) 46%, transparent);
   --glass-fill-soft: color-mix(in srgb, var(--surface-panel) 48%, transparent);
   /* 玻璃的"厚度"只靠顶部一线高光表达（Apple Liquid Glass 的做法）：
      四边描边会在深色壁纸上把每张卡片画成方盒子，极简感立刻消失。 */
   --glass-specular: color-mix(in srgb, #ffffff 62%, transparent);
   --glass-hairline: color-mix(in srgb, var(--text-main) 8%, transparent);
-  --glass-highlight: color-mix(in srgb, #ffffff 42%, transparent);
 
-  /* z-index */
-  --ui-z-sticky: 10;
-  --ui-z-dropdown: 20;
-  --ui-z-modal: 30;
-  --ui-z-toast: 40;
-  --ui-z-tooltip: 50;
+  /* 说明（U-12）：本轮删掉的零消费自定义属性共 14 个 —— 5 档 --ui-z-*、
+     --ui-glass-tint / --ui-glass-alpha / --ui-glass-border、--glass-blur-content /
+     --glass-blur-control、--glass-highlight、--glass-fill-content、--ui-accent-hover、
+     --status-online（后两个在 utils/theme.ts 里也不再写入）。
+     唯一保留的是 --ui-radius-full（见上面 shape 段），它属于 U-04 的圆角体系。
+     真实的层级仍由 style.css 的 9999 / 10000 两个魔数维持（toast 必须高于模态遮罩），
+     真正把 z-index 收口到 token 需要连同 ModernSelect 的 100/50 一起重排，
+     属 Wave 3 的设计系统项（R-B），本 Wave 只删掉这些"改它也没用"的假 token。 */
 }
 
 /* 暗色下与主题引擎无关、必须跟着明暗走的量（玻璃着色、遮罩、描边） */
@@ -110,25 +104,6 @@
   --ui-scrim: rgba(8, 8, 10, 0.52);
   --glass-specular: color-mix(in srgb, #ffffff 14%, transparent);
   --glass-hairline: color-mix(in srgb, var(--text-main) 14%, transparent);
-  --glass-highlight: color-mix(in srgb, #ffffff 10%, transparent);
-}
-
-/* ⚠️ 守卫必须存在：App.vue 会把 .dark 挂在 .app-shell 上，
-   如果这里无条件重定义 --ui-accent，就会盖掉 utils/theme.ts 写在 <html> 上的内联变量，
-   导致暗色 + 彩色预设时侧边栏选中项、开关、按钮全退回灰白（强调色失效）。
-   主题引擎接管后（html 带 data-theme-mode）这一整块都不生效，只作纯 CSS 兜底。 */
-html:not([data-theme-mode]) .dark {
-  --ui-accent: #e8e8e8;
-  --ui-accent-fg: #111111;
-  --ui-accent-hover: #ffffff;
-  --ui-accent-soft: rgba(232, 232, 232, 0.12);
-  --ui-accent-ring: rgba(232, 232, 232, 0.24);
-
-  --accent: var(--ui-accent);
-  --accent-fg: var(--ui-accent-fg);
-
-  --ui-border-subtle: color-mix(in srgb, var(--text-main) 12%, transparent);
-  --ui-border-strong: color-mix(in srgb, var(--text-main) 22%, transparent);
 }
 
 /* Glass mode：玻璃层不再统一成同一个 alpha。

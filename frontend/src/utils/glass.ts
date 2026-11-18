@@ -1,22 +1,25 @@
 // 玻璃模糊（毛玻璃）效果工具。
 // 职责收敛为两件事：在根元素上打 data-glass 标记 + 写 CSS 变量；
 // 具体视觉（底色多透、染什么色）全部由样式层消费 --glass-tint-bg / --glass-fill-*。
-// 模糊半径不再是可调项：三级半径是写死的设计常量（见 styles/tokens.css），
-// 其中只有浮层真的挂了 backdrop-filter，另外两级写了也没人消费（已移除）。
+// 模糊半径不再是可调项：现在只有浮层那一级真的挂了 backdrop-filter
+// （--glass-blur-overlay，见 styles/tokens.css）；另外两级常量零消费，已随 U-12 删除。
 // 关键约束：这里不写任何内联 background（旧实现会盖死 token 与主题切换）。
 export const GLASS_BLUR_MIN = 0;
 export const GLASS_BLUR_MAX = 80;
 
 /** 内容卡片（卡片/分组/列表容器）默认模糊半径（px） */
 export const GLASS_BLUR_DEFAULT = 12;
-/** 浮层（弹窗/下拉/菜单）默认模糊半径（px） */
-export const GLASS_BLUR_OVERLAY_DEFAULT = 28;
-/** 控件凹槽（分段控件/图表槽）默认模糊半径（px） */
-export const GLASS_BLUR_CONTROL_DEFAULT = 8;
 /** 背景 tint 默认强度（0..80；换算成 alpha 后与旧版 0.58 一致） */
 export const GLASS_TINT_DEFAULT = 58;
+/**
+ * 染色强度上限。与 GLASS_BLUR_MAX 数值相同，但**语义独立**（U-07）：
+ * 旧实现直接拿模糊半径上限当除数换算染色比例，一旦有人为控制模糊开销把
+ * GLASS_BLUR_MAX 调低（如 40），染色会在半强度静默饱和（无类型错误、无运行时告警），
+ * 设置页滑条的填充比例也会跟着错位。
+ */
+export const GLASS_TINT_MAX = 80;
 
-/** 玻璃厚度：一个滑条同时改 tint alpha 与四级面板填充。50 = 改造前的观感 */
+/** 玻璃厚度：一个滑条同时改 tint alpha 与三级面板填充。50 = 改造前的观感 */
 export const GLASS_DEPTH_MIN = 0;
 export const GLASS_DEPTH_MAX = 100;
 export const GLASS_DEPTH_DEFAULT = 50;
@@ -38,11 +41,6 @@ export function normalizeGlassStrength(
 	const n = Number(value);
 	if (!Number.isFinite(n)) return fallback;
 	return Math.min(GLASS_BLUR_MAX, Math.max(GLASS_BLUR_MIN, Math.round(n)));
-}
-
-/** 兼容旧调用方：单强度归一化（语义等同「内容卡片」组） */
-export function normalizeGlassBlurStrength(strength?: number): number {
-	return normalizeGlassStrength(strength, GLASS_BLUR_DEFAULT);
 }
 
 /** 厚度归一化：夹到 [GLASS_DEPTH_MIN, GLASS_DEPTH_MAX]；缺字段回落默认 50 */
@@ -78,17 +76,18 @@ export const GLASS_TINT_ALPHA = 0.34;
 /* ---------------------------------------------------------------------------
  * 厚度总控
  *
- * 面板「看起来多实」是四级叠出来的，不是四个独立偏好：浮层最实（要盖住正文）、
- * 卡片次之、控件凹槽再次、页面大面板最透。
+ * 面板「看起来多实」是三级叠出来的，不是三个独立偏好：浮层最实（要盖住正文）、
+ * 卡片次之、控件凹槽最透。
  * 给每一级单独一条滑条，用户随手就能拖出「凹槽比卡片还实」这种自相矛盾的组合，
- * 所以对外只暴露一个厚度值：四级填充与 tint alpha 乘同一个系数，层次比例恒定。
+ * 所以对外只暴露一个厚度值：三级填充与 tint alpha 乘同一个系数，层次比例恒定。
+ * （原第四级「页面大面板」的 --glass-fill-content 全仓库零消费，已随 U-12 删除。）
  * ------------------------------------------------------------------------- */
 
 /**
  * 厚度 0 / 50 / 100 三档下的取值，中间线性插值。
  *
- * 四级填充的三档与改造前 tokens.css 的常量一致（50 那一档就是 86/62/48/44），
- * 三档都保持「浮层最实 → 卡片 → 凹槽 → 大面板最透」的次序，
+ * 三级填充的三档（50 那一档：卡片 62 / 凹槽 48；浮层是独立常量 46，不参与缩放），
+ * 三档都保持「浮层最实 → 卡片 → 凹槽最透」的次序，
  * 拖到两端也不会出现某一级被夹死、滑条后半段失效的情况。
  *
  * tintAlpha 例外：它比改造前的 0.34 整体抬高了一档。原因不是审美，
@@ -99,8 +98,7 @@ export const GLASS_TINT_ALPHA = 0.34;
 const DEPTH_ANCHORS = {
 	tintAlpha: [0.38, 0.58, 0.78],
 	card: [34, 62, 92],
-	soft: [26, 48, 76],
-	content: [24, 44, 70]
+	soft: [26, 48, 76]
 } as const;
 
 /**
@@ -111,7 +109,7 @@ const DEPTH_ANCHORS = {
  *   45%       —— 只剩一点痕迹
  *   60% / 82% —— 完全均匀，backdrop-filter 等于不存在
  * 也就是说浮层的可读性不能靠"加厚填充"来换：一旦超过 ~45%，
- * 28px 的模糊就完全没有产出，浮层退化成一块半透明色板。
+ * 浮层那一级模糊（--glass-blur-overlay，40px）就完全没有产出，浮层退化成一块半透明色板。
  * 它也不该跟着厚度滑条走 —— 厚度是给主界面的，浮层有自己的物理约束。
  */
 const GLASS_OVERLAY_FILL = 46;
@@ -215,7 +213,7 @@ export function glassTintColor(
 
 	const base = rgbToHsl(panel);
 	const tgt = rgbToHsl(target);
-	const ratio = normalizeGlassStrength(chroma, GLASS_TINT_DEFAULT) / GLASS_BLUR_MAX;
+	const ratio = normalizeGlassStrength(chroma, GLASS_TINT_DEFAULT) / GLASS_TINT_MAX;
 
 	// 0 必须严格等于当前面板色，否则默认状态（未开染色）会和现在不一样
 	if (ratio <= 0) {
@@ -272,14 +270,13 @@ export function applyGlassEffect(enabled: boolean, groups?: GlassStrengthGroups)
 
 	const tint = normalizeGlassStrength(groups?.tint, GLASS_TINT_DEFAULT);
 
-	// 厚度总控：四级填充与 tint alpha 走同一套锚点，层次比例恒定。
-	// 四级底色统一取 --surface-panel（改造前凹槽那级用的是 --surface，比面板色深一档，
-	// 浅色主题下就是一个发闷的灰块），这样四级只剩透明度差异，拖动滑条时是单调变化。
+	// 厚度总控：三级填充与 tint alpha 走同一套锚点，层次比例恒定。
+	// 三级底色统一取 --surface-panel（改造前凹槽那级用的是 --surface，比面板色深一档，
+	// 浅色主题下就是一个发闷的灰块），这样三级只剩透明度差异，拖动滑条时是单调变化。
 	const depth = groups?.depth;
 	root.style.setProperty('--glass-fill-overlay', fillMix(GLASS_OVERLAY_FILL));
 	root.style.setProperty('--glass-fill-card', fillMix(depthLerp(DEPTH_ANCHORS.card, depth)));
 	root.style.setProperty('--glass-fill-soft', fillMix(depthLerp(DEPTH_ANCHORS.soft, depth)));
-	root.style.setProperty('--glass-fill-content', fillMix(depthLerp(DEPTH_ANCHORS.content, depth)));
 
 	// 染色层：优先用 HSL 计算（明度被约束住，拖滑条不会出现明暗跳动）。
 	// 面板色 / 目标色取不到可解析的 hex 时，退回 color-mix 写法 —— 虽然会带上

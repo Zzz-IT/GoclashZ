@@ -8,9 +8,9 @@
         <SettingsDns v-else-if="view === 'dns'" :reset-key="resetVersions.dns" @navigate="onNavigate" @reset="confirmReset" />
         <SettingsNetwork v-else-if="view === 'network'" :reset-key="resetVersions.network" @navigate="onNavigate" @reset="confirmReset" />
         <SettingsLan v-else-if="view === 'lan'" :reset-key="resetVersions.lan" @navigate="onNavigate" @reset="confirmReset" />
-        <SettingsTheme v-else-if="view === 'theme'" :behavior="behavior" :loading="behaviorLoading" :reset-key="resetVersions.theme" @navigate="onNavigate" @reset="confirmReset" @save="saveBehavior" />
+        <SettingsTheme v-else-if="view === 'theme'" :behavior="behavior" :loading="behaviorLoading" @navigate="onNavigate" @save="saveBehavior" />
         <SettingsBehavior v-else-if="view === 'behavior'" :behavior="behavior" :loading="behaviorLoading" :reset-key="resetVersions.behavior" @navigate="onNavigate" @reset="confirmReset" @save="saveBehavior" @startup-change="handleStartupWithOSChange" />
-        <SettingsAbout v-else-if="view === 'about'" :behavior="behavior" :loading="behaviorLoading" @navigate="onNavigate" @save="saveBehavior" />
+        <SettingsAbout v-else-if="view === 'about'" :behavior="behavior" :loading="behaviorLoading" @navigate="onNavigate" @save="saveBehavior" @reload-behavior="loadBehavior" />
         <SettingsDiagnostics v-else-if="view === 'diagnostics'" @navigate="onNavigate" />
         <SettingsUwp v-else-if="view === 'uwp'" :entry="uwpEntry" @navigate="onNavigate" />
       </div>
@@ -154,18 +154,54 @@ const onNavigate = (next: string, anchor?: string) => {
 
 const resetModule = ref('');
 const resetModuleName = ref('');
-const resetVersions = ref({ tun: 0, dns: 0, network: 0, lan: 0, theme: 0, behavior: 0 });
+/* resetVersions 只覆盖「走后端 ResetComponentSettings 的段落」：Go 侧 switch 只有
+   tun/dns/network/behavior 四个分支，没有 theme —— 主题重置由 SettingsTheme 自己在前端完成。
+   原来还留了 theme: 0 与 modules.theme，但对应的 emit('reset','theme') 从没被发出过（G-15）。 */
+const resetVersions = ref({ tun: 0, dns: 0, network: 0, lan: 0, behavior: 0 });
 const modules = computed<Record<string, string>>(() => ({
   network: t('settings.home.network'),
   dns: t('settings.home.dns'),
   tun: t('settings.home.tun'),
   lan: t('settings.home.lan'),
-  theme: t('settings.theme.title'),
   behavior: t('settings.home.behavior'),
 }));
-const behavior = ref<any>({ language: currentLocale.value, silentStart: false, closeToTray: true, startupWithOS: false, restoreOnStartup: false, colorDelay: false, delayRetention: false, delayRetentionTime: 'long', proxyTrafficOnly: false, logLevel: 'info', appLogLevel: 'info', hideLogs: false, subUA: '', activeConfig: '', activeMode: '', geoIpLink: '', geoSiteLink: '', mmdbLink: '', asnLink: '', autoUpdate: true, updateMethod: 'startup', updateInterval: 3, coreComparisonPrompt: true, longConnectionProtection: true, deferRestartWhenActive: true, longConnectionMinSeconds: 60, themeMode: 'light', themePreset: 'graphite', themeAccent: '', themeRadius: 'soft', themeAura: true, glassBlurEnabled: false, glassBlurStrength: 12, glassBlurContentStrength: 12, glassBlurOverlayStrength: 18, glassBlurControlStrength: 8, glassTintStrength: 58, glassDepth: 50 });
+/* 兜底默认值必须与 Go core/appcore/behavior.go 的 Default() 逐字段对齐（G-06 / U-20）：
+   GetAppBehavior 走 utils.LoadSetting，永不返回错误，这些兜底值正常环境是死代码；
+   但只要它们与 Go 默认值不同，一旦真被写盘就会把 logLevel(error→info)、
+   delayRetention(true→false)、updateInterval(1→3) 悄悄改成兜底值。
+   4 个分级玻璃强度字段（glassBlurStrength / Content / Overlay / Control）前端已无消费者，不再列出（G-23）。 */
+const behavior = ref<any>({ language: currentLocale.value, silentStart: false, closeToTray: true, startupWithOS: false, restoreOnStartup: false, portProxyMode: false, colorDelay: false, delayRetention: true, delayRetentionTime: 'long', proxyTrafficOnly: false, logLevel: 'error', appLogLevel: 'info', hideLogs: false, subUA: 'clash-verge', activeConfig: '', activeMode: 'rule', geoIpLink: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb', geoSiteLink: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat', mmdbLink: 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb', asnLink: 'https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb', autoUpdate: true, updateMethod: 'startup', updateInterval: 1, lastUpdateCheck: 0, autoDelayTest: false, autoDelayTestInterval: 60, coreComparisonPrompt: true, longConnectionProtection: true, deferRestartWhenActive: true, longConnectionMinSeconds: 60, themeMode: 'light', themePreset: 'graphite', themeAccent: '', themeRadius: 'soft', themeAura: true, glassBlurEnabled: false, glassTintStrength: 58, glassDepth: 50 });
 
 const behaviorLoading = ref(true);
+
+/* ===== G-04：behavior 的「读-改-写」约定 =====
+   后端 SaveAppBehavior 是整份结构覆盖（BehaviorStore.SetAndSave），不是字段合并；
+   而同一份 user_behavior.json 还有别的写入者：侧栏明暗 setThemeMode（单字段读改写）、
+   备份还原后端的 Behavior.Load()、启动项状态同步。
+   所以保存前必须重读后端最新值、只把自己真正改过的字段盖上去，否则会把别人刚写的字段回滚。
+   loadedSnapshot 就是「上一次从后端读到的基线」，用它与当前 behavior 做差得到脏字段。 */
+let loadedSnapshot: Record<string, any> | null = null;
+
+/** 字段级浅比较：AppBehavior 目前只有标量与字符串，数组/对象按 JSON 值比较以防后端将来加结构字段 */
+const sameFieldValue = (a: any, b: any) => {
+  if (a === b) return true;
+  if (a && b && typeof a === 'object' && typeof b === 'object') return JSON.stringify(a) === JSON.stringify(b);
+  return false;
+};
+
+/** 只挑出相对基线真正改过的字段；没有基线时退回整份（等价于修复前的行为） */
+const pickDirtyFields = (base: Record<string, any> | null, next: Record<string, any>): Record<string, any> => {
+  if (!base) return { ...next };
+  const patch: Record<string, any> = {};
+  for (const key of Object.keys(next)) {
+    /* revision 是乐观锁版本号，必须排除：
+       它由服务端独占推进，本地基线在保存后会「前进」，若把它当成脏字段，
+       提交时就会用本地旧版本覆盖 latest.revision，CAS 永远失败（自锁）。 */
+    if (key === 'revision') continue;
+    if (!sameFieldValue(base[key], next[key])) patch[key] = next[key];
+  }
+  return patch;
+};
 
 const loadBehavior = async () => {
   try {
@@ -181,6 +217,8 @@ const loadBehavior = async () => {
         value.longConnectionProtection = true;
       }
       behavior.value = value;
+      // 基线 = 刚读到的后端值（此后对 behavior 的改动都算「本地脏字段」）
+      loadedSnapshot = { ...value };
       // 后端配置（重置 / 托盘侧改动 / 语言切换触发的 reload）重新加载后，
       // 主题与玻璃必须跟着重算，否则界面会停在旧外观。统一走 syncThemeFromBehavior。
       syncThemeFromBehavior(behavior.value);
@@ -199,9 +237,56 @@ const loadBehavior = async () => {
     });
   }
 };
-const saveBehavior = async () => {
+/**
+ * 串行化：连点两个开关时，后一次必须在前一次落盘之后再去读基线，
+ * 否则两次都基于旧快照、后写的会把先写的脏字段覆盖回去（G-04）。
+ */
+let behaviorSaveChain: Promise<void> = Promise.resolve();
+const saveBehavior = (): Promise<void> => {
+  behaviorSaveChain = behaviorSaveChain.then(runSaveBehavior, runSaveBehavior);
+  return behaviorSaveChain;
+};
+
+const runSaveBehavior = async () => {
+  // 加载未完成时控件本应禁用，这里再兜一层：别把兜底对象里的假值整份写盘（G-13）
+  if (behaviorLoading.value) return;
+  // 先拍下本地快照再 await：等在 Get/SAVE 期间又改了字段，那些改动仍然算脏，
+  // 交给链上的下一次保存处理，不会被"基线前进"吞掉（G-04）
+  const localSnapshot: Record<string, any> = { ...behavior.value };
+  const dirty = pickDirtyFields(loadedSnapshot, localSnapshot);
+  // payload 是「后端最新值 + 本地脏字段」的普通对象，最终会整份交给 SaveAppBehavior；
+  // 用 any 承接是为了给 AppBehavior 的字段做增量合并（本页 behavior 本身也是宽松类型）。
+  let payload: any = { ...localSnapshot };
+  if (loadedSnapshot) {
+    try {
+      // 只把本地脏字段合并到后端最新值上，而不是整份覆盖（G-04）
+      const latest: any = await App.GetAppBehavior();
+      if (latest) payload = { ...latest, ...dirty };
+    } catch (error) {
+      // 读不到最新值就退回整份写回：宁可暂时冒覆盖风险，也别让用户的改动丢失
+      reportError(error, 'settings.saveBehavior.reread');
+    }
+  }
   try {
-    await App.SaveAppBehavior(behavior.value);
+    /* 乐观锁重试（BEHAVIOR_CONFLICT）：我们拿到 latest 到真正落盘之间，别的入口
+       （侧栏明暗 / 托盘 / 自启同步）可能又写了一次 —— 此时后端用 revision 拒绝我们的提交。
+       这不是错误，重新读最新版本、把同一批脏字段再合并一次即可，用户完全无感。 */
+    try {
+      await App.SaveAppBehavior(payload);
+    } catch (conflict: any) {
+      const msg = String((conflict && (conflict.message || conflict.error)) || conflict || '');
+      if (!msg.includes('BEHAVIOR_CONFLICT')) throw conflict;
+      const latest: any = await App.GetAppBehavior();
+      if (!latest) throw conflict;
+      payload = { ...latest, ...dirty };
+      await App.SaveAppBehavior(payload);
+      // 重试成功：基线跟到最新（本地 revision 由下面统一推进）
+    }
+    // 保存成功后基线跟到「本次提交的那份」：脏字段清零，下次只提交新的改动。
+    // 不把 payload 反写回 behavior —— 非脏字段（别人改的）保持界面原样，等下次 loadBehavior 再对齐。
+    // revision 由服务端独占推进，这里按「提交的版本 + 1」跟进；若仍有跨入口写入，
+    // 下一次保存会被 CAS 拦下并走上面的无感重试，所以不需要为它多打一次 RPC。
+    loadedSnapshot = { ...localSnapshot, revision: (Number(payload?.revision) || 0) + 1 };
     if (behavior.value.language) {
       setLocale(behavior.value.language as SupportedLocale);
     }

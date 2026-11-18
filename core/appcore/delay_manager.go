@@ -458,7 +458,12 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 		close(done)
 
 		if !opts.SilentUI {
-			m.emit.Emit("proxy-test-finished", ErrDelayTestBusy.Error())
+			// 结构化 payload：ok=false + 明确原因。
+			// 前端此前只能拿到一个字符串并整体丢弃，导致「点测速没反应也没提示」（审计 P-02 / C-05）。
+			m.emit.Emit("proxy-test-finished", map[string]any{
+				"ok":      false,
+				"message": ErrDelayTestBusy.Error(),
+			})
 		}
 		return
 	}
@@ -473,6 +478,9 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 	m.batchNodes = make(map[string]struct{})
 	m.mu.Unlock()
 
+	// finishOK/finishMsg 一起进入 defer 的结构化 payload：任何提前 return 的失败分支
+	// 都会把 finishOK 置 false 并写清原因，前端据此给用户明确提示。
+	finishOK := true
 	finishMsg := "测速完成"
 
 	defer func() {
@@ -487,7 +495,10 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 		m.mu.Unlock()
 
 		if !opts.SilentUI {
-			m.emit.Emit("proxy-test-finished", finishMsg)
+			m.emit.Emit("proxy-test-finished", map[string]any{
+				"ok":      finishOK,
+				"message": finishMsg,
+			})
 		}
 
 		if opts.Source != DelaySourceManual {
@@ -500,6 +511,7 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 	// 🚀 核心接入：静默内核保障
 	cleanup, _, err := m.ctrl.EnsureDelayCore(ctx)
 	if err != nil {
+		finishOK = false
 		finishMsg = "测速启动失败：" + err.Error()
 		return
 	}
@@ -507,6 +519,7 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 
 	topo, err := buildDelayTopology()
 	if err != nil {
+		finishOK = false
 		finishMsg = "读取代理拓扑失败：" + err.Error()
 		return
 	}
@@ -519,6 +532,7 @@ func (m *DelayTestManager) TestAllProxiesWithOptions(
 	}
 
 	if len(targets) == 0 {
+		finishOK = false
 		finishMsg = "没有可测速的有效节点"
 		return
 	}

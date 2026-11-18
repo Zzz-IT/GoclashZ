@@ -45,10 +45,12 @@
             <h4>{{ t('settings.about.language') }}</h4>
             <p>{{ t('settings.about.languageDesc') }}</p>
           </div>
+          <!-- G-19：走 v-model + @change（用户点选才触发），语言由 Settings.saveBehavior 成功后统一 setLocale -->
           <ModernSelect
-            :modelValue="behavior.language || currentLocale"
+            v-model="behavior.language"
             :options="SUPPORTED_LOCALES"
-            @update:modelValue="handleLanguageChange"
+            :disabled="loading"
+            @change="handleLanguageChange"
           />
         </div>
 
@@ -71,7 +73,7 @@
             <p>{{ t('settings.about.autoUpdateDesc') }}</p>
           </div>
           <label class="modern-switch">
-            <input type="checkbox" v-model="behavior.autoUpdate" @change="$emit('save')" />
+            <input type="checkbox" v-model="behavior.autoUpdate" :disabled="loading" @change="$emit('save')" />
             <span class="slider"></span>
           </label>
         </div>
@@ -89,6 +91,7 @@
                   { label: t('settings.about.startup'), value: 'startup' },
                   { label: t('settings.about.scheduled'), value: 'scheduled' }
                 ]"
+                :disabled="loading"
                 @change="$emit('save')"
               />
             </div>
@@ -105,6 +108,7 @@
                       v-model="behavior.updateInterval"
                       :min="1"
                       :max="365"
+                      :disabled="loading"
                       @change="$emit('save')"
                     />
                     <span class="unit">{{ t('settings.about.daysUnit') }}</span>
@@ -188,7 +192,7 @@
 
             <div class="modal-footer">
               <button class="action-btn flex-1" :disabled="isRestoring" @click="showRestoreModal = false">{{ t('common.cancel') }}</button>
-              <button class="primary-btn accent-btn flex-1" :disabled="!selectedPath || isRestoring" @click="confirmRestore">{{ isRestoring ? (t('common.loading') || '处理中...') : t('settings.about.executeRestore') }}</button>
+              <button class="primary-btn accent-btn flex-1" :disabled="!selectedPath || isRestoring" @click="confirmRestore">{{ isRestoring ? t('common.loading') : t('settings.about.executeRestore') }}</button>
             </div>
           </div>
         </div>
@@ -210,12 +214,14 @@ import { reportError } from '../utils/report';
 import appLogo from '../assets/logo.ico';
 import ModernNumberInput from './ModernNumberInput.vue';
 import ModernSelect from './ModernSelect.vue';
-import { t, currentLocale, setLocale, SUPPORTED_LOCALES, SupportedLocale } from '../locales';
+import { t, SUPPORTED_LOCALES } from '../locales';
 
-const props = defineProps<{ behavior: Record<string, any>; loading?: boolean }>();
+defineProps<{ behavior: Record<string, any>; loading?: boolean }>();
 const emit = defineEmits<{
   navigate: [view: 'main' | 'diagnostics'];
   save: [];
+  /** 还原备份后请父级重新 GetAppBehavior（G-05）：否则前端快照会把还原结果覆盖回旧值 */
+  'reload-behavior': [];
 }>();
 
 const isInitialized = ref(false);
@@ -225,10 +231,12 @@ onMounted(async () => {
   isInitialized.value = true;
 });
 
-const handleLanguageChange = (val: any) => {
-  const lang = String(val) as SupportedLocale;
-  props.behavior.language = lang;
-  setLocale(lang);
+/**
+ * 语言选择（G-19）：这里只通知父级保存，不立刻 setLocale。
+ * 由 Settings.saveBehavior 在 SaveAppBehavior 成功后才统一 setLocale；保存失败时它会
+ * loadBehavior()，界面语言随之回退到后端值 —— 原来的写法先切语言再保存，失败时用户会看到语言当面跳回去。
+ */
+const handleLanguageChange = () => {
   emit('save');
 };
 
@@ -261,7 +269,8 @@ const restoreModeOptions = computed(() => [
 ]);
 
 const openLink = (url: string) => {
-  Browser.OpenURL(url);
+  // Browser.OpenURL 返回 Promise：不接拒绝会产生未处理的 Promise 拒绝（G-20）
+  Browser.OpenURL(url).catch((e: unknown) => reportError(e, 'about.openLink'));
 };
 
 const handleCheckUpdate = async () => {
@@ -303,7 +312,11 @@ const handleExportBackup = async () => {
   try {
     const res = await App.ExportBackup();
     if (res === "SUCCESS") {
-      showToast(t('settings.about.exportSuccess') || "备份成功导出", 'success');
+      showToast(t('settings.about.exportSuccess'), 'success');
+    } else if (res !== "CANCELLED") {
+      // G-20：只认 SUCCESS 字面量会让其它返回值（含将来新增的状态）静默失败，
+      // 用户不知道备份其实没生成。用户主动取消仍按静默处理。
+      showToast(t('settings.about.exportFailed', { error: String(res) }), 'error');
     }
   } catch (e) {
     const u = toUserError(e);
@@ -342,11 +355,13 @@ const confirmRestore = async () => {
     settings: t('settings.about.restoreModeSettingsDesc')
   };
 
-  const confirmMsg = warnings[restoreMode.value] || t('settings.about.restoreConfirmDefault') || '确定要执行数据还原吗？';
+  /* t() 在键缺失时返回键路径本身（见 locales/index.ts），所以原来的「|| 中文兜底」
+     分支永远不会执行，属死代码（G-20）；这里只保留"模式描述缺失时回落到默认确认语"这一处真兜底。 */
+  const confirmMsg = warnings[restoreMode.value] || t('settings.about.restoreConfirmDefault');
 
   const ok = await showConfirm(
-    confirmMsg + "\n\n" + (t('settings.about.restoreNotice') || '还原完成后，部分设置将即时生效。'),
-    t('settings.about.restoreConfirmTitle') || "还原备份确认",
+    confirmMsg + "\n\n" + t('settings.about.restoreNotice'),
+    t('settings.about.restoreConfirmTitle'),
     true
   );
   if (!ok) return;
@@ -356,7 +371,16 @@ const confirmRestore = async () => {
     const res = await App.ExecuteRestore(selectedPath.value, restoreMode.value);
     if (res === "SUCCESS") {
       showRestoreModal.value = false;
-      showToast(t('settings.about.restoreSuccess') || "数据还原成功！设置及配置已即时生效。", 'success');
+      /* G-05：后端 RestoreBackup 成功后会 Behavior.Load() 换掉内存里的 behavior，
+         但前端 behavior 快照还是还原前的对象。不请父级重读的话，用户改任意一个开关
+         saveBehavior 就会把还原结果整份覆盖回旧值（标题/玻璃/语言/日志级别一起回滚）。
+         文案也随之改成"已还原并重载"，不再宣称"即时生效"。 */
+      emit('reload-behavior');
+      // 文案键不变，Wave 2 把「即时生效」改成「已还原并重载」（见 i18n-needs），避免新增 key 让 check-i18n 变红
+      showToast(t('settings.about.restoreSuccess'), 'success');
+    } else if (res !== "CANCELLED") {
+      // G-20：同导出，非 SUCCESS/CANCELLED 的返回值必须让用户看见
+      await showAlert(t('settings.about.restoreFailed', { error: String(res) }), t('common.error'), true);
     }
   } catch (e) {
     const u = toUserError(e);
@@ -386,7 +410,7 @@ onUnmounted(() => {
 .clickable-progress {
   cursor: pointer;
   padding: 10px 14px;
-  border-radius: 12px;
+  border-radius: var(--ui-radius-lg);
   transition: background 0.2s;
   margin-right: -14px;
   margin-top: -10px;
@@ -413,7 +437,7 @@ p {
 .info { flex: 1; padding-right: 24px; min-width: 0; }
 .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; }
 /* 可点击行沿用设置首页的入口样式：整行可点，右侧箭头提示会进入子页 */
-.setting-item.clickable { cursor: pointer; padding: 16px; border-radius: 12px; margin: 0 -16px; transition: 0.2s; }
+.setting-item.clickable { cursor: pointer; padding: 16px; border-radius: var(--ui-radius-lg); margin: 0 -16px; transition: 0.2s; }
 .setting-item.clickable:hover { background: var(--ui-surface-hover); }
 .arrow { color: var(--text-sub); font-size: 1.2rem; }
 .divider { height: 1px; background: var(--ui-border-subtle); opacity: 0.5; margin: 0; }
@@ -484,7 +508,7 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   gap: 6px;
   background: var(--ui-surface-hover);
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
 }
 .progress-info {
   display: flex;

@@ -150,7 +150,7 @@ const jump = (f: SettingField) => {
   margin-bottom: 12px;
   padding: 0 12px;
   height: 40px;
-  border-radius: 10px;
+  border-radius: var(--ui-radius-md);
   background: var(--surface);
 }
 .settings-search__icon {
@@ -202,7 +202,7 @@ const jump = (f: SettingField) => {
   align-items: center;
   gap: 10px;
   padding: 7px 8px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   cursor: pointer;
 }
 .search-row:hover,
@@ -227,7 +227,7 @@ h4 { margin: 0 0 6px 0; color: var(--text-main); font-size: 1rem; }
 p { margin: 0; font-size: 0.85rem; color: var(--text-sub); max-width: 100%; line-height: 1.5; }
 .info { flex: 1; padding-right: 24px; min-width: 0; }
 .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; }
-.setting-item.clickable { cursor: pointer; padding: 16px; border-radius: 12px; margin: 0 -16px; transition: 0.2s; }
+.setting-item.clickable { cursor: pointer; padding: 16px; border-radius: var(--ui-radius-lg); margin: 0 -16px; transition: 0.2s; }
 .setting-item.clickable:hover { background: var(--ui-surface-hover); }
 .arrow { color: var(--text-sub); font-size: 1.2rem; }
 </style>

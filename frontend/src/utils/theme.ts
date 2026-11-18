@@ -202,6 +202,37 @@ export const DEFAULT_THEME: ThemeConfig = {
 
 export const THEME_CACHE_KEY = 'goclashz_theme_v2';
 
+/* ------------------------------------------- 主题缓存的唯一读写入口（U-08 / U-09）
+ *
+ * U-08：明暗状态曾经有三条并存的路：themeState.config（真源，存本键）、
+ * globalState.theme（镜像）、localStorage 'goclashz_theme'（只存 'light'|'dark' 的第三个存储）。
+ * 三者只在 applyThemeToApp 里同步一次，首帧只要不一致，就会出现 <html>.dark 成立
+ * 而 .app-shell 没有 .dark 的一帧（tokens.css / 组件里的 .dark 分支会错位）。
+ * 现在收敛为：**所有偏好只经由本文件的 cacheTheme / readCachedTheme 读写**，
+ * 旧键退化为镜像（由 cacheTheme 一并维护），调用方不应再自己读写它。
+ *
+ * U-09：localStorage 在 WebView2 的隐私策略 / 配额满时会抛 SecurityError /
+ * QuotaExceededError；模块顶层（store 初始化链会调到这里）一旦抛错，整个主题引擎
+ * 初始化就会失败。所以下面只留一对带 try/catch 的读写原语，其它地方一律调用它们。
+ */
+export const LEGACY_THEME_KEY = 'goclashz_theme';
+
+function readStorage(key: string): string | null {
+	try {
+		return localStorage.getItem(key);
+	} catch {
+		return null;
+	}
+}
+
+function writeStorage(key: string, value: string): void {
+	try {
+		localStorage.setItem(key, value);
+	} catch {
+		// 隐私模式 / 配额不足：缓存只是「首屏不闪」的优化，失败不应影响主题生效
+	}
+}
+
 /* ---------------------------------------------------------------- 颜色工具 */
 
 const clamp255 = (n: number) => Math.max(0, Math.min(255, Math.round(n)));
@@ -395,14 +426,14 @@ export function applyTheme(config: ThemeConfig): AppliedTheme {
 
 	s.setProperty('--ui-accent', accent);
 	s.setProperty('--ui-accent-fg', fg);
-	s.setProperty('--ui-accent-hover', applied.isDark ? shadeHex(accent, 0.18) : shadeHex(accent, -0.16));
+	// U-12：--ui-accent-hover 全仓库零消费（token 已一并删除），不再写入
 	s.setProperty('--ui-accent-soft', 'color-mix(in srgb, ' + accent + ' 12%, transparent)');
 	s.setProperty('--ui-accent-ring', 'color-mix(in srgb, ' + accent + ' 26%, transparent)');
 	// 旧变量同步（部分历史组件仍直接读 --accent）
 	s.setProperty('--accent', accent);
 	s.setProperty('--accent-fg', fg);
 	s.setProperty('--pulse-ring', 'color-mix(in srgb, ' + accent + ' 45%, transparent)');
-	s.setProperty('--status-online', accent);
+	// U-12：--status-online 同样零消费（指示灯实际走 --ui-accent-block），不再写入
 
 	// 玻璃染色目标色：直接跟随强调色。强调色本身是黑白灰时没有色相可染 ——
 	// 染色层会退化成面板色本身（见 glass.ts 的中性目标判断），
@@ -417,24 +448,32 @@ export function applyTheme(config: ThemeConfig): AppliedTheme {
 	return applied;
 }
 
-/** 写入本地缓存（首屏防闪烁） */
+/** 写入本地缓存（首屏防闪烁）；同时维护旧键镜像，避免两处不同步（U-08） */
 export function cacheTheme(config: ThemeConfig): void {
-	try {
-		localStorage.setItem(THEME_CACHE_KEY, JSON.stringify(normalizeThemeConfig(config)));
-	} catch {
-		// 隐私模式 / 配额不足时静默失败
-	}
+	const normalized = normalizeThemeConfig(config);
+	writeStorage(THEME_CACHE_KEY, JSON.stringify(normalized));
+	// 旧键（'light' | 'dark' 镜像）：仍有启动路径读它，双写收在这里而不是散落到调用点
+	writeStorage(LEGACY_THEME_KEY, resolveIsDark(normalized.mode) ? 'dark' : 'light');
 }
 
-/** 读缓存；没有缓存时返回默认值 */
+/** 读缓存；没有缓存时返回默认值（唯一读取入口，不读旧键） */
 export function readCachedTheme(): ThemeConfig {
+	const raw = readStorage(THEME_CACHE_KEY);
+	if (!raw) return Object.assign({}, DEFAULT_THEME);
 	try {
-		const raw = localStorage.getItem(THEME_CACHE_KEY);
-		if (!raw) return Object.assign({}, DEFAULT_THEME);
 		return normalizeThemeConfig(JSON.parse(raw));
 	} catch {
 		return Object.assign({}, DEFAULT_THEME);
 	}
+}
+
+/**
+ * 启动期的明暗镜像值（'light' | 'dark'）。
+ * 给 store 初始化 globalState.theme 用，替代直接读旧键 'goclashz_theme' ——
+ * 这样首帧的 .app-shell.dark 与 <html>.dark 出自同一个真源（U-08）。
+ */
+export function readCachedThemeModeLabel(): 'light' | 'dark' {
+	return resolveIsDark(readCachedTheme().mode) ? 'dark' : 'light';
 }
 
 /** 启动期同步应用（main.ts 调用，早于 Vue 挂载，避免主题闪烁） */

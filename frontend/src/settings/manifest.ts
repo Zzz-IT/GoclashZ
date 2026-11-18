@@ -483,7 +483,7 @@ export const SETTING_FIELDS: SettingField[] = [
     keywords: ['允许的 IP', '白名单', 'CIDR', 'allow', 'whitelist', 'cidr'],
     control: 'custom',
     conditional: '仅 allowLan=true 时实际生效；loading 时禁用',
-    note: '多行 textarea 列表，一行一条 IP/CIDR（跳过空行与 # 注释）；@input 逐行正则校验、@blur 校验通过才保存，非法行会阻止保存并报行号',
+    note: '多行 textarea 列表，一行一条 IP/CIDR（跳过空行与 # 注释）；@input 逐行正则校验并实时标出非法行，保存前（失焦或任何触发保存的控件）对三条列表整体复校，不通就整份不落盘并报行号',
   },
   {
     id: 'set-lan-disallowedIPs',
@@ -570,7 +570,7 @@ export const SETTING_FIELDS: SettingField[] = [
     titleKey: 'settings.behavior.glassTint',
     keywords: ['玻璃染色', '染色', '色调', '背景着色', 'glass', 'tint', 'background'],
     control: 'custom',
-    conditional: '强调色为黑白灰（isNeutralColor）时整条滑条 disabled，描述文案换成 glassTintNeutral；换彩色预设或彩色自定义强调色后恢复可用',
+    conditional: '强调色为黑白灰（isNeutralColor）时整格 v-if 收起（dropdown 过渡），不渲染；换彩色预设或彩色自定义强调色后恢复显示',
     note: '写 glassTintStrength（0-80）→ --glass-tint-bg 的目标色相混合百分比（0 = 无色）；这一条只管颜色，透明度由 glassDepth 决定',
   },
   {
@@ -995,7 +995,7 @@ export const SETTING_FIELDS: SettingField[] = [
     keywords: ['UWP', '豁免', '白名单', '环回', 'loopback'],
     control: 'custom',
     conditional: '需要管理员权限才能保存（普通权限保存时先弹提权确认）；列表数据来自 GetUwpApps，进入页面或 entry 变化时异步加载',
-    note: '本页主体是无标题的列表编辑器：搜索框（本地过滤、不持久化）+ 应用行点击切换豁免状态 + 全选 / 反选按钮；行标题是应用名（兜底 settings.uwp.unnamedApp），列表本身没有标题文案，故 titleKey=null',
+    note: '本页主体是无标题的列表编辑器：搜索框（本地过滤、不持久化）+ 应用行点击切换豁免状态 + 全选 / 全部不选按钮（两者只作用于当前搜索结果，不是全集）；行标题是应用名（兜底 settings.uwp.unnamedApp），列表本身没有标题文案，故 titleKey=null',
   },
   {
     id: 'set-uwp-applyBtn',
@@ -1005,7 +1005,7 @@ export const SETTING_FIELDS: SettingField[] = [
     keywords: ['应用更改', '保存', '豁免', 'apply', 'save'],
     control: 'button',
     conditional: '保存中（savingUwp）禁用并显示「正在保存...」；非管理员点击时先弹提权确认',
-    note: '底部全宽按钮（.uwp-footer > .apply-btn），不在 .setting-item 结构里；提交时只把 isEnabled=true 的 SID 列表写入 SaveUwpExemptions',
+    note: '底部全宽按钮（.uwp-footer > .apply-btn），不在 .setting-item 结构里；提交按差异调用 ApplyUwpExemptionChanges(added, removed)，目标为空（用户全部取消）时走 ClearAllUwpExemptions —— 前端已无 SaveUwpExemptions 调用点',
   },
 ];
 

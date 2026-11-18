@@ -74,13 +74,20 @@ const isUpdatingDb = (key: string) => globalState.componentUpdate.tasks[key]?.st
 const isUpdatingAnyDb = computed(() => ['geoip', 'geosite', 'mmdb', 'asn'].some(isUpdatingDb));
 
 const refreshRuntimeAssets = async () => {
-  const status = await App.GetRuntimeAssetStatus();
-  globalState.assetStatus = status;
-  const core = status?.assets?.core;
-  const wintun = status?.assets?.wintun;
-  coreVersion.value = core?.ready ? (core.version || t('settings.update.installedUnknownVersion')) : (core?.error || core?.hint || t('settings.update.notInstalled'));
-  wintunVersion.value = wintun?.ready ? (wintun.version || t('settings.update.installedUnknownVersion')) : (wintun?.error || wintun?.hint || t('settings.update.notInstalled'));
-  dbFileInfo.value = { geoip: status?.assets?.geoip || {}, geosite: status?.assets?.geosite || {}, mmdb: status?.assets?.mmdb || {}, asn: status?.assets?.asn || {} };
+  /* G-21：这个函数被 5 个事件回调以 void 方式调用（driver-install-success / geo-update-*-success），
+     内部 await 一旦 reject 就是未处理的 Promise 拒绝（控制台红字、界面不刷新）。
+     与 SettingsTun 的同名函数对齐，包一层 try/catch。 */
+  try {
+    const status = await App.GetRuntimeAssetStatus();
+    globalState.assetStatus = status;
+    const core = status?.assets?.core;
+    const wintun = status?.assets?.wintun;
+    coreVersion.value = core?.ready ? (core.version || t('settings.update.installedUnknownVersion')) : (core?.error || core?.hint || t('settings.update.notInstalled'));
+    wintunVersion.value = wintun?.ready ? (wintun.version || t('settings.update.installedUnknownVersion')) : (wintun?.error || wintun?.hint || t('settings.update.notInstalled'));
+    dbFileInfo.value = { geoip: status?.assets?.geoip || {}, geosite: status?.assets?.geosite || {}, mmdb: status?.assets?.mmdb || {}, asn: status?.assets?.asn || {} };
+  } catch (e) {
+    reportError(e, 'update.assetStatus');
+  }
 };
 const refreshHelperStatus = async () => { helperLoading.value = true; try { helperStatus.value = await App.GetHelperServiceStatus(); } catch (e) { reportError(e, 'update.helperStatus'); } finally { helperLoading.value = false; } };
 const refresh = async () => { try { await Promise.all([refreshRuntimeAssets(), refreshHelperStatus()]); } catch (e) { reportError(e, 'update.refresh'); } };

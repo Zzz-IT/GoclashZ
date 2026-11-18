@@ -12,7 +12,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, onUnmounted, watch } from 'vue';
 import { globalState } from '../store';
 import UpdateTaskRow from './UpdateTaskRow.vue';
 import { App } from '../api';
@@ -28,22 +28,44 @@ const tasks = computed(() => {
   });
 });
 
+/* G-10：自动清理只删 success。后端的 ClearFinishedUpdateTasks 会把 error / cancelled 一并删掉，
+   用户还没来得及读失败原因，错误行 3 秒后就消失了。这里逐个 RemoveUpdateTask，只动成功任务。 */
 const clearFinishedTasks = async () => {
-  try {
-    await App.ClearFinishedUpdateTasks();
-  } catch (e) {
-    reportError(e, 'updateTasks.clearFinished');
+  const keys = tasks.value.filter(t => t.status === 'success').map(t => t.key);
+  for (const key of keys) {
+    try {
+      await App.RemoveUpdateTask(key);
+    } catch (e) {
+      reportError(e, 'updateTasks.removeFinished');
+    }
   }
 };
 
-watch(tasks, (newTasks) => {
-  const hasFinished = newTasks.some(t => t.status === 'success');
-  if (hasFinished) {
-    setTimeout(() => {
-      clearFinishedTasks();
-    }, 3000);
+let clearTimer: ReturnType<typeof setTimeout> | undefined;
+const stopClearTimer = () => {
+  if (clearTimer !== undefined) {
+    clearTimeout(clearTimer);
+    clearTimer = undefined;
   }
+};
+
+/* G-10：tasks 是 store 快照的派生值，store 每次 component-update-tasks-sync 都会整体替换 tasks 对象，
+   下载进度期间后端每个进度回调都会广播一次 —— 这个 deep watch 会高频命中。
+   原来每次命中都新排一个 3s 定时器且卸载不清理：定时器越积越多，离开设置页后还在打后端。
+   现在始终只保留一个（clearTimeout 后重建），语义是"最后一次同步后 3 秒"再清理。 */
+watch(tasks, (newTasks) => {
+  if (!newTasks.some(t => t.status === 'success')) {
+    stopClearTimer();
+    return;
+  }
+  stopClearTimer();
+  clearTimer = setTimeout(() => {
+    clearTimer = undefined;
+    void clearFinishedTasks();
+  }, 3000);
 }, { deep: true });
+
+onUnmounted(stopClearTimer);
 </script>
 
 <style scoped>
@@ -52,7 +74,7 @@ watch(tasks, (newTasks) => {
      永久占住阅读高度、也不再有"浮在页面上"的观感。 */
   margin-bottom: 12px;
   background: var(--surface-panel);
-  border-radius: 12px;
+  border-radius: var(--ui-radius-lg);
   padding: 16px;
 }
 

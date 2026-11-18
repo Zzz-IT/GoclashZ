@@ -6,7 +6,7 @@
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
       </button>
       <h3>{{ t('settings.theme.title') }}</h3>
-      <button class="action-btn accent-btn mini-btn-reset" type="button" @click="handleReset">
+      <button class="action-btn accent-btn mini-btn-reset" type="button" :disabled="loading" @click="handleReset">
         <span class="btn-icon" v-html="THEME_ICONS.reset"></span>
         {{ t('settings.theme.resetBtn') }}
       </button>
@@ -27,6 +27,7 @@
             :key="mode.id"
             type="button"
             class="seg-btn"
+            :disabled="loading"
             role="radio"
             :aria-checked="config.mode === mode.id"
             :class="{ active: config.mode === mode.id }"
@@ -51,6 +52,7 @@
             :key="preset.id"
             type="button"
             class="preset-tile"
+            :disabled="loading"
             role="radio"
             :aria-checked="preset.active"
             :class="{ active: preset.active }"
@@ -82,6 +84,7 @@
                 :key="hex"
                 type="button"
                 class="accent-dot"
+                :disabled="loading"
                 :class="{ active: isAccentActive(hex) }"
                 :style="{ background: hex }"
                 :aria-label="hex"
@@ -97,6 +100,7 @@
                 <input
                   class="accent-color"
                   type="color"
+                  :disabled="loading"
                   :value="nativeColorValue"
                   :aria-label="t('settings.theme.accentCustom')"
                   @input="onNativePick"
@@ -108,6 +112,7 @@
                 class="hex-input"
                 :class="{ invalid: hexError }"
                 type="text"
+                :disabled="loading"
                 maxlength="7"
                 spellcheck="false"
                 autocomplete="off"
@@ -123,6 +128,7 @@
               <button
                 type="button"
                 class="follow-btn"
+                :disabled="loading"
                 :class="{ active: isAccentFollow }"
                 :aria-pressed="isAccentFollow"
                 @click="setAccent('')"
@@ -149,6 +155,7 @@
             :key="option.id"
             type="button"
             class="seg-btn"
+            :disabled="loading"
             role="radio"
             :aria-checked="config.radius === option.id"
             :class="{ active: config.radius === option.id }"
@@ -171,6 +178,7 @@
             <input
               type="checkbox"
               v-model="behavior.glassBlurEnabled"
+              :disabled="loading"
               :aria-label="t('settings.behavior.glassBlur')"
               @change="onGlassToggle"
             />
@@ -193,6 +201,7 @@
                   class="blur-range"
                   type="range"
                   :min="GLASS_DEPTH_MIN"
+                  :disabled="loading"
                   :max="GLASS_DEPTH_MAX"
                   step="1"
                   :aria-label="t('settings.behavior.glassDepth')"
@@ -204,26 +213,30 @@
                 <p class="blur-cell__desc">{{ t('settings.behavior.glassDepthDesc') }}</p>
               </div>
 
-              <div class="blur-cell blur-cell--wide" id="set-theme-glassTint">
-                <div class="blur-cell__head">
-                  <span class="blur-cell__name">{{ t('settings.behavior.glassTint') }}</span>
-                  <span class="blur-cell__value">{{ glassTint }}</span>
+              <!-- 强调色是黑白灰时没有色相可染，整格收起（复用 dropdown 展开/收起过渡），
+                   不留一条拖不动的滑条占位 -->
+              <Transition name="dropdown">
+                <div v-if="!tintDisabled" class="blur-cell blur-cell--wide" id="set-theme-glassTint">
+                  <div class="blur-cell__head">
+                    <span class="blur-cell__name">{{ t('settings.behavior.glassTint') }}</span>
+                    <span class="blur-cell__value">{{ glassTint }}</span>
+                  </div>
+                  <input
+                    class="blur-range"
+                    type="range"
+                    :min="GLASS_BLUR_MIN"
+                    :disabled="loading"
+                    :max="GLASS_TINT_MAX"
+                    step="1"
+                    :aria-label="t('settings.behavior.glassTint')"
+                    :style="trackStyle(glassTint)"
+                    v-model.number="behavior.glassTintStrength"
+                    @input="previewGlass"
+                    @change="commitGlass"
+                  />
+                  <p class="blur-cell__desc">{{ t('settings.behavior.glassTintDesc') }}</p>
                 </div>
-                <input
-                  class="blur-range"
-                  type="range"
-                  :min="GLASS_BLUR_MIN"
-                  :max="GLASS_BLUR_MAX"
-                  step="1"
-                  :aria-label="t('settings.behavior.glassTint')"
-                  :style="trackStyle(glassTint)"
-                  :disabled="tintDisabled"
-                  v-model.number="behavior.glassTintStrength"
-                  @input="previewGlass"
-                  @change="commitGlass"
-                />
-                <p class="blur-cell__desc">{{ tintDisabled ? t('settings.behavior.glassTintNeutral') : t('settings.behavior.glassTintDesc') }}</p>
-              </div>
+              </Transition>
             </div>
           </div>
         </Transition>
@@ -251,6 +264,7 @@
             <input
               type="checkbox"
               v-model="behavior.colorDelay"
+              :disabled="loading"
               :aria-label="t('settings.behavior.colorDelay')"
               @change="commitConfig"
             />
@@ -271,7 +285,7 @@ import {
   applyGlassEffect,
   normalizeGlassDepth,
   normalizeGlassStrength,
-  GLASS_BLUR_MAX,
+  GLASS_TINT_MAX,
   GLASS_BLUR_MIN,
   GLASS_DEPTH_DEFAULT,
   GLASS_DEPTH_MAX,
@@ -300,11 +314,14 @@ import {
 
 const props = defineProps<{
   behavior: Record<string, any>;
-  resetKey: number;
   loading?: boolean;
 }>();
 
-const emit = defineEmits(['navigate', 'reset', 'save']);
+/* G-15：这里原来还声明了 reset 事件与 resetKey prop，但全仓没有一处 emit('reset','theme')，
+   父级的 modules/resetVersions 也从没为 theme 递增或自增过 —— 三个死钩子。更危险的是
+   Go 的 ResetComponentSettings 没有 theme 分支（只有 behavior/network/dns/tun），谁把它接回去
+   都会拿到 "unknown settings section: theme"。本页的"恢复默认"在前端自己完成，不再走统一重置。 */
+const emit = defineEmits(['navigate', 'save']);
 
 /* ------------------------------------------------------------ 图标（内联 SVG） */
 const THEME_ICONS = {
@@ -539,8 +556,9 @@ const glassTint = computed(() => normalizeGlassStrength(props.behavior.glassTint
 const glassDepth = computed(() => normalizeGlassDepth(props.behavior.glassDepth));
 
 /**
- * 当前强调色是黑白灰时没有色相可染，染色滑条整体禁用并换成说明文案。
- * 判据用强调色本身（而非预设 id）：用户手填了彩色强调色时，滑条自动恢复可用。
+ * 当前强调色是黑白灰时没有色相可染，染色整格收起（走 dropdown 过渡），
+ * 而不是留一条拖不动、还得配一段解释的滑条。
+ * 判据用强调色本身（而非预设 id）：用户手填彩色强调色时滑条自动恢复显示。
  */
 const tintDisabled = computed(() => isNeutralColor(applied.value.accent));
 
@@ -579,7 +597,9 @@ const commitGlass = () => {
 const onGlassToggle = () => commitGlass();
 
 /** 滑条已填充轨道（用强调色，视觉反馈更直接） */
-const trackStyle = (value: number, max: number = GLASS_BLUR_MAX) => {
+// U-07：染色滑条的满量程用它自己的常量（GLASS_TINT_MAX），不再借用模糊上限 ——
+// 两者语义不同，一旦模糊上限调整，染色滑条的填充比例会跟着错位。
+const trackStyle = (value: number, max: number = GLASS_TINT_MAX) => {
   const percent = Math.max(0, Math.min(100, (value / max) * 100));
   return {
     background:
@@ -602,7 +622,7 @@ const syncFromBehavior = () => {
   applyGlass();
 };
 
-watch(() => [props.resetKey, props.behavior], syncFromBehavior);
+watch(() => props.behavior, syncFromBehavior);
 
 // 主题引擎的真源是 store.themeState：侧边栏快捷明暗、跟随系统的 OS 切换、
 // 以及启动后的后端校准都会改它。这里必须回灌页面 config，
@@ -624,9 +644,11 @@ watch(
 ensureGlassDefaults();
 
 const handleReset = async () => {
+  // G-14：与其他重置（Settings.confirmReset 传 isDanger=true）保持一致，危险操作走危险样式
   const confirmed = await showConfirm(
     t('settings.resetConfirmMsg', { name: t('settings.theme.title') }),
-    t('settings.resetConfirmTitle')
+    t('settings.resetConfirmTitle'),
+    true
   );
   if (!confirmed) return;
 
@@ -636,6 +658,8 @@ const handleReset = async () => {
   behavior.glassBlurEnabled = false;
   behavior.glassTintStrength = GLASS_TINT_DEFAULT;
   behavior.glassDepth = GLASS_DEPTH_DEFAULT;
+  // G-14：本页"数据显示"分组的开关也要一起重置，否则"恢复默认"漏一项（Go 默认 false）
+  behavior.colorDelay = false;
 
   flushThemePreview();
   if (glassFrame) {
@@ -778,7 +802,7 @@ onBeforeUnmount(() => {
 .preset-swatches {
   display: flex;
   height: 26px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--text-main) 10%, transparent);
 }
@@ -830,7 +854,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 5px 8px 5px 12px;
   border: 1px solid var(--ui-border-subtle);
-  border-radius: 999px;
+  border-radius: var(--ui-radius-full);
   background: var(--ui-surface-control);
 }
 .accent-custom__label { font-size: 0.74rem; color: var(--text-sub); white-space: nowrap; padding-right: 2px; }
@@ -884,7 +908,7 @@ onBeforeUnmount(() => {
   height: 30px;
   padding: 0 12px;
   border: 1px solid var(--ui-border-subtle);
-  border-radius: 999px;
+  border-radius: var(--ui-radius-full);
   background: transparent;
   color: var(--text-sub);
   font-family: inherit;
@@ -921,9 +945,7 @@ onBeforeUnmount(() => {
   outline: none;
   cursor: pointer;
 }
-.blur-range:disabled { cursor: not-allowed; opacity: 0.45; }
-.blur-range:disabled::-webkit-slider-thumb { background: var(--text-muted); transform: none; }
-.blur-range:disabled::-moz-range-thumb { background: var(--text-muted); }
+.blur-range:disabled { cursor: not-allowed; }
 .blur-range:focus-visible { outline: 2px solid var(--ui-accent-ring); outline-offset: 3px; }
 .blur-range::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -958,7 +980,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
   line-height: 1;
   padding: 4px 8px;
-  border-radius: 999px;
+  border-radius: var(--ui-radius-full);
   background: var(--ui-surface-hover);
   color: var(--text-main);
   transition: color 0.18s cubic-bezier(0.4, 0, 0.2, 1);

@@ -75,8 +75,9 @@ func init() {
 	application.RegisterEvent[string]("proxy-test-start")
 	// delay_manager.go：map[string]interface{}{current,total}（== map[string]any）
 	application.RegisterEvent[map[string]any]("proxy-test-progress")
-	// delay_manager.go×2："测速完成" / ErrDelayTestBusy.Error()，均为 string
-	application.RegisterEvent[string]("proxy-test-finished")
+	// delay_manager.go×2：map[string]any{"ok": bool, "message": string}
+	// （审计 P-02/C-05：原先只发一个字符串，前端无法区分"完成"与"启动失败"）
+	application.RegisterEvent[map[string]any]("proxy-test-finished")
 	// delay_manager.go×2：map[string]interface{}{name,delay,status,message,source[,from]}
 	application.RegisterEvent[map[string]any]("proxy-delay-update")
 

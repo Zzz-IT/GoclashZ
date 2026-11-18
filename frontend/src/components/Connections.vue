@@ -110,7 +110,8 @@
             </template>
             <div v-else class="match-empty">{{ t('diag.dnsNoConfig') }}</div>
           </div>
-          <div class="detail-row"><span>{{ t('connections.detailChain') }}:</span> <span class="path-chain">{{ selectedConn.chains.join(' ➔ ') }}</span></div>
+          <!-- P-18：chains 来自内核 JSON，nil 会序列化成 null；同文件 isDirect/getProxyName 都兜了 || []，模板是唯一漏网处 -->
+          <div class="detail-row"><span>{{ t('connections.detailChain') }}:</span> <span class="path-chain">{{ (selectedConn.chains || []).join(' ➔ ') }}</span></div>
           <div class="detail-row"><span>{{ t('connections.detailUpload') }}:</span> <span class="font-mono">{{ selectedConn.uploadStr }}</span></div>
           <div class="detail-row"><span>{{ t('connections.detailDownload') }}:</span> <span class="font-mono">{{ selectedConn.downloadStr }}</span></div>
           <div class="detail-row"><span>{{ t('connections.detailTime') }}:</span> <span>{{ new Date(selectedConn.start).toLocaleString() }} ({{ selectedConn.durationStr }})</span></div>
@@ -125,7 +126,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed, watch, nextTick, TransitionGroup } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick, TransitionGroup } from 'vue';
 import { App } from '../api';
 import { Events } from '@wailsio/runtime';
 import { showConfirm, showAlert } from '../store';
@@ -133,13 +134,24 @@ import { ICONS } from '../utils/icons';
 import { useEdgeFade } from '../utils/edgeFade';
 import { t } from '../locales';
 import { toUserError } from '../utils/errors';
+import { safeGetString, safeSetString } from '../utils/storage';
 import { reportError } from '../utils/report';
 import EmptyState from './EmptyState.vue';
+
+/* P-34：localStorage 在 WebView2 隐私模式/配额异常时会直接抛错，读写在 setup 顶层与 watch 里，
+   一抛就是整页白屏。统一走薄包装：读失败退回默认值，写失败静默。
+   R-1 等价重构：原局部 readStorage/writeStorage 抽到 utils/storage（逐行同义），本文件不再各留一份。 */
 
 const connections = ref<any[]>([]);
 const isPaused = ref(false);
 const selectedConn = ref<any>(null);
-const filterMode = ref(localStorage.getItem('goclashz_connFilter') || 'all');
+/* P-19：缓存值非法时三个 tab 的 :ref 都不成立 —— 没有 tab 高亮、滑块宽度 0，必须回落默认值 */
+const CONN_FILTER_MODES = ['all', 'proxy', 'direct'];
+const readFilterMode = (): string => {
+  const saved = safeGetString('goclashz_connFilter');
+  return saved && CONN_FILTER_MODES.includes(saved) ? saved : 'all';
+};
+const filterMode = ref<string>(readFilterMode());
 
 /* 列表 ↔ 详情是下钻关系，固定走横向：进入详情内容左推，返回右推。
    横向整面推入时内容贴着左右边缘进出，裁切边需要淡化把它"化"开，
@@ -266,7 +278,7 @@ const resetConnSlider = () => {
   });
 };
 
-watch(filterMode, (v) => { localStorage.setItem('goclashz_connFilter', v); nextTick(updateConnSlider); });
+watch(filterMode, (v) => { safeSetString('goclashz_connFilter', v); nextTick(updateConnSlider); });
 
 const isMonitoring = ref(false); // 增加一个状态锁，防止重复注册监听
 const isLoading = ref(true); // 🚀 新增：控制初始加载状态
@@ -274,13 +286,25 @@ const isLoading = ref(true); // 🚀 新增：控制初始加载状态
 // 🚀 新增：保存专属退订函数
 let unsubMonitor: (() => void) | null = null; 
 
+/* P-17：事件与初始快照会互相覆盖。后端 1s 一条 connections-update，而 GetConnections 最长 2s，
+   快照回来时若期间已有事件到达，快照就是旧数据，不能无条件写回。序号即"数据新鲜度"。 */
+let connEventSeq = 0;
+/* P-04：startMonitor 的两个 await 之间可能被卸载打断 —— 那一刻 StopConnectionMonitor 还没能对应
+   StartConnectionMonitor（后端 cancel 仍是 nil，Stop 是空操作），挂起的 Start 落地后就会让后端
+   1s/次轮询空转、且与 isMonitoring 分叉。generation 用来作废在飞的启动。 */
+let monitorGen = 0;
+
 const startMonitor = async () => {
   if (isMonitoring.value) return;
   isMonitoring.value = true;
+  const gen = ++monitorGen;
   
   // ✅ 修改后：接住返回的专属销毁函数
   unsubMonitor = Events.On("connections-update", ({ data }: { data: any }) => {
     if (isPaused.value) return;
+
+    // 事件永远比在飞的快照新，收到就是一次推进（P-17）
+    connEventSeq++;
 
     if (data && Array.isArray(data.connections)) {
       connections.value = data.connections;
@@ -296,10 +320,14 @@ const startMonitor = async () => {
 
   try {
     isLoading.value = true;
+    const seqAtRequest = connEventSeq;
     
     // 🚀 核心修复：在建立监听后，立即主动请求一次连接快照，消除初始延迟
     const initData = await App.GetConnections();
-    if (initData && Array.isArray(initData.connections)) {
+    // P-04：已经卸载 / 已被新一轮替代 → 不写状态，也不再启动后端监控
+    if (gen !== monitorGen) return;
+    // P-17：快照期间到了新事件，事件更新，这份快照丢弃
+    if (seqAtRequest === connEventSeq && initData && Array.isArray(initData.connections)) {
       connections.value = initData.connections;
     }
 
@@ -307,13 +335,15 @@ const startMonitor = async () => {
   } catch (e) {
     reportError(e, 'connections.startMonitor');
   } finally {
-    isLoading.value = false;
+    // P-04：已卸载 / 已停止时不再写状态
+    if (gen === monitorGen) isLoading.value = false;
   }
 };
 
 const stopMonitor = () => {
   if (!isMonitoring.value) return;
   isMonitoring.value = false;
+  monitorGen++;   // 作废在飞的 startMonitor（P-04）
   
   // ✅ 修改后：精准狙击，只销毁当前组件刚注册的那个监听器
   if (unsubMonitor) {
@@ -324,28 +354,37 @@ const stopMonitor = () => {
   App.StopConnectionMonitor();
 };
 
-// 配合 KeepAlive 的生命周期控制
+/* #title-extra-target 由 App.vue 的标题栏渲染。P-21：原来只在 mounted 的 nextTick 探测一次，
+   若此刻它还没进文档（切页替换期间），titleTargetReady 会永久停在 false，计数徽标再也不出现。
+   按 Settings.vue 的 applyAnchor 写法：有限次重试，找到即停，超限放弃。 */
 const titleTargetReady = ref(false);
+let titleTargetTimer: number | null = null;
 
-const refreshTitleTarget = async () => {
+const refreshTitleTarget = async (retry = 0) => {
   await nextTick();
-  titleTargetReady.value = !!document.querySelector('#title-extra-target');
+  if (titleTargetReady.value) return;
+  if (document.querySelector('#title-extra-target')) {
+    titleTargetReady.value = true;
+    return;
+  }
+  if (retry >= 6) return;
+  titleTargetTimer = window.setTimeout(() => { void refreshTitleTarget(retry + 1); }, 120);
 };
 
+// 本应用没有 KeepAlive（App.vue 全是 v-if 分支），页面生命周期只有 mounted/unmounted；
+// 原来那对 onActivated/onDeactivated 是永为死的钩子，已删（P-13）。
 onMounted(() => {
   startMonitor(); 
   resetConnSlider(); 
   refreshTitleTarget();
 });
-onActivated(() => { 
-  startMonitor(); 
-  resetConnSlider(); 
-  refreshTitleTarget();
-});       // 再次切回连接页时恢复更新
-onDeactivated(() => stopMonitor());      // 切到别的页面时暂停后台请求，节省性能
 onUnmounted(() => {
   stopMonitor();
   selectedConn.value = null;
+  if (titleTargetTimer !== null) {
+    clearTimeout(titleTargetTimer);
+    titleTargetTimer = null;
+  }
   if (emptyStateTimer !== null) {
     clearTimeout(emptyStateTimer);
     emptyStateTimer = null;
@@ -455,11 +494,24 @@ const toggleDNS = async () => {
   }
 };
 
+/* P-20：暂停刷新时事件被丢弃，关闭成功后列表不会自己更新 —— 已关闭的连接会一直留在卡片里，
+   用户容易以为没关掉再点一次。暂停态下本地同步移除（非暂停态等下一帧事件即可，保持原行为）。 */
+const dropConnectionsLocally = (ids: string[] | null) => {
+  if (!isPaused.value) return;
+  if (ids === null) {
+    connections.value = [];
+    return;
+  }
+  const drop = new Set(ids);
+  connections.value = connections.value.filter(c => !drop.has(c.id));
+};
+
 const closeAll = async () => {
   const ok = await showConfirm(t('connections.closeAllConfirmMsg'), t('connections.closeAllConfirmTitle'), true);
   if (ok) {
     try {
       await App.CloseAllConnections();
+      dropConnectionsLocally(null);   // P-20：暂停态下列表也要反映"全部关闭"
       if (selectedConn.value) closeDetail();
     } catch (e) { 
       await showAlert(t('connections.closeError', { error: String(e) }), t('common.error')); 
@@ -473,6 +525,7 @@ const closeSingleConnection = async (id: string) => {
   
   try {
     await App.CloseConnection(id);
+    dropConnectionsLocally([id]);   // P-20：暂停态下本地移除，避免已关闭的连接留在卡片里
     closeDetail();
   } catch (e) { 
     await showAlert(t('connections.closeError', { error: String(e) }), t('common.error')); 
@@ -533,7 +586,7 @@ const closeSingleConnection = async (id: string) => {
 .conn-tabs-viewport {
   flex: 1;
   min-width: 0;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
 }
 
 .conn-tabs-track {
@@ -542,7 +595,7 @@ const closeSingleConnection = async (id: string) => {
   gap: 6px;
   background: var(--ui-surface-hover);
   padding: 6px;
-  border-radius: 12px;
+  border-radius: var(--ui-radius-lg);
   user-select: none;
   -webkit-user-select: none;
   position: relative;
@@ -556,7 +609,7 @@ const closeSingleConnection = async (id: string) => {
   height: 36px;
   padding: 0 16px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   background: transparent;
   color: var(--text-sub);
   font-size: 0.95rem;
@@ -582,7 +635,7 @@ const closeSingleConnection = async (id: string) => {
   top: 6px;
   height: 36px;
   background: var(--ui-accent-block);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   z-index: 0;
   pointer-events: none;
 }

@@ -304,6 +304,10 @@ func (s *CoreService) RenameConfig(id, newName string) error {
 	return s.app.RenameConfig(id, newName)
 }
 
+func (s *CoreService) ReorderSubs(ids []string) error {
+	return s.app.ReorderSubs(ids)
+}
+
 func (s *CoreService) DeleteConfig(id string) error {
 	return s.app.DeleteConfig(id)
 }

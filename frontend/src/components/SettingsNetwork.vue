@@ -267,6 +267,9 @@ defineEmits<{ navigate: [view: 'main']; reset: [module: 'network'] }>();
 
 const loading = ref(true);
 const deviationRef = ref<InstanceType<typeof DeviationStrip> | null>(null);
+/* 兜底值必须与 Go core/clash/config.go 的 GetDefaultNetworkConfig() 一致（G-06）：
+   saveNet 是整份 SaveNetworkConfig，兜底对象少字段 = 该字段按零值落盘。
+   原来缺 5 个 LAN 字段（含认证用户名/密码）且 tcpKeepAliveInterval 写成 15（Go 默认 30）。 */
 const netConfig = ref({
   ipv6: false,
   allowLan: false,
@@ -276,12 +279,17 @@ const netConfig = ref({
   unifiedDelay: true,
   tcpConcurrent: true,
   tcpKeepAlive: true,
-  tcpKeepAliveInterval: 15,
+  tcpKeepAliveInterval: 30,
   testUrl: 'http://www.gstatic.com/generate_204',
   hosts: '',
   mixedPort: 7890,
   socksPort: 0,
   port: 0,
+  lanAuthUser: '',
+  lanAuthPass: '',
+  lanAllowedIPs: '',
+  lanDisallowedIPs: '',
+  lanSkipAuthIPs: '',
 });
 
 const hostsError = ref('');
@@ -335,6 +343,14 @@ const loadData = async () => {
 
 const saveNet = async () => {
   if (loading.value) return;
+  /* G-17：hosts 校验原来只负责画红字，返回值被丢掉 —— 非法 hosts 照样落盘，
+     而后端 BuildRuntimeConfig 对解析失败的 hosts 是静默忽略的，用户会得到"保存成功但不生效"。
+     这里拦住；hosts 之外的字段被一起挡住是可接受的，因为整份保存本来就会带上非法 hosts。 */
+  if (!validateHosts(netConfig.value.hosts || '')) {
+    /* 提示策略：这是"用户自己的输入还没改对"，内联红字已经显示在 hosts 输入框下方，
+       再弹一条 toast 就是重复噪音。这里只阻止保存（下面 return），不额外提示。 */
+    return;
+  }
   try {
     await App.SaveNetworkConfig(netConfig.value as any);
     void deviationRef.value?.refresh();
@@ -395,7 +411,7 @@ p {
   border: none; 
   color: var(--text-main); 
   padding: 10px 14px; 
-  border-radius: 8px; 
+  border-radius: var(--ui-radius-sm); 
   outline: none; 
   font-size: 0.9rem;
 }
@@ -443,7 +459,7 @@ input:checked + .slider:before { transform: translateX(20px); background-color: 
   height: 36px !important;
   padding: 0 14px !important;
   font-size: 0.85rem !important;
-  border-radius: 8px !important;
+  border-radius: var(--ui-radius-sm) !important;
 }
 
 .mini-btn-reset :deep(.btn-icon) svg {

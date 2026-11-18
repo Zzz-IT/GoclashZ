@@ -7,7 +7,7 @@
 import { reactive } from 'vue';
 
 const WAVE = {
-  sampleIntervalMs: 900,
+  // S-08 之后采样由 traffic-data 事件驱动（后端 900ms 推流），不再需要独立采样周期常量。
   maxPoints: 96,
 
   lowFlowCeil: 96 * 1024,
@@ -66,9 +66,11 @@ const smoothValue = (prev: number, next: number) => {
 
 const updateScale = (prevScale: number, value: number) => {
   const instant = Math.max(WAVE.minScale, value * WAVE.scaleHeadroom);
-  const target = Math.max(instant, prevScale);
-  const alpha = target > prevScale ? WAVE.scaleRiseAlpha : WAVE.scaleFallAlpha;
-  return prevScale + (target - prevScale) * alpha;
+  // H-02：原来 target = max(instant, prevScale) 让缩放只升不降 —— target 恒 >= prevScale，
+  // 回落分支（scaleFallAlpha）在数学上不可达，一次高速流量后波形被永久压平；
+  // 改为直接朝 instant 收敛：升高走 scaleRiseAlpha，回落走 scaleFallAlpha（可自愈），并保 minScale 下限。
+  const alpha = instant > prevScale ? WAVE.scaleRiseAlpha : WAVE.scaleFallAlpha;
+  return Math.max(WAVE.minScale, prevScale + (instant - prevScale) * alpha);
 };
 
 // 5 点高斯核平滑（在采样循环中预计算，不在 computed 中重复分配）
@@ -108,7 +110,6 @@ export const waveState = reactive({
   downloadScale: WAVE.minScale,
 });
 
-let sampleTimer: number | null = null;
 let refCount = 0;
 
 const pushVisualSamples = () => {
@@ -134,25 +135,27 @@ const pushVisualSamples = () => {
   s.smoothedDownloadRatios = smoothSamples(s.downloadRatios);
 };
 
+/* S-08：采样改为「事件驱动」。
+   旧实现是独立的 900ms setInterval，而后端 traffic-data 的推流周期也是 900ms ——
+   两个等周期定时器必然异相：同一份 latest 会被采两次、或两次推流被跳过一次，
+   波形上表现为平台/突跳点（而且和真实流量不同步）。
+   现在改成「收到一次推流就采一次点」，一个数据点对应一个采样点，彻底消除拍频；
+   没有数据时不推进（波形停在原地，比空转更好）。
+   start/stop 只维护消费者计数（门是否打开），不再拥有定时器。 */
 export function startWaveSampling() {
   refCount++;
-  if (sampleTimer === null) {
-    sampleTimer = window.setInterval(pushVisualSamples, WAVE.sampleIntervalMs);
-  }
 }
 
 export function stopWaveSampling() {
-  refCount--;
-  if (refCount <= 0 && sampleTimer !== null) {
-    clearInterval(sampleTimer);
-    sampleTimer = null;
-    refCount = 0;
-  }
+  // S-08：原来只在 timer 非空时才把 refCount 归零，多调一次 stop 会把它压到 -1 并永久保留；
+  // 这里无条件钳位到 0，保证 start/stop 严格配对。
+  refCount = Math.max(0, refCount - 1);
 }
 
 export function updateLatestTraffic(upRaw: number, downRaw: number) {
   waveState.latestUpload = upRaw;
   waveState.latestDownload = downRaw;
+  if (refCount > 0) pushVisualSamples();
 }
 
 export function resetWaveState() {

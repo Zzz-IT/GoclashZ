@@ -22,7 +22,18 @@
 @property --ui-fade-left { syntax: '<length>'; inherits: false; initial-value: 0px; }
 @property --ui-fade-right { syntax: '<length>'; inherits: false; initial-value: 0px; }
 
+/* U-22③：布局与渐隐原来是两个同选择器的块（后者覆盖前者的错觉）—— 这里合并成一条；
+   两段声明的属性完全不重叠，计算值不变。 */
 .ui-page-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* 滚动条出现/消失时不抖动内容 */
+  scrollbar-gutter: stable;
+  padding-bottom: var(--ui-page-bottom, 24px) !important;
+  margin-bottom: 0 !important;
+
   --ui-fade-top: 0px;
   --ui-fade-bottom: 0px;
   --ui-fade-size: 32px;
@@ -78,17 +89,6 @@
 /* 说明：横向过渡不再用"容器裁剪 + 遮罩"，那种做法会在静止元素上留下一条
    渐隐边（看起来像被切了一刀）。现在改为页面级的「滑入 + 轻微模糊」过渡，
    由 .pane-forward-* / .pane-back-* 统一处理（见 style.css）。 */
-
-.ui-page-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  /* 滚动条出现/消失时不抖动内容 */
-  scrollbar-gutter: stable;
-  padding-bottom: var(--ui-page-bottom, 24px) !important;
-  margin-bottom: 0 !important;
-}
 
 /* 滚动条与卡片之间留出 8px 间距（不要把滚动容器伸到父级内边距里：
    .view-scroller 会按内容边缘裁剪，伸出去的部分连同滚动条一起被裁掉，滚动条就"消失"了）。 */

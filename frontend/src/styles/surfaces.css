@@ -7,14 +7,17 @@
   background: var(--ui-surface-nav);
 }
 
-.ui-surface-card,
-.ui-surface-group {
+/* U-22②：卡片与分组原来共用一条规则声明 background，紧接着又用一条 .ui-surface-group
+   把它覆盖掉 —— 读代码会以为两者同底色、改第一条也不生效。拆成两条各自声明一次，
+   计算值完全不变（分组仍用 --ui-surface-group；玻璃模式下两者都取 --glass-fill-card）。 */
+.ui-surface-card {
   background: var(--ui-surface-card);
   border-radius: var(--ui-radius-lg);
 }
 
 .ui-surface-group {
   background: var(--ui-surface-group);
+  border-radius: var(--ui-radius-lg);
 }
 
 .ui-surface-row {

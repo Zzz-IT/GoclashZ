@@ -63,7 +63,7 @@
         :traffic="traffic" 
         :menu="menu" 
         :icons="ICONS"
-        @update:activeId="val => currentTab = val" 
+        @update:activeId="handleTabSelect" 
       />
 
       <main class="content card-panel">
@@ -123,6 +123,8 @@
                     <button :ref="(el) => { if (logSourceFilter === 'all') logsTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: logSourceFilter === 'all' }]" @click="logSourceFilter = 'all'">{{ t('logs.all') }}</button>
                     <button :ref="(el) => { if (logSourceFilter === 'core') logsTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: logSourceFilter === 'core' }]" @click="logSourceFilter = 'core'">{{ t('logs.core') }}</button>
                     <button :ref="(el) => { if (logSourceFilter === 'app') logsTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: logSourceFilter === 'app' }]" @click="logSourceFilter = 'app'">{{ t('logs.app') }}</button>
+                    <!-- H-07：后端 LogSource 有 std（标准库收编进来的内核输出），原来没有入口，按来源筛选时这批日志静默消失 -->
+                    <button :ref="(el) => { if (logSourceFilter === 'std') logsTabEl = el as HTMLElement | null }" :class="['conn-tab-btn', { active: logSourceFilter === 'std' }]" @click="logSourceFilter = 'std'">{{ t('logs.std') }}</button>
                     <div class="conn-tab-slider" :class="{ animated: logsSliderReady }" v-show="logsSliderVisible" :style="logsSliderStyle"></div>
                   </div>
                 </div>
@@ -131,7 +133,8 @@
                     <span class="log-search-icon" v-html="ICONS.search"></span>
                     <input v-model="logQuery" type="text" :placeholder="t('common.search')" spellcheck="false" />
                   </label>
-                  <select v-model="logLevelFilter" class="log-level-select" :aria-label="t('logs.all')">
+                  <!-- H-23：aria-label 原来误用 logs.all（「全部」是来源 tab 的文案），读屏会把级别下拉读成来源控件 -->
+                  <select v-model="logLevelFilter" class="log-level-select" :aria-label="t('logs.levelFilter')">
                     <option value="all">{{ t('logs.all') }}</option>
                     <option value="debug">DEBUG</option>
                     <option value="info">INFO</option>
@@ -150,8 +153,10 @@
                   </button>
                 </div>
               </div>
-              <div class="terminal-box ui-page-body" ref="logBox">
-                <div v-for="(log, i) in filteredLogLines" :key="i" :class="['log-line', log.type]">
+              <div class="terminal-box ui-page-body" ref="logBox" @scroll.passive="handleLogScroll">
+                <!-- H-05：key 改用自增 seq（后端 LogEntry 没有 id），裁剪头部时不再整表错位重渲染；
+                     H-06：级别列用归一后的类型，后端只产 warn，原来的 .warning 样式永不命中 -->
+                <div v-for="log in filteredLogLines" :key="log.seq" :class="['log-line', normalizeLogType(log.type)]">
                   <span class="l-time" :title="log.ts || log.time">{{ logTimeLabel(log) }}</span>
                   <span class="l-type">[{{ log.type.toUpperCase() }}]</span>
                   <span v-if="log.cat" class="l-cat">[{{ log.cat }}]</span>
@@ -251,6 +256,8 @@ import { installHoverGuard } from './utils/hoverGuard';
 import { initScrollFades } from './utils/scrollFade';
 import { useEdgeFade } from './utils/edgeFade';
 import { applyGlassEffect } from './utils/glass';
+import { reportError } from './utils/report';
+import { copyText } from './utils/clipboard';
 import Sidebar from './components/Sidebar.vue';
 import Overview from './components/Overview.vue';
 import Proxies from './components/Proxies.vue';
@@ -267,7 +274,7 @@ import {
   resetWaveState 
 } from './trafficWaveState';
 import { Application, Events, Window } from '@wailsio/runtime';
-import { globalState, themeState, initStore, updateStateFromBackend, showAlert, showConfirm, showToast, syncThemeFromBehavior, bindSystemTheme, openModal, confirmModal, cancelModal } from './store';
+import { globalState, themeState, updateStateFromBackend, showAlert, showConfirm, showToast, syncThemeFromBehavior, bindSystemTheme, openModal, confirmModal, cancelModal } from './store';
 
 const currentTab = ref('home');
 
@@ -353,26 +360,60 @@ const globalAppUpdatePercent = computed(() => {
   return Math.min(100, Math.floor((p.bytesDone / p.totalBytes) * 100));
 });
 
+/* H-03 / H-11：更新动作（下载 / 安装）的在途闸门。
+   确认框会 await 让出控制权，闸门若放在 openModal 之后，连点就会排成两个确认框、
+   各自执行一次安装（后端真的会被启动两次）。所以闸门必须提到 openModal 之前，
+   在 onConfirm 的 finally 与 onCancel 里复位；重复点击给提示而不是静默无视。 */
+const appUpdateActionBusy = ref(false);
+
+// H-11：重复点击的提示文案复用设置页已有键（settings.update.appUpdateBusy），8 语言都齐。
+const showAppUpdateBusyHint = () => {
+  showToast(t('settings.update.appUpdateBusy'), 'info');
+};
+
+// H-12：同一个「安装」动作，chip 路径原本对空 path 静默 return，事件路径却弹错误框 —— 统一到这里。
+const openInstallPathEmptyAlert = () => {
+  void openModal({
+    type: 'alert',
+    title: t('appUpdate.installPathEmptyTitle'),
+    message: t('appUpdate.installPathEmptyMsg'),
+    isDanger: true,
+  });
+};
+
 const handleGlobalUpdateChipClick = () => {
   const p = globalState.appUpdateProgress;
   if (!p) return;
   if (p.isDownloaded) {
+    if (appUpdateActionBusy.value) {
+      showAppUpdateBusyHint();
+      return;
+    }
+    appUpdateActionBusy.value = true;
     void openModal({
       type: 'confirm',
       title: t('appUpdate.downloadCompleteTitle'),
       message: t('appUpdate.downloadCompleteMsg', { version: p.version || '' }),
       onConfirm: async () => {
-        if (!p.path) return;
         try {
+          if (!p.path) {
+            openInstallPathEmptyAlert();
+            return;
+          }
           await App.ApplyAppUpdate(p.path);
         } catch (e: any) {
           showAlert(String(e?.message || e || t('common.error')), t('common.error'), true);
+        } finally {
+          appUpdateActionBusy.value = false;
         }
       },
+      // 取消 / 点遮罩也要复位，否则闸门永远关着，之后每次点 chip 都只弹提示。
+      onCancel: () => { appUpdateActionBusy.value = false; },
     });
   } else {
-    currentTab.value = 'settings';
-    targetSettingsView.value = 'about';
+    // 先写目标子页再切页，避免侧栏/host 顺序导致设置页先建在 main 再跳 about；
+    // 走 requestTabChange 是为了让「YAML 未保存」守卫同样拦得住这次跳转（C-02）。
+    void requestTabChange('settings', () => { targetSettingsView.value = 'about'; });
   }
 };
 
@@ -393,14 +434,19 @@ const logQuery = ref('');
 const logLevelFilter = ref('all');
 const logPaused = ref(false);
 
-const logLevels = { debug: 0, info: 1, warn: 2, warning: 2, error: 3 };
+/* 级别档位表（同时服务「日志行类型」与「全局级别地板」两处）。
+   - silent=4：它不是"更低级别"而是"全部静音"，rank 排在 error 之上 —— 作为地板时任何条目都被过滤，
+     与 store.normalizeLogLevel 保留 silent 的口径一致（S-09）。
+   - 表里**不放 'warning'**：rankOf 会先过 normalizeLogType，而它已把 warning 归一成 warn（H-06），
+     所以 warning 只可能是"归一化之前"的形态，放进表里就是死键。 */
+const logLevels = { debug: 0, info: 1, warn: 2, error: 3, silent: 4 };
 
 const normalizeLogType = (t?: string) => {
   const v = String(t || 'info').toLowerCase().trim();
   if (v === 'warning') return 'warn';
   if (v === 'trace') return 'debug';
   if (v === 'fatal' || v === 'panic') return 'error';
-  if (['debug', 'info', 'warn', 'error'].includes(v)) return v;
+  if (['debug', 'info', 'warn', 'error', 'silent'].includes(v)) return v;
   return 'info';
 };
 
@@ -414,7 +460,8 @@ const filteredLogLines = computed(() => {
   const filterRank = logLevelFilter.value === 'all' ? 0 : rankOf(logLevelFilter.value);
 
   return logLines.value.filter(log => {
-    const source = String(log.source || 'core').toLowerCase();
+    // H-07：缺 source 的历史条目按「未知」处理，不再冒认成 core（std 同理要能单独筛出来）。
+    const source = String(log.source || 'unknown').toLowerCase();
     const type = normalizeLogType(log.type);
 
     if (logSourceFilter.value !== 'all' && source !== logSourceFilter.value) {
@@ -422,12 +469,17 @@ const filteredLogLines = computed(() => {
     }
 
     const entryRank = rankOf(type);
-    // 全局设置级别是「地板」，面板顶部下拉只能进一步收紧（F-A3-16）。
-    const settingsFloor = source === 'core'
-      ? rankOf(globalState.logLevel)
-      : rankOf(globalState.appLogLevel);
-    if (entryRank < Math.max(settingsFloor, filterRank)) {
-      return false;
+    /* H-08：只有在下拉里选定「具体级别」时才套全局地板。
+       选「全部」却仍被全局级别压制，会让控件标签（全部）和实际行为（只有 error 及以上）自相矛盾。
+       注：silent 地板 rank=4，此时选任何具体级别都过滤干净（S-09）。 */
+    if (logLevelFilter.value !== 'all') {
+      // 全局设置级别是「地板」，面板顶部下拉只能进一步收紧（F-A3-16）。
+      const settingsFloor = source === 'core'
+        ? rankOf(globalState.logLevel)
+        : rankOf(globalState.appLogLevel);
+      if (entryRank < Math.max(settingsFloor, filterRank)) {
+        return false;
+      }
     }
 
     if (query) {
@@ -446,6 +498,17 @@ const filteredLogLines = computed(() => {
   });
 });
 const logBox = ref<HTMLElement | null>(null);
+
+/* H-04：日志面板是否「跟着最新一行走」。
+   以前每次落批都无条件滚到底，core 开到 info/debug 时用户根本没机会向上翻历史错误。
+   现在由滚动位置决定：贴底（距底 < 24px）才跟，用户一上翻就停止拽回，翻回底部自动恢复。 */
+const LOG_FOLLOW_THRESHOLD = 24;
+const logFollowTail = ref(true);
+const handleLogScroll = () => {
+  const el = logBox.value;
+  if (!el) return;
+  logFollowTail.value = el.scrollHeight - el.scrollTop - el.clientHeight < LOG_FOLLOW_THRESHOLD;
+};
 
 const logsTabsTrackRef = ref<HTMLElement | null>(null);
 const logsTabEl = ref<HTMLElement | null>(null);
@@ -492,8 +555,10 @@ let appUpdateCheckFailsafeTimer: ReturnType<typeof setTimeout> | null = null;
 /* ---- 日志面板：批量合并 + 时间列 ---- */
 
 // 后端每条日志一次事件，逐条 push 会让 filteredLogLines 每次重算并触发重渲染，
-// core 开到 info/debug 时明显掉帧；这里按 16ms（约 1 帧）合并成一批（F-A3-10）。
-const LOG_BATCH_MS = 16;
+// core 开到 info/debug 时明显掉帧；这里合并成一批（F-A3-10）。
+// H-05 / C-13：批窗口从 16ms 提到 50ms。16ms 意味着满速时每秒 60 次「2000 行全量 filter + 整表 diff」，
+// 只合并了 push 次数没降低单次渲染成本；50ms（3 帧）对肉眼仍是实时，计算量降到约 1/3。
+const LOG_BATCH_MS = 50;
 // 与后端 AppLogs 主环（2000，含 500 条 warn/error 保留区）对齐（F-A3-11）。
 const LOG_MAX_LINES = 2000;
 let logBatch: any[] = [];
@@ -523,13 +588,45 @@ const logDetailTitle = (log: any): string => {
   return parts.join('\n');
 };
 
+/* H-05：日志条目没有 id（后端 LogEntry 也没有 seq），列表却拿 index 当 key；
+   头部裁剪后所有 key 平移，Vue 只能把整表当成「同位置换了内容」重 patch，滚动锚点也一起丢。
+   这里在入列时补一个自增序号，模板用它做稳定 key。 */
+let logSeq = 0;
+const tagLogLine = (log: any) => {
+  log.seq = ++logSeq;
+  return log;
+};
+
+// H-09 合并去重用的内容指纹：同一行只可能分别来自「历史快照」与「实时推送」两路。
+const logLineKey = (log: any): string =>
+  [log?.ts ?? '', log?.type ?? '', log?.source ?? '', log?.payload ?? ''].join('\u0000');
+
+/* H-09：GetRecentLogs 原来是整体赋值 logLines，await 期间经 log-message 送进来的活日志
+   会被整片覆盖掉（后端不重发），启动瞬间日志列表会出现一段空洞。
+   这里改为「历史在前 + 活日志在后」合并，并按指纹去重，序号在此一并补齐。 */
+const mergeHistoryLogs = (history: any[] | null | undefined) => {
+  if (!Array.isArray(history) || history.length === 0) return;
+  const seen = new Set<string>();
+  for (const line of logLines.value) seen.add(logLineKey(line));
+  for (const line of logBatch) seen.add(logLineKey(line));
+  for (const line of logPausedBuffer) seen.add(logLineKey(line));
+  const prefix = history.filter((line) => !seen.has(logLineKey(line)));
+  prefix.forEach(tagLogLine);
+  const merged = prefix.concat(logLines.value);
+  logLines.value = merged.length > LOG_MAX_LINES ? merged.slice(-LOG_MAX_LINES) : merged;
+};
+
 const flushLogBatch = () => {
   logBatchTimer = null;
   if (logBatch.length === 0) return;
+  /* H-04：是否跟随必须在 push 之前判定 —— push 之后 scrollHeight 立刻变大，
+     「距底距离」会先超过阈值，正在贴底阅读的用户也会被误判成「已经上翻」。 */
+  const followTail = logFollowTail.value;
   logLines.value.push(...logBatch);
   logBatch = [];
   const overflow = logLines.value.length - LOG_MAX_LINES;
   if (overflow > 0) logLines.value.splice(0, overflow);
+  if (!followTail) return;
   if (!scrollTimer) {
     scrollTimer = setTimeout(() => {
       logBox.value?.scrollTo({ top: logBox.value.scrollHeight });
@@ -541,10 +638,10 @@ const flushLogBatch = () => {
 const enqueueLogLine = (log: any) => {
   // 暂停期间不打断阅读：先进缓冲，恢复时一次性合并（上限同 LOG_MAX_LINES）。
   if (logPaused.value) {
-    if (logPausedBuffer.length < LOG_MAX_LINES) logPausedBuffer.push(log);
+    if (logPausedBuffer.length < LOG_MAX_LINES) logPausedBuffer.push(tagLogLine(log));
     return;
   }
-  logBatch.push(log);
+  logBatch.push(tagLogLine(log));
   if (logBatchTimer === null) {
     logBatchTimer = setTimeout(flushLogBatch, LOG_BATCH_MS);
   }
@@ -573,12 +670,8 @@ const handleCopyLogs = async () => {
       return logTimeLabel(log) + ' [' + String(log.type || 'info').toUpperCase() + ']' + cat + ' ' + (log.payload ?? '');
     })
     .join('\n');
-  try {
-    await navigator.clipboard.writeText(text);
-    showToast(t('common.copied'), 'success');
-  } catch {
-    showToast(t('common.copy') + ' ✗', 'error');
-  }
+  // U-18：剪贴板统一走 utils/clipboard（失败文案从"按钮名 + ✗"改为 i18n 的 copyFailed）
+  await copyText(text);
 };
 
 // 「打开日志目录」需要后端新增绑定方法（app.go / controller.go 不在本批授权），
@@ -588,8 +681,7 @@ const handleCopyLogDir = async () => {
     const info: any = await App.GetDataDirInfo();
     const dataDir = String(info?.dataDir ?? info?.DataDir ?? '').trim();
     const dir = dataDir ? dataDir.replace(/[\\/]+$/, '') + '\\logs' : 'logs';
-    await navigator.clipboard.writeText(dir);
-    showToast(t('settings.diagnostics.logDir') + ': ' + dir, 'success');
+    await copyText(dir, t('settings.diagnostics.logDir') + ': ' + dir);
   } catch (e: any) {
     showToast(String(e?.message ?? e), 'error');
   }
@@ -618,7 +710,9 @@ let unsubUpdateDownloaded: (() => void) | null = null;
 let unsubUpdateNone: (() => void) | null = null;
 let unsubUpdateError: (() => void) | null = null;
 let unsubMipsFallback: (() => void) | null = null;
+let unsubUpdateBusy: (() => void) | null = null;
 let uninstallHoverGuard: (() => void) | null = null;
+let unsubScrollFades: (() => void) | null = null;
 let unsubSystemTheme: (() => void) | null = null;
 
 const menu = computed(() => [
@@ -643,7 +737,46 @@ const openYamlEditor = (id: string, name: string, type: 'local' | 'remote') => {
   currentTab.value = 'yaml-editor';
 };
 
+/* C-02：离开 YAML 编辑器前的未保存守卫。
+   判定必须发生在「切页之前」—— 下面 watch(currentTab) 一旦看到离开就会把
+   yamlEditorModified 清掉，watcher 里再问就已经晚了。
+   confirm 在途时禁止再次入队：连点侧栏不能被排成两个确认框。 */
+let yamlLeaveConfirming = false;
+
+const requestTabChange = async (next: string, beforeSwitch?: () => void): Promise<boolean> => {
+  if (next === currentTab.value) {
+    beforeSwitch?.();
+    return true;
+  }
+  if (currentTab.value === 'yaml-editor' && yamlEditorModified.value) {
+    if (yamlLeaveConfirming) return false;
+    yamlLeaveConfirming = true;
+    try {
+      const ok = await showConfirm(
+        t('yamlEditor.leaveConfirmMsg'),
+        t('yamlEditor.discardConfirmTitle'),
+        true,
+        { confirmText: t('yamlEditor.discardBtn'), cancelText: t('common.cancel') }
+      );
+      if (!ok) return false;
+    } finally {
+      yamlLeaveConfirming = false;
+    }
+  }
+  beforeSwitch?.();
+  currentTab.value = next;
+  return true;
+};
+
+// 侧栏与更新 chip 的跳转统一走这里（Sidebar 只 emit activeId，入口在 App 侧）。
+const handleTabSelect = (next: string) => {
+  void requestTabChange(next);
+};
+
+// 返回箭头：YamlEditor 自己已经确认过未保存修改（P-07 的 handleBack），这里直接切页，
+// 否则同一次离开会弹两个确认框。若那条子组件守卫未来被移除，这里应改成 requestTabChange('subs')。
 const closeYamlEditor = () => {
+  yamlEditorModified.value = false;
   currentTab.value = 'subs';
 };
 
@@ -655,6 +788,12 @@ watch(currentTab, (newVal) => {
     yamlEditorModified.value = false;
     yamlEditorHasError.value = false;
     yamlEditorCursor.value = '';
+  }
+  /* H-01：targetSettingsView 以前只被更新 chip 写成 'about'、从不复位，
+      Settings 又是 v-if 重建并拿 initialView 初始化 view，于是点过一次 chip 之后
+      「每一次」进设置页都落在「关于」。离开设置页就复位，保证 chip 只影响那一次。 */
+  if (newVal !== 'settings') {
+    targetSettingsView.value = 'main';
   }
 });
 
@@ -668,8 +807,30 @@ const handleYamlCursorChange = (payload: { line: number; col: number }) => {
   yamlEditorCursor.value = t('yamlEditor.cursorStatus', { line: payload.line, col: payload.col });
 };
 
-const handleResize = async () => {
-	isMaximized.value = await Window.IsMaximised();
+/* H-19：拖拽改变窗口大小时 resize 每秒可达上百次，每次都是一次 Window.IsMaximised IPC。
+   这里用 rAF 把同一帧内的多次 resize 合并成一次查询。 */
+let resizeRafId: number | null = null;
+let maximiseResyncTimer: ReturnType<typeof setTimeout> | null = null;
+// 查询序列号：只有「最后一次」发起的查询才允许写入状态，否则乱序返回的旧结果会把图标改回去。
+let maxQuerySeq = 0;
+
+const syncMaximizedState = async () => {
+  const seq = ++maxQuerySeq;
+  try {
+    const next = await Window.IsMaximised();
+    if (seq !== maxQuerySeq) return;
+    isMaximized.value = !!next;
+  } catch {
+    // 读不到就保持旧值：下一次 resize / 复查会再问一遍，不值得打扰用户
+  }
+};
+
+const handleResize = () => {
+  if (resizeRafId !== null) return;
+  resizeRafId = window.requestAnimationFrame(() => {
+    resizeRafId = null;
+    void syncMaximizedState();
+  });
 };
 
 const handleMinimise = () => {
@@ -677,21 +838,44 @@ const handleMinimise = () => {
   Window.Minimise();
 };
 
-const handleToggleMaximise = async () => {
-	clearCtrlHover();
-	Window.ToggleMaximise();
-	// 延迟检查，确保状态已同步
-	setTimeout(handleResize, 50);
+const handleToggleMaximise = () => {
+  clearCtrlHover();
+  Window.ToggleMaximise();
+  // 立即读会拿到切换前的值，50ms 后复查一次；定时器保留句柄，卸载时清掉（H-19）。
+  if (maximiseResyncTimer) clearTimeout(maximiseResyncTimer);
+  maximiseResyncTimer = setTimeout(() => {
+    maximiseResyncTimer = null;
+    void syncMaximizedState();
+  }, 50);
 };
 
 const handleClose = async () => {
   clearCtrlHover();
-  const config = await App.GetAppBehavior();
-  if (config.closeToTray) {
-    App.HideMainWindow();
-  } else {
-    Application.Quit();
+  // C-23：这里原来没有 try/catch —— GetAppBehavior 一失败，点关闭按钮就完全没反应。
+  // 读不到行为配置时按「隐藏到托盘」处理：宁可留在托盘，也不要在未确认的情况下退出。
+  let closeToTray = true;
+  try {
+    const config = await App.GetAppBehavior();
+    closeToTray = !!(config && config.closeToTray);
+  } catch (e) {
+    reportError(e, 'window.closeBehavior');
   }
+  if (closeToTray) {
+    App.HideMainWindow();
+    return;
+  }
+  /* C-02 的最后一条漏网路径：closeToTray=false 时这里是真退出，未保存的 YAML 会随进程消失
+     （隐藏到托盘则不会，编辑器实例还在）。真退出前补一次与切页守卫一致的确认。 */
+  if (yamlEditorModified.value) {
+    const ok = await showConfirm(
+      t('yamlEditor.leaveConfirmMsg'),
+      t('yamlEditor.discardConfirmTitle'),
+      true,
+      { confirmText: t('yamlEditor.discardBtn'), cancelText: t('common.cancel') }
+    );
+    if (!ok) return;
+  }
+  Application.Quit();
 };
 
 // 统一出口：由 store 负责结算当前模态并出队下一条（内含旧式直写的兼容分支）
@@ -754,8 +938,10 @@ watch(currentLocale, (lang) => {
 }, { immediate: true });
 
 onMounted(async () => {
-  initStore();
-  initScrollFades();
+  // S-06：initStore 的唯一调用点是 main.ts（早于 createApp，保证首帧前开始订阅）。
+  // 这里原本还有一次死调用，删掉以消除「初始化到底发生在哪」的误导；store 内部仍幂等。
+  // U-11：initScrollFades 现在返回释放函数（三个观察器原先没有任何 teardown 路径）
+  unsubScrollFades = initScrollFades();
   uninstallHoverGuard = installHoverGuard();
 
   // 启动时恢复「外观」= 玻璃 + 主题（syncThemeFromBehavior 内部先玻璃后主题）。
@@ -825,24 +1011,37 @@ onMounted(async () => {
 
   startWaveSampling();
 
-  void (async () => {
-    try {
-      const history = await App.GetRecentLogs();
-      if (history) logLines.value = history;
-    } catch (e) { console.error("load recent logs failed:", e); }
-  })();
-
-  App.StartStreamingLogs();
-
+  /* H-09：订阅必须先于开流。原来顺序是「拉历史(不 await) → 开流 → 订阅」，
+     开流与订阅之间推来的日志无人接收；现在先订阅，再由流补上历史没有的实时行。 */
   unsubLogMessage = Events.On("log-message", ({ data: log }: { data: any }) => {
     enqueueLogLine(log);
   });
+
+  App.StartStreamingLogs();
+
+  // H-09：历史快照与等待期间已到的活日志合并去重（原来整体赋值会把活日志整片覆盖掉）。
+  void (async () => {
+    try {
+      mergeHistoryLogs(await App.GetRecentLogs());
+    } catch (e) { console.error("load recent logs failed:", e); }
+  })();
 
   // 启动资产自检结果：后端在窗口加载前就发出了这条事件（app.go runStartupRuntimeAssetMaintenance），
   // 之前前端从未订阅，等于白算（F-A3-12）。这里接住并写入全局状态，供设置/更新页复用。
   unsubRuntimeAssetsStatus = Events.On("runtime-assets-status", ({ data }: { data: any }) => {
     if (data) globalState.assetStatus = data;
   });
+
+  /* H-13：同一条事件也可能在订阅装好之前就发完了（缓存热路径下自检几毫秒结束）。
+     订阅后补一次快照兜底 —— GetRuntimeAssetStatus 是既有绑定，此前无人调用。 */
+  void (async () => {
+    try {
+      const status = await App.GetRuntimeAssetStatus();
+      if (status && !globalState.assetStatus) globalState.assetStatus = status;
+    } catch {
+      // 兜底失败保持 null 即可：设置页/更新页会各自再拉一次，不必打扰用户
+    }
+  })();
 
   unsubClashExited = Events.On("clash-exited", () => {
     globalState.isRunning = false;
@@ -887,6 +1086,13 @@ onMounted(async () => {
       title: t('appUpdate.foundTitle'),
       message: t('appUpdate.foundMsg', { version }),
       onConfirm: async () => {
+        // H-11：下载入口的在途闸门 —— 两次 app-update-available 排出的两个确认框
+        // 各点一次会重复下发下载请求，后端只能回 app-update-busy 而前端毫无反应。
+        if (appUpdateActionBusy.value) {
+          showAppUpdateBusyHint();
+          return;
+        }
+        appUpdateActionBusy.value = true;
         try {
           await App.DownloadPendingAppUpdateAsync();
         } catch (e: any) {
@@ -896,13 +1102,16 @@ onMounted(async () => {
             message: String(e?.message || e || t('common.error')),
             isDanger: true,
           });
+        } finally {
+          appUpdateActionBusy.value = false;
         }
       },
     });
   });
 
   unsubUpdateStart = Events.On("app-update-start", () => {
-    console.log("App update download started...");
+    /* 这里原来只有一句 console.log（调试残留）。下载开始的真实信号由 app-update-progress
+       驱动 chip 进度，因此本监听只保留订阅本身——它的价值是保证事件有消费者可追踪（H-09 的配对自检）。 */
   });
 
   unsubUpdateDownloaded = Events.On("app-update-downloaded", ({ data: payload }: { data: any }) => {
@@ -915,15 +1124,17 @@ onMounted(async () => {
       title: t('appUpdate.downloadCompleteTitle'),
       message: t('appUpdate.downloadCompleteMsg', { version }),
       onConfirm: async () => {
-        if (!fullPath) {
-          void openModal({
-            type: 'alert',
-            title: t('appUpdate.installPathEmptyTitle'),
-            message: t('appUpdate.installPathEmptyMsg'),
-            isDanger: true,
-          });
+        // H-11：安装入口同样加在途闸门（与 chip 路径共用同一个标志）。
+        if (appUpdateActionBusy.value) {
+          showAppUpdateBusyHint();
           return;
         }
+        if (!fullPath) {
+          // H-12：与 chip 路径统一走 openInstallPathEmptyAlert，不再一处提示一处静默
+          openInstallPathEmptyAlert();
+          return;
+        }
+        appUpdateActionBusy.value = true;
         try {
           await App.ApplyAppUpdate(fullPath);
         } catch (e: any) {
@@ -933,6 +1144,8 @@ onMounted(async () => {
             message: String(e?.message || e || t('common.error')),
             isDanger: true,
           });
+        } finally {
+          appUpdateActionBusy.value = false;
         }
       },
     });
@@ -959,6 +1172,14 @@ onMounted(async () => {
       isDanger: true,
     });
   });
+
+  /* H-11：后端在更新任务槽被占用时明确发 app-update-busy，外壳此前完全不接。
+     设置页的「更新 / 关于」子页自己也有监听（SettingsAbout / SettingsUpdate），
+     所以在设置页内不重复提示，只在其它页面补一次轻提示。 */
+  unsubUpdateBusy = Events.On("app-update-busy", () => {
+    if (currentTab.value === 'settings') return;
+    showAppUpdateBusyHint();
+  });
 });
 
 const handleClearLogs = async () => {
@@ -970,12 +1191,26 @@ const handleClearLogs = async () => {
   // 未刷出的批次 / 暂停缓冲也要丢，否则清空后下一帧又冒出来一批旧行。
   logBatch = [];
   logPausedBuffer = [];
-  await App.ClearLogs();
+  try {
+    await App.ClearLogs();
+  } catch (e: any) {
+    /* H-10：原来是裸 await —— 绑定失败时既留下未处理的 Promise 拒绝，又让「前端已空、
+       后端环仍在」长期不一致（重启后旧日志又冒出来）。失败必须提示，并把后端仍然
+       保留的日志拉回来对齐（前端这边已经在上面清空了）。 */
+    showToast(String(e?.message ?? e ?? t('common.error')), 'error');
+    try {
+      mergeHistoryLogs(await App.GetRecentLogs());
+    } catch {
+      // 拉不回来也不再抛：失败已经提示过，用户可再点一次清空
+    }
+  }
 };
 
 onUnmounted(() => {
   uninstallHoverGuard?.();
   uninstallHoverGuard = null;
+  unsubScrollFades?.();
+  unsubScrollFades = null;
   unsubSystemTheme?.();
   unsubSystemTheme = null;
   if (scrollTimer) {
@@ -994,6 +1229,15 @@ onUnmounted(() => {
   }
 
   stopWaveSampling();
+  // H-19：rAF 与最大化复查定时器都要在这里收干净，否则卸载后还会打一次 IPC
+  if (resizeRafId !== null) {
+    cancelAnimationFrame(resizeRafId);
+    resizeRafId = null;
+  }
+  if (maximiseResyncTimer) {
+    clearTimeout(maximiseResyncTimer);
+    maximiseResyncTimer = null;
+  }
   window.removeEventListener('resize', handleResize);
   window.removeEventListener('blur', clearCtrlHover);
   window.removeEventListener('focus', clearCtrlHover);
@@ -1014,6 +1258,8 @@ onUnmounted(() => {
   unsubUpdateNone?.();
   unsubUpdateError?.();
   unsubMipsFallback?.();
+  unsubUpdateBusy?.();
+  unsubUpdateBusy = null;
 });
 
 /* 页面切换时的滚动归位。
@@ -1022,6 +1268,9 @@ onUnmounted(() => {
    所以这里只剩日志页需要把内容追到最新一行。 */
 const resetViewScroller = () => {
   if (currentTab.value === 'logs') {
+    /* H-04：切回日志页视为「跟随最新一行」。页面是 v-if 重建的，而 logFollowTail 活在 App 上，
+       不复位就会出现「明明停在底部却不再自动滚动」（上一次上翻的状态被带进新页面）。 */
+    logFollowTail.value = true;
     nextTick(() => {
       if (logBox.value) {
         logBox.value.scrollTop = logBox.value.scrollHeight;
@@ -1159,7 +1408,7 @@ const resetViewScroller = () => {
   color: var(--text-main);
   border: none;
   padding: 20px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   height: auto;
   flex: 1 1 auto;
   min-height: 0;
@@ -1179,7 +1428,7 @@ const resetViewScroller = () => {
   gap: 6px;
   padding: 4px 8px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   background: var(--bg-elevated, transparent);
 }
 .log-search-box input {
@@ -1194,14 +1443,15 @@ const resetViewScroller = () => {
 .log-level-select {
   padding: 4px 6px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   background: transparent;
   color: var(--text-main);
   font-size: 0.8rem;
 }
 
 .log-line.info .l-type { color: var(--text-main); }
-.log-line.warning .l-type { color: var(--text-sub); font-style: italic; }
+/* H-06：后端只会产出 warn，原来的 .warning 选择器永不命中，WARN 行丢失视觉区分 */
+.log-line.warn .l-type { color: var(--text-sub); font-style: italic; }
 .log-line.error .l-type { color: var(--text-main); font-weight: 700; }
 .log-line.debug .l-type { color: var(--text-muted); }
 
@@ -1279,7 +1529,7 @@ const resetViewScroller = () => {
   gap: 8px;
   background: var(--surface);
   border: 1px solid var(--surface-hover);
-  border-radius: 10px;
+  border-radius: var(--ui-radius-md);
   padding: 12px 16px;
 }
 

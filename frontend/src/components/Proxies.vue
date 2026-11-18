@@ -18,6 +18,7 @@
             @pointermove="onThumbPointerMove"
             @pointerup="onThumbPointerUp"
             @pointercancel="onThumbPointerUp"
+            @lostpointercapture="onThumbPointerUp"
           ></i>
           <div
             class="proxy-tabs-track"
@@ -132,25 +133,33 @@
         </TransitionGroup>
       </div>
       <div v-else class="empty-state">
-        <p>{{ t('proxies.noGroupsHint') }}</p>
+        <!-- P-16：区分「真的没有分组」与「读取失败」，后者不能再显示成"请先添加配置" -->
+        <p>{{ loadError ? t('proxies.loadFailedHint') : t('proxies.noGroupsHint') }}</p>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, onActivated, onDeactivated, computed, watch, nextTick, TransitionGroup } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick, TransitionGroup } from 'vue';
 import { App } from '../api';
 import { Events } from '@wailsio/runtime';
-import { showAlert, showToast, globalState, scheduleOutboundIPRefresh, setProxyCardMode, ProxyCardMode } from '../store';
+import { showAlert, globalState, scheduleOutboundIPRefresh, setProxyCardMode, ProxyCardMode } from '../store';
 import { ICONS } from '../utils/icons';
 import { toUserError } from '../utils/errors';
+import { safeGetString, safeSetString } from '../utils/storage';
 import { reportError } from '../utils/report';
 import { t } from '../locales';
 
+/* P-34：localStorage 在 WebView2 隐私模式/配额异常时会直接抛错，而这些读写都在 setup 顶层与 watch 里，
+   一抛就是整页白屏。统一走薄包装：读失败退回默认值，写失败静默。
+   R-1 等价重构：原局部 readStorage/writeStorage 抽到 utils/storage（逐行同义），本文件不再各留一份。 */
+
 const localGroups = ref<any[]>([]);
-const currentGroup = ref<string>(localStorage.getItem('goclashz_proxyGroup') || '');
+const currentGroup = ref<string>(safeGetString('goclashz_proxyGroup') || '');
 const isTesting = ref(false);
+// P-16：后端把"读取失败"折成空 groups，前端需要单独的失败态才能区分「真空」与「读失败」
+const loadError = ref(false);
 
 const isColorMode = ref(false);
 
@@ -163,10 +172,9 @@ const sliderVisible = ref(false);
 /* ------------------------------------------------------------------
  * 分组条横向溢出处理
  * 轨道不再显示原生滚动条（它会把轨道撑高 8px，导致组名与测速按钮不居中），
- * 所以这里补三件事：滚轮横向滚动、按住拖动滚动、左右边缘渐隐提示。
+ * 所以这里补两件事：滚轮横向滚动、按住拖动下方自绘指示条滚动。
  * ---------------------------------------------------------------- */
-const canScrollLeft = ref(false);
-const canScrollRight = ref(false);
+/* P-11：这里原有 canScrollLeft / canScrollRight 两个"左右边缘渐隐"状态，只写不读（渐隐遮罩早已删掉），已移除。 */
 
 /* 自绘横向滚动指示条（原生滚动条会压住选项卡底边，所以改成画在按钮行下方） */
 const railThumbVisible = ref(false);
@@ -190,10 +198,7 @@ const updateRailThumb = () => {
 };
 
 const updateTrackOverflow = () => {
-  const el = tabsTrackRef.value;
-  if (!el) return;
-  canScrollLeft.value = el.scrollLeft > 2;
-  canScrollRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+  if (!tabsTrackRef.value) return;
   updateRailThumb();
 };
 
@@ -240,7 +245,10 @@ const onThumbPointerMove = (e: PointerEvent) => {
 const onThumbPointerUp = (e: PointerEvent) => {
   if (!thumbDragging.value) return;
   thumbDragging.value = false;
-  (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+  const thumb = e.currentTarget as HTMLElement;
+  // P-12：lostpointercapture 走到这里时捕获已经丢了，再 release 会抛 NotFoundError；
+  // 元素被隐藏等原因提前丢捕获时，也必须在这条路径上复位 dragging，否则 .is-dragging 常驻。
+  if (thumb.hasPointerCapture?.(e.pointerId)) thumb.releasePointerCapture?.(e.pointerId);
 };
 
 const onTabClick = (name: string) => {
@@ -259,6 +267,7 @@ const updateSlider = () => {
   }
 };
 
+let sliderRaf = 0;   // P-13：rAF 原先没有取消逻辑，卸载后回调仍会写 sliderVisible/sliderReady
 const resetSlider = () => {
   if (localGroups.value.length === 0) return;
   sliderReady.value = false;
@@ -268,7 +277,8 @@ const resetSlider = () => {
     // 强制触发一次重排，让浏览器“记住”此时无动画的起始位置
     if (tabsTrackRef.value) void tabsTrackRef.value.offsetHeight;
     
-    requestAnimationFrame(() => {
+    cancelAnimationFrame(sliderRaf);
+    sliderRaf = requestAnimationFrame(() => {
       sliderVisible.value = true;
       sliderReady.value = true;
     });
@@ -276,7 +286,7 @@ const resetSlider = () => {
 };
 
 watch(currentGroup, (v) => { 
-  if (v) localStorage.setItem('goclashz_proxyGroup', v); 
+  if (v) safeSetString('goclashz_proxyGroup', v); 
   frozenSortedNodes.value = null;
   nextTick(updateSlider); 
 });
@@ -286,36 +296,35 @@ watch(() => localGroups.value.length, () => {
 });
 let trackResizeObserver: ResizeObserver | null = null;
 
+/* R-1：审计建议把本钩子与下方 async onMounted 合并，核对后**不合并**：
+   本钩子是纯同步的布局测量（resetSlider / updateTrackOverflow / ResizeObserver），
+   下方钩子要 await loadBehavior/loadData 并注册事件。合并后这两个钩子只能取 async 形式，
+   而同步段一旦抛错会变成该 async 函数的 Promise 拒绝（Vue 的 mounted 钩子由
+   flushPostFlushCbs 直接调用，不会把返回值拒绝交给全局 errorHandler），错误上报路径
+   与现状（同步错误交给 Vue 错误处理器）不同。收益只是少一个钩子，按「行为不变」保留两处。 */
 onMounted(() => {
   resetSlider();
   nextTick(updateTrackOverflow);
-  // 窗口/轨道尺寸变化或分组数量变化时更新左右渐隐提示
+  // 窗口/轨道尺寸变化或分组数量变化时更新自绘滚动指示条
   if (typeof ResizeObserver !== 'undefined' && tabsTrackRef.value) {
     trackResizeObserver = new ResizeObserver(() => updateTrackOverflow());
     trackResizeObserver.observe(tabsTrackRef.value);
   }
 });
-onActivated(() => {
-  // Give browser time to restore DOM and scroll positions before re-enabling animation
-  setTimeout(() => { sliderReady.value = true; }, 50);
-});
-onDeactivated(() => {
-  sliderReady.value = false;
-});
 
 let unsubStart: (() => void) | null = null;
 let unsubUpdate: (() => void) | null = null;
-let unsubChanged: (() => void) | null = null;
+// P-08：config-changed 监听已删除（不可达），保留注释说明来源。
 let unsubFinish: (() => void) | null = null;
 let unsubProxyState: (() => void) | null = null;
 
 const frozenSortedNodes = ref<any[] | null>(null);
 
-const storedSort = parseInt(localStorage.getItem('goclashz_proxySortState') || '0');
+const storedSort = parseInt(safeGetString('goclashz_proxySortState') || '0');
 const sortState = ref(isNaN(storedSort) ? 0 : storedSort);
 
 watch(sortState, (newVal) => {
-  localStorage.setItem('goclashz_proxySortState', newVal.toString());
+  safeSetString('goclashz_proxySortState', newVal.toString());
 });
 const searchQuery = ref('');
 const showSearch = ref(false);
@@ -429,15 +438,27 @@ const currentCardModeTitle = computed(() => {
 });
 
 let measureCanvas: HTMLCanvasElement | null = null;
+/* P-14：adaptive 宽度依赖 filteredAndSortedNodes，而它依赖 proxyDelays —— 测速期间每个节点一条事件，
+   等于每帧都对全部节点重测一次文本。同一「字体+文本」的宽度是常量，直接缓存即可。 */
+const measuredWidthCache = new Map<string, number>();
 function measureNodeTextWidth(text: string, font = '500 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'): number {
-  if (typeof document === 'undefined') return 80;
-  if (!measureCanvas) {
-    measureCanvas = document.createElement('canvas');
+  const cacheKey = font + '\u0000' + text;
+  const cached = measuredWidthCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  let width = 80;
+  if (typeof document !== 'undefined') {
+    if (!measureCanvas) {
+      measureCanvas = document.createElement('canvas');
+    }
+    const context = measureCanvas.getContext('2d');
+    if (context) {
+      context.font = font;
+      width = context.measureText(text).width;
+    }
   }
-  const context = measureCanvas.getContext('2d');
-  if (!context) return 80;
-  context.font = font;
-  return context.measureText(text).width;
+  measuredWidthCache.set(cacheKey, width);
+  return width;
 }
 
 const adaptiveCardWidth = computed(() => {
@@ -471,24 +492,13 @@ const gridStyle = computed(() => {
   return {};
 });
 
-const filteredAndSortedNodes = computed(() => {
+/* 排序结果（不含搜索过滤）。
+   P-10：冻结快照如果存"已过滤"的数组，测速期间清空搜索就会让不匹配的节点整个消失；
+   而过滤对每个元素独立，先排序后过滤与先过滤后排序结果一致，所以把过滤从这层挪到渲染层。 */
+const sortedNodes = computed(() => {
   if (!activeGroupData.value || !activeGroupData.value.proxies) return [];
 
-  // 测速进行时冻结排序快照，避免频繁重排致使卡片剧烈抖动与错位
-  if (isTesting.value && frozenSortedNodes.value) {
-    if (searchQuery.value) {
-      const q = searchQuery.value.toLowerCase();
-      return frozenSortedNodes.value.filter(n => n.name.toLowerCase().includes(q));
-    }
-    return frozenSortedNodes.value;
-  }
-
-  let nodes = [...activeGroupData.value.proxies];
-  
-  if (searchQuery.value) {
-    const q = searchQuery.value.toLowerCase();
-    nodes = nodes.filter(n => n.name.toLowerCase().includes(q));
-  }
+  const nodes = [...activeGroupData.value.proxies];
 
   if (sortState.value === 1) {
     const measured: any[] = [];
@@ -513,8 +523,23 @@ const filteredAndSortedNodes = computed(() => {
     // 测出速度的放在前面，未测速/超时的按原相对顺序继续排在后面
     return [...measured, ...unmeasured];
   }
-  
+
   return nodes;
+});
+
+const applyNodeFilter = (nodes: any[]) => {
+  if (!searchQuery.value) return nodes;
+  const q = searchQuery.value.toLowerCase();
+  return nodes.filter(n => n.name.toLowerCase().includes(q));
+};
+
+const filteredAndSortedNodes = computed(() => {
+  if (!activeGroupData.value || !activeGroupData.value.proxies) return [];
+  // 测速进行时冻结排序快照，避免频繁重排致使卡片剧烈抖动与错位
+  if (isTesting.value && frozenSortedNodes.value) {
+    return applyNodeFilter(frozenSortedNodes.value);
+  }
+  return applyNodeFilter(sortedNodes.value);
 });
 
 // 计算当前要显示的组的数据
@@ -522,9 +547,9 @@ const activeGroupData = computed(() => {
   return localGroups.value.find(g => g.name === currentGroup.value);
 });
 
-// 加载数据
-const loadData = async () => {
-  // 👇 新增：预加载配置以决定样式和保留逻辑
+/* P-15：行为配置只决定延迟颜色的阈值，与拓扑无关。原先它挂在 loadData 里，
+   于是 6 个 loadData 入口（每次点节点都会走一次）都多一次 RPC；改为挂载时拉一次。 */
+const loadBehavior = async () => {
   try {
     const bh = await App.GetAppBehavior();
     if (bh) {
@@ -534,56 +559,130 @@ const loadData = async () => {
     // 取不到行为配置不影响节点列表，但必须留痕（F-A4-11）
     reportError(e, 'proxies.loadBehavior');
   }
+};
 
-  try {
-    const data: any = await App.GetInitialData();
-    if (data && data.groups) {
-      const processedGroups: any[] = [];
-      
-      const keys = (data.groupOrder && data.groupOrder.length > 0) 
-                   ? data.groupOrder 
-                   : Object.keys(data.groups);
+/* P1-G（P-03）：测速期间 loadData 会把 localGroups 整个换成新对象，而网格此刻渲染的是
+   frozenSortedNodes 里的旧对象 —— 旧对象留在快照里，proxy-test-start / proxy-delay-update
+   写在"新对象"上，转圈与进度从此与界面失联（表现为"数字在变、转圈不转"）。
+   所以重建数据后立刻把快照换成新对象：顺序沿用旧快照（测速期间不重排），
+   testing 状态按名字迁移，配置里新出现的节点追加到末尾，避免测速期间节点凭空增减。 */
+const refreshFrozenNodes = (prev: any[] | null) => {
+  const group = activeGroupData.value;
+  if (!isTesting.value || !prev || !group) {
+    frozenSortedNodes.value = null;
+    return;
+  }
+  const fresh = new Map<string, any>();
+  (group.proxies || []).forEach((n: any) => fresh.set(n.name, n));
 
-      keys.forEach((name: string) => {
-        const item = data.groups[name];
-        if (!item) return;
+  const next: any[] = [];
+  prev.forEach((old: any) => {
+    const node = fresh.get(old.name);
+    if (!node) return;
+    node.testing = old.testing === true;
+    next.push(node);
+  });
+  const kept = new Set(prev.map((o: any) => o.name));
+  (group.proxies || []).forEach((n: any) => {
+    if (!kept.has(n.name)) next.push(n);
+  });
+  frozenSortedNodes.value = next;
+};
 
-        const isGroupType = ['Selector', 'URLTest', 'Fallback', 'LoadBalance'].includes(item.type);
-        const isSystemReserved = ['GLOBAL', 'DIRECT', 'REJECT'].includes(name);
+// 把一次 GetInitialData 的结果落成 localGroups
+const applyInitialData = (data: any) => {
+  if (!data || !data.groups) {
+    // 返回结构异常：当前本来就有列表时不要把它打成错误态；后端给了 loadError 就直接采信。
+    loadError.value = !!data?.loadError || localGroups.value.length === 0;
+    return;
+  }
 
-        if (isGroupType && !isSystemReserved) {
-          const proxies = (item.all || []).map((memberName: string) => {
-            // 【核心修改】：同时去 data.proxies 和 data.groups 中查找节点详情
-            const detail = (data.proxies && data.proxies[memberName]) || (data.groups && data.groups[memberName]);
-            
-            return {
-              name: memberName,
-              // 如果找到了真实详情，就取它的 type (如 vless, hysteria2)，否则回退到 PROXY
-              type: detail && detail.type ? detail.type.toUpperCase() : 'PROXY',
-              now: item.now,
-              // 移除 delay: null, 交由 globalState.proxyDelays 全局接管
-              testing: false
-            };
-          });
-          processedGroups.push({ 
-            name, 
-            type: item.type, 
-            now: item.now, 
-            selectable: isManuallySelectableGroup(item.type),
-            proxies 
-          });
-        }
+  const processedGroups: any[] = [];
+
+  const keys = (data.groupOrder && data.groupOrder.length > 0) 
+               ? data.groupOrder 
+               : Object.keys(data.groups);
+
+  keys.forEach((name: string) => {
+    const item = data.groups[name];
+    if (!item) return;
+
+    const isGroupType = ['Selector', 'URLTest', 'Fallback', 'LoadBalance'].includes(item.type);
+    const isSystemReserved = ['GLOBAL', 'DIRECT', 'REJECT'].includes(name);
+
+    if (isGroupType && !isSystemReserved) {
+      const proxies = (item.all || []).map((memberName: string) => {
+        // 【核心修改】：同时去 data.proxies 和 data.groups 中查找节点详情
+        const detail = (data.proxies && data.proxies[memberName]) || (data.groups && data.groups[memberName]);
+        
+        return {
+          name: memberName,
+          // 如果找到了真实详情，就取它的 type (如 vless, hysteria2)，否则回退到 PROXY
+          type: detail && detail.type ? detail.type.toUpperCase() : 'PROXY',
+          // R-1：原 `now: item.now` 已删 —— 节点对象上的 now 全仓零读取（选中态读的是组的 now，见模板 :class）
+          // 移除 delay: null, 交由 globalState.proxyDelays 全局接管
+          testing: false
+        };
       });
-
-      localGroups.value = processedGroups;
-
-      const isCurrentValid = processedGroups.some(g => g.name === currentGroup.value);
-      if (!isCurrentValid && processedGroups.length > 0) {
-        currentGroup.value = processedGroups[0].name;
-      }
+      processedGroups.push({ 
+        name, 
+        type: item.type, 
+        now: item.now, 
+        selectable: isManuallySelectableGroup(item.type),
+        proxies 
+      });
     }
-  } catch (e) {
-    reportError(e, 'proxies.load');
+  });
+
+  const prevFrozen = frozenSortedNodes.value;
+  localGroups.value = processedGroups;
+
+  /* P-16：优先用后端给的确定信号 loadError（app.go 的两个失败分支都会带上原因）。
+     只有旧后端没有该字段时才退回启发式判定 —— 启发式的问题是会误报：
+     纯规则 + DIRECT 的配置本来就一个 Selector 组都没有，会被当成"读取失败"。 */
+  loadError.value = data.loadError
+    ? true
+    : processedGroups.length === 0 &&
+      !data.loadError &&
+      (!!String(data.activeConfig || '') || (data.isOffline === true && globalState.isRunning === true));
+
+  const isCurrentValid = processedGroups.some(g => g.name === currentGroup.value);
+  if (!isCurrentValid && processedGroups.length > 0) {
+    currentGroup.value = processedGroups[0].name;
+  }
+
+  refreshFrozenNodes(prevFrozen);
+};
+
+/* P-09：loadData 有 6 个入口（mount/选节点/isRunning/activeConfigId/config-changed/proxy-state-sync 未知组），
+   原先既无互斥也无序号，先发后到的旧响应能把新结果覆盖回去。现在：
+   在飞时只登记"结束后补跑一次"（既不发重复请求，也不丢掉这次刷新），请求序号作双保险。 */
+let loadSeq = 0;
+let loadRunning = false;
+let loadAgain = false;
+
+// 加载数据
+const loadData = async () => {
+  if (loadRunning) {
+    loadAgain = true;
+    return;
+  }
+  loadRunning = true;
+  try {
+    do {
+      loadAgain = false;
+      const seq = ++loadSeq;
+      try {
+        const data: any = await App.GetInitialData();
+        if (seq !== loadSeq) return;   // 双保险：已有更新的一次请求在外
+        applyInitialData(data);
+      } catch (e) {
+        if (seq === loadSeq) loadError.value = true;
+        reportError(e, 'proxies.load');
+      }
+    } while (loadAgain);
+  } finally {
+    loadRunning = false;
   }
 };
 
@@ -643,7 +742,38 @@ const toggleTestAllDelays = async () => {
   await testAllDelays();
 };
 
+/* P1-E/C-06：测速批次隔离（后端不提供 batch id，只能在前端用"本批是否已经开测"来判定）。
+   - testBatchStarted：本批是否已经收到过 proxy-test-start；
+   - testBatchNodes：本批真正开测过的节点。
+   后端 cancel 时不会把 ok 置 false（delay_manager.go 只在启动失败分支置 false），所以"停止 → 立刻重测"
+   时上一批迟到的 finished 与正常完成同形，只能靠"本批还没开始测"这个事实把它作废。 */
+let testBatchStarted = false;
+const testBatchNodes = new Set<string>();
+/* proxy-test-finished 的 payload 有两种形态，这里做双兼容（P-02）：
+   - 新：map{"ok": bool, "message": string}（v3_events.go 已按 map[string]any 注册，delay_manager.go 已改结构化）；
+   - 旧：string —— 成功恒为"测速完成"，其余都是失败原因（delay_manager.go 原 461/503/510/522）。
+   先读结构化字段，读不到再回退到文案比较，后端回滚或中间态都不会把成功当失败。 */
+const TEST_FINISH_OK_TEXT = '测速完成';
+const readTestFinish = (payload: unknown): { ok: boolean; message: string } => {
+  if (payload && typeof payload === 'object') {
+    const rec = payload as { ok?: unknown; message?: unknown; reason?: unknown };
+    const message = typeof rec.message === 'string' ? rec.message.trim()
+      : (typeof rec.reason === 'string' ? rec.reason.trim() : '');
+    // ok 缺省时按文案兜底，避免只给 message 的旧 payload 被误判成失败
+    const ok = typeof rec.ok === 'boolean' ? rec.ok : (!message || message === TEST_FINISH_OK_TEXT);
+    return { ok, message };
+  }
+  if (typeof payload === 'string') {
+    const message = payload.trim();
+    return { ok: !message || message === TEST_FINISH_OK_TEXT, message };
+  }
+  return { ok: true, message: '' };
+};
+
 const stopTesting = async () => {
+  // 让在飞/迟到的事件立刻失效：这一批已经由用户中止
+  testBatchStarted = false;
+  testBatchNodes.clear();
   try {
     await App.StopDelayTest();
   } catch (e) {
@@ -666,9 +796,12 @@ const testAllDelays = async () => {
   if (!activeGroupData.value || isTesting.value) return;
 
   isTesting.value = true;
+  testBatchStarted = false;
+  testBatchNodes.clear();
   const proxies = activeGroupData.value.proxies || [];
-  // 冻结当前节点顺序，防止测速期间卡片位置频繁跳动造成视觉混乱与点击错位
-  frozenSortedNodes.value = [...filteredAndSortedNodes.value];
+  // 冻结当前节点顺序，防止测速期间卡片位置频繁跳动造成视觉混乱与点击错位。
+  // P-10：冻结的是"排好序但未过滤"的列表，搜索过滤放到渲染时做，测速中清空搜索才不会丢节点。
+  frozenSortedNodes.value = [...sortedNodes.value];
 
   const nodesArray = proxies.map((n: any) => n.name);
 
@@ -676,14 +809,17 @@ const testAllDelays = async () => {
     try {
       await App.TestAllProxies(nodesArray);
     } catch (e) {
-      // F-A4-10：以前这里完全静默，用户点「测速全部」失败后毫无反馈
+      // 这条 catch 只兜传输层故障：App.TestAllProxies 是 go 异步启动（app.go:1289），
+      // 真正的"启动失败/无有效节点"走 proxy-test-finished 的 payload（P-02，见下方监听器）
       reportError(e, 'proxies.testAll');
       isTesting.value = false;
       frozenSortedNodes.value = null;
       proxies.forEach((n: any) => {
         n.testing = false;
       });
-      showToast(t('proxies.speedTestFailed', { error: toUserError(e).message }), 'error');
+      /* 提示策略（用户口径：无感自愈优先，只报无法解决/严重问题）：
+         测速失败属"可重试、无数据损失"的一类 —— 只记录日志，不弹 toast。
+         节点卡片自己的延迟/超时/失败字样就是结果反馈，再弹一条等于用系统噪音告诉用户"没测出来"。 */
     }
   } else {
     isTesting.value = false;
@@ -702,12 +838,8 @@ const testSingleDelay = async (node: any) => {
   } catch (e) {
     // 只认后端确定会产出的 code（core/appcore/delay_manager.go: ErrDelayTestBusy）；
     // 以前还匹配 'busy' 这类泛化子串，会把「内核忙」之类的真实错误一起吞掉。
-    if (String(e).includes('DELAY_TEST_BUSY')) {
-      showToast(t('proxies.speedTestBusy'), 'info');
-      return;
-    }
+    // 忙 = 上一次还没跑完（用户连点），静默即可；其它失败同样只记日志，节点格会显示超时/失败。
     reportError(e, 'proxies.testSingle');
-    showToast(t('proxies.speedTestFailed', { error: toUserError(e).message }), 'error');
   } finally {
     node.testing = false;
   }
@@ -740,6 +872,11 @@ const getDelayColorClass = (delayInfo: any) => {
 onMounted(async () => {
   // 🎯 接收并保存取消函数
   unsubStart = Events.On("proxy-test-start", ({ data: nodeName }: { data: string }) => {
+    // P1-E：不在本轮测速里的 start 是上一批的迟到事件，直接丢弃（自动测速是 SilentUI，不会发这个事件）
+    if (!isTesting.value || typeof nodeName !== 'string') return;
+    // 本批确实开测了：此后到达的"测速完成"才属于本批（见 finished 监听器里的作废判据）
+    testBatchStarted = true;
+    testBatchNodes.add(nodeName);
     if (!localGroups.value) return;
     localGroups.value.forEach(g => {
       if (!g.proxies) return;
@@ -753,6 +890,8 @@ onMounted(async () => {
   // 接收到“结果”信号，仅负责关掉 UI 上的转圈动画
   unsubUpdate = Events.On("proxy-delay-update", ({ data }: { data: any }) => {
     if (!data || !localGroups.value) return;
+    // P1-E：只认本轮真正开测过的节点 —— 上一批迟到的结果不能把本轮同一节点的转圈关掉
+    if (isTesting.value && !testBatchNodes.has(data.name)) return;
     localGroups.value.forEach(g => {
       if (!g.proxies) return;
       const node = g.proxies.find((n: any) => n.name === data.name);
@@ -762,13 +901,24 @@ onMounted(async () => {
     });
   });
 
-  unsubChanged = Events.On("config-changed", async () => {
-      await loadData();
-  });
+  /* P-08：这里原来监听 config-changed → loadData()。全仓唯一的 emit 点是
+     core/appcore/config_editor_controller.go:35（保存"当前激活配置"的文本），
+     而保存入口在 YamlEditor 页、与 Proxies 互斥挂载（v-if 整块销毁），所以这条监听永远不可达。
+     删除以免让人误以为"配置变更会自动刷新代理列表"；代理拓扑的真实变更走 proxy-state-sync。 */
 
-  unsubFinish = Events.On("proxy-test-finished", () => {
+  unsubFinish = Events.On("proxy-test-finished", ({ data }: { data?: unknown }) => {
+    const { ok, message } = readTestFinish(data);
+
+    /* P1-E（C-06）：上一批被取消后仍会发一条 finished；若它落在新一轮测速开始之后，
+       旧实现会直接把新一轮的 isTesting 清成 false（按钮弹回"测速本组"、转圈消失）。
+       本批还没收到过 proxy-test-start 时收到的"成功"通知必然是上一批的，整条丢弃。
+       注意真正的"启动失败"（忙/内核/无有效节点）ok=false，下面照常处理。 */
+    if (isTesting.value && !testBatchStarted && ok) return;
+
     isTesting.value = false;
     frozenSortedNodes.value = null;
+    testBatchStarted = false;
+    testBatchNodes.clear();
     
     // 🚀 核心修复：清理所有组内节点的转圈状态，防止长尾节点卡死
     localGroups.value.forEach(g => {
@@ -777,6 +927,13 @@ onMounted(async () => {
         n.testing = false;
       });
     });
+
+    /* P-02 的结论保留（payload 是后端唯一失败通道，必须解析），但**展示层改为静默**：
+       批量测速的失败在界面上由三点体现——按钮回到"测速本组"、转圈全部停止、节点延迟仍是旧值/失败字样。
+       这已足够"无感自愈"；再补一条 toast 只是噪音（用户原话：像测速这样的不需要 toast）。
+       失败原因只进日志（reportError），便于排查。 */
+    if (ok) return;
+    reportError(new Error('proxy-test-finished: ' + (message || 'failed')), 'proxies.testFinished');
   });
 
   // 🚀 新增：轻量化策略组状态同步，处理 Fallback/URLTest 的自动切换
@@ -806,15 +963,19 @@ onMounted(async () => {
     });
   });
 
+  await loadBehavior();
   await loadData();
 });
 
 onUnmounted(() => {
   trackResizeObserver?.disconnect();
   trackResizeObserver = null;
+  // P-13：resetSlider 的 rAF 在卸载后仍会回调并写状态，必须取消
+  cancelAnimationFrame(sliderRaf);
+  sliderRaf = 0;
   unsubStart?.();
   unsubUpdate?.();
-  unsubChanged?.();
+
   unsubFinish?.();
   unsubProxyState?.();
 
@@ -845,7 +1006,7 @@ onUnmounted(() => {
   width: 100%;
   padding: 10px 6px;
   gap: 10px;
-  border-radius: 12px;
+  border-radius: var(--ui-radius-lg);
   background: var(--surface-hover);
 }
 
@@ -858,7 +1019,7 @@ html[data-glass="on"] .proxy-toolbar-card {
   flex: 1;
   min-width: 0;
   height: 36px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
 }
 
 /* 原生横向滚动条已经回到轨道内，这里不再需要边缘渐隐遮罩 */
@@ -899,6 +1060,8 @@ html[data-glass="on"] .proxy-toolbar-card {
   /* 只有指示条本身可以拖（和原生滚动条一致），选项卡区域保持点击切换。
      光标刻意用 default：系统滚动条移上去不会变手，自绘条跟它保持一致。 */
   pointer-events: auto;
+  /* P-12：触屏上自绘滚动条必须自己接管指针，否则浏览器会先把手势当滚动抢走 */
+  touch-action: none;
   cursor: default;
   transition: left 0.08s linear, width 0.08s linear, opacity 0.2s ease, background-color 0.15s ease;
 }
@@ -929,22 +1092,9 @@ html[data-glass="on"] .proxy-rail-thumb {
 
 
 
-.proxy-tabs-track::-webkit-scrollbar-button {
-  display: none;
-}
-
-.proxy-tabs-track::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.proxy-tabs-track::-webkit-scrollbar-thumb {
-  background: var(--text-muted);
-  border-radius: 999px;
-}
-
-.proxy-tabs-track::-webkit-scrollbar-thumb:hover {
-  background: var(--text-sub);
-}
+/* R-1：原 ::-webkit-scrollbar-button / -track / -thumb / -thumb:hover 四条规则已删 ——
+   轨道已是 scrollbar-width:none（Firefox）+ ::-webkit-scrollbar{height:0;display:none}（Chromium），
+   滚动条根本不渲染，这四条永不生效（审计 §4.1「死 CSS」；grep 仅命中本块）。 */
 
 .proxy-tab-btn {
   flex: 0 0 auto;
@@ -954,7 +1104,7 @@ html[data-glass="on"] .proxy-rail-thumb {
   height: 36px;
   padding: 0 16px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   background: transparent;
   color: var(--text-sub);
   font-size: 0.95rem;
@@ -990,7 +1140,7 @@ html[data-glass="on"] .proxy-rail-thumb {
   top: 0;
   height: 36px;
   background: var(--ui-accent-block);
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   z-index: 0;
   pointer-events: none;
 }
@@ -1010,7 +1160,7 @@ html[data-glass="on"] .proxy-rail-thumb {
   height: 36px;
   min-width: 132px;
   padding: 0 18px;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   white-space: nowrap;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1100,7 +1250,7 @@ html[data-glass="on"] .proxy-rail-thumb {
   width: 32px;
   height: 32px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--ui-radius-sm);
   background: transparent;
   color: var(--text-sub);
   cursor: pointer;
@@ -1153,11 +1303,7 @@ html[data-glass="on"] .proxy-rail-thumb {
   z-index: 2;
 }
 
-/* 1. 标准卡片模式 (默认) */
-.node-grid.size-standard {
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
-}
+/* 1. 标准卡片模式 (默认)：与基础 .node-grid 完全同值，原 .size-standard 重复声明已删（R-1） */
 
 /* 2. 紧凑小卡模式 */
 .node-grid.size-compact {
@@ -1167,7 +1313,7 @@ html[data-glass="on"] .proxy-rail-thumb {
 .node-grid.size-compact .node-item {
   height: 60px;
   padding: 10px 14px;
-  border-radius: 10px;
+  border-radius: var(--ui-radius-md);
 }
 .node-grid.size-compact .n-name {
   font-size: 0.85rem;
@@ -1193,7 +1339,7 @@ html[data-glass="on"] .proxy-rail-thumb {
 .node-grid.size-list .node-item {
   height: 48px;
   padding: 8px 18px;
-  border-radius: 10px;
+  border-radius: var(--ui-radius-md);
   align-items: center;
 }
 .node-grid.size-list .node-main-area {
