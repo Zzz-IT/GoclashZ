@@ -398,7 +398,9 @@ func (c *Controller) Bootstrap(ctx context.Context, opts BootstrapOptions) {
 	   不会为一个可能用不到的功能常驻一个 SYSTEM 特权服务。 */
 	if c.Desired.Get().Tun {
 		go func() {
-			warmCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			// 用独立 background ctx：Start 传入的 ctx 随应用启动事务结束即被 cancel，
+			// 而预热恰好要覆盖冷启动的 1~2s；用启动事务的 ctx 会在预热完成前把它掐掉。
+			warmCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			started := time.Now()
 			if err := c.EnsureHelperReadyWithContext(warmCtx, "startup-warmup"); err != nil {

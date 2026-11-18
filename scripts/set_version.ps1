@@ -77,4 +77,22 @@ if (Update-File "package.iss" '(?m)^([ \t]*#define MyAppVersion ")[^"]*(")' ('${
 # 6. frontend/package.json
 if (Update-File "frontend/package.json" '(?m)^([ \t]{2}"version":[ \t]*")[^"]*(")' ('${1}' + $Version + '${2}') "frontend/package.json") { $changed++ }
 
+# 7. build/linux/nfpm/nfpm.yaml（Linux 打包元数据；Windows 发布不用，但版本必须一致）
+if (Update-File "build/linux/nfpm/nfpm.yaml" '(?m)^(version:[ \t]*")[^"]*(")' ('${1}' + $Version + '${2}') "build/linux/nfpm/nfpm.yaml") { $changed++ }
+
+# 8. frontend/package-lock.json（只改根包与 packages."" 两处，绝不动依赖版本）
+#    依赖条目形如 "node_modules/x": { "version": "1.2.3" }，所以按"只替换前 2 处"处理。
+if (Test-Path "frontend/package-lock.json") {
+    $lockState = Read-Utf8PreserveBom "frontend/package-lock.json"
+    $lockRegex = [regex]'"version"[ \t]*:[ \t]*"[^"]*"'
+    $lockUpdated = $lockRegex.Replace($lockState.Text, ('"version": "' + $Version + '"'), 2)
+    if ($lockUpdated -cne $lockState.Text) {
+        Write-Utf8PreserveBom "frontend/package-lock.json" $lockUpdated $lockState.HasBom
+        Write-Host "  [write] frontend/package-lock.json (root version x2)"
+        $changed++
+    } else {
+        Write-Host "  [same]  frontend/package-lock.json"
+    }
+}
+
 Write-Host "Version successfully updated to $Version ($changed file(s) changed)."

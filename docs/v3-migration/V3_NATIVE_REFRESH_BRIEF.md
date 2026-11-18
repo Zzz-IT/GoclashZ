@@ -1,6 +1,9 @@
 # GoclashZ v3 原生能力升级（第二轮）执行简报
 
 > 目标目录：`D:\GOLANG\GoclashZv3`。**禁止改动 `D:\GOLANG\GoclashZ`。**
+> **归档说明（2026-11-19）**：本文原位于仓库根目录，为 v3 迁移期的历史简报，现已归档至 `docs/v3-migration/`。
+> 文中引用的 `main.go`、`frontend/...`、`bin/...` 等路径**均以仓库根目录为基准**，不是相对本文所在目录。
+
 > 前提：第一轮 v2→v3.1.0 迁移已完成并验收（见 `docs/v3-migration/VERIFICATION.md`）。
 > 本轮目标：采纳第二轮建议中的 1/2/3/4/5/6/7/8/10；**明确不做 9（主题改为重启生效）与 11（Menu/KeyBindings/FileAssociations/Notifications/Clipboard 等新增能力）**。
 > 硬约束：**主题必须保持实时切换**（w32.SetTheme + SetBackgroundColour 现有实现不变）；**不得改变任何现有用户可见行为**（启动矩阵、托盘、热键、单实例、主题、关闭隐藏、退出、事件）。

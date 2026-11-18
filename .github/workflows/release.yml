@@ -181,39 +181,56 @@ jobs:
         run: |
           $tag = "${env:APP_TAG}"
 
-          if (!(Test-Path "CHANGELOG.md")) {
-            throw "CHANGELOG.md not found"
-          }
+          # 发行文案优先用 docs/releases/<tag>.md（精炼版，面向用户）。
+          # 找不到时回退到 CHANGELOG.md 的对应段落（完整清单，适合小版本）。
+          # 两者职责不同：CHANGELOG 是完整变更清单，docs/releases 是发行文案。
+          $releaseFile = "docs/releases/$tag.md"
+          $body = $null
 
-          $content = Get-Content "CHANGELOG.md" -Raw
-          $pattern = "(?ms)^##\s+$tag\s*(.*?)(?=^##\s+v|\z)"
-          $match = [regex]::Match($content, $pattern)
+          if (Test-Path $releaseFile) {
+            $body = (Get-Content $releaseFile -Raw).Trim()
+            Write-Host "Using curated release notes: $releaseFile"
+          } else {
+            if (!(Test-Path "CHANGELOG.md")) {
+              throw "CHANGELOG.md not found"
+            }
 
-          if (!$match.Success) {
-            throw "No changelog section found for $tag"
-          }
+            $content = Get-Content "CHANGELOG.md" -Raw
+            $pattern = "(?ms)^##\s+$tag\s*(.*?)(?=^##\s+v|\z)"
+            $match = [regex]::Match($content, $pattern)
 
-          $changes = $match.Groups[1].Value.Trim()
-          if ([string]::IsNullOrWhiteSpace($changes)) {
-            $changes = "1. "
-          }
+            if (!$match.Success) {
+              throw "No changelog section found for $tag"
+            }
 
-          $notes = @"
-          # 正式版 $tag
+            $changes = $match.Groups[1].Value.Trim()
+            if ([string]::IsNullOrWhiteSpace($changes)) {
+              $changes = "1. "
+            }
 
-          GoclashZ $tag 登场。
-
+            $body = @"
           ## 更新内容
 
-          $tag 更新说明：
-
           $changes
+          "@
+            Write-Host "Falling back to CHANGELOG.md section for $tag"
+          }
 
+          # 安装与运行须知：始终附在文案末尾，属于每版通用内容。
+          $footer = @"
           ## 安装与运行须知
           1. 从 Releases 页面下载最新版本的 GoclashZ 安装包。
           2. 常规模式双击即可运行。TUN 模式需要安装后台服务 (GoclashZHelper)，可在设置页面一键安装。
           3. 便携包解压即用，点击主程序即可使用。
           4. 如果有缺失运行环境，请前往 [Microsoft Edge WebView2 下载页面](https://developer.microsoft.com/en-us/microsoft-edge/webview2?form=MA13LH)
+          "@
+
+          $notes = @"
+          # 正式版 $tag
+
+          $body
+
+          $footer
 
           GoclashZ - 追求极致性能与极简体验。
           "@

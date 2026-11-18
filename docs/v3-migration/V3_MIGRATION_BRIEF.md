@@ -1,5 +1,8 @@
 # GoclashZ Wails v3 迁移工作简报（团队共用）
 
+> **归档说明（2026-11-19）**：本文原位于仓库根目录，为 v3 迁移期的历史简报，现已归档至 `docs/v3-migration/`。
+> 文中引用的 `main.go`、`frontend/...`、`bin/...` 等路径**均以仓库根目录为基准**，不是相对本文所在目录。
+
 > 本目录 = GoclashZ 的 v3 升级分支，完成后取代 main。工作目录 `D:\GOLANG\GoclashZv3`。
 > **禁止改动 `D:\GOLANG\GoclashZ`（main 主干）**，它只作只读参考。
 

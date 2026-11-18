@@ -4,11 +4,11 @@
 
 ; ---------------------------------------------------------
 ; 版本号来源：scripts/set_version.ps1 会同步写入这里的默认值；
-; CI 可用 ISCC.exe /DMyAppVersion=1.4.0 package.iss 覆盖（单一来源 build/config.yml）。
+; CI 可用 ISCC.exe /DMyAppVersion=2.0.0 package.iss 覆盖（单一来源 build/config.yml）。
 ; ---------------------------------------------------------
 #define MyAppName "GoclashZ"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.4.0"
+  #define MyAppVersion "2.0.0"
 #endif
 #define MyAppPublisher "Zzz"
 #define MyAppExeName "GoclashZ.exe"
