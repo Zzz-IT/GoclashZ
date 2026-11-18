@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 $root = Resolve-Path "."
 $out = Join-Path $root "build\runtime-assets\core\bin"
@@ -34,14 +34,59 @@ function Download-File($url, $dest) {
 }
 
 # 1. mihomo latest
-$release = Invoke-RestMethod "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
-$asset = $release.assets | Where-Object { $_.name -match "mihomo-windows-amd64.*\.zip$" } | Select-Object -First 1
-if ($null -eq $asset) {
-  throw "mihomo windows amd64 asset not found"
+#
+# 取"latest"的内核资产有两条路径，API 优先、Web 兜底：
+#   A) GitHub REST API /repos/MetaCubeX/mihomo/releases/latest
+#   B) github.com/.../releases/latest 的 302 重定向 + expanded_assets 网页端点
+#
+# 为什么要 B 兜底（2026-11-19 实测）：CI runner 走共享出口 IP，未认证的 GitHub API
+# 配额只有 60 次/小时，同 IP 的其他任务很容易把它耗尽，表现为这条步骤毫无征兆地
+# exit code 1（本地复现全部下载都正常）。路径 B 完全不消耗 API 配额。
+# API 是结构化数据、更好解析；Web 路径只是兜底，所以顺序是 A -> B。
+function Get-LatestMihomoAsset {
+  # 路径 A：REST API
+  try {
+    $release = Invoke-RestMethod "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest" -Headers @{ "User-Agent" = "GoclashZ-Builder" } -TimeoutSec 30
+    $asset = $release.assets | Where-Object { $_.name -match "^mihomo-windows-amd64.*\.zip$" } | Select-Object -First 1
+    if ($null -ne $asset) {
+      Write-Host "mihomo asset resolved via REST API: $($asset.name)"
+      return @{ tag = $release.tag_name; name = $asset.name; url = $asset.browser_download_url }
+    }
+    Write-Host "REST API 返回的资产里没有 windows-amd64 zip，改用 Web 兜底路径"
+  } catch {
+    Write-Host "REST API 调用失败（通常是未认证配额耗尽），改用 Web 兜底路径: $($_.Exception.Message)"
+  }
+
+  # 路径 B：302 重定向拿 tag + expanded_assets 网页端点拿文件名（两者都不消耗 API 配额）
+  # 用 curl.exe 探测重定向：Invoke-WebRequest 对 302 + MaximumRedirection 0
+  # 在 PS 5.1 / PS 7 下行为不一致（抛错或吞响应），curl 行为稳定且 runner 自带。
+  $tag = $null
+  $curlHead = & curl.exe -sI "https://github.com/MetaCubeX/mihomo/releases/latest" 2>$null | Out-String
+  $m = [regex]::Match($curlHead, "Location:\s*\S*/releases/tag/(?<tag>[^\s/]+)")
+  if ($m.Success) {
+    $tag = $m.Groups["tag"].Value
+  }
+  if ([string]::IsNullOrWhiteSpace($tag)) {
+    throw "无法解析 mihomo latest 版本（REST API 与 302 重定向都失败）"
+  }
+
+  $html = (Invoke-WebRequest -Uri "https://github.com/MetaCubeX/mihomo/releases/expanded_assets/$tag" -UseBasicParsing -TimeoutSec 60).Content
+  $pattern = 'href="(/MetaCubeX/mihomo/releases/download/[^"]+/(?<name>mihomo-windows-amd64[^"]*\.zip))"'
+  $m2 = [regex]::Matches($html, $pattern)
+  if ($m2.Count -eq 0) {
+    throw "mihomo windows amd64 asset not found (Web 兜底路径, tag=$tag)"
+  }
+
+  $name = $m2[0].Groups["name"].Value
+  $url = "https://github.com" + $m2[0].Groups[1].Value
+  Write-Host "mihomo asset resolved via Web fallback: $name (tag=$tag)"
+  return @{ tag = $tag; name = $name; url = $url }
 }
 
+$asset = Get-LatestMihomoAsset
+
 $tmp = Join-Path $env:TEMP $asset.name
-Download-File $asset.browser_download_url $tmp
+Download-File $asset.url $tmp
 
 $extract = Join-Path $env:TEMP ("mihomo_" + [guid]::NewGuid())
 Expand-Archive -Path $tmp -DestinationPath $extract -Force
@@ -52,7 +97,7 @@ if ($null -eq $exe) {
 }
 
 Copy-Item $exe.FullName (Join-Path $out "clash.exe") -Force
-Add-AssetManifest "clash.exe" (Join-Path $out "clash.exe") $asset.browser_download_url $release.tag_name
+Add-AssetManifest "clash.exe" (Join-Path $out "clash.exe") $asset.url $asset.tag
 
 # 2. geo assets
 $downloads = @(
